@@ -33,7 +33,7 @@ if __name__ == "__main__":
 # # Sample Output
 # {
 #     "name": "github_stars",
-#     "execution_id": "0448bda164c84cd2a445551f803dd1bc",
+#     "execution_id": "2276630b1c774ef1b06625cc55d0e499",
 #     "input": [
 #         "python/cpython",
 #         "microsoft/vscode"
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 #                 "python/cpython",
 #                 "microsoft/vscode"
 #             ],
-#             "time": "2024-09-25T18:55:05.328036"
+#             "time": "2024-09-25T19:02:31.617734"
 #         },
 #         {
 #             "type": "ActivityStarted",
@@ -58,13 +58,13 @@ if __name__ == "__main__":
 #             "value": [
 #                 "python/cpython"
 #             ],
-#             "time": "2024-09-25T18:55:10.151758"
+#             "time": "2024-09-25T19:02:31.617766"
 #         },
 #         {
 #             "type": "ActivityCompleted",
 #             "name": "get_stars",
 #             "value": 62529,
-#             "time": "2024-09-25T18:55:10.408617"
+#             "time": "2024-09-25T19:02:31.800384"
 #         },
 #         {
 #             "type": "ActivityStarted",
@@ -72,13 +72,13 @@ if __name__ == "__main__":
 #             "value": [
 #                 "microsoft/vscode"
 #             ],
-#             "time": "2024-09-25T18:55:10.408664"
+#             "time": "2024-09-25T19:02:31.800413"
 #         },
 #         {
 #             "type": "ActivityCompleted",
 #             "name": "get_stars",
 #             "value": 162816,
-#             "time": "2024-09-25T18:55:10.648528"
+#             "time": "2024-09-25T19:02:31.977314"
 #         },
 #         {
 #             "type": "WorkflowCompleted",
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 #                 "python/cpython": 62529,
 #                 "microsoft/vscode": 162816
 #             },
-#             "time": "2024-09-25T18:55:10.648603"
+#             "time": "2024-09-25T19:02:31.977418"
 #         }
 #     ]
 # }
