@@ -1,11 +1,10 @@
+import time
+from typing import Callable
+
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.exceptions import ExecutionException
 from flux.exceptions import RetryException
-
-
-import time
-from typing import Callable
 
 
 def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):

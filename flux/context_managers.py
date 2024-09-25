@@ -16,16 +16,16 @@ class ContextManager(ABC):
 
 class InMemoryContextManager(ContextManager):
 
+    _state: dict[str, WorkflowExecutionContext] = {}
+
     def save_context(self, ctx: WorkflowExecutionContext):
-        self.state[f"{ctx.execution_id}"] = ctx
+        self._state[f"{ctx.execution_id}"] = ctx
 
     def get_context(self, execution_id: str) -> WorkflowExecutionContext:
-        return self.state[f"{execution_id}"]
+        return self._state[f"{execution_id}"]
 
 
 class LocalFileContextManager(ContextManager):
-
-    state: dict[str, WorkflowExecutionContext] = {}
 
     def save_context(self, ctx: WorkflowExecutionContext):
         with open(f"./dill/{ctx.execution_id}.pkl", "wb") as f:

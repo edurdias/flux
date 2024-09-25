@@ -13,8 +13,13 @@ class WorkflowLoader(ABC):
 
 class LocalFunctionWorkflowLoader(WorkflowLoader):
 
+    _globals: dict
+
+    def __init__(self, globals: dict = globals()):
+        self._globals = globals
+
     def load_workflow(self, name: str) -> Callable:
-        workflow = globals().get(name)
+        workflow = self._globals.get(name)
         if not workflow or not hasattr(workflow, "__is_workflow"):
             raise WorkflowNotFoundException(name)
         return workflow

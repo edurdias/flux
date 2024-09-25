@@ -6,6 +6,7 @@ from uuid import uuid4
 
 WorkflowInputType = TypeVar("InputType")
 
+
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     _execution_id: str
@@ -44,3 +45,14 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
             or e.type == ExecutionEventType.WORKFLOW_FAILED
         ]
         return len(workflow_events) > 0
+
+    @property
+    def output(self) -> any:
+        completed = [
+            e
+            for e in self.eventHistory
+            if e.type == ExecutionEventType.WORKFLOW_COMPLETED
+        ]
+        if len(completed) > 0:
+            return completed[0].value
+        return None
