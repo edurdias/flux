@@ -19,11 +19,10 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
     hello_world = yield from say_hello("World")
     return [hello_you, hello_world]
 
-
-runtime = WorkflowRunner(LocalFunctionWorkflowLoader(globals()))
-ctx = runtime.run("hello_world", "Joe")
-
-print(json.dumps(ctx, cls=WorkflowContextEncoder))
+if __name__ == "__main__":
+    runtime = WorkflowRunner(LocalFunctionWorkflowLoader(globals()))
+    ctx = runtime.run("hello_world", "Joe")
+    print(json.dumps(ctx, cls=WorkflowContextEncoder))
 
 # # Sample Output:
 # {
