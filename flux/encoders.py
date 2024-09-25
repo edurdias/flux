@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from enum import Enum
 
+from flux.context import WorkflowExecutionContext
+
 
 class WorkflowContextEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -9,6 +11,12 @@ class WorkflowContextEncoder(json.JSONEncoder):
             return obj.value
         if isinstance(obj, datetime):
             return obj.isoformat()
-        if isinstance(obj, list):
-            return obj
+        if isinstance(obj, WorkflowExecutionContext):
+            return {
+                "name": obj.name,
+                "execution_id": obj.execution_id,
+                "input": obj.input,
+                "output": obj.output,
+                "event_history": obj.event_history,
+            }
         return obj.__dict__

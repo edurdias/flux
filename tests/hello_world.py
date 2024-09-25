@@ -1,5 +1,4 @@
 import json
-from pprint import pprint
 
 from flux.activity import activity
 from flux.loaders import LocalFunctionWorkflowLoader
@@ -24,4 +23,60 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
 runtime = WorkflowRunner(LocalFunctionWorkflowLoader(globals()))
 ctx = runtime.run("hello_world", "Joe")
 
-print(ctx.output)
+print(json.dumps(ctx, cls=WorkflowContextEncoder))
+
+# # Sample Output:
+# {
+#     "name": "hello_world",
+#     "execution_id": "1534a61cc7654c6798477d12eaaf5ad7",
+#     "input": "Joe",
+#     "output": [
+#         "Hello, Joe",
+#         "Hello, World"
+#     ],
+#     "event_history": [
+#         {
+#             "type": "WorkflowStarted",
+#             "name": "hello_world",
+#             "value": "Joe",
+#             "time": "2024-09-25T18:32:32.607174"
+#         },
+#         {
+#             "type": "ActivityStarted",
+#             "name": "say_hello",
+#             "value": [
+#                 "Joe"
+#             ],
+#             "time": "2024-09-25T18:32:32.607201"
+#         },
+#         {
+#             "type": "ActivityCompleted",
+#             "name": "say_hello",
+#             "value": "Hello, Joe",
+#             "time": "2024-09-25T18:32:32.607643"
+#         },
+#         {
+#             "type": "ActivityStarted",
+#             "name": "say_hello",
+#             "value": [
+#                 "World"
+#             ],
+#             "time": "2024-09-25T18:32:32.607664"
+#         },
+#         {
+#             "type": "ActivityCompleted",
+#             "name": "say_hello",
+#             "value": "Hello, World",
+#             "time": "2024-09-25T18:32:32.607686"
+#         },
+#         {
+#             "type": "WorkflowCompleted",
+#             "name": "hello_world",
+#             "value": [
+#                 "Hello, Joe",
+#                 "Hello, World"
+#             ],
+#             "time": "2024-09-25T18:32:32.607703"
+#         }
+#     ]
+# }

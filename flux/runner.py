@@ -54,7 +54,7 @@ class WorkflowRunner:
                     event = self._replay_events(generator, past_events)
                 else:
                     event = generator.send(None)
-                    ctx.eventHistory.append(event)
+                    ctx.event_history.append(event)
 
                 # resume playing the workflow
                 while True:
@@ -62,11 +62,11 @@ class WorkflowRunner:
                         next(generator)
                         event = generator.send([None, False])
                     elif event.type == ExecutionEventType.WORKFLOW_PAUSED:
-                        ctx.eventHistory.append(event)
+                        ctx.event_history.append(event)
                         break
                     else:
                         event = generator.send(event.value)
-                    ctx.eventHistory.append(event)
+                    ctx.event_history.append(event)
 
             except ExecutionException as execution_exception:
                 generator.throw(execution_exception)
@@ -80,7 +80,7 @@ class WorkflowRunner:
     def _get_past_events(self, ctx: WorkflowExecutionContext) -> List[ExecutionEvent]:
         return [
             e
-            for e in ctx.eventHistory
+            for e in ctx.event_history
             if e.type == ExecutionEventType.ACTIVITY_COMPLETED
             or e.type == ExecutionEventType.ACTIVITY_FAILED
         ]
