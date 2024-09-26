@@ -13,7 +13,8 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
         current_attempt = 1
 
         def closure(*args, **kwargs):
-            name = f"{func.__name__}"
+            activity_name = f"{func.__name__}"
+            activity_id = _get_activity_id(activity_name, args, kwargs)
 
             def retry(ex: Exception):
                 nonlocal current_attempt
@@ -28,7 +29,7 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
                     else:
                         raise RetryException(ex, retry_attemps, retry_delay)
 
-            yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, name, args)
+            yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, activity_id, activity_name, args)
             output, replay = yield
 
             try:
@@ -46,8 +47,11 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
                 else:
                     raise ExecutionException(ex)
 
-            yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, name, output)
+            yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
             return output
+
+        def _get_activity_id(activity_name, args, kwargs):
+            return f"{activity_name}_{abs(hash((activity_name, args, tuple(sorted(kwargs.items())))))}"
 
         return closure
 

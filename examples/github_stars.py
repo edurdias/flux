@@ -29,65 +29,71 @@ if __name__ == "__main__":
     runtime = WorkflowRunner(LocalFunctionWorkflowLoader(globals()))
     ctx = runtime.run("github_stars", ["python/cpython", "microsoft/vscode"])
     print(json.dumps(ctx, cls=WorkflowContextEncoder))
-    
+
 # # Sample Output
 # {
 #     "name": "github_stars",
-#     "execution_id": "2276630b1c774ef1b06625cc55d0e499",
+#     "execution_id": "523172215fd742aba731819c54a3923a",
 #     "input": [
 #         "python/cpython",
 #         "microsoft/vscode"
 #     ],
 #     "output": {
-#         "python/cpython": 62529,
-#         "microsoft/vscode": 162816
+#         "python/cpython": 62530,
+#         "microsoft/vscode": 162819
 #     },
 #     "event_history": [
 #         {
 #             "type": "WorkflowStarted",
+#             "id": "github_stars_523172215fd742aba731819c54a3923a",
 #             "name": "github_stars",
 #             "value": [
 #                 "python/cpython",
 #                 "microsoft/vscode"
 #             ],
-#             "time": "2024-09-25T19:02:31.617734"
+#             "time": "2024-09-25T20:54:17.266398"
 #         },
 #         {
 #             "type": "ActivityStarted",
+#             "id": "get_stars_6170365351912190828",
 #             "name": "get_stars",
 #             "value": [
 #                 "python/cpython"
 #             ],
-#             "time": "2024-09-25T19:02:31.617766"
+#             "time": "2024-09-25T20:54:17.266434"
 #         },
 #         {
 #             "type": "ActivityCompleted",
+#             "id": "get_stars_6170365351912190828",
 #             "name": "get_stars",
-#             "value": 62529,
-#             "time": "2024-09-25T19:02:31.800384"
+#             "value": 62530,
+#             "time": "2024-09-25T20:54:17.529040"
 #         },
 #         {
 #             "type": "ActivityStarted",
+#             "id": "get_stars_6050774776213323153",
 #             "name": "get_stars",
 #             "value": [
 #                 "microsoft/vscode"
 #             ],
-#             "time": "2024-09-25T19:02:31.800413"
+#             "time": "2024-09-25T20:54:17.529074"
 #         },
 #         {
 #             "type": "ActivityCompleted",
+#             "id": "get_stars_6050774776213323153",
 #             "name": "get_stars",
-#             "value": 162816,
-#             "time": "2024-09-25T19:02:31.977314"
+#             "value": 162819,
+#             "time": "2024-09-25T20:54:17.780138"
 #         },
 #         {
 #             "type": "WorkflowCompleted",
+#             "id": "github_stars_523172215fd742aba731819c54a3923a",
 #             "name": "github_stars",
 #             "value": {
-#                 "python/cpython": 62529,
-#                 "microsoft/vscode": 162816
+#                 "python/cpython": 62530,
+#                 "microsoft/vscode": 162819
 #             },
-#             "time": "2024-09-25T19:02:31.977418"
+#             "time": "2024-09-25T20:54:17.780169"
 #         }
 #     ]
 # }

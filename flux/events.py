@@ -17,12 +17,14 @@ class ExecutionEventType(str, Enum):
 
 class ExecutionEvent:
     type: ExecutionEventType
+    id: str
     name: str
     value: any
     time: datetime
 
-    def __init__(self, type: ExecutionEventType, name: str, value: any = None):
+    def __init__(self, type: ExecutionEventType, id: str, name: str, value: any = None):
         self.type = type
+        self.id = id
         self.name = name
         self.value = value
         self.time = datetime.now()
