@@ -1,4 +1,5 @@
 import time
+from types import GeneratorType
 from typing import Callable
 
 from flux.events import ExecutionEvent
@@ -40,9 +41,15 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
                         *args,
                     )
                 )
+                
+                if isinstance(output, GeneratorType):
+                    while True:
+                        next(output)
 
             except Exception as ex:
-                if current_attempt <= retry_attemps:
+                if isinstance(ex, StopIteration):
+                    output = ex.value
+                elif current_attempt <= retry_attemps:
                     output = retry(ex)
                 else:
                     raise ExecutionException(ex)
@@ -51,7 +58,7 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
             return output
 
         def _get_activity_id(activity_name, args, kwargs):
-            return f"{activity_name}_{abs(hash((activity_name, args, tuple(sorted(kwargs.items())))))}"
+            return f"{activity_name}_{abs(hash((activity_name, "args", tuple(sorted(kwargs.items())))))}"
 
         return closure
 

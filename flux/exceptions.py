@@ -2,7 +2,7 @@ class ExecutionException(Exception):
 
     _inner_exception: Exception = None
 
-    def __init__(self, inner_exception: Exception):
+    def __init__(self, inner_exception: Exception = None):
         self._inner_exception = inner_exception
 
     @property
