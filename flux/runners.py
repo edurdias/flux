@@ -13,11 +13,11 @@ from abc import ABC, abstractmethod
 class WorkflowRunner(ABC):
 
     @abstractmethod
-    def run(self, name: str, input: any) -> WorkflowExecutionContext:
+    def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
     @abstractmethod
-    def rerun(self, name: str, execution_id: str) -> WorkflowExecutionContext:
+    def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
 
@@ -34,13 +34,13 @@ class LocalWorkflowRunner(WorkflowRunner):
         self.workflow_loader = workflow_loader
         self.context_manager = context_manager
 
-    def run(self, name: str, input: any) -> WorkflowExecutionContext:
+    def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = WorkflowExecutionContext(name, input)
         self.context_manager.save_context(ctx)
         return self._run(workflow, ctx)
 
-    def rerun(self, name: str, execution_id: str) -> WorkflowExecutionContext:
+    def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = self.context_manager.get_context(execution_id)
         return self._run(workflow, ctx)
