@@ -1,3 +1,5 @@
+from functools import wraps
+
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.context import WorkflowExecutionContext
@@ -5,6 +7,7 @@ from flux.context import WorkflowExecutionContext
 
 def workflow(function):
 
+    @wraps(function)
     def closure(ctx: WorkflowExecutionContext):
         yield
         yield ExecutionEvent(

@@ -1,6 +1,7 @@
 import time
 from types import GeneratorType
 from typing import Callable
+from functools import wraps
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
@@ -13,6 +14,7 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
     def _activity(func: Callable):
         current_attempt = 1
 
+        @wraps(func)
         def closure(*args, **kwargs):
             activity_name = f"{func.__name__}"
             activity_id = _get_activity_id(activity_name, args, kwargs)
@@ -55,7 +57,6 @@ def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
                     raise ExecutionException(ex)
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
-            return output
 
         def _get_activity_id(activity_name, args, kwargs):
             return f"{activity_name}_{abs(hash((activity_name, "args", tuple(sorted(kwargs.items())))))}"

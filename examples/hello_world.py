@@ -11,8 +11,7 @@ def say_hello(name: str):
 
 @workflow
 def hello_world(ctx: WorkflowExecutionContext[str]):
-    hello_you = yield say_hello(ctx.input)
-    return hello_you
+    return (yield say_hello(ctx.input))
 
 
 if __name__ == "__main__":

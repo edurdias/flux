@@ -52,40 +52,43 @@ class LocalWorkflowRunner(WorkflowRunner):
         if ctx.is_finished():
             return ctx
 
-        generator = workflow(ctx)
-        if isinstance(generator, GeneratorType):
-            try:
-                # initialize the generator
-                next(generator)
+        gen = workflow(ctx)
+        assert isinstance(gen, GeneratorType)
+        try:
+            # initialize the generator
+            next(gen)
 
-                # start workflow
-                event = generator.send(None)
-                assert event.type == ExecutionEventType.WORKFLOW_STARTED
-                ctx.event_history.append(event)
+            # start workflow
+            event = gen.send(None)
+            assert event.type == ExecutionEventType.WORKFLOW_STARTED
+            ctx.event_history.append(event)
 
-                # iterate the workflow
-                step = generator.send(None)
-                while step is not None:
-                    step = generator.send(self._process(ctx, generator, step))
+            # iterate the workflow
+            step = gen.send(None)
+            while step is not None:
+                value = self._process(ctx, gen, step)
+                step = gen.send(value)
 
-            except ExecutionException as execution_exception:
-                generator.throw(execution_exception)
-            except StopIteration:
-                pass
-            finally:
-                self.context_manager.save_context(ctx)
+        except ExecutionException as execution_exception:
+            gen.throw(execution_exception)
+        except StopIteration:
+            pass
+        finally:
+            self.context_manager.save_context(ctx)
 
         return ctx
 
-    def _process(self, ctx: WorkflowExecutionContext, generator: GeneratorType, step):
+    def _process(self, ctx: WorkflowExecutionContext, gen: GeneratorType, step):
         if isinstance(step, GeneratorType):
-            return self._process(ctx, step, next(step))
+            value = next(step)
+            return self._process(ctx, step, value)
 
         if isinstance(step, ExecutionEvent):
             if step.type == ExecutionEventType.ACTIVITY_STARTED:
-                next(generator)
+                next(gen)
                 ctx.event_history.append(step)
-                return self._process(ctx, generator, generator.send([None, False]))
+                value = gen.send([None, False])
+                return self._process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.ACTIVITY_COMPLETED,
                 ExecutionEventType.ACTIVITY_FAILED,
@@ -103,18 +106,3 @@ class LocalWorkflowRunner(WorkflowRunner):
             if e.type == ExecutionEventType.ACTIVITY_COMPLETED
             or e.type == ExecutionEventType.ACTIVITY_FAILED
         ]
-
-    # def _replay_events(
-    #     self,
-    #     generator: GeneratorType,
-    #     past_events: List[ExecutionEvent],
-    # ) -> ExecutionEvent:
-    #     while len(past_events) > 0:
-    #         event = generator.send(None)
-    #         if event.type == ExecutionEventType.ACTIVITY_STARTED:
-    #             replay = next(e for e in past_events if e.name == event.name)
-    #             if replay:
-    #                 next(generator)
-    #                 event = generator.send([replay.value, True])
-    #                 past_events.remove(replay)
-    #     return event
