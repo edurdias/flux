@@ -34,7 +34,7 @@ class LocalWorkflowRunner(WorkflowRunner):
         self.workflow_loader = workflow_loader
         self.context_manager = context_manager
 
-    def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
+    def run_workflow(self, name: str, input: any = None) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = WorkflowExecutionContext(name, input)
         self.context_manager.save_context(ctx)
@@ -88,6 +88,10 @@ class LocalWorkflowRunner(WorkflowRunner):
                 next(gen)
                 ctx.event_history.append(step)
                 value = gen.send([None, False])
+                return self._process(ctx, gen, value)
+            elif step.type == ExecutionEventType.ACTIVITY_RETRIED:
+                ctx.event_history.append(step)
+                value = gen.send(None)
                 return self._process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.ACTIVITY_COMPLETED,

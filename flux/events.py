@@ -4,15 +4,15 @@ from enum import Enum
 
 class ExecutionEventType(str, Enum):
 
-    WORKFLOW_STARTED = "WorkflowStarted"
-    WORKFLOW_COMPLETED = "WorkflowCompleted"
-    WORKFLOW_FAILED = "WorkflowFailed"
-    WORKFLOW_PAUSED = "WorkflowPaused"
-    WORKFLOW_RESUMED = "WorkflowResumed"
-
-    ACTIVITY_STARTED = "ActivityStarted"
-    ACTIVITY_COMPLETED = "ActivityCompleted"
-    ACTIVITY_FAILED = "ActivityFailed"
+    WORKFLOW_STARTED = "WORKFLOW_STARTED"
+    WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
+    WORKFLOW_FAILED = "WORKFLOW_FAILED"
+    WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
+    WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
+    ACTIVITY_STARTED = "ACTIVITY_STARTED"
+    ACTIVITY_RETRIED = "ACTIVITY_RETRIED"
+    ACTIVITY_COMPLETED = "ACTIVITY_COMPLETED"
+    ACTIVITY_FAILED = "ACTIVITY_FAILED"
 
 
 class ExecutionEvent:
@@ -22,7 +22,7 @@ class ExecutionEvent:
     value: any
     time: datetime
 
-    def __init__(self, type: ExecutionEventType, id: str, name: str, value: any = None):
+    def __init__(self, type: ExecutionEventType, id: str, name: str, value: any = None, **kwargs):
         self.type = type
         self.id = id
         self.name = name

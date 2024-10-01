@@ -1,60 +1,50 @@
 import time
-from types import GeneratorType
 from typing import Callable
 from functools import wraps
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
-from flux.exceptions import ExecutionException
 from flux.exceptions import RetryException
 
 
-def activity(fn: Callable = None, retry_attemps: int = 0, retry_delay: int = 0):
+def activity(fn: Callable = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
 
     def _activity(func: Callable):
-        current_attempt = 1
-
+        
         @wraps(func)
         def closure(*args, **kwargs):
             activity_name = f"{func.__name__}"
             activity_id = _get_activity_id(activity_name, args, kwargs)
 
-            def retry(ex: Exception):
-                nonlocal current_attempt
-                try:
-                    time.sleep(retry_delay)
-                    output = func(*args, **kwargs)
-                    return output
-                except Exception as ex:
-                    if current_attempt <= retry_attemps:
-                        current_attempt = current_attempt + 1
-                        return retry(ex)
-                    else:
-                        raise RetryException(ex, retry_attemps, retry_delay)
-
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, activity_id, activity_name, args)
             output, replay = yield
 
             try:
-                output = (
-                    output
-                    if replay is True
-                    else func(
-                        *args,
-                    )
-                )
-                
-                if isinstance(output, GeneratorType):
-                    while True:
-                        next(output)
-
+                if not replay:
+                    output = func(*args, **kwargs)
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
-                elif current_attempt <= retry_attemps:
-                    output = retry(ex)
                 else:
-                    raise ExecutionException(ex)
+                    attempt = 0
+                    while attempt < retry_max_attemps:
+                        attempt += 1
+                        current_delay = retry_delay
+                        try:
+                            time.sleep(current_delay)
+                            current_delay = min(current_delay * retry_backoff, 600)
+                            
+                            yield ExecutionEvent(ExecutionEventType.ACTIVITY_RETRIED, activity_id, activity_name, {
+                                "current_attempt": attempt,
+                                "max_attempts": retry_max_attemps,
+                                "current_delay": current_delay,
+                                "backoff": retry_backoff
+                            })
+                            output = func(*args, **kwargs)
+                            break
+                        except Exception as e:
+                            if attempt == retry_max_attemps:
+                                raise RetryException(e, retry_max_attemps, retry_delay, retry_backoff)
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
 

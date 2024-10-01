@@ -12,23 +12,25 @@ class ExecutionException(Exception):
 
 class RetryException(ExecutionException):
 
-    _retry_attempts: int
-    _retry_delay: int
+    _attempts: int
+    _delay: int
+    _backoff: int
 
     def __init__(
-        self, inner_exception: Exception, retry_attempts: int, retry_delay: int
+        self, inner_exception: Exception, attempts: int, delay: int, backoff: int
     ):
         super().__init__(inner_exception)
-        self._retry_attempts = retry_attempts
-        self._retry_delay = retry_delay
+        self._attempts = attempts
+        self._delay = delay
+        self._backoff = backoff
 
     @property
     def retry_attempts(self) -> int:
-        return self._retry_attempts
+        return self._attempts
 
     @property
     def retry_delay(self) -> int:
-        return self._retry_delay
+        return self._delay
 
 
 class WorkflowNotFoundException(ExecutionException):
