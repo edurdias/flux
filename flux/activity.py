@@ -4,16 +4,17 @@ from functools import wraps
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
-from flux.exceptions import RetryException
+from flux.exceptions import ExecutionException, RetryException
 
 
-def activity(fn: Callable = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
+def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
 
     def _activity(func: Callable):
         
         @wraps(func)
         def closure(*args, **kwargs):
-            activity_name = f"{func.__name__}"
+            # TODO: name template using arguments
+            activity_name = f"{func.__name__}" if name is None else name
             activity_id = _get_activity_id(activity_name, args, kwargs)
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, activity_id, activity_name, args)
@@ -25,7 +26,7 @@ def activity(fn: Callable = None, retry_max_attemps: int = 0, retry_delay: int =
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
-                else:
+                elif retry_max_attemps > 0:
                     attempt = 0
                     while attempt < retry_max_attemps:
                         attempt += 1
@@ -45,6 +46,8 @@ def activity(fn: Callable = None, retry_max_attemps: int = 0, retry_delay: int =
                         except Exception as e:
                             if attempt == retry_max_attemps:
                                 raise RetryException(e, retry_max_attemps, retry_delay, retry_backoff)
+                else:
+                    raise ExecutionException(ex)
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
 

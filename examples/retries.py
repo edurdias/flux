@@ -8,7 +8,7 @@ from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
 
-@activity(retry_max_attemps=3, retry_delay=2)
+@activity(retry_max_attemps=10, retry_delay=2)
 def bad_activity(number):
     if random.random() < 0.7:
         print(f"Failed activity #{number}")
