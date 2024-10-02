@@ -13,8 +13,6 @@ class WorkflowLoader(ABC):
 
 class LocalFunctionWorkflowLoader(WorkflowLoader):
 
-    _functions: dict
-
     def __init__(self, functions: dict = globals()):
         self._functions = functions
 

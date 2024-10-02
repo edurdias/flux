@@ -1,7 +1,5 @@
 class ExecutionException(Exception):
 
-    _inner_exception: Exception = None
-
     def __init__(self, inner_exception: Exception = None):
         self._inner_exception = inner_exception
 
@@ -11,10 +9,6 @@ class ExecutionException(Exception):
 
 
 class RetryException(ExecutionException):
-
-    _attempts: int
-    _delay: int
-    _backoff: int
 
     def __init__(
         self, inner_exception: Exception, attempts: int, delay: int, backoff: int
@@ -34,8 +28,6 @@ class RetryException(ExecutionException):
 
 
 class WorkflowNotFoundException(ExecutionException):
-
-    _name: str
 
     def __init__(self, name: str):
         super().__init__(None)

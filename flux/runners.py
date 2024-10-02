@@ -4,14 +4,25 @@ from flux.events import ExecutionEvent, ExecutionEventType
 from flux.exceptions import ExecutionException
 from flux.loaders import LocalFunctionWorkflowLoader, WorkflowLoader
 
-
 from types import GeneratorType
 from typing import Callable, List
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
+class WorkflowRunnerMeta(ABCMeta):
+    _instance = None
+    
+    def __call__(cls, *args, **kwargs):
+        meta = cls.__class__
+        if meta._instance is None:
+            meta._instance = super(WorkflowRunnerMeta, cls).__call__(*args, **kwargs)
+        return meta._instance
+    
+    @classmethod
+    def current(cls):
+        return cls._instance
 
-class WorkflowRunner(ABC):
-
+class WorkflowRunner(ABC, metaclass=WorkflowRunnerMeta):
+    
     @abstractmethod
     def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
         raise NotImplementedError()
@@ -22,9 +33,6 @@ class WorkflowRunner(ABC):
 
 
 class LocalWorkflowRunner(WorkflowRunner):
-
-    workflow_loader: WorkflowLoader
-    context_manager: ContextManager
 
     def __init__(
         self,
@@ -49,7 +57,7 @@ class LocalWorkflowRunner(WorkflowRunner):
         self, workflow: Callable, ctx: WorkflowExecutionContext
     ) -> WorkflowExecutionContext:
 
-        if ctx.is_finished():
+        if ctx.finished:
             return ctx
 
         gen = workflow(ctx)
@@ -101,6 +109,7 @@ class LocalWorkflowRunner(WorkflowRunner):
                 return step.value
             else:
                 ctx.event_history.append(step)
+        self.context_manager.save_context(ctx)
         return step
 
     def _get_past_events(self, ctx: WorkflowExecutionContext) -> List[ExecutionEvent]:

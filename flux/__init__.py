@@ -6,3 +6,4 @@ from flux.encoders import *
 from flux.events import *
 from flux.loaders import *
 from flux.runners import *
+from flux.activities import *

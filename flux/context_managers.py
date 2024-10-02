@@ -16,7 +16,8 @@ class ContextManager(ABC):
 
 class InMemoryContextManager(ContextManager):
 
-    _state: dict[str, WorkflowExecutionContext] = {}
+    def __init__(self):
+        self._state: dict[str, WorkflowExecutionContext] = {}
 
     def save_context(self, ctx: WorkflowExecutionContext):
         self._state[f"{ctx.execution_id}"] = ctx

@@ -1,6 +1,4 @@
 from flux.events import ExecutionEvent, ExecutionEventType
-
-
 from typing import Generic, TypeVar
 from uuid import uuid4
 
@@ -9,17 +7,11 @@ WorkflowInputType = TypeVar("InputType")
 
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
-    _execution_id: str
-    _name: str
-    _input: WorkflowInputType
-    _event_history: list[ExecutionEvent] = []
-
-    def __init__(
-        self, name: str, input: WorkflowInputType, execution_id: str = uuid4().hex
-    ):
+    def __init__(self, name: str, input: WorkflowInputType):
         self._name = name
         self._input = input
-        self._execution_id = execution_id
+        self._execution_id: str = uuid4().hex
+        self._event_history: list[ExecutionEvent] = []
 
     @property
     def name(self) -> str:
@@ -37,7 +29,8 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
     def event_history(self) -> list[ExecutionEvent]:
         return self._event_history
 
-    def is_finished(self) -> bool:
+    @property
+    def finished(self) -> bool:
         workflow_events = [
             e
             for e in self.event_history
