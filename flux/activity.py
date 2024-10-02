@@ -1,6 +1,8 @@
 import time
 from typing import Callable
 from functools import wraps
+from inspect import getfullargspec
+from string import Template
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
@@ -13,8 +15,7 @@ def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, r
         
         @wraps(func)
         def closure(*args, **kwargs):
-            # TODO: name template using arguments
-            activity_name = f"{func.__name__}" if name is None else name
+            activity_name = _get_activity_name(args)
             activity_id = _get_activity_id(activity_name, args, kwargs)
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, activity_id, activity_name, args)
@@ -51,8 +52,16 @@ def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, r
 
             yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
 
+        def _get_activity_name(args):
+            activity_name = f"{func.__name__}" 
+            if name is not None:
+                arg_names = getfullargspec(func).args
+                map = dict(zip(arg_names, args))
+                activity_name = Template(name).substitute(map)
+            return activity_name
+
         def _get_activity_id(activity_name, args, kwargs):
-            return f"{activity_name}_{abs(hash((activity_name, "args", tuple(sorted(kwargs.items())))))}"
+            return f"{activity_name}_{abs(hash((activity_name, args, tuple(sorted(kwargs.items())))))}"
 
         return closure
 

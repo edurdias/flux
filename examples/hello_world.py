@@ -1,4 +1,7 @@
+import json
+
 from flux import activity, workflow
+from flux.encoders import WorkflowContextEncoder
 from flux.loaders import LocalFunctionWorkflowLoader
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
@@ -18,3 +21,4 @@ if __name__ == "__main__":
     runner = LocalWorkflowRunner(LocalFunctionWorkflowLoader(globals()))
     ctx = runner.run_workflow("hello_world", "Joe")
     print(ctx.output)
+    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
