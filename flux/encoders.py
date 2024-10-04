@@ -17,6 +17,6 @@ class WorkflowContextEncoder(json.JSONEncoder):
                 "execution_id": obj.execution_id,
                 "input": obj.input,
                 "output": obj.output,
-                "event_history": obj.event_history,
+                "events": obj.events,
             }
         return obj.__dict__

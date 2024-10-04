@@ -8,7 +8,8 @@ from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.exceptions import ExecutionException, RetryException
 
-
+# TODO: add fallback
+# TODO: add timeout
 def task(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
 
     def _task(func: Callable):

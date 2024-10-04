@@ -1,4 +1,5 @@
 from functools import wraps
+from typing import overload
 
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 from flux.events import ExecutionEvent
@@ -14,10 +15,10 @@ def workflow(function):
     @wraps(function)
     def closure(ctx: WorkflowExecutionContext):
         yield
-        workflow_name = f"{ctx.name}_{ctx.execution_id}"
+        qualified_name = f"{ctx.name}_{ctx.execution_id}"
         yield ExecutionEvent(
             ExecutionEventType.WORKFLOW_STARTED,
-            workflow_name,
+            qualified_name,
             ctx.name,
             ctx.input,
         )
@@ -25,14 +26,14 @@ def workflow(function):
             output = yield from function(ctx)
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_COMPLETED,
-                workflow_name,
+                qualified_name,
                 ctx.name,
                 output,
             )
         except ExecutionException as ex:
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_FAILED,
-                workflow_name,
+                qualified_name,
                 ctx.name,
                 ex,
             )
@@ -42,10 +43,17 @@ def workflow(function):
         catalog: WorkflowCatalog = LocalWorkflowCatalog({function.__name__: closure}),
     ) -> WorkflowExecutionContext:
         runner = LocalWorkflowRunner(catalog)
-        ctx = runner.run_workflow(function.__name__, input)
-        return ctx
+        return runner.run_workflow(function.__name__, input)
+
+    def rerun(
+        execution_id: str,
+        catalog: WorkflowCatalog = LocalWorkflowCatalog({function.__name__: closure}),
+    ) -> WorkflowExecutionContext:
+        runner = LocalWorkflowRunner(catalog)
+        return runner.rerun_workflow(function.__name__, execution_id)
 
     closure.__is_workflow = True
     closure.run = run
+    closure.rerun = rerun
 
     return closure

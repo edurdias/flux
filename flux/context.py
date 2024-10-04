@@ -11,7 +11,7 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         self._name = name
         self._input = input
         self._execution_id: str = uuid4().hex
-        self._event_history: list[ExecutionEvent] = []
+        self._events: list[ExecutionEvent] = []
 
     @property
     def name(self) -> str:
@@ -26,24 +26,24 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         return self._execution_id
 
     @property
-    def event_history(self) -> list[ExecutionEvent]:
-        return self._event_history
+    def events(self) -> list[ExecutionEvent]:
+        return self._events
 
     @property
     def finished(self) -> bool:
         workflow_events = [
             e
-            for e in self.event_history
+            for e in self.events
             if e.type == ExecutionEventType.WORKFLOW_COMPLETED
             or e.type == ExecutionEventType.WORKFLOW_FAILED
         ]
         return len(workflow_events) > 0
-
+    
     @property
     def output(self) -> any:
         completed = [
             e
-            for e in self.event_history
+            for e in self.events
             if e.type == ExecutionEventType.WORKFLOW_COMPLETED
         ]
         if len(completed) > 0:
