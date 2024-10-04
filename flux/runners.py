@@ -2,7 +2,7 @@ from flux.context_managers import ContextManager, InMemoryContextManager
 from flux.context import WorkflowExecutionContext
 from flux.events import ExecutionEvent, ExecutionEventType
 from flux.exceptions import ExecutionException
-from flux.loaders import LocalFunctionWorkflowLoader, WorkflowLoader
+from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 
 from types import GeneratorType
 from typing import Callable, List
@@ -36,7 +36,7 @@ class LocalWorkflowRunner(WorkflowRunner):
 
     def __init__(
         self,
-        workflow_loader: WorkflowLoader = LocalFunctionWorkflowLoader(),
+        workflow_loader: WorkflowCatalog = LocalWorkflowCatalog(),
         context_manager: ContextManager = InMemoryContextManager(),
     ):
         self.workflow_loader = workflow_loader

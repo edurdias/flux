@@ -3,7 +3,7 @@ import httpx
 
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
-from flux.loaders import LocalFunctionWorkflowLoader
+from flux.catalogs import LocalWorkflowCatalog
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
@@ -32,7 +32,7 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    runtime = LocalWorkflowRunner(LocalFunctionWorkflowLoader(globals()))
+    runtime = LocalWorkflowRunner(LocalWorkflowCatalog(globals()))
     ctx = runtime.run_workflow("github_stars", repositories)
     print(ctx.output)
     print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))

@@ -2,7 +2,7 @@ import json
 
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
-from flux.loaders import LocalFunctionWorkflowLoader
+from flux.catalogs import LocalWorkflowCatalog
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
@@ -18,7 +18,7 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
 
 
 if __name__ == "__main__":
-    runner = LocalWorkflowRunner(LocalFunctionWorkflowLoader(globals()))
+    runner = LocalWorkflowRunner(LocalWorkflowCatalog(globals()))
     ctx = runner.run_workflow("hello_world", "Joe")
     print(ctx.output)
     print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))

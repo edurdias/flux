@@ -5,7 +5,7 @@ import numpy as np
 
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
-from flux.loaders import LocalFunctionWorkflowLoader
+from flux.catalogs import LocalWorkflowCatalog
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
@@ -31,7 +31,7 @@ def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
 
 
 if __name__ == "__main__":
-    runner = LocalWorkflowRunner(LocalFunctionWorkflowLoader(globals()))
+    runner = LocalWorkflowRunner(LocalWorkflowCatalog(globals()))
     input = (10, 33) #(iterations, number)
     ctx = runner.run_workflow("fibo_benchmark", input)
     print(ctx.output)

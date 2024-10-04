@@ -3,7 +3,7 @@ import random
 
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
-from flux.loaders import LocalFunctionWorkflowLoader
+from flux.catalogs import LocalWorkflowCatalog
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
@@ -23,7 +23,7 @@ def retries(ctx: WorkflowExecutionContext[str]):
 
 
 if __name__ == "__main__":
-    runner = LocalWorkflowRunner(LocalFunctionWorkflowLoader(globals()))
+    runner = LocalWorkflowRunner(LocalWorkflowCatalog(globals()))
     ctx = runner.run_workflow("retries")
     print(ctx.output)
     print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
