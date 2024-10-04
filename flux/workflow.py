@@ -1,9 +1,11 @@
 from functools import wraps
 
+from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.context import WorkflowExecutionContext
 from flux.exceptions import ExecutionException
+from flux.runners import LocalWorkflowRunner
 
 
 # TODO: add retry support
@@ -35,5 +37,15 @@ def workflow(function):
                 ex,
             )
 
+    def run(
+        input: any = None,
+        catalog: WorkflowCatalog = LocalWorkflowCatalog({function.__name__: closure}),
+    ) -> WorkflowExecutionContext:
+        runner = LocalWorkflowRunner(catalog)
+        ctx = runner.run_workflow(function.__name__, input)
+        return ctx
+
     closure.__is_workflow = True
+    closure.run = run
+
     return closure

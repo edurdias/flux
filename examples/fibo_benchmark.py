@@ -1,13 +1,9 @@
 import json
 
-import pandas as pd
-import numpy as np
 
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
-from flux.catalogs import LocalWorkflowCatalog
 from flux.context import WorkflowExecutionContext
-from flux.runners import LocalWorkflowRunner
 
 
 def fibo(n: int):
@@ -31,8 +27,7 @@ def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
 
 
 if __name__ == "__main__":
-    runner = LocalWorkflowRunner(LocalWorkflowCatalog(globals()))
     input = (10, 33) #(iterations, number)
-    ctx = runner.run_workflow("fibo_benchmark", input)
+    ctx = fibo_benchmark.run(input)
     print(ctx.output)
     print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
