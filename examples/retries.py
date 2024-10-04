@@ -1,25 +1,25 @@
 import json
 import random
 
-from flux import activity, workflow
+from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
 from flux.loaders import LocalFunctionWorkflowLoader
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
 
-@activity(retry_max_attemps=10, retry_delay=2)
-def bad_activity(number):
+@task(retry_max_attemps=10, retry_delay=2)
+def bad_task(number):
     if random.random() < 0.7:
-        print(f"Failed activity #{number}")
+        print(f"Failed task #{number}")
         raise ValueError()
-    print(f"Succeed activity #{number}")
+    print(f"Succeed task #{number}")
 
 
 @workflow
 def retries(ctx: WorkflowExecutionContext[str]):
-    yield bad_activity(1)
-    yield bad_activity(2)
+    yield bad_task(1)
+    yield bad_task(2)
 
 
 if __name__ == "__main__":

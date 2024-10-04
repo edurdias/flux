@@ -1,13 +1,13 @@
 import json
 
-from flux import activity, workflow
+from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
 from flux.loaders import LocalFunctionWorkflowLoader
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
 
-@activity
+@task
 def say_hello(name: str):
     return f"Hello, {name}"
 

@@ -9,16 +9,16 @@ from flux.events import ExecutionEventType
 from flux.exceptions import ExecutionException, RetryException
 
 
-def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
+def task(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, retry_delay: int = 1, retry_backoff: int = 2):
 
-    def _activity(func: Callable):
+    def _task(func: Callable):
         
         @wraps(func)
         def closure(*args, **kwargs):
-            activity_name = _get_activity_name(args)
-            activity_id = _get_activity_id(activity_name, args, kwargs)
+            task_name = _get_task_name(args)
+            task_id = _get_task_id(task_name, args, kwargs)
 
-            yield ExecutionEvent(ExecutionEventType.ACTIVITY_STARTED, activity_id, activity_name, args)
+            yield ExecutionEvent(ExecutionEventType.TASK_STARTED, task_id, task_name, args)
             output, replay = yield
 
             try:
@@ -36,7 +36,7 @@ def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, r
                             time.sleep(current_delay)
                             current_delay = min(current_delay * retry_backoff, 600)
                             
-                            yield ExecutionEvent(ExecutionEventType.ACTIVITY_RETRIED, activity_id, activity_name, {
+                            yield ExecutionEvent(ExecutionEventType.TASK_RETRIED, task_id, task_name, {
                                 "current_attempt": attempt,
                                 "max_attempts": retry_max_attemps,
                                 "current_delay": current_delay,
@@ -50,19 +50,19 @@ def activity(fn: Callable = None, name:str = None, retry_max_attemps: int = 0, r
                 else:
                     raise ExecutionException(ex)
 
-            yield ExecutionEvent(ExecutionEventType.ACTIVITY_COMPLETED, activity_id, activity_name, output)
+            yield ExecutionEvent(ExecutionEventType.TASK_COMPLETED, task_id, task_name, output)
 
-        def _get_activity_name(args):
-            activity_name = f"{func.__name__}" 
+        def _get_task_name(args):
+            task_name = f"{func.__name__}" 
             if name is not None:
                 arg_names = getfullargspec(func).args
                 map = dict(zip(arg_names, args))
-                activity_name = Template(name).substitute(map)
-            return activity_name
+                task_name = Template(name).substitute(map)
+            return task_name
 
-        def _get_activity_id(activity_name, args, kwargs):
-            return f"{activity_name}_{abs(hash((activity_name, args, tuple(sorted(kwargs.items())))))}"
+        def _get_task_id(task_name, args, kwargs):
+            return f"{task_name}_{abs(hash((task_name, args, tuple(sorted(kwargs.items())))))}"
 
         return closure
 
-    return _activity if fn is None else _activity(fn)
+    return _task if fn is None else _task(fn)

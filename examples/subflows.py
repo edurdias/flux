@@ -1,15 +1,15 @@
 import json
 import httpx
 
-from flux import activity, workflow
-from flux.activities import call_workflow
+from flux import task, workflow
+from flux.tasks import call_workflow
 from flux.encoders import WorkflowContextEncoder
 from flux.loaders import LocalFunctionWorkflowLoader
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
 
-@activity
+@task
 def get_repo_info(repo):
     url = f"https://api.github.com/repos/{repo}"
     repo_info = httpx.get(url).json()

@@ -92,18 +92,18 @@ class LocalWorkflowRunner(WorkflowRunner):
             return self._process(ctx, step, value)
 
         if isinstance(step, ExecutionEvent):
-            if step.type == ExecutionEventType.ACTIVITY_STARTED:
+            if step.type == ExecutionEventType.TASK_STARTED:
                 next(gen)
                 ctx.event_history.append(step)
                 value = gen.send([None, False])
                 return self._process(ctx, gen, value)
-            elif step.type == ExecutionEventType.ACTIVITY_RETRIED:
+            elif step.type == ExecutionEventType.TASK_RETRIED:
                 ctx.event_history.append(step)
                 value = gen.send(None)
                 return self._process(ctx, gen, value)
             elif step.type in (
-                ExecutionEventType.ACTIVITY_COMPLETED,
-                ExecutionEventType.ACTIVITY_FAILED,
+                ExecutionEventType.TASK_COMPLETED,
+                ExecutionEventType.TASK_FAILED,
             ):
                 ctx.event_history.append(step)
                 return step.value
@@ -116,6 +116,6 @@ class LocalWorkflowRunner(WorkflowRunner):
         return [
             e
             for e in ctx.event_history
-            if e.type == ExecutionEventType.ACTIVITY_COMPLETED
-            or e.type == ExecutionEventType.ACTIVITY_FAILED
+            if e.type == ExecutionEventType.TASK_COMPLETED
+            or e.type == ExecutionEventType.TASK_FAILED
         ]

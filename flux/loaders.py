@@ -3,7 +3,7 @@ from typing import Callable
 
 from flux.exceptions import WorkflowNotFoundException
 
-
+# TODO: Rename to WorkflowCatalog
 class WorkflowLoader(ABC):
 
     @abstractmethod

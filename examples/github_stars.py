@@ -1,14 +1,14 @@
 import json
 import httpx
 
-from flux import activity, workflow
+from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
 from flux.loaders import LocalFunctionWorkflowLoader
 from flux.context import WorkflowExecutionContext
 from flux.runners import LocalWorkflowRunner
 
 
-@activity
+@task
 def get_stars(repo: str):
     url = f"https://api.github.com/repos/{repo}"
     return httpx.get(url).json()["stargazers_count"]
