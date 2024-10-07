@@ -4,21 +4,27 @@ import random
 from flux import task, workflow
 from flux.encoders import WorkflowContextEncoder
 
-@task(retry_max_attemps=10, retry_delay=2)
+def fallback_for_bad_task(number):
+    print(f"Fallback for task #{number}")
+
+
+@task(fallback=fallback_for_bad_task)
 def bad_task(number):
-    if random.random() < 0.7:
+    if random.choice([True, False]):
         print(f"Failed task #{number}")
         raise ValueError()
     print(f"Succeed task #{number}")
 
 
 @workflow
-def retries():
+def fallback():
     yield bad_task(1)
     yield bad_task(2)
+    yield bad_task(3)
+    yield bad_task(4)
 
 
 if __name__ == "__main__":
-    ctx = retries.run()
+    ctx = fallback.run()
     print(ctx.output)
     print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))

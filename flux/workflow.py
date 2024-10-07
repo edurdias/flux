@@ -1,5 +1,5 @@
 from functools import wraps
-from typing import overload
+from typing import Callable
 
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 from flux.events import ExecutionEvent
@@ -9,8 +9,7 @@ from flux.exceptions import ExecutionException
 from flux.runners import LocalWorkflowRunner
 
 
-# TODO: add retry support
-def workflow(function):
+def workflow(function: Callable):
 
     @wraps(function)
     def closure(ctx: WorkflowExecutionContext):
@@ -23,7 +22,10 @@ def workflow(function):
             ctx.input,
         )
         try:
-            output = yield from function(ctx)
+            if function.__code__.co_argcount > 0:
+                output = yield from function(ctx)
+            else:
+                output = yield from function()
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_COMPLETED,
                 qualified_name,
@@ -37,6 +39,9 @@ def workflow(function):
                 ctx.name,
                 ex,
             )
+        except Exception as ex:
+            # TODO: add retry support
+            raise
 
     def run(
         input: any = None,

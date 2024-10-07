@@ -8,6 +8,7 @@ from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 from flux.context_managers import ContextManager, InMemoryContextManager
 
+
 class WorkflowRunnerMeta(ABCMeta):
     _instance = None
 
@@ -122,7 +123,7 @@ class LocalWorkflowRunner(WorkflowRunner):
                     while (
                         past_events
                         and past_events[0].id == step.id
-                        and past_events[0].type == ExecutionEventType.TASK_RETRIED
+                        and past_events[0].type == ExecutionEventType.TASK_RETRY_STARTED
                     ):
                         past_events.pop(0)
 
@@ -132,7 +133,17 @@ class LocalWorkflowRunner(WorkflowRunner):
                 ctx.events.append(step)
                 value = gen.send([None, False])
                 return self._process(ctx, gen, past_events, value)
-            elif step.type == ExecutionEventType.TASK_RETRIED:
+            elif step.type in (
+                ExecutionEventType.TASK_RETRY_STARTED,
+                ExecutionEventType.TASK_RETRY_COMPLETED,
+            ):
+                ctx.events.append(step)
+                value = gen.send(None)
+                return self._process(ctx, gen, past_events, value)
+            elif step.type in (
+                ExecutionEventType.TASK_FALLBACK_STARTED,
+                ExecutionEventType.TASK_FALLBACK_COMPLETED,
+            ):
                 ctx.events.append(step)
                 value = gen.send(None)
                 return self._process(ctx, gen, past_events, value)
