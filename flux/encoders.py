@@ -1,10 +1,7 @@
 import json
-import pickle
-import flux.context as context
-from datetime import datetime
 from enum import Enum
-
-from flux.exceptions import ExecutionException
+from datetime import datetime
+import flux.context as context
 
 
 class WorkflowContextEncoder(json.JSONEncoder):

@@ -133,6 +133,8 @@ class LocalWorkflowRunner(WorkflowRunner):
 
                 ctx.events.append(step)
                 value = gen.send([None, False])
+                if isinstance(value, GeneratorType):
+                    value = gen.send(self._process(ctx, gen, past_events, value))
                 return self._process(ctx, gen, past_events, value)
             elif step.type in (
                 ExecutionEventType.TASK_RETRY_STARTED,
@@ -152,9 +154,7 @@ class LocalWorkflowRunner(WorkflowRunner):
                 if past_events:
                     past_end = past_events.pop(0)
                     return past_end.value
-
                 ctx.events.append(step)
-                return step.value
             elif step.type == ExecutionEventType.TASK_FAILED:
                 ctx.events.append(step)
                 value = gen.send(None)
@@ -164,8 +164,9 @@ class LocalWorkflowRunner(WorkflowRunner):
                     past_events.pop(0)
                 else:
                     ctx.events.append(step)
+
         self.context_manager.save_context(ctx)
-        return step
+        return step.value
 
     def _get_past_events(self, ctx: WorkflowExecutionContext) -> list[ExecutionEvent]:
         return [

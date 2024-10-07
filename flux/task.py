@@ -1,8 +1,6 @@
-from asyncio import wait_for
 import time
-import signal
 
-from types import coroutine
+from types import GeneratorType
 from typing import Callable
 from functools import wraps
 from inspect import getfullargspec
@@ -39,6 +37,8 @@ def task(
             try:
                 if not replay:
                     output = func(*args, **kwargs)
+                if isinstance(output, GeneratorType):
+                    output = yield output
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
