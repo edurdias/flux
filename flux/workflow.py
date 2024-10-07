@@ -37,7 +37,7 @@ def workflow(function: Callable):
                 ExecutionEventType.WORKFLOW_FAILED,
                 qualified_name,
                 ctx.name,
-                ex,
+                ex.inner_exception,
             )
         except Exception as ex:
             # TODO: add retry support

@@ -1,7 +1,10 @@
 import json
+import pickle
 import flux.context as context
 from datetime import datetime
 from enum import Enum
+
+from flux.exceptions import ExecutionException
 
 
 class WorkflowContextEncoder(json.JSONEncoder):
@@ -18,4 +21,6 @@ class WorkflowContextEncoder(json.JSONEncoder):
                 "output": obj.output,
                 "events": obj.events,
             }
+        if isinstance(obj, Exception):
+            return {"type": type(obj).__name__, "message": str(obj)}
         return obj.__dict__

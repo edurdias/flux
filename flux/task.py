@@ -1,4 +1,6 @@
 import time
+import signal
+
 from typing import Callable
 from functools import wraps
 from inspect import getfullargspec
@@ -9,7 +11,6 @@ from flux.events import ExecutionEventType
 from flux.exceptions import ExecutionException, RetryException
 
 
-# TODO: add timeout
 def task(
     fn: Callable = None,
     name: str = None,
@@ -17,6 +18,7 @@ def task(
     retry_max_attemps: int = 0,
     retry_delay: int = 1,
     retry_backoff: int = 2,
+    timeout: int = 0,
 ):
 
     def _task(func: Callable):
@@ -25,6 +27,9 @@ def task(
         def closure(*args, **kwargs):
             task_name = _get_task_name(args)
             task_id = _get_task_id(task_name, args, kwargs)
+            
+            def raise_timeout():
+                raise TimeoutError(f"Timeout of {timeout} seconds exceeded for task {task_id}.")
 
             yield ExecutionEvent(
                 ExecutionEventType.TASK_STARTED, task_id, task_name, args
@@ -33,7 +38,13 @@ def task(
 
             try:
                 if not replay:
-                    output = func(*args, **kwargs)
+                    if timeout > 0:
+                        signal.signal(signal.SIGALRM, raise_timeout())
+                        signal.alarm(timeout)
+                        output = func(*args, **kwargs)
+                        signal.alarm(0)
+                    else:
+                        output = func(*args, **kwargs)
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
@@ -97,6 +108,9 @@ def task(
                         ExecutionEventType.TASK_FALLBACK_COMPLETED, task_id, task_name
                     )
                 else:
+                    yield ExecutionEvent(
+                        ExecutionEventType.TASK_FAILED, task_id, task_name, ex
+                    )
                     raise ExecutionException(ex)
 
             yield ExecutionEvent(

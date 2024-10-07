@@ -90,7 +90,8 @@ class LocalWorkflowRunner(WorkflowRunner):
                 step = gen.send(value)
 
         except ExecutionException as execution_exception:
-            gen.throw(execution_exception)
+            event = gen.throw(execution_exception)
+            ctx.events.append(event)
         except StopIteration:
             pass
         finally:
@@ -147,16 +148,17 @@ class LocalWorkflowRunner(WorkflowRunner):
                 ctx.events.append(step)
                 value = gen.send(None)
                 return self._process(ctx, gen, past_events, value)
-            elif step.type in (
-                ExecutionEventType.TASK_COMPLETED,
-                ExecutionEventType.TASK_FAILED,
-            ):
+            elif step.type == ExecutionEventType.TASK_COMPLETED:
                 if past_events:
                     past_end = past_events.pop(0)
                     return past_end.value
 
                 ctx.events.append(step)
                 return step.value
+            elif step.type == ExecutionEventType.TASK_FAILED:
+                ctx.events.append(step)
+                value = gen.send(None)
+                return self._process(ctx, gen, past_events, value)
             else:
                 if past_events:
                     past_events.pop(0)
