@@ -1,7 +1,5 @@
-import json
 
 from flux import task, workflow
-from flux.encoders import WorkflowContextEncoder
 from flux.context import WorkflowExecutionContext
 
 
@@ -17,5 +15,4 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
 
 if __name__ == "__main__":
     ctx = hello_world.run("Joe")
-    print(ctx.output)
-    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
+    print(ctx.to_json())

@@ -1,8 +1,4 @@
-import json
-
-
 from flux import task, workflow
-from flux.encoders import WorkflowContextEncoder
 from flux.context import WorkflowExecutionContext
 
 
@@ -27,7 +23,6 @@ def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
 
 
 if __name__ == "__main__":
-    input = (10, 33) #(iterations, number)
+    input = (10, 33)  # (iterations, number)
     ctx = fibo_benchmark.run(input)
-    print(ctx.output)
-    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
+    print(ctx.to_json())

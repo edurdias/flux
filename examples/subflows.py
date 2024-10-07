@@ -1,10 +1,8 @@
-import json
 import httpx
 
 from flux import task, workflow
 from flux.tasks import call_workflow
 from flux.catalogs import LocalWorkflowCatalog
-from flux.encoders import WorkflowContextEncoder
 from flux.context import WorkflowExecutionContext
 
 
@@ -40,5 +38,4 @@ if __name__ == "__main__":
         "hyperknot/openfreemap",
     ]
     ctx = github_stars.run(repositories, LocalWorkflowCatalog(globals()))
-    print(ctx.output)
-    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
+    print(ctx.to_json())

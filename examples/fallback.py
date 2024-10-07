@@ -1,8 +1,7 @@
-import json
 import random
 
 from flux import task, workflow
-from flux.encoders import WorkflowContextEncoder
+
 
 def fallback_for_bad_task(number):
     print(f"Fallback for task #{number}")
@@ -26,5 +25,4 @@ def fallback():
 
 if __name__ == "__main__":
     ctx = fallback.run()
-    print(ctx.output)
-    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
+    print(ctx.to_json())

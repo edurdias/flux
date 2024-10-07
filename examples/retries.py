@@ -1,8 +1,6 @@
-import json
 import random
 
 from flux import task, workflow
-from flux.encoders import WorkflowContextEncoder
 
 @task(retry_max_attemps=10, retry_delay=2)
 def bad_task(number):
@@ -20,5 +18,4 @@ def retries():
 
 if __name__ == "__main__":
     ctx = retries.run()
-    print(ctx.output)
-    print(json.dumps(ctx, indent=4, cls=WorkflowContextEncoder))
+    print(ctx.to_json())
