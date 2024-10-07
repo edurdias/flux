@@ -1,6 +1,8 @@
+from asyncio import wait_for
 import time
 import signal
 
+from types import coroutine
 from typing import Callable
 from functools import wraps
 from inspect import getfullargspec
@@ -27,24 +29,16 @@ def task(
         def closure(*args, **kwargs):
             task_name = _get_task_name(args)
             task_id = _get_task_id(task_name, args, kwargs)
-            
-            def raise_timeout():
-                raise TimeoutError(f"Timeout of {timeout} seconds exceeded for task {task_id}.")
 
             yield ExecutionEvent(
                 ExecutionEventType.TASK_STARTED, task_id, task_name, args
             )
+
             output, replay = yield
 
             try:
                 if not replay:
-                    if timeout > 0:
-                        signal.signal(signal.SIGALRM, raise_timeout())
-                        signal.alarm(timeout)
-                        output = func(*args, **kwargs)
-                        signal.alarm(0)
-                    else:
-                        output = func(*args, **kwargs)
+                    output = func(*args, **kwargs)
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
