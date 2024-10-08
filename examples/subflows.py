@@ -25,7 +25,7 @@ def github_stars(ctx: WorkflowExecutionContext[list[str]]):
 
     stars = {}
     for repo in repos:
-        stars[repo] = yield call_workflow("get_stars", repo)
+        stars[repo] = yield call_workflow(get_stars, repo)
     return stars
 
 

@@ -1,29 +1,16 @@
-from typing import Callable
+from typing import Callable, ContextManager, Self
 from types import GeneratorType
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
-from flux.exceptions import ExecutionException
 from flux.context import WorkflowExecutionContext
+from flux.context_managers import InMemoryContextManager
+from flux.exceptions import ExecutionException
 from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
-from flux.context_managers import ContextManager, InMemoryContextManager
+from flux.utils import call_with_timeout
 
 
-class WorkflowRunnerMeta(ABCMeta):
-    _instance = None
-
-    def __call__(cls, *args, **kwargs):
-        meta = cls.__class__
-        if meta._instance is None:
-            meta._instance = super(WorkflowRunnerMeta, cls).__call__(*args, **kwargs)
-        return meta._instance
-
-    @classmethod
-    def current(cls):
-        return cls._instance
-
-
-class WorkflowRunner(ABC, metaclass=WorkflowRunnerMeta):
+class WorkflowRunner(ABC):
 
     @abstractmethod
     def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
@@ -32,6 +19,12 @@ class WorkflowRunner(ABC, metaclass=WorkflowRunnerMeta):
     @abstractmethod
     def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
         raise NotImplementedError()
+
+    def default(
+        workflow_loader: WorkflowCatalog = LocalWorkflowCatalog(),
+        context_manager: ContextManager = InMemoryContextManager(),
+    ) -> Self:
+        return LocalWorkflowRunner(workflow_loader, context_manager)
 
 
 class LocalWorkflowRunner(WorkflowRunner):
@@ -47,14 +40,30 @@ class LocalWorkflowRunner(WorkflowRunner):
     def run_workflow(self, name: str, input: any = None) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = WorkflowExecutionContext(name, input)
+        ctx.runner = self
+
         self.context_manager.save_context(ctx)
-        return self._run(workflow, ctx)
+
+        return call_with_timeout(
+            lambda: self._run(workflow, ctx),
+            workflow.timeout,
+            f"Workflow {ctx.name} execution ({ctx.execution_id}) timed out ({workflow.timeout}s).",
+            # lambda e: ctx.events.append(workflow.fail(ctx, e))
+        )
 
     def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = self.context_manager.get_context(execution_id)
-        return self._run(workflow, ctx)
 
+        ctx.runner = self
+
+        return call_with_timeout(
+            lambda: self._run(workflow, ctx),
+            workflow.timeout,
+            f"Workflow {ctx.name} execution ({ctx.execution_id}) timed out ({workflow.timeout}s).",
+            lambda e: ctx.events.append(workflow.fail(ctx, e))
+        )
+        
     def _run(
         self, workflow: Callable, ctx: WorkflowExecutionContext
     ) -> WorkflowExecutionContext:
@@ -133,8 +142,15 @@ class LocalWorkflowRunner(WorkflowRunner):
 
                 ctx.events.append(step)
                 value = gen.send([None, False])
+
                 if isinstance(value, GeneratorType):
-                    value = gen.send(self._process(ctx, gen, past_events, value))
+                    try:
+                        value = gen.send(self._process(ctx, gen, past_events, value))
+                    except ExecutionException as ex:
+                        value = gen.throw(ex)
+                    except StopIteration:
+                        pass
+
                 return self._process(ctx, gen, past_events, value)
             elif step.type in (
                 ExecutionEventType.TASK_RETRY_STARTED,

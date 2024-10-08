@@ -9,11 +9,11 @@ def quick_task():
 
 
 @workflow(timeout=6)
-def timeout():
+def flow_timeout():
     yield quick_task()
-    time.sleep(5)
+    time.sleep(10)
 
 
 if __name__ == "__main__":
-    ctx = timeout.run()
+    ctx = flow_timeout.run()
     print(ctx.to_json())

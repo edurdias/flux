@@ -1,6 +1,7 @@
 import json
 from enum import Enum
 from datetime import datetime
+from typing import Callable
 import flux.context as context
 
 
@@ -20,4 +21,8 @@ class WorkflowContextEncoder(json.JSONEncoder):
             }
         if isinstance(obj, Exception):
             return {"type": type(obj).__name__, "message": str(obj)}
+
+        if isinstance(obj, Callable):
+            return obj.__name__
+
         return obj.__dict__

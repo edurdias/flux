@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 from typing import Generic, TypeVar
+
 from flux.encoders import WorkflowContextEncoder
 from flux.events import ExecutionEvent, ExecutionEventType
 

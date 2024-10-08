@@ -1,14 +1,16 @@
 import time
 
-from types import GeneratorType
 from typing import Callable
-from functools import wraps
-from inspect import getfullargspec
 from string import Template
+from functools import wraps
+from types import GeneratorType
+from inspect import getfullargspec
+from concurrent.futures import ThreadPoolExecutor
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.exceptions import ExecutionException, RetryException
+from flux.utils import call_with_timeout
 
 
 def task(
@@ -36,9 +38,15 @@ def task(
 
             try:
                 if not replay:
-                    output = func(*args, **kwargs)
-                if isinstance(output, GeneratorType):
-                    output = yield output
+                    output = call_with_timeout(
+                        lambda: func(*args, **kwargs),
+                        timeout,
+                        f"Task {task_id} timed out ({timeout}s).",
+                    )
+
+                    if isinstance(output, GeneratorType):
+                        output = yield output
+
             except Exception as ex:
                 if isinstance(ex, StopIteration):
                     output = ex.value
@@ -115,7 +123,8 @@ def task(
             task_name = f"{func.__name__}"
             if name is not None:
                 arg_names = getfullargspec(func).args
-                map = dict(zip(arg_names, args))
+                arg_values = [v.__name__ if isinstance(v, Callable) else str(v) for v in args]
+                map = dict(zip(arg_names, arg_values))
                 task_name = Template(name).substitute(map)
             return task_name
 
