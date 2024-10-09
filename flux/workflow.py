@@ -67,7 +67,6 @@ def workflow(fn: Callable = None):
         closure.__is_workflow = True
         closure.run = run
         closure.rerun = rerun
-        closure.timeout = timeout
 
         return closure
 

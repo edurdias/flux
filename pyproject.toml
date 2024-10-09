@@ -15,6 +15,15 @@ ipykernel = "^6.29.5"
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
 numpy = "^2.1.1"
+pyright = "^1.1.384"
+pylint = "^3.3.1"
+bandit = "^1.7.10"
+pyflakes = "^3.2.0"
+radon = "^6.0.1"
+prospector = "^1.12.0"
+
+[tool.poetry.scripts]
+typecheck = "pyright:main"
 
 [build-system]
 requires = ["poetry-core"]

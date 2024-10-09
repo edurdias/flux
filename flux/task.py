@@ -5,7 +5,6 @@ from string import Template
 from functools import wraps
 from types import GeneratorType
 from inspect import getfullargspec
-from concurrent.futures import ThreadPoolExecutor
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
