@@ -61,9 +61,9 @@ class LocalWorkflowRunner(WorkflowRunner):
             lambda: self._run(workflow, ctx),
             workflow.timeout,
             f"Workflow {ctx.name} execution ({ctx.execution_id}) timed out ({workflow.timeout}s).",
-            lambda e: ctx.events.append(workflow.fail(ctx, e))
+            lambda e: ctx.events.append(workflow.fail(ctx, e)),
         )
-        
+
     def _run(
         self, workflow: Callable, ctx: WorkflowExecutionContext
     ) -> WorkflowExecutionContext:

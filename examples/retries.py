@@ -2,6 +2,7 @@ import random
 
 from flux import task, workflow
 
+
 @task(retry_max_attemps=10, retry_delay=2)
 def bad_task(number):
     if random.random() < 0.7:

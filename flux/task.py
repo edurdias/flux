@@ -123,7 +123,9 @@ def task(
             task_name = f"{func.__name__}"
             if name is not None:
                 arg_names = getfullargspec(func).args
-                arg_values = [v.__name__ if isinstance(v, Callable) else str(v) for v in args]
+                arg_values = [
+                    v.__name__ if isinstance(v, Callable) else str(v) for v in args
+                ]
                 map = dict(zip(arg_names, arg_values))
                 task_name = Template(name).substitute(map)
             return task_name

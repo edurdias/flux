@@ -3,6 +3,7 @@ from typing import Callable
 
 from flux.exceptions import WorkflowNotFoundException
 
+
 class WorkflowCatalog(ABC):
 
     @abstractmethod
