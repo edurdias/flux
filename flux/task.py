@@ -38,10 +38,13 @@ def task(
 
             try:
                 if not replay:
+
                     output = call_with_timeout(
                         lambda: func(*args, **kwargs),
+                        "Task",
+                        task_name,
+                        task_id,
                         timeout,
-                        f"Task {task_id} timed out ({timeout}s).",
                     )
 
                     if isinstance(output, GeneratorType):

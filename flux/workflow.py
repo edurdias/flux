@@ -3,13 +3,13 @@ from typing import Callable
 
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
-from flux.runners import LocalWorkflowRunner, WorkflowRunner
+from flux.runners import WorkflowRunner
 from flux.exceptions import ExecutionException
 from flux.context import WorkflowExecutionContext
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 
 
-def workflow(fn: Callable = None, timeout: int = 0):
+def workflow(fn: Callable = None):
 
     def _workflow(func: Callable):
 
@@ -64,18 +64,9 @@ def workflow(fn: Callable = None, timeout: int = 0):
             runner = WorkflowRunner.default(catalog)
             return runner.rerun_workflow(func.__name__, execution_id)
 
-        def fail(ctx: WorkflowExecutionContext, error: Exception):
-            return ExecutionEvent(
-                ExecutionEventType.WORKFLOW_FAILED,
-                _get_qualified_name(ctx),
-                ctx.name,
-                error,
-            )
-
         closure.__is_workflow = True
         closure.run = run
         closure.rerun = rerun
-        closure.fail = fail
         closure.timeout = timeout
 
         return closure

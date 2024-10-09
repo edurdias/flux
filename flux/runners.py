@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import InMemoryContextManager
-from flux.exceptions import ExecutionException
+from flux.exceptions import ExecutionException, TimeoutException
 from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 from flux.utils import call_with_timeout
@@ -40,29 +40,13 @@ class LocalWorkflowRunner(WorkflowRunner):
     def run_workflow(self, name: str, input: any = None) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = WorkflowExecutionContext(name, input)
-        ctx.runner = self
-
         self.context_manager.save_context(ctx)
-
-        return call_with_timeout(
-            lambda: self._run(workflow, ctx),
-            workflow.timeout,
-            f"Workflow {ctx.name} execution ({ctx.execution_id}) timed out ({workflow.timeout}s).",
-            # lambda e: ctx.events.append(workflow.fail(ctx, e))
-        )
+        return self._run(workflow, ctx)
 
     def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.load_workflow(name)
         ctx = self.context_manager.get_context(execution_id)
-
-        ctx.runner = self
-
-        return call_with_timeout(
-            lambda: self._run(workflow, ctx),
-            workflow.timeout,
-            f"Workflow {ctx.name} execution ({ctx.execution_id}) timed out ({workflow.timeout}s).",
-            lambda e: ctx.events.append(workflow.fail(ctx, e)),
-        )
+        return self._run(workflow, ctx)
 
     def _run(
         self, workflow: Callable, ctx: WorkflowExecutionContext
@@ -75,36 +59,46 @@ class LocalWorkflowRunner(WorkflowRunner):
         assert isinstance(
             gen, GeneratorType
         ), f"Function {ctx.name} should be a generator, check if it is decorated by @workflow."
+
         try:
-            # initialize the generator
-            next(gen)
 
-            past_events = ctx.events.copy()
-
-            # start workflow
-            event = gen.send(None)
-            assert (
-                event.type == ExecutionEventType.WORKFLOW_STARTED
-            ), f"First event should always be {ExecutionEventType.WORKFLOW_STARTED}"
-
-            if past_events:
-                past_events.pop(0)
-            else:
-                ctx.events.append(event)
-
-            # iterate the workflow
-            step = gen.send(None)
-            while step is not None:
-                value = self._process(ctx, gen, past_events, step)
-                step = gen.send(value)
-
+            ctx = self.__run(gen, ctx)
         except ExecutionException as execution_exception:
             event = gen.throw(execution_exception)
             ctx.events.append(event)
         except StopIteration:
             pass
+        except Exception as ex:
+            raise
         finally:
             self.context_manager.save_context(ctx)
+
+        return ctx
+
+    def __run(
+        self, gen: GeneratorType, ctx: WorkflowExecutionContext
+    ) -> WorkflowExecutionContext:
+        # initialize the generator
+        next(gen)
+
+        past_events = ctx.events.copy()
+
+        # start workflow
+        event = gen.send(None)
+        assert (
+            event.type == ExecutionEventType.WORKFLOW_STARTED
+        ), f"First event should always be {ExecutionEventType.WORKFLOW_STARTED}"
+
+        if past_events:
+            past_events.pop(0)
+        else:
+            ctx.events.append(event)
+
+        # iterate the workflow
+        step = gen.send(None)
+        while step is not None:
+            value = self._process(ctx, gen, past_events, step)
+            step = gen.send(value)
 
         return ctx
 

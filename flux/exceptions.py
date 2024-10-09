@@ -1,6 +1,10 @@
+from typing import Literal
+
+
 class ExecutionException(Exception):
 
-    def __init__(self, inner_exception: Exception = None):
+    def __init__(self, inner_exception: Exception = None, message: str = None):
+        super().__init__(message)
         self._inner_exception = inner_exception
 
     @property
@@ -25,6 +29,19 @@ class RetryException(ExecutionException):
     @property
     def retry_delay(self) -> int:
         return self._delay
+
+
+class TimeoutException(ExecutionException):
+
+    def __init__(
+        self, type: Literal["Workflow", "Task"], name: str, id: str, timeout: int
+    ):
+        super().__init__(None, f"{type} {name} ({id}) timed out ({timeout}s).")
+        self._timeout = timeout
+
+    @property
+    def timeout(self) -> int:
+        return self._timeout
 
 
 class WorkflowNotFoundException(ExecutionException):
