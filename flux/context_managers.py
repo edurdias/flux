@@ -28,10 +28,13 @@ class InMemoryContextManager(ContextManager):
 
 class LocalFileContextManager(ContextManager):
 
+    def __init__(self, base_path: str = "./"):
+        self._base_path = base_path
+
     def save_context(self, ctx: WorkflowExecutionContext):
-        with open(f"./dill/{ctx.execution_id}.pkl", "wb") as f:
+        with open(f"{self._base_path}.dill/{ctx.execution_id}.pkl", "wb+") as f:
             pickle.dump(ctx, f)
 
     def get_context(self, execution_id: str) -> WorkflowExecutionContext:
-        with open(f"./dill/{execution_id}.pkl", "rb") as f:
+        with open(f"{self._base_path}.dill/{execution_id}.pkl", "rb+") as f:
             return pickle.load(f)

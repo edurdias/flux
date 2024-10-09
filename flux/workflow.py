@@ -1,6 +1,7 @@
 from functools import wraps
 from typing import Callable
 
+from flux.context_managers import ContextManager, InMemoryContextManager
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.runners import WorkflowRunner
@@ -53,15 +54,17 @@ def workflow(fn: Callable = None):
         def run(
             input: any = None,
             catalog: WorkflowCatalog = LocalWorkflowCatalog({func.__name__: closure}),
+            context_manager: ContextManager = InMemoryContextManager(),
         ) -> WorkflowExecutionContext:
-            runner = WorkflowRunner.default(catalog)
+            runner = WorkflowRunner.default(catalog, context_manager)
             return runner.run_workflow(func.__name__, input)
 
         def rerun(
             execution_id: str,
             catalog: WorkflowCatalog = LocalWorkflowCatalog({func.__name__: closure}),
+            context_manager: ContextManager = InMemoryContextManager(),
         ) -> WorkflowExecutionContext:
-            runner = WorkflowRunner.default(catalog)
+            runner = WorkflowRunner.default(catalog, context_manager)
             return runner.rerun_workflow(func.__name__, execution_id)
 
         closure.__is_workflow = True
