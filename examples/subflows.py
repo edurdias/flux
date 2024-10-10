@@ -1,9 +1,12 @@
 import httpx
 
-from flux import task, workflow
-from flux.tasks import call_workflow
-from flux.catalogs import LocalWorkflowCatalog
-from flux.context import WorkflowExecutionContext
+from flux import (
+    task,
+    workflow,
+    WorkflowExecutionContext,
+    call_workflow,
+    LocalWorkflowCatalog,
+)
 
 
 @task

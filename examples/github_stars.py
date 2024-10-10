@@ -1,7 +1,6 @@
 import httpx
 
-from flux import task, workflow
-from flux.context import WorkflowExecutionContext
+from flux import task, workflow, WorkflowExecutionContext
 
 
 @task
