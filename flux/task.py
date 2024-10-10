@@ -26,11 +26,12 @@ def task(
 
         @wraps(func)
         def closure(*args, **kwargs):
-            task_name = _get_task_name(args)
+            task_args = _get_task_args(func, args)
+            task_name = _get_task_name(func, name, task_args)
             task_id = _get_task_id(task_name, args, kwargs)
 
             yield ExecutionEvent(
-                ExecutionEventType.TASK_STARTED, task_id, task_name, args
+                ExecutionEventType.TASK_STARTED, task_id, task_name, task_args
             )
 
             output, replay = yield
@@ -82,22 +83,36 @@ def task(
                                     "max_attempts": retry_max_attemps,
                                     "current_delay": current_delay,
                                     "backoff": retry_backoff,
+                                    "output": output,
                                 },
                             )
                             break
                         except Exception as e:
+                            yield ExecutionEvent(
+                                ExecutionEventType.TASK_RETRY_FAILED,
+                                task_id,
+                                task_name,
+                                {
+                                    "current_attempt": attempt,
+                                    "max_attempts": retry_max_attemps,
+                                    "current_delay": current_delay,
+                                    "backoff": retry_backoff,
+                                },
+                            )
                             if attempt == retry_max_attemps:
                                 if fallback:
                                     yield ExecutionEvent(
                                         ExecutionEventType.TASK_FALLBACK_STARTED,
                                         task_id,
                                         task_name,
+                                        task_args,
                                     )
                                     output = fallback(*args, **kwargs)
                                     yield ExecutionEvent(
                                         ExecutionEventType.TASK_FALLBACK_COMPLETED,
                                         task_id,
                                         task_name,
+                                        output,
                                     )
                                 else:
                                     raise RetryException(
@@ -105,11 +120,17 @@ def task(
                                     )
                 elif fallback:
                     yield ExecutionEvent(
-                        ExecutionEventType.TASK_FALLBACK_STARTED, task_id, task_name
+                        ExecutionEventType.TASK_FALLBACK_STARTED,
+                        task_id,
+                        task_name,
+                        task_args,
                     )
                     output = fallback(*args, **kwargs)
                     yield ExecutionEvent(
-                        ExecutionEventType.TASK_FALLBACK_COMPLETED, task_id, task_name
+                        ExecutionEventType.TASK_FALLBACK_COMPLETED,
+                        task_id,
+                        task_name,
+                        output,
                     )
                 else:
                     yield ExecutionEvent(
@@ -121,18 +142,20 @@ def task(
                 ExecutionEventType.TASK_COMPLETED, task_id, task_name, output
             )
 
-        def _get_task_name(args):
+        def _get_task_name(func: Callable, name: str, args: dict):
             task_name = f"{func.__name__}"
             if name is not None:
-                arg_names = getfullargspec(func).args
-                arg_values = [
-                    v.__name__ if isinstance(v, Callable) else str(v) for v in args
-                ]
-                map = dict(zip(arg_names, arg_values))
-                task_name = Template(name).substitute(map)
+                task_name = Template(name).substitute(args)
             return task_name
 
-        def _get_task_id(task_name, args, kwargs):
+        def _get_task_args(func: Callable, args: tuple):
+            arg_names = getfullargspec(func).args
+            arg_values = [
+                v.__name__ if isinstance(v, Callable) else str(v) for v in args
+            ]
+            return dict(zip(arg_names, arg_values))
+
+        def _get_task_id(task_name: str, args: tuple, kwargs: dict):
             return f"{task_name}_{abs(hash((task_name, args, tuple(sorted(kwargs.items())))))}"
 
         return closure

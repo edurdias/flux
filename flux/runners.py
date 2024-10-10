@@ -4,10 +4,9 @@ from abc import ABC, abstractmethod
 
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import InMemoryContextManager
-from flux.exceptions import ExecutionException, TimeoutException
+from flux.exceptions import ExecutionException
 from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
-from flux.utils import call_with_timeout
 
 
 class WorkflowRunner(ABC):
@@ -149,6 +148,7 @@ class LocalWorkflowRunner(WorkflowRunner):
             elif step.type in (
                 ExecutionEventType.TASK_RETRY_STARTED,
                 ExecutionEventType.TASK_RETRY_COMPLETED,
+                ExecutionEventType.TASK_RETRY_FAILED,
             ):
                 ctx.events.append(step)
                 value = gen.send(None)
