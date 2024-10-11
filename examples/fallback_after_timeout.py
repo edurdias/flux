@@ -1,6 +1,6 @@
 import time
 
-from flux import task, workflow
+from flux import workflow, task
 
 
 def fallback_for_long_task(number):
@@ -8,7 +8,7 @@ def fallback_for_long_task(number):
     return f"Task #{number} fellback."
 
 
-@task(fallback=fallback_for_long_task, timeout=3)
+@task.with_options(fallback=fallback_for_long_task, timeout=3)
 def bad_task(number: int, should_take_time: bool = True):
     if should_take_time:
         print(f"Long task #{number}")

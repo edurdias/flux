@@ -47,5 +47,5 @@ class TimeoutException(ExecutionException):
 class WorkflowNotFoundException(ExecutionException):
 
     def __init__(self, name: str):
-        super().__init__(None)
         self._name = name
+        super().__init__(f"Workflow {name} not found.")

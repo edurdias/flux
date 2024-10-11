@@ -3,7 +3,7 @@ import time
 from flux import task, workflow
 
 
-@task(timeout=3)
+@task.with_options(timeout=3)
 def long_task():
     time.sleep(5)
 

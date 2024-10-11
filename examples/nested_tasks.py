@@ -1,4 +1,4 @@
-from flux import task, workflow
+from flux import workflow, task
 
 
 @task

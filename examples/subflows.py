@@ -1,8 +1,8 @@
 import httpx
 
 from flux import (
-    task,
     workflow,
+    task,
     WorkflowExecutionContext,
     call_workflow,
     LocalWorkflowCatalog,

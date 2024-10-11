@@ -1,11 +1,11 @@
-from flux import task, workflow
+from flux import workflow, task
 
 
 def fallback_for_bad_task(number):
     print(f"Fallback for task #{number}")
 
 
-@task(fallback=fallback_for_bad_task, retry_max_attemps=2)
+@task.with_options(fallback=fallback_for_bad_task, retry_max_attemps=2)
 def bad_task(number: int, should_fail: bool = True):
     if should_fail:
         print(f"Failed task #{number}")

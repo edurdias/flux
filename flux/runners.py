@@ -37,13 +37,13 @@ class LocalWorkflowRunner(WorkflowRunner):
         self.context_manager = context_manager
 
     def run_workflow(self, name: str, input: any = None) -> WorkflowExecutionContext:
-        workflow = self.workflow_loader.load_workflow(name)
+        workflow = self.workflow_loader.get(name)
         ctx = WorkflowExecutionContext(name, input)
         self.context_manager.save_context(ctx)
         return self._run(workflow, ctx)
 
     def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
-        workflow = self.workflow_loader.load_workflow(name)
+        workflow = self.workflow_loader.get(name)
         ctx = self.context_manager.get_context(execution_id)
         return self._run(workflow, ctx)
 

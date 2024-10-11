@@ -1,11 +1,9 @@
-from flux import task
 from typing import Callable
-from flux.runners import WorkflowRunner
-from flux.workflow import is_workflow
+from flux import task, WorkflowRunner
 
 
-@task(name="call_workflow_$workflow")
+@task.with_options(name="call_workflow_$workflow")
 def call_workflow(workflow: str | Callable, input: any = None):
-    if isinstance(workflow, Callable) and is_workflow(workflow):
+    if isinstance(workflow, Callable) and workflow.is_workflow(workflow):
         return workflow.run(input).output
     return WorkflowRunner.default().run_workflow(workflow, input).output

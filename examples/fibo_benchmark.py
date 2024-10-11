@@ -1,4 +1,4 @@
-from flux import task, workflow, WorkflowExecutionContext
+from flux import workflow, task, WorkflowExecutionContext
 
 
 def fibo(n: int):
@@ -7,7 +7,7 @@ def fibo(n: int):
     return fibo(n - 1) + fibo(n - 2)
 
 
-@task(name="sum_fibo_$iteration")
+@task.with_options(name="sum_fibo_$iteration")
 def sum_fibo(iteration: int, n: int):
     print(f"Running iteration {iteration}")
     return fibo(n)
