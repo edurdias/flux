@@ -175,8 +175,9 @@ class LocalWorkflowRunner(WorkflowRunner):
                 else:
                     ctx.events.append(step)
 
-        self.context_manager.save_context(ctx)
-        return step.value
+            self.context_manager.save_context(ctx)
+            return step.value
+        return step
 
     def _get_past_events(self, ctx: WorkflowExecutionContext) -> list[ExecutionEvent]:
         return [

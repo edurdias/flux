@@ -1,9 +1,11 @@
+import os
 import time
 from string import Template
 from functools import wraps
 from types import GeneratorType
 from inspect import getfullargspec
 from typing import Any, Callable, TypeVar
+from concurrent.futures import ThreadPoolExecutor
 
 from flux.context_managers import ContextManager, InMemoryContextManager
 from flux.events import ExecutionEvent
@@ -100,6 +102,10 @@ class workflow:
         runner = WorkflowRunner.default(catalog, context_manager)
         return runner.rerun_workflow(self._func.__name__, execution_id)
 
+    def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            return list(executor.map(lambda i: self.run(i), inputs))
+
     def __create_default_catalog(self) -> WorkflowCatalog:
         return LocalWorkflowCatalog({self._func.__name__: self})
 
@@ -154,7 +160,7 @@ class task:
     def __call__(self, *args, **kwargs) -> Any:
         task_args = self.__get_task_args(self._func, args)
         task_name = self.__get_task_name(self._func, self.name, task_args)
-        task_id = self.__get_task_id(task_name, args, kwargs)
+        task_id = self.__get_task_id(task_name, task_args, kwargs)
 
         yield ExecutionEvent(
             ExecutionEventType.TASK_STARTED, task_id, task_name, task_args
@@ -285,12 +291,12 @@ class task:
                 arg_values.append(arg.name)
             elif isinstance(arg, Callable):
                 arg_values.append(arg.__name__)
+            elif isinstance(arg, list):
+                arg_values.append(tuple(arg))
             else:
                 arg_values.append(arg)
 
         return dict(zip(arg_names, arg_values))
 
-    def __get_task_id(self, task_name: str, args: tuple, kwargs: dict):
-        return (
-            f"{task_name}_{abs(hash((task_name, args, tuple(sorted(kwargs.items())))))}"
-        )
+    def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
+        return f"{task_name}_{abs(hash((task_name, tuple(sorted(args.items())), tuple(sorted(kwargs.items())))))}"
