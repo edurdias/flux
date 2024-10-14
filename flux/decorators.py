@@ -180,7 +180,8 @@ class task:
                 )
 
                 if isinstance(output, GeneratorType):
-                    output = yield output
+                    nested_output = yield output  # send for processing
+                    output.send(nested_output)
 
         except Exception as ex:
             if isinstance(ex, StopIteration):
@@ -276,6 +277,14 @@ class task:
         yield ExecutionEvent(
             ExecutionEventType.TASK_COMPLETED, task_id, task_name, output
         )
+
+    def map(self, args: list[any] = []):
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            return list(
+                executor.map(
+                    lambda arg: self(*arg) if isinstance(arg, list) else self(arg), args
+                )
+            )
 
     def __get_task_name(self, func: Callable, name: str, args: dict):
         task_name = f"{func.__name__}"

@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+import os
 from typing import Callable, ContextManager, Self
 from types import GeneratorType
 from abc import ABC, abstractmethod
@@ -11,12 +13,23 @@ from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 
 class WorkflowRunner(ABC):
 
+    @classmethod
+    def current(cls) -> Self:
+        if cls._current is None:
+            cls._current = WorkflowRunner.default()
+        return cls._current
+
     @abstractmethod
     def run_workflow(self, name: str, input: any) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
     @abstractmethod
-    def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
+    def process(
+        self,
+        ctx: WorkflowExecutionContext,
+        gen: GeneratorType,
+        step,
+    ):
         raise NotImplementedError()
 
     def default(
@@ -40,11 +53,6 @@ class LocalWorkflowRunner(WorkflowRunner):
         workflow = self.workflow_loader.get(name)
         ctx = WorkflowExecutionContext(name, input)
         self.context_manager.save_context(ctx)
-        return self._run(workflow, ctx)
-
-    def rerun_workflow(self, name: str, execution_id: str) -> WorkflowExecutionContext:
-        workflow = self.workflow_loader.get(name)
-        ctx = self.context_manager.get_context(execution_id)
         return self._run(workflow, ctx)
 
     def _run(
@@ -80,7 +88,7 @@ class LocalWorkflowRunner(WorkflowRunner):
         # initialize the generator
         next(gen)
 
-        past_events = ctx.events.copy()
+        self._past_events = ctx.events.copy()
 
         # start workflow
         event = gen.send(None)
@@ -88,35 +96,39 @@ class LocalWorkflowRunner(WorkflowRunner):
             event.type == ExecutionEventType.WORKFLOW_STARTED
         ), f"First event should always be {ExecutionEventType.WORKFLOW_STARTED}"
 
-        if past_events:
-            past_events.pop(0)
+        if self._past_events:
+            self._past_events.pop(0)
         else:
             ctx.events.append(event)
 
         # iterate the workflow
         step = gen.send(None)
         while step is not None:
-            value = self._process(ctx, gen, past_events, step)
+            value = self.process(ctx, gen, step)
             step = gen.send(value)
 
         return ctx
 
-    def _process(
+    def process(
         self,
         ctx: WorkflowExecutionContext,
         gen: GeneratorType,
-        past_events: list[ExecutionEvent],
         step,
     ):
         if isinstance(step, GeneratorType):
             value = next(step)
-            return self._process(ctx, step, past_events, value)
+            return self.process(ctx, step, value)
+        
+        if isinstance(step, list) and step and all(isinstance(e, GeneratorType) for e in step):
+            with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                value = list(executor.map(lambda i: self.process(ctx, gen, i), step))
+                return self.process(ctx, gen, value)
 
         if isinstance(step, ExecutionEvent):
             if step.type == ExecutionEventType.TASK_STARTED:
                 next(gen)
-                if past_events:
-                    past_start = past_events.pop(0)
+                if self._past_events:
+                    past_start = self._past_events.pop(0)
 
                     assert (
                         past_start.id == step.id
@@ -124,27 +136,27 @@ class LocalWorkflowRunner(WorkflowRunner):
 
                     # skip retries
                     while (
-                        past_events
-                        and past_events[0].id == step.id
-                        and past_events[0].type == ExecutionEventType.TASK_RETRY_STARTED
+                        self._past_events
+                        and self._past_events[0].id == step.id
+                        and self._past_events[0].type == ExecutionEventType.TASK_RETRY_STARTED
                     ):
-                        past_events.pop(0)
+                        self._past_events.pop(0)
 
-                    gen.send([past_events[0].value, True])
-                    return self._process(ctx, gen, past_events, past_events[0])
+                    gen.send([self._past_events[0].value, True])
+                    return self.process(ctx, gen, self._past_events[0])
 
                 ctx.events.append(step)
                 value = gen.send([None, False])
 
                 if isinstance(value, GeneratorType):
                     try:
-                        value = gen.send(self._process(ctx, gen, past_events, value))
+                        value = gen.send(self.process(ctx, gen, value))
                     except ExecutionException as ex:
                         value = gen.throw(ex)
                     except StopIteration:
                         pass
 
-                return self._process(ctx, gen, past_events, value)
+                return self.process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.TASK_RETRY_STARTED,
                 ExecutionEventType.TASK_RETRY_COMPLETED,
@@ -152,26 +164,26 @@ class LocalWorkflowRunner(WorkflowRunner):
             ):
                 ctx.events.append(step)
                 value = gen.send(None)
-                return self._process(ctx, gen, past_events, value)
+                return self.process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.TASK_FALLBACK_STARTED,
                 ExecutionEventType.TASK_FALLBACK_COMPLETED,
             ):
                 ctx.events.append(step)
                 value = gen.send(None)
-                return self._process(ctx, gen, past_events, value)
+                return self.process(ctx, gen, value)
             elif step.type == ExecutionEventType.TASK_COMPLETED:
-                if past_events:
-                    past_end = past_events.pop(0)
+                if self._past_events:
+                    past_end = self._past_events.pop(0)
                     return past_end.value
                 ctx.events.append(step)
             elif step.type == ExecutionEventType.TASK_FAILED:
                 ctx.events.append(step)
                 value = gen.send(None)
-                return self._process(ctx, gen, past_events, value)
+                return self.process(ctx, gen, value)
             else:
-                if past_events:
-                    past_events.pop(0)
+                if self._past_events:
+                    self._past_events.pop(0)
                 else:
                     ctx.events.append(step)
 
