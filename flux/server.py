@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 from fastapi import Body, FastAPI, HTTPException, Query
 import uvicorn
 
+from flux.context_managers import ContextManager
 from flux.exceptions import ExecutionException, WorkflowNotFoundException
 from flux.executors import WorkflowExecutor
 
@@ -9,12 +10,12 @@ from flux.executors import WorkflowExecutor
 app = FastAPI()
 
 
-@app.post("/execute/{workflow}", response_model=Dict[str, Any])
-@app.post("/execute/{workflow}/{execution_id}", response_model=Dict[str, Any])
+@app.post("/{workflow}", response_model=Dict[str, Any])
+@app.post("/{workflow}/{execution_id}", response_model=Dict[str, Any])
 async def execute(
     workflow: str,
     execution_id: Optional[str] = None,
-    input: Any = Body(),
+    input: Any = Body(default=None),
     inspect: bool = Query(default=False),
 ) -> Dict[str, Any]:
     try:
@@ -32,6 +33,23 @@ async def execute(
         raise HTTPException(status_code=404, detail=ex.message)
     except ExecutionException as ex:
         raise HTTPException(status_code=404, detail=ex.message)
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=str(ex))
+
+
+@app.get("/inspect/{execution_id}", response_model=Dict[str, Any])
+async def execute(execution_id: str) -> Dict[str, Any]:
+    try:
+
+        context = ContextManager.default().get(execution_id)
+        if not context:
+            raise HTTPException(
+                status_code=404, detail=f"Execution '{execution_id}' not found!"
+            )
+        return context.to_dict()
+    
+    except HTTPException:
+        raise
     except Exception as ex:
         raise HTTPException(status_code=500, detail=str(ex))
 

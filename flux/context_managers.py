@@ -86,7 +86,7 @@ class SQLiteContextManager(ContextManager):
                 .filter_by(execution_id=execution_id)
                 .first()
             )
-            return context.to_plain()
+            return context.to_plain() if context else None
 
     def _get_additional_events(self, ctx, context):
         existing_events = [(e.event_id, e.type) for e in context.events]

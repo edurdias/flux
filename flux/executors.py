@@ -48,11 +48,11 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         self, name: str, input: any = None, execution_id: str = None
     ) -> WorkflowExecutionContext:
         workflow = self.catalog.get(name)
-        ctx = (
-            self.context_manager.get(execution_id)
-            if execution_id
-            else WorkflowExecutionContext(name, input, None, [])
+
+        ctx = self.context_manager.get(execution_id) or WorkflowExecutionContext(
+            name, input, None, []
         )
+
         self.context_manager.save(ctx)
         return self._execute(workflow, ctx)
 
