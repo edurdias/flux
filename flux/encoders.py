@@ -1,8 +1,9 @@
 import json
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import GeneratorType
 from typing import Callable
+import uuid
 import flux.context as context
 from flux.exceptions import ExecutionException
 
@@ -33,6 +34,12 @@ class WorkflowContextEncoder(json.JSONEncoder):
             return obj.__name__
 
         if isinstance(obj, GeneratorType):
+            return str(obj)
+
+        if isinstance(obj, timedelta):
+            return obj.total_seconds()
+
+        if isinstance(obj, uuid.UUID):
             return str(obj)
 
         return obj.__dict__

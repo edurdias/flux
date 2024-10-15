@@ -129,3 +129,17 @@ def ExecutionEventModel_before_insert(mapper, connection, target: ExecutionEvent
 @event.listens_for(ExecutionEventModel, "before_update")
 def ExecutionEventModel_before_update(mapper, connection, target: ExecutionEventModel):
     target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
+
+
+@event.listens_for(WorkflowExecutionContextModel, "before_insert")
+def WorkflowExecutionContextModel_before_insert(
+    mapper, connection, target: WorkflowExecutionContextModel
+):
+    target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
+
+
+@event.listens_for(WorkflowExecutionContextModel, "before_update")
+def WorkflowExecutionContextModel_before_update(
+    mapper, connection, target: WorkflowExecutionContextModel
+):
+    target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
