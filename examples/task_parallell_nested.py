@@ -4,7 +4,6 @@ from flux import (
     workflow,
     task,
     WorkflowExecutionContext,
-    LocalWorkflowCatalog,
 )
 
 
@@ -35,5 +34,5 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = task_parallell_nested.run(repositories, LocalWorkflowCatalog(globals()))
+    ctx = task_parallell_nested.run(repositories)
     print(ctx.to_json())
