@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "flux"
+name = "Flux"
 version = "0.1.0"
-description = ""
-authors = ["Your Name <you@example.com>"]
+description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
+authors = ["Eduardo Dias <edurdias@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
@@ -27,7 +27,7 @@ prospector = "^1.12.0"
 
 [tool.poetry.scripts]
 typecheck = "pyright:main"
-serve = "flux.server:run"
+flux = "flux.flux:cli"
 
 [build-system]
 requires = ["poetry-core"]
