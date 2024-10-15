@@ -10,11 +10,21 @@ WorkflowInputType = TypeVar("InputType")
 
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
-    def __init__(self, name: str, input: WorkflowInputType):
+    def __init__(
+        self,
+        name: str,
+        input: WorkflowInputType,
+        execution_id: str = None,
+        events: list[ExecutionEvent] = [],
+    ):
+        self._execution_id = execution_id if execution_id else uuid4().hex
         self._name = name
         self._input = input
-        self._execution_id: str = uuid4().hex
-        self._events: list[ExecutionEvent] = []
+        self._events = events
+
+    @property
+    def execution_id(self) -> str:
+        return self._execution_id
 
     @property
     def name(self) -> str:
@@ -23,10 +33,6 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
     @property
     def input(self) -> WorkflowInputType:
         return self._input
-
-    @property
-    def execution_id(self) -> str:
-        return self._execution_id
 
     @property
     def events(self) -> list[ExecutionEvent]:

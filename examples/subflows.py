@@ -23,7 +23,7 @@ def get_stars(ctx: WorkflowExecutionContext[str]):
 
 
 @workflow
-def github_stars(ctx: WorkflowExecutionContext[list[str]]):
+def subflows(ctx: WorkflowExecutionContext[list[str]]):
     repos = ctx.input
 
     stars = {}
@@ -40,5 +40,5 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = github_stars.run(repositories, LocalWorkflowCatalog(globals()))
+    ctx = subflows.run(repositories, LocalWorkflowCatalog(globals()))
     print(ctx.to_json())

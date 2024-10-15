@@ -5,6 +5,7 @@ from flux.exceptions import WorkflowNotFoundException
 import flux.decorators as decorators
 
 
+# TODO: add catalog backed by database
 class WorkflowCatalog(ABC):
 
     @abstractmethod

@@ -14,12 +14,12 @@ def sum_fibo(iteration: int, n: int):
 
 
 @workflow
-def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
+def fibo_benchmark_parallel(ctx: WorkflowExecutionContext[tuple[int, int]]):
     iterations = ctx.input[0]
     n = ctx.input[1]
     yield sum_fibo.map([[i, n] for i in range(iterations)])
 
 
 if __name__ == "__main__":
-    ctx = fibo_benchmark.run((10, 33))
+    ctx = fibo_benchmark_parallel.run((10, 33))
     print(ctx.to_json())

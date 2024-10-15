@@ -21,9 +21,16 @@ class ExecutionEventType(str, Enum):
 
 class ExecutionEvent:
 
-    def __init__(self, type: ExecutionEventType, id: str, name: str, value: any = None):
+    def __init__(
+        self,
+        type: ExecutionEventType,
+        id: str,
+        name: str,
+        value: any = None,
+        time: datetime = datetime.now(),
+    ):
         self.type = type
         self.id = id
         self.name = name
         self.value = value
-        self.time = datetime.now()
+        self.time = time

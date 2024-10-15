@@ -1,11 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 import os
-from typing import Callable, ContextManager, Self
+from typing import Callable, Self
 from types import GeneratorType
 from abc import ABC, abstractmethod
 
 from flux.context import WorkflowExecutionContext
-from flux.context_managers import InMemoryContextManager
+from flux.context_managers import ContextManager
 from flux.exceptions import ExecutionException
 from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
@@ -34,7 +34,7 @@ class WorkflowRunner(ABC):
 
     def default(
         workflow_loader: WorkflowCatalog = LocalWorkflowCatalog(),
-        context_manager: ContextManager = InMemoryContextManager(),
+        context_manager: ContextManager = ContextManager.default(),
     ) -> Self:
         return LocalWorkflowRunner(workflow_loader, context_manager)
 
@@ -44,15 +44,15 @@ class LocalWorkflowRunner(WorkflowRunner):
     def __init__(
         self,
         workflow_loader: WorkflowCatalog = LocalWorkflowCatalog(),
-        context_manager: ContextManager = InMemoryContextManager(),
+        context_manager: ContextManager = ContextManager.default(),
     ):
         self.workflow_loader = workflow_loader
         self.context_manager = context_manager
 
     def run_workflow(self, name: str, input: any = None) -> WorkflowExecutionContext:
         workflow = self.workflow_loader.get(name)
-        ctx = WorkflowExecutionContext(name, input)
-        self.context_manager.save_context(ctx)
+        ctx = WorkflowExecutionContext(name, input, None, [])
+        self.context_manager.save(ctx)
         return self._run(workflow, ctx)
 
     def _run(
@@ -73,13 +73,12 @@ class LocalWorkflowRunner(WorkflowRunner):
         except ExecutionException as execution_exception:
             event = gen.throw(execution_exception)
             ctx.events.append(event)
-        except StopIteration:
+        except StopIteration as ex:
             pass
         except Exception as ex:
             raise
-        finally:
-            self.context_manager.save_context(ctx)
 
+        self.context_manager.save(ctx)
         return ctx
 
     def __run(
@@ -118,8 +117,12 @@ class LocalWorkflowRunner(WorkflowRunner):
         if isinstance(step, GeneratorType):
             value = next(step)
             return self.process(ctx, step, value)
-        
-        if isinstance(step, list) and step and all(isinstance(e, GeneratorType) for e in step):
+
+        if (
+            isinstance(step, list)
+            and step
+            and all(isinstance(e, GeneratorType) for e in step)
+        ):
             with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
                 value = list(executor.map(lambda i: self.process(ctx, gen, i), step))
                 return self.process(ctx, gen, value)
@@ -138,7 +141,8 @@ class LocalWorkflowRunner(WorkflowRunner):
                     while (
                         self._past_events
                         and self._past_events[0].id == step.id
-                        and self._past_events[0].type == ExecutionEventType.TASK_RETRY_STARTED
+                        and self._past_events[0].type
+                        == ExecutionEventType.TASK_RETRY_STARTED
                     ):
                         self._past_events.pop(0)
 
@@ -187,7 +191,7 @@ class LocalWorkflowRunner(WorkflowRunner):
                 else:
                     ctx.events.append(step)
 
-            self.context_manager.save_context(ctx)
+            self.context_manager.save(ctx)
             return step.value
         return step
 

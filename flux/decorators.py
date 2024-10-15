@@ -69,7 +69,7 @@ class workflow:
                 ex.inner_exception,
             )
         except Exception as ex:
-            # TODO: add retry support
+            # TODO: add retry support to workflow
             raise
 
     def run(
@@ -80,27 +80,10 @@ class workflow:
     ) -> WorkflowExecutionContext:
         catalog = catalog if catalog is not None else self.__create_default_catalog()
         context_manager = (
-            context_manager
-            if context_manager is not None
-            else self.__create_default_context_manager()
+            context_manager if context_manager is not None else ContextManager.default()
         )
         runner = WorkflowRunner.default(catalog, context_manager)
         return runner.run_workflow(self._func.__name__, input)
-
-    def rerun(
-        self,
-        execution_id: str,
-        catalog: WorkflowCatalog = None,
-        context_manager: ContextManager = None,
-    ) -> WorkflowExecutionContext:
-        catalog = catalog if catalog is not None else self.__create_default_catalog()
-        context_manager = (
-            context_manager
-            if context_manager is not None
-            else self.__create_default_context_manager()
-        )
-        runner = WorkflowRunner.default(catalog, context_manager)
-        return runner.rerun_workflow(self._func.__name__, execution_id)
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -108,9 +91,6 @@ class workflow:
 
     def __create_default_catalog(self) -> WorkflowCatalog:
         return LocalWorkflowCatalog({self._func.__name__: self})
-
-    def __create_default_context_manager(self) -> ContextManager:
-        return InMemoryContextManager()
 
 
 class task:
@@ -191,25 +171,31 @@ class task:
                 while attempt < self.retry_max_attemps:
                     attempt += 1
                     current_delay = self.retry_delay
+                    retry_args = {
+                        "current_attempt": attempt,
+                        "max_attempts": self.retry_max_attemps,
+                        "current_delay": current_delay,
+                        "backoff": self.retry_backoff,
+                    }
+
+                    retry_task_id = self.__get_task_id(
+                        task_id, task_args, {**kwargs, **retry_args}
+                    )
+
                     try:
                         time.sleep(current_delay)
                         current_delay = min(current_delay * self.retry_backoff, 600)
 
                         yield ExecutionEvent(
                             ExecutionEventType.TASK_RETRY_STARTED,
-                            task_id,
+                            retry_task_id,
                             task_name,
-                            {
-                                "current_attempt": attempt,
-                                "max_attempts": self.retry_max_attemps,
-                                "current_delay": current_delay,
-                                "backoff": self.retry_backoff,
-                            },
+                            retry_args,
                         )
                         output = self._func(*args, **kwargs)
                         yield ExecutionEvent(
                             ExecutionEventType.TASK_RETRY_COMPLETED,
-                            task_id,
+                            retry_task_id,
                             task_name,
                             {
                                 "current_attempt": attempt,
@@ -223,7 +209,7 @@ class task:
                     except Exception as e:
                         yield ExecutionEvent(
                             ExecutionEventType.TASK_RETRY_FAILED,
-                            task_id,
+                            retry_task_id,
                             task_name,
                             {
                                 "current_attempt": attempt,
