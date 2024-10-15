@@ -5,7 +5,7 @@ Flux is a distributed workflow orchestration engine to build stateful and fault-
 
 1. Install the latest version of Flux
 
-```shell
+```sh
 pip install flux
 ```
 
@@ -32,13 +32,13 @@ if __name__ == "__main__":
 
 3. Execute the workflow locally
 
-```shell
+```sh
 flux exec hello_world.py hello_world "Joe"
 ```
 
 4. If you prefer via API
 
-```shell
+```sh
 flux start examples
 
 curl --location 'localhost:8000/hello_world' \
