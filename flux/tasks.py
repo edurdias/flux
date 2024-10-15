@@ -2,7 +2,7 @@ import uuid
 import random
 from datetime import datetime
 from flux.decorators import task, workflow
-from flux.runners import WorkflowRunner
+from flux.executors import WorkflowExecutor
 
 
 @task
@@ -29,4 +29,4 @@ def randrange(start: int, stop: int | None = None, step: int = 1):
 def call_workflow(workflow: str | workflow, input: any = None):
     if isinstance(workflow, workflow) and workflow.is_workflow(workflow):
         return workflow.run(input).output
-    return WorkflowRunner.current().run_workflow(workflow, input).output
+    return WorkflowExecutor.current().execute(workflow, input).output

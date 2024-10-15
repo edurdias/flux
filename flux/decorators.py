@@ -1,5 +1,7 @@
+import inspect
 import os
 import time
+
 from string import Template
 from functools import wraps
 from types import GeneratorType
@@ -7,14 +9,14 @@ from inspect import getfullargspec
 from typing import Any, Callable, TypeVar
 from concurrent.futures import ThreadPoolExecutor
 
-from flux.context_managers import ContextManager, InMemoryContextManager
 from flux.events import ExecutionEvent
-from flux.events import ExecutionEventType
-from flux.runners import WorkflowRunner
 from flux.utils import call_with_timeout
+from flux.catalogs import WorkflowCatalog
+from flux.events import ExecutionEventType
+from flux.executors import WorkflowExecutor
+from flux.context_managers import ContextManager
 from flux.context import WorkflowExecutionContext
 from flux.exceptions import ExecutionException, RetryException
-from flux.catalogs import LocalWorkflowCatalog, WorkflowCatalog
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -75,22 +77,29 @@ class workflow:
     def run(
         self,
         input: any = None,
+        execution_id: str = None,
         catalog: WorkflowCatalog = None,
         context_manager: ContextManager = None,
     ) -> WorkflowExecutionContext:
-        catalog = catalog if catalog is not None else self.__create_default_catalog()
-        context_manager = (
-            context_manager if context_manager is not None else ContextManager.default()
-        )
-        runner = WorkflowRunner.default(catalog, context_manager)
-        return runner.run_workflow(self._func.__name__, input)
+        catalog = self.__get_catalog(catalog)
+        context_manager = self.__get_context_manager(context_manager)
+        executor = WorkflowExecutor.default(catalog, context_manager)
+        return executor.execute(self._func.__name__, input, execution_id)
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             return list(executor.map(lambda i: self.run(i), inputs))
 
-    def __create_default_catalog(self) -> WorkflowCatalog:
-        return LocalWorkflowCatalog({self._func.__name__: self})
+    def __get_context_manager(self, context_manager: ContextManager) -> ContextManager:
+        if context_manager:
+            return context_manager
+        return ContextManager.default()
+
+    def __get_catalog(self, catalog: WorkflowCatalog = None) -> WorkflowCatalog:
+        caller_globals = inspect.stack()[2].frame.f_globals
+        if catalog:
+            return catalog
+        return WorkflowCatalog.default(caller_globals)
 
 
 class task:
@@ -149,19 +158,20 @@ class task:
         output, replay = yield
 
         try:
-            if not replay:
+            if replay:
+                yield output
 
-                output = call_with_timeout(
-                    lambda: self._func(*args, **kwargs),
-                    "Task",
-                    task_name,
-                    task_id,
-                    self.timeout,
-                )
+            output = call_with_timeout(
+                lambda: self._func(*args, **kwargs),
+                "Task",
+                task_name,
+                task_id,
+                self.timeout,
+            )
 
-                if isinstance(output, GeneratorType):
-                    nested_output = yield output  # send for processing
-                    output.send(nested_output)
+            if isinstance(output, GeneratorType):
+                nested_output = yield output  # send for processing
+                output.send(nested_output)
 
         except Exception as ex:
             if isinstance(ex, StopIteration):

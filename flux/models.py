@@ -3,11 +3,15 @@ import json
 from typing import Self
 from sqlalchemy import (
     Column,
+    Date,
+    DateTime,
+    Integer,
     PrimaryKeyConstraint,
     String,
     JSON,
     ForeignKey,
     Enum as SqlEnum,
+    UniqueConstraint,
     event,
 )
 from sqlalchemy.orm import relationship, declarative_base
@@ -37,6 +41,7 @@ class WorkflowExecutionContextModel(Base):
         "ExecutionEventModel",
         back_populates="execution",
         cascade="all, delete-orphan",
+        order_by="ExecutionEventModel.id",
     )
 
     def __init__(
@@ -76,20 +81,23 @@ class WorkflowExecutionContextModel(Base):
 
 class ExecutionEventModel(Base):
     __tablename__ = "workflow_execution_events"
-    __table_args__ = (PrimaryKeyConstraint("execution_id", "event_id", "type"),)
 
     execution_id = Column(
         String, ForeignKey("workflow_executions.execution_id"), nullable=False
     )
-    event_id = Column(String, nullable=False)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_id = Column(String, nullable=False)
+    event_id = Column(String, nullable=False, unique=True)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
     value = Column(JSON, nullable=True)
-    time = Column(String, nullable=False)
+    time = Column(DateTime, nullable=False)
     execution = relationship("WorkflowExecutionContextModel", back_populates="events")
 
     def __init__(
         self,
+        source_id: str,
         event_id: str,
         execution_id: str,
         type: ExecutionEventType,
@@ -97,6 +105,7 @@ class ExecutionEventModel(Base):
         time: datetime,
         value: any = None,
     ):
+        self.source_id = source_id
         self.event_id = event_id
         self.execution_id = execution_id
         self.type = type
@@ -106,13 +115,19 @@ class ExecutionEventModel(Base):
 
     def to_plain(self) -> ExecutionEvent:
         return ExecutionEvent(
-            self.type, self.event_id, self.name, self.value, self.time
+            type=self.type,
+            id=self.event_id,
+            source_id=self.source_id,
+            name=self.name,
+            value=self.value,
+            time=self.time,
         )
 
     @classmethod
     def from_plain(cls, execution_id: str, obj: ExecutionEvent) -> Self:
         return cls(
             execution_id=execution_id,
+            source_id=obj.source_id,
             event_id=obj.id,
             type=obj.type,
             name=obj.name,
