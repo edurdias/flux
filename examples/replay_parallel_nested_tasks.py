@@ -1,4 +1,4 @@
-from examples.task_parallell_nested import task_parallell_nested
+from examples.task_parallel_nested import task_parallel_nested
 
 
 if __name__ == "__main__":
@@ -9,8 +9,8 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = task_parallell_nested.run(repositories)
+    ctx = task_parallel_nested.run(repositories)
     print(ctx.to_json())
 
-    replay_ctx = task_parallell_nested.run(execution_id=ctx.execution_id)
+    replay_ctx = task_parallel_nested.run(execution_id=ctx.execution_id)
     print(ctx.to_json())

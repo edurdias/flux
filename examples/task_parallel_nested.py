@@ -20,7 +20,7 @@ def get_stars(repo: str):
 
 
 @workflow
-def task_parallell_nested(ctx: WorkflowExecutionContext[list[str]]):
+def task_parallel_nested(ctx: WorkflowExecutionContext[list[str]]):
     repos = ctx.input
     stars = yield get_stars.map(repos)
     return dict(zip(repos, stars))
@@ -34,5 +34,5 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = task_parallell_nested.run(repositories)
+    ctx = task_parallel_nested.run(repositories)
     print(ctx.to_json())

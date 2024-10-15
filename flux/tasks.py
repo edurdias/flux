@@ -1,32 +1,32 @@
 import uuid
 import random
 from datetime import datetime
-from flux.decorators import task, workflow
+
+import flux.decorators as d
 from flux.executors import WorkflowExecutor
 
 
-@task
+@d.task
 def now() -> datetime:
     return datetime.now()
 
 
-@task
+@d.task
 def uuid4() -> uuid.UUID:
     return uuid.uuid4()
 
 
-@task
+@d.task
 def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 
 
-@task
+@d.task
 def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
 
 
-@task.with_options(name="call_workflow_$workflow")
-def call_workflow(workflow: str | workflow, input: any = None):
-    if isinstance(workflow, workflow) and workflow.is_workflow(workflow):
-        return workflow.run(input).output
-    return WorkflowExecutor.current().execute(workflow, input).output
+@d.task.with_options(name="call_workflow_$workflow")
+def call_workflow(workflow: str | d.workflow, input: any = None):
+    name = workflow.name if isinstance(workflow, d.workflow) else str(workflow)
+    return WorkflowExecutor.current().execute(name, input).output

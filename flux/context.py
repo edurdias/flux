@@ -57,5 +57,16 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
             return completed[0].value
         return None
 
+    def summary(self):
+        return {
+            "execution_id": self.execution_id,
+            "name": self.name,
+            "input": self.input,
+            "output": self.output,
+        }
+
+    def to_dict(self):
+        return json.loads(self.to_json())
+
     def to_json(self):
         return json.dumps(self, indent=4, cls=WorkflowContextEncoder)

@@ -1,12 +1,6 @@
 import httpx
 
-from flux import (
-    workflow,
-    task,
-    WorkflowExecutionContext,
-    call_workflow,
-    LocalWorkflowCatalog,
-)
+from flux import workflow, task, WorkflowExecutionContext, call_workflow
 
 
 @task
@@ -17,7 +11,7 @@ def get_repo_info(repo):
 
 
 @workflow
-def get_stars(ctx: WorkflowExecutionContext[str]):
+def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
     repo_info = yield get_repo_info(ctx.input)
     return repo_info["stargazers_count"]
 
@@ -28,7 +22,7 @@ def subflows(ctx: WorkflowExecutionContext[list[str]]):
 
     stars = {}
     for repo in repos:
-        stars[repo] = yield call_workflow(get_stars, repo)
+        stars[repo] = yield call_workflow(get_stars_workflow, repo)
     return stars
 
 
@@ -40,5 +34,5 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = subflows.run(repositories, LocalWorkflowCatalog(globals()))
+    ctx = subflows.run(repositories)
     print(ctx.to_json())

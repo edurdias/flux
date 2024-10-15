@@ -75,15 +75,9 @@ class workflow:
             raise
 
     def run(
-        self,
-        input: any = None,
-        execution_id: str = None,
-        catalog: WorkflowCatalog = None,
-        context_manager: ContextManager = None,
+        self, input: any = None, execution_id: str = None, options: dict[str, any] = []
     ) -> WorkflowExecutionContext:
-        catalog = self.__get_catalog(catalog)
-        context_manager = self.__get_context_manager(context_manager)
-        executor = WorkflowExecutor.default(catalog, context_manager)
+        executor = WorkflowExecutor.current(options)
         return executor.execute(self._func.__name__, input, execution_id)
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
@@ -99,7 +93,7 @@ class workflow:
         caller_globals = inspect.stack()[2].frame.f_globals
         if catalog:
             return catalog
-        return WorkflowCatalog.default(caller_globals)
+        return WorkflowCatalog.create(caller_globals)
 
 
 class task:

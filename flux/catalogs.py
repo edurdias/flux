@@ -1,8 +1,10 @@
-from abc import ABC, abstractmethod
+import importlib
+import sys
 from typing import Callable, Self
+from abc import ABC, abstractmethod
 
-from flux.exceptions import WorkflowNotFoundException
-import flux.decorators as decorators
+import flux.decorators as d
+from flux.exceptions import WorkflowCatalogException, WorkflowNotFoundException
 
 
 # TODO: add catalog backed by database
@@ -13,17 +15,21 @@ class WorkflowCatalog(ABC):
         raise NotImplementedError()
 
     @staticmethod
-    def default(workflows: dict = globals()) -> Self:
-        return LocalWorkflowCatalog(workflows)
+    def create(options: dict[str, any]) -> Self:
+        return ModuleWorkflowCatalog(options)
 
 
-class LocalWorkflowCatalog(WorkflowCatalog):
+class ModuleWorkflowCatalog(WorkflowCatalog):
 
-    def __init__(self, workflows: dict = globals()):
-        self._workflows = workflows
+    def __init__(self, options: dict[str, any]):
+        if "module" in options:
+            self._module = importlib.import_module(options["module"])
+        else:
+            self._module = sys.modules["__main__"]
 
     def get(self, name: str) -> Callable:
-        w = self._workflows.get(name)
-        if not w or not decorators.workflow.is_workflow(w):
+
+        w = getattr(self._module, name)
+        if not w or not d.workflow.is_workflow(w):
             raise WorkflowNotFoundException(name)
         return w

@@ -1,25 +1,22 @@
+from concurrent.futures import ThreadPoolExecutor
 import os
-
 from typing import Callable, Self
 from types import GeneratorType
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
 
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.exceptions import ExecutionException
 from flux.events import ExecutionEvent, ExecutionEventType
-from flux.catalogs import WorkflowCatalog
+from flux.catalogs import ModuleWorkflowCatalog, WorkflowCatalog
 
 
 class WorkflowExecutor(ABC):
 
-    _current: Self = None
-
     @classmethod
-    def current(cls, options: dict[str, any] = None) -> Self:
+    def current(cls) -> Self:
         if cls._current is None:
-            cls._current = WorkflowExecutor.create(options)
+            cls._current = WorkflowExecutor.default()
         return cls._current
 
     @abstractmethod
@@ -28,21 +25,22 @@ class WorkflowExecutor(ABC):
     ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
-    @staticmethod
-    def create(options: dict[str, any] = None) -> Self:
-        return DefaultWorkflowExecutor(options)
-
-
-class Options:
-
-    module: str
+    def default(
+        workflow_loader: WorkflowCatalog = ModuleWorkflowCatalog(),
+        context_manager: ContextManager = ContextManager.default(),
+    ) -> Self:
+        return DefaultWorkflowExecutor(workflow_loader, context_manager)
 
 
 class DefaultWorkflowExecutor(WorkflowExecutor):
 
-    def __init__(self, options: Options):
-        self.catalog = WorkflowCatalog.create(options)
-        self.context_manager = ContextManager.default()
+    def __init__(
+        self,
+        catalog: WorkflowCatalog = WorkflowCatalog.create(),
+        context_manager: ContextManager = ContextManager.default(),
+    ):
+        self.catalog = catalog
+        self.context_manager = context_manager
 
     def execute(
         self, name: str, input: any = None, execution_id: str = None
@@ -75,7 +73,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
 
             self._past_events = ctx.events.copy()
 
-            # always start workflow
+            # start workflow
             event = gen.send(None)
             assert (
                 event.type == ExecutionEventType.WORKFLOW_STARTED
@@ -89,9 +87,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             # iterate the workflow
             step = gen.send(None)
             while step is not None:
-                value = self.__process(
-                    ctx, gen, step, replay=len(self._past_events) > 0
-                )
+                value = self.__process(ctx, gen, step)
                 step = gen.send(value)
 
         except ExecutionException as execution_exception:
@@ -109,11 +105,9 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         self,
         ctx: WorkflowExecutionContext,
         gen: GeneratorType,
-        step: GeneratorType | list | ExecutionEvent,
-        replay: bool = False,
+        step,
     ):
         if isinstance(step, GeneratorType):
-            # if isinstance(step.gi_frame.f_locals['self'], d.workflow):
             value = next(step)
             return self.__process(ctx, step, value)
 
@@ -129,20 +123,24 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         if isinstance(step, ExecutionEvent):
             if step.type == ExecutionEventType.TASK_STARTED:
                 next(gen)
+                if self._past_events:
+                    past_start = self._past_events.pop(0)
 
-                source_pasts_events = [
-                    e for e in self._past_events if e.source_id == step.source_id
-                ]
+                    assert (
+                        past_start.id == step.id
+                    ), f"Past start event should have the same id of current event."
 
-                if source_pasts_events:
-                    for spe in source_pasts_events:
-                        self._past_events.remove(spe)
-                        if spe.type in (
-                            ExecutionEventType.TASK_COMPLETED,
-                            ExecutionEventType.TASK_FAILED,
-                        ):
-                            value = gen.send([spe, True])
-                            return self.__process(ctx, gen, spe, replay=True)
+                    # skip retries
+                    while (
+                        self._past_events
+                        and self._past_events[0].id == step.id
+                        and self._past_events[0].type
+                        == ExecutionEventType.TASK_RETRY_STARTED
+                    ):
+                        self._past_events.pop(0)
+
+                    gen.send([self._past_events[0].value, True])
+                    return self.__process(ctx, gen, self._past_events[0])
 
                 ctx.events.append(step)
                 value = gen.send([None, False])
@@ -161,37 +159,31 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 ExecutionEventType.TASK_RETRY_COMPLETED,
                 ExecutionEventType.TASK_RETRY_FAILED,
             ):
-                if not replay:
-                    ctx.events.append(step)
+                ctx.events.append(step)
                 value = gen.send(None)
                 return self.__process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.TASK_FALLBACK_STARTED,
                 ExecutionEventType.TASK_FALLBACK_COMPLETED,
             ):
-                if not replay:
-                    ctx.events.append(step)
+                ctx.events.append(step)
                 value = gen.send(None)
                 return self.__process(ctx, gen, value)
             elif step.type == ExecutionEventType.TASK_COMPLETED:
-                if not replay:
-                    ctx.events.append(step)
+                if self._past_events:
+                    past_end = self._past_events.pop(0)
+                    return past_end.value
+                ctx.events.append(step)
             elif step.type == ExecutionEventType.TASK_FAILED:
-                if not replay:
-                    ctx.events.append(step)
+                ctx.events.append(step)
                 value = gen.send(None)
                 return self.__process(ctx, gen, value)
             else:
-                if not replay:
+                if self._past_events:
+                    self._past_events.pop(0)
+                else:
                     ctx.events.append(step)
 
             self.context_manager.save(ctx)
             return step.value
         return step
-
-    def _get_past_event_for(self, event: ExecutionEvent) -> ExecutionEvent:
-        assert (
-            event == self._past_events[0]
-        ), f"Past event should be the same of current event"
-
-        return self._past_events.pop(0)

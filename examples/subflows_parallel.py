@@ -1,31 +1,12 @@
-import httpx
-
-from flux import (
-    workflow,
-    task,
-    WorkflowExecutionContext,
-    LocalWorkflowCatalog,
-)
-
-
-@task
-def get_repo_info(repo):
-    url = f"https://api.github.com/repos/{repo}"
-    repo_info = httpx.get(url).json()
-    return repo_info
-
-
-@workflow
-def get_stars(ctx: WorkflowExecutionContext[str]):
-    repo_info = yield get_repo_info(ctx.input)
-    return {ctx.input: repo_info["stargazers_count"]}
+from examples.subflows import get_stars_workflow
+from flux import workflow, WorkflowExecutionContext
 
 
 @workflow
 def subflows_parallel(ctx: WorkflowExecutionContext[list[str]]):
     repos = ctx.input
-    responses = yield get_stars.map(repos)
-    return {key: value for ctx in responses for key, value in ctx.output.items()}
+    responses = yield get_stars_workflow.map(repos)
+    return {rc.input: rc.output for rc in responses}
 
 
 if __name__ == "__main__":
@@ -36,5 +17,5 @@ if __name__ == "__main__":
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = subflows_parallel.run(repositories, LocalWorkflowCatalog(globals()))
+    ctx = subflows_parallel.run(repositories)
     print(ctx.to_json())
