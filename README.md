@@ -1,4 +1,4 @@
-# flux
+# Flux
 Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows.
 
 ## Getting started
@@ -6,7 +6,7 @@ Flux is a distributed workflow orchestration engine to build stateful and fault-
 1. Install the latest version of Flux
 
 ```sh
-pip install flux
+pip install flux-core
 ```
 
 > Flux requires Python 3.12 or later.
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     print(ctx.to_json())
 ```
 
-> For more examples, checkout the [examples](examples/) folder.
+> For more examples, checkout the `examples` folder.
 
 3. Execute the workflow locally
 
