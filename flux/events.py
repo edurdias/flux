@@ -5,18 +5,23 @@ from enum import Enum
 class ExecutionEventType(str, Enum):
 
     WORKFLOW_STARTED = "WORKFLOW_STARTED"
-    WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
-    WORKFLOW_FAILED = "WORKFLOW_FAILED"
     WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
     WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
+    WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
+    WORKFLOW_FAILED = "WORKFLOW_FAILED"
+
     TASK_STARTED = "TASK_STARTED"
+    TASK_PAUSED = "TASK_PAUSED"
+    TASK_RESUMED = "TASK_RESUMED"
     TASK_COMPLETED = "TASK_COMPLETED"
+    TASK_FAILED = "TASK_FAILED"
+
     TASK_RETRY_STARTED = "TASK_RETRY_STARTED"
     TASK_RETRY_COMPLETED = "TASK_RETRY_COMPLETED"
     TASK_RETRY_FAILED = "TASK_RETRY_FAILED"
+
     TASK_FALLBACK_STARTED = "TASK_FALLBACK_STARTED"
     TASK_FALLBACK_COMPLETED = "TASK_FALLBACK_COMPLETED"
-    TASK_FAILED = "TASK_FAILED"
 
 
 class ExecutionEvent:
@@ -27,14 +32,14 @@ class ExecutionEvent:
         source_id: str,
         name: str,
         value: any = None,
-        time: datetime = datetime.now(),
+        time: datetime = None,
         id: str = None,
     ):
         self.type = type
         self.name = name
         self.source_id = source_id
         self.value = value
-        self.time = time
+        self.time = time or datetime.now()
         self.id = id if id else self.__generate_id()
 
     def __eq__(self, other):

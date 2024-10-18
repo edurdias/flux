@@ -1,9 +1,10 @@
 import os
+import time
 import uuid
 import random
 
 from typing import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import flux.decorators as d
@@ -39,6 +40,24 @@ def parallel(*functions: Callable):
             result = yield future.result()
             results.append(result)
     return results
+
+
+@d.task
+def sleep(duration: float | timedelta):
+    """
+    Pauses the execution of the workflow for a given duration.
+
+    Parameters:
+    duration (float | timedelta): The amount of time to sleep.
+        - If `duration` is a float, it represents the number of seconds to sleep.
+        - If `duration` is a timedelta, it will be converted to seconds using the `total_seconds()` method.
+
+    Raises:
+    TypeError: If `duration` is neither a float nor a timedelta.
+    """
+    if isinstance(duration, timedelta):
+        duration = duration.total_seconds() 
+    time.sleep(duration)
 
 
 @d.task.with_options(name="call_workflow_$workflow")

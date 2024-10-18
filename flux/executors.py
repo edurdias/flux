@@ -5,6 +5,8 @@ from types import GeneratorType
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
+import flux.decorators as d
+
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.exceptions import ExecutionException
@@ -60,9 +62,6 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         self, workflow: Callable, ctx: WorkflowExecutionContext
     ) -> WorkflowExecutionContext:
 
-        if ctx.finished:
-            return ctx
-
         gen = workflow(ctx)
         assert isinstance(
             gen, GeneratorType
@@ -89,9 +88,8 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             # iterate the workflow
             step = gen.send(None)
             while step is not None:
-                value = self.__process(
-                    ctx, gen, step, replay=len(self._past_events) > 0
-                )
+                should_replay = len(self._past_events) > 0
+                value = self.__process(ctx, gen, step, replay=should_replay)
                 step = gen.send(value)
 
         except ExecutionException as execution_exception:
@@ -115,9 +113,9 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         if isinstance(step, GeneratorType):
             try:
                 value = next(step)
-                return self.__process(ctx, step, value)
+                return self.__process(ctx, step, value, replay)
             except StopIteration as ex:
-                return self.__process(ctx, step, ex.value)
+                return self.__process(ctx, step, ex.value, replay)
 
         if (
             isinstance(step, list)
@@ -130,6 +128,10 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
 
         if isinstance(step, ExecutionEvent):
             if step.type == ExecutionEventType.TASK_STARTED:
+
+                task = gen.gi_frame.f_locals["self"]
+                assert isinstance(task, d.task)
+
                 next(gen)
 
                 source_pasts_events = [
@@ -143,8 +145,10 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                             ExecutionEventType.TASK_COMPLETED,
                             ExecutionEventType.TASK_FAILED,
                         ):
-                            value = gen.send([spe, True])
-                            return self.__process(ctx, gen, spe, replay=True)
+                            value = gen.send(
+                                [spe, replay and not task.disable_replay]
+                            )
+                            return self.__process(ctx, gen, spe, replay)
 
                 ctx.events.append(step)
                 value = gen.send([None, False])

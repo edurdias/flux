@@ -11,10 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flux.events import ExecutionEvent
 from flux.utils import call_with_timeout
-from flux.catalogs import WorkflowCatalog
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
-from flux.context_managers import ContextManager
 from flux.context import WorkflowExecutionContext
 from flux.exceptions import ExecutionException, RetryException
 
@@ -95,17 +93,19 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
+        disable_replay: bool = False,
     ) -> Callable[[F], "task"]:
 
         def wrapper(func: F) -> "task":
             return task(
-                func,
-                name,
-                fallback,
-                retry_max_attemps,
-                retry_delay,
-                retry_backoff,
-                timeout,
+                func=func,
+                name=name,
+                fallback=fallback,
+                retry_max_attemps=retry_max_attemps,
+                retry_delay=retry_delay,
+                retry_backoff=retry_backoff,
+                timeout=timeout,
+                disable_replay=disable_replay,
             )
 
         return wrapper
@@ -119,6 +119,7 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
+        disable_replay: bool = False,
     ):
         self._func = func
         self.name = name if not None else func.__name__
@@ -127,6 +128,7 @@ class task:
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
+        self.disable_replay = disable_replay
         wraps(func)(self)
 
     def __call__(self, *args, **kwargs) -> Any:
