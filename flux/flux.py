@@ -25,12 +25,14 @@ def exec(file_path: str, workflow: str, input: any, execution_id: str = None):
     executor = WorkflowExecutor.current({"file_path": file_path})
     print(executor.execute(workflow, input, execution_id).to_json())
 
+
 @cli.command()
 @click.argument("path")
 def start(path: str):
     """Start the server to execute Workflows via API."""
 
     app = FastAPI()
+
     @app.post("/{workflow}", response_model=Dict[str, Any])
     @app.post("/{workflow}/{execution_id}", response_model=Dict[str, Any])
     async def execute(

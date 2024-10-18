@@ -113,9 +113,11 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         replay: bool = False,
     ):
         if isinstance(step, GeneratorType):
-            # if isinstance(step.gi_frame.f_locals['self'], d.workflow):
-            value = next(step)
-            return self.__process(ctx, step, value)
+            try:
+                value = next(step)
+                return self.__process(ctx, step, value)
+            except StopIteration as ex:
+                return self.__process(ctx, step, ex.value)
 
         if (
             isinstance(step, list)
@@ -147,13 +149,13 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 ctx.events.append(step)
                 value = gen.send([None, False])
 
-                if isinstance(value, GeneratorType):
+                while isinstance(value, GeneratorType):
                     try:
                         value = gen.send(self.__process(ctx, gen, value))
                     except ExecutionException as ex:
                         value = gen.throw(ex)
-                    except StopIteration:
-                        pass
+                    except StopIteration as ex:
+                        value = ex.value
 
                 return self.__process(ctx, gen, value)
             elif step.type in (

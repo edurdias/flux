@@ -23,6 +23,7 @@ def say_hello(name: str):
 @workflow
 def hello_world(ctx: WorkflowExecutionContext[str]):
     return (yield say_hello(ctx.input))
+    
 if __name__ == "__main__":
     ctx = hello_world.run("Joe")
     print(ctx.to_json())
@@ -55,7 +56,7 @@ curl --location 'localhost:8000/hello_world' \
 
 ## Next Steps
 
-- Checkout the tutoarials and examples
+- Checkout the tutorials and examples
 - Learn how to configure and deploy Flux on different environments
 
 

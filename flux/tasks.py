@@ -1,6 +1,10 @@
+import os
 import uuid
 import random
+
+from typing import Callable
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import flux.decorators as d
 from flux.executors import WorkflowExecutor
@@ -24,6 +28,17 @@ def randint(a: int, b: int) -> int:
 @d.task
 def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
+
+
+@d.task
+def parallel(*functions: Callable):
+    results = []
+    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+        futures = [executor.submit(func) for func in functions]
+        for future in as_completed(futures):
+            result = yield future.result()
+            results.append(result)
+    return results
 
 
 @d.task.with_options(name="call_workflow_$workflow")

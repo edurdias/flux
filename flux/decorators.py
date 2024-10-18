@@ -84,17 +84,6 @@ class workflow:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             return list(executor.map(lambda i: self.run(i), inputs))
 
-    def __get_context_manager(self, context_manager: ContextManager) -> ContextManager:
-        if context_manager:
-            return context_manager
-        return ContextManager.default()
-
-    def __get_catalog(self, catalog: WorkflowCatalog = None) -> WorkflowCatalog:
-        caller_globals = inspect.stack()[2].frame.f_globals
-        if catalog:
-            return catalog
-        return WorkflowCatalog.create(caller_globals)
-
 
 class task:
 
@@ -164,8 +153,10 @@ class task:
             )
 
             if isinstance(output, GeneratorType):
-                nested_output = yield output  # send for processing
-                output.send(nested_output)
+                value = output
+                while True:
+                    value = yield value
+                    value = output.send(value)
 
         except Exception as ex:
             if isinstance(ex, StopIteration):
