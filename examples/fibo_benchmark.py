@@ -17,8 +17,11 @@ def sum_fibo(iteration: int, n: int):
 def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
     iterations = ctx.input[0]
     n = ctx.input[1]
+    results = {}
     for i in range(iterations):
-        yield sum_fibo(i, n)
+        result = yield sum_fibo(i, n)
+        results.update({f"Iteration #{i}": result})
+    return results
 
 
 if __name__ == "__main__":

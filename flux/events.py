@@ -11,8 +11,6 @@ class ExecutionEventType(str, Enum):
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
 
     TASK_STARTED = "TASK_STARTED"
-    TASK_PAUSED = "TASK_PAUSED"
-    TASK_RESUMED = "TASK_RESUMED"
     TASK_COMPLETED = "TASK_COMPLETED"
     TASK_FAILED = "TASK_FAILED"
 
@@ -48,4 +46,5 @@ class ExecutionEvent:
         return False
 
     def __generate_id(self):
-        return f"{abs(hash(tuple(sorted({"type": self.type, "source_id": self.source_id}.items()))))}"
+        args = {"name": self.name, "type": self.type, "source_id": self.source_id}
+        return f"{abs(hash(tuple(sorted(args.items()))))}"

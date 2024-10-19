@@ -1,4 +1,3 @@
-import inspect
 import os
 import time
 
@@ -14,9 +13,11 @@ from flux.utils import call_with_timeout
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
 from flux.context import WorkflowExecutionContext
-from flux.exceptions import ExecutionException, RetryException
+from flux.exceptions import ExecutionException, RetryException, WorkflowPausedException
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+END = "END"
 
 
 class workflow:
@@ -61,6 +62,8 @@ class workflow:
                 ctx.name,
                 output,
             )
+        except WorkflowPausedException as ex:
+            pass
         except ExecutionException as ex:
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_FAILED,
@@ -71,6 +74,8 @@ class workflow:
         except Exception as ex:
             # TODO: add retry support to workflow
             raise
+
+        yield END
 
     def run(
         self, input: any = None, execution_id: str = None, options: dict[str, any] = []
@@ -163,6 +168,14 @@ class task:
         except Exception as ex:
             if isinstance(ex, StopIteration):
                 output = ex.value
+            elif isinstance(ex, WorkflowPausedException):
+                yield ExecutionEvent(
+                    ExecutionEventType.TASK_COMPLETED, task_id, task_name
+                )
+                yield ExecutionEvent(
+                    ExecutionEventType.WORKFLOW_PAUSED, task_id, task_name
+                )
+                raise
             elif self.retry_max_attemps > 0:
                 attempt = 0
                 while attempt < self.retry_max_attemps:
@@ -260,6 +273,8 @@ class task:
         yield ExecutionEvent(
             ExecutionEventType.TASK_COMPLETED, task_id, task_name, output
         )
+
+        yield END
 
     def map(self, args: list[any] = []):
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:

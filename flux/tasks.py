@@ -3,12 +3,13 @@ import time
 import uuid
 import random
 
-from typing import Callable
+from typing import Callable, NoReturn
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import flux.decorators as d
 from flux.executors import WorkflowExecutor
+from flux.exceptions import WorkflowPausedException
 
 
 @d.task
@@ -43,21 +44,24 @@ def parallel(*functions: Callable):
 
 
 @d.task
-def sleep(duration: float | timedelta):
+def sleep(duration: float | timedelta) -> NoReturn:
     """
     Pauses the execution of the workflow for a given duration.
 
-    Parameters:
-    duration (float | timedelta): The amount of time to sleep.
+    :param duration: The amount of time to sleep.
         - If `duration` is a float, it represents the number of seconds to sleep.
         - If `duration` is a timedelta, it will be converted to seconds using the `total_seconds()` method.
 
-    Raises:
-    TypeError: If `duration` is neither a float nor a timedelta.
+    :raises TypeError: If `duration` is neither a float nor a timedelta.
     """
     if isinstance(duration, timedelta):
-        duration = duration.total_seconds() 
+        duration = duration.total_seconds()
     time.sleep(duration)
+
+
+@d.task.with_options(name="pause_$reference")
+def pause(reference: str) -> NoReturn:
+    raise WorkflowPausedException(reference)
 
 
 @d.task.with_options(name="call_workflow_$workflow")

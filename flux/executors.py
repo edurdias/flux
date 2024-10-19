@@ -7,11 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 import flux.decorators as d
 
-from flux.context import WorkflowExecutionContext
-from flux.context_managers import ContextManager
-from flux.exceptions import ExecutionException
-from flux.events import ExecutionEvent, ExecutionEventType
 from flux.catalogs import WorkflowCatalog
+from flux.exceptions import ExecutionException
+from flux.context_managers import ContextManager
+from flux.context import WorkflowExecutionContext
+from flux.events import ExecutionEvent, ExecutionEventType
 
 
 class WorkflowExecutor(ABC):
@@ -94,7 +94,8 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
 
         except ExecutionException as execution_exception:
             event = gen.throw(execution_exception)
-            ctx.events.append(event)
+            if isinstance(event, ExecutionEvent):
+                ctx.events.append(event)
         except StopIteration as ex:
             pass
         except Exception as ex:
@@ -134,21 +135,14 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
 
                 next(gen)
 
-                source_pasts_events = [
+                past_events = [
                     e for e in self._past_events if e.source_id == step.source_id
                 ]
 
-                if source_pasts_events:
-                    for spe in source_pasts_events:
-                        self._past_events.remove(spe)
-                        if spe.type in (
-                            ExecutionEventType.TASK_COMPLETED,
-                            ExecutionEventType.TASK_FAILED,
-                        ):
-                            value = gen.send(
-                                [spe, replay and not task.disable_replay]
-                            )
-                            return self.__process(ctx, gen, spe, replay)
+                if past_events:
+                    return self.__process_task_past_events(
+                        ctx, gen, task, replay, past_events
+                    )
 
                 ctx.events.append(step)
                 value = gen.send([None, False])
@@ -170,29 +164,39 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 if not replay:
                     ctx.events.append(step)
                 value = gen.send(None)
-                return self.__process(ctx, gen, value)
+                if value != d.END:
+                    return self.__process(ctx, gen, value)
             elif step.type in (
                 ExecutionEventType.TASK_FALLBACK_STARTED,
                 ExecutionEventType.TASK_FALLBACK_COMPLETED,
             ):
                 if not replay:
                     ctx.events.append(step)
-                value = gen.send(None)
-                return self.__process(ctx, gen, value)
+                    value = gen.send(None)
+                    if value != d.END:
+                        return self.__process(ctx, gen, value)
             elif step.type == ExecutionEventType.TASK_COMPLETED:
                 if not replay:
                     ctx.events.append(step)
+                    value = gen.send(None)
+                    if value != d.END:
+                        return self.__process(ctx, gen, value)
             elif step.type == ExecutionEventType.TASK_FAILED:
                 if not replay:
                     ctx.events.append(step)
-                value = gen.send(None)
-                return self.__process(ctx, gen, value)
+                    value = gen.send(None)
+                    if value != d.END:
+                        return self.__process(ctx, gen, value)
             else:
                 if not replay:
                     ctx.events.append(step)
+                    value = gen.send(None)
+                    if value != d.END:
+                        return self.__process(ctx, gen, value)
 
             self.context_manager.save(ctx)
             return step.value
+
         return step
 
     def _get_past_event_for(self, event: ExecutionEvent) -> ExecutionEvent:
@@ -201,3 +205,49 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         ), f"Past event should be the same of current event"
 
         return self._past_events.pop(0)
+
+    def __process_task_past_events(
+        self,
+        ctx: WorkflowExecutionContext,
+        gen: GeneratorType,
+        task,
+        replay: bool,
+        past_events: list[ExecutionEvent],
+    ):
+        for past_event in past_events:
+            self._past_events.remove(past_event)
+
+        paused_events = [
+            e for e in past_events if e.type == ExecutionEventType.WORKFLOW_PAUSED
+        ]
+
+        resumed_events = [
+            e for e in past_events if e.type == ExecutionEventType.WORKFLOW_RESUMED
+        ]
+
+        if len(paused_events) > len(resumed_events):
+            latest_pause_event = paused_events[-1]
+            ctx.events.append(
+                ExecutionEvent(
+                    ExecutionEventType.WORKFLOW_RESUMED,
+                    latest_pause_event.source_id,
+                    latest_pause_event.name,
+                    latest_pause_event.value,
+                )
+            )
+
+        terminal_event = next(
+            (
+                e
+                for e in past_events
+                if e.type
+                in (
+                    ExecutionEventType.TASK_COMPLETED,
+                    ExecutionEventType.TASK_FAILED,
+                )
+            ),
+            None,
+        )
+
+        value = gen.send([terminal_event, replay and not task.disable_replay])
+        return self.__process(ctx, gen, terminal_event, replay)

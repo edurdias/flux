@@ -40,13 +40,16 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     @property
     def finished(self) -> bool:
-        workflow_events = [
-            e
-            for e in self.events
-            if e.type == ExecutionEventType.WORKFLOW_COMPLETED
-            or e.type == ExecutionEventType.WORKFLOW_FAILED
-        ]
-        return len(workflow_events) > 0
+        return self.events and self.events[-1].type in (
+            ExecutionEventType.WORKFLOW_COMPLETED,
+            ExecutionEventType.WORKFLOW_FAILED,
+        )
+
+    @property
+    def paused(self) -> bool:
+        return (
+            self.events and self.events[-1].type == ExecutionEventType.WORKFLOW_PAUSED
+        )
 
     @property
     def output(self) -> any:
