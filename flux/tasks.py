@@ -68,3 +68,11 @@ def pause(reference: str) -> NoReturn:
 def call_workflow(workflow: str | d.workflow, input: any = None):
     name = workflow.name if isinstance(workflow, d.workflow) else str(workflow)
     return WorkflowExecutor.current().execute(name, input).output
+
+
+@d.task
+def pipeline(tasks: list[d.task], input: any):
+    result = input
+    for task in tasks:
+        result = yield task(result)
+    return result
