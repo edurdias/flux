@@ -63,8 +63,8 @@ class SQLiteContextManager(ContextManager):
         with Session(self._engine) as session:
             for attempt in range(self.max_attempts):
                 try:
-                    context = session.query(WorkflowExecutionContextModel).get(
-                        ctx.execution_id
+                    context = session.get(
+                        WorkflowExecutionContextModel, ctx.execution_id
                     )
                     if context:
                         context.output = ctx.output

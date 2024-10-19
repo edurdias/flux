@@ -73,13 +73,22 @@ class workflow:
             )
         except Exception as ex:
             # TODO: add retry support to workflow
-            raise
+            yield ExecutionEvent(
+                ExecutionEventType.WORKFLOW_FAILED,
+                qualified_name,
+                ctx.name,
+                ex,
+            )
 
         yield END
 
     def run(
-        self, input: any = None, execution_id: str = None, options: dict[str, any] = []
+        self, input: any = None, execution_id: str = None, options: dict[str, any] = {}
     ) -> WorkflowExecutionContext:
+
+        if "module" not in options:
+            options.update({"module": self._func.__module__})
+
         executor = WorkflowExecutor.current(options)
         return executor.execute(self._func.__name__, input, execution_id)
 

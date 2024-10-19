@@ -36,7 +36,6 @@ class ModuleWorkflowCatalog(WorkflowCatalog):
             self._module = sys.modules["__main__"]
 
     def get(self, name: str) -> Callable:
-
         w = getattr(self._module, name)
         if not w or not d.workflow.is_workflow(w):
             raise WorkflowNotFoundException(name)

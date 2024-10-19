@@ -8,6 +8,8 @@ def say_hello(name: str):
 
 @workflow
 def hello_world(ctx: WorkflowExecutionContext[str]):
+    if not ctx.input:
+        raise TypeError("Input not provided")
     return (yield say_hello(ctx.input))
 
 
