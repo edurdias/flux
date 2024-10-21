@@ -131,7 +131,6 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             if step.type == ExecutionEventType.TASK_STARTED:
 
                 task = gen.gi_frame.f_locals["self"]
-                assert isinstance(task, d.task)
 
                 next(gen)
 

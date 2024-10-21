@@ -1,3 +1,4 @@
+import inspect
 import json
 from enum import Enum
 from datetime import datetime, timedelta
@@ -29,6 +30,9 @@ class WorkflowContextEncoder(json.JSONEncoder):
 
         if isinstance(obj, Exception):
             return {"type": type(obj).__name__, "message": str(obj)}
+
+        if inspect.isclass(type(obj)) and isinstance(obj, Callable):
+            return type(obj).__name__
 
         if isinstance(obj, Callable):
             return obj.__name__

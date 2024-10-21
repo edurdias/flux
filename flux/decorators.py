@@ -1,7 +1,7 @@
+import inspect
 import os
 import time
 
-from string import Template
 from functools import wraps
 from types import GeneratorType
 from inspect import getfullargspec
@@ -143,9 +143,16 @@ class task:
         self.disable_replay = disable_replay
         wraps(func)(self)
 
+    def __get__(self, instance, owner):
+        return lambda *args, **kwargs: self(
+            *(args if instance is None else (instance,) + args), **kwargs
+        )
+
     def __call__(self, *args, **kwargs) -> Any:
+
         task_args = self.__get_task_args(self._func, args)
         task_name = self.__get_task_name(self._func, self.name, task_args)
+        task_args = {k: v for k, v in task_args.items() if k != "self"}
         task_id = self.__get_task_id(task_name, task_args, kwargs)
 
         yield ExecutionEvent(
@@ -294,15 +301,18 @@ class task:
     def __get_task_name(self, func: Callable, name: str, args: dict):
         task_name = f"{func.__name__}"
         if name is not None:
-            task_name = Template(name).substitute(args)
+            task_name = name.format(**args)
         return task_name
 
     def __get_task_args(self, func: Callable, args: tuple):
         arg_names = getfullargspec(func).args
         arg_values = []
+
         for arg in args:
             if isinstance(arg, workflow):
                 arg_values.append(arg.name)
+            elif inspect.isclass(type(arg)) and isinstance(arg, Callable):
+                arg_values.append(arg)
             elif isinstance(arg, Callable):
                 arg_values.append(arg.__name__)
             elif isinstance(arg, list):
@@ -313,4 +323,14 @@ class task:
         return dict(zip(arg_names, arg_values))
 
     def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
-        return f"{task_name}_{abs(hash((task_name, tuple(sorted(args.items())), tuple(sorted(kwargs.items())))))}"
+        def make_hashable(item):
+            if isinstance(item, dict):
+                return tuple(sorted((k, make_hashable(v)) for k, v in item.items()))
+            elif isinstance(item, list):
+                return tuple(make_hashable(i) for i in item)
+            elif isinstance(item, set):
+                return frozenset(make_hashable(i) for i in item)
+            else:
+                return item
+
+        return f"{task_name}_{abs(hash((task_name, make_hashable(args), make_hashable(kwargs))))}"
