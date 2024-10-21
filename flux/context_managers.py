@@ -15,11 +15,11 @@ class ContextManager(ABC):
 
     @abstractmethod
     def save(self, ctx: WorkflowExecutionContext):
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: no cover
 
     @abstractmethod
     def get(self, execution_id: str) -> WorkflowExecutionContext:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: no cover
 
     def default() -> Self:
         return SQLiteContextManager()

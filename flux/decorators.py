@@ -86,10 +86,8 @@ class workflow:
         self, input: any = None, execution_id: str = None, options: dict[str, any] = {}
     ) -> WorkflowExecutionContext:
 
-        if "module" not in options:
-            options.update({"module": self._func.__module__})
-
-        executor = WorkflowExecutor.current(options)
+        options.update({"module": self._func.__module__})
+        executor = WorkflowExecutor.create(options)
         return executor.execute(self._func.__name__, input, execution_id)
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:

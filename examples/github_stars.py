@@ -11,8 +11,11 @@ def get_stars(repo: str):
 
 @workflow
 def github_stars(ctx: WorkflowExecutionContext[list[str]]):
-    repos = ctx.input
 
+    if not ctx.input:
+        raise TypeError("The list of repositories cannot be empty.")
+
+    repos = ctx.input
     stars = {}
     for repo in repos:
         stars[repo] = yield get_stars(repo)

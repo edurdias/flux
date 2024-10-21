@@ -4,6 +4,9 @@ from flux.events import ExecutionEventType
 
 def test_should_succeed():
     ctx = hello_world.run("Joe")
+    assert (
+        ctx.finished and ctx.succeeded
+    ), "The workflow should have be completed and succeed."
     assert ctx.output == "Hello, Joe"
 
 

@@ -16,10 +16,7 @@ def pause_workflow(ctx: WorkflowExecutionContext[str]):
 
 
 if __name__ == "__main__":
-
     ctx = pause_workflow.run("Joe")
-
     while not ctx.finished:  # we could also check for ctx.paused
         ctx = pause_workflow.run(execution_id=ctx.execution_id)
-
     print(ctx.to_json())
