@@ -62,18 +62,21 @@ class SQLiteContextManager(ContextManager):
 
     def __init__(self, db_path: str = '.data'):
         self._engine = create_engine(
-            f"sqlite:///{db_path}/flux.db", echo=False)
+            f"sqlite:///{db_path}/flux.db", echo=False,
+        )
         Base.metadata.create_all(self._engine)
 
     def save(self, ctx: WorkflowExecutionContext):
         with Session(self._engine) as session:
             try:
                 context = session.get(
-                    WorkflowExecutionContextModel, ctx.execution_id)
+                    WorkflowExecutionContextModel, ctx.execution_id,
+                )
                 if context:
                     context.output = ctx.output
                     additional_events = self._get_additional_events(
-                        ctx, context)
+                        ctx, context,
+                    )
                     context.events.extend(additional_events)
                 else:
                     session.add(WorkflowExecutionContextModel.from_plain(ctx))

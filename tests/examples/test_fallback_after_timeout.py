@@ -17,5 +17,6 @@ def test_should_replay():
     ), 'The workflow should have been completed successfully.'
 
     second_ctx = fallback_after_timeout.run(
-        execution_id=first_ctx.execution_id)
+        execution_id=first_ctx.execution_id,
+    )
     assert first_ctx.events[-1] == second_ctx.events[-1]

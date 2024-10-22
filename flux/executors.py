@@ -135,8 +135,11 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             and all(isinstance(e, GeneratorType) for e in step)
         ):
             with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-                value = list(executor.map(
-                    lambda i: self.__process(ctx, gen, i), step))
+                value = list(
+                    executor.map(
+                        lambda i: self.__process(ctx, gen, i), step,
+                    ),
+                )
                 return self.__process(ctx, gen, value)
 
         if isinstance(step, ExecutionEvent):

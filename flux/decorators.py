@@ -214,7 +214,8 @@ class task:
                     try:
                         time.sleep(current_delay)
                         current_delay = min(
-                            current_delay * self.retry_backoff, 600)
+                            current_delay * self.retry_backoff, 600,
+                        )
 
                         yield ExecutionEvent(
                             ExecutionEventType.TASK_RETRY_STARTED,
@@ -300,8 +301,10 @@ class task:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             return list(
                 executor.map(
-                    lambda arg: self(*arg) if isinstance(arg,
-                                                         list) else self(arg), args,
+                    lambda arg: self(*arg) if isinstance(
+                        arg,
+                        list,
+                    ) else self(arg), args,
                 ),
             )
 

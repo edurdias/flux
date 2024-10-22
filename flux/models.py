@@ -93,7 +93,8 @@ class ExecutionEventModel(Base):
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
     execution = relationship(
-        'WorkflowExecutionContextModel', back_populates='events')
+        'WorkflowExecutionContextModel', back_populates='events',
+    )
 
     def __init__(
         self,

@@ -44,7 +44,8 @@ class TimeoutError(ExecutionError):
         self, type: Literal['Workflow', 'Task'], name: str, id: str, timeout: int,
     ):
         super().__init__(
-            message=f"{type} {name} ({id}) timed out ({timeout}s).")
+            message=f"{type} {name} ({id}) timed out ({timeout}s).",
+        )
         self._timeout = timeout
 
     @property
@@ -56,7 +57,8 @@ class WorkflowPausedError(ExecutionError):
 
     def __init__(self, reference: str):
         super().__init__(
-            message=f"Workflow paused. Task reference: {reference}")
+            message=f"Workflow paused. Task reference: {reference}",
+        )
         self._reference = reference
 
     @property
@@ -79,4 +81,5 @@ class WorkflowNotFoundError(ExecutionError):
 class ExecutionContextNotFoundError(ExecutionError):
     def __init__(self, execution_id: str):
         super().__init__(
-            message=f"Execution context '{execution_id}' not found.")
+            message=f"Execution context '{execution_id}' not found.",
+        )
