@@ -20,6 +20,6 @@ def fibo_benchmark_parallel(ctx: WorkflowExecutionContext[tuple[int, int]]):
     yield sum_fibo.map([[i, n] for i in range(iterations)])
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = fibo_benchmark_parallel.run((10, 33))
     print(ctx.to_json())

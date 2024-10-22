@@ -1,7 +1,7 @@
 from examples.task_parallel_nested import task_parallel_nested
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     repositories = [
         "python/cpython",
         "microsoft/vscode",

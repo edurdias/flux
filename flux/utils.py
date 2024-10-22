@@ -19,3 +19,14 @@ def call_with_timeout(
                 executor.shutdown(wait=False, cancel_futures=True)
                 raise TimeoutException(type, name, id, timeout)
     return func()
+
+
+def make_hashable(item):
+    if isinstance(item, dict):
+        return tuple(sorted((k, make_hashable(v)) for k, v in item.items()))
+    elif isinstance(item, list):
+        return tuple(make_hashable(i) for i in item)
+    elif isinstance(item, set):
+        return frozenset(make_hashable(i) for i in item)
+    else:
+        return item

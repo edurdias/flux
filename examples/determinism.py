@@ -12,6 +12,6 @@ def determinism():
     return end - start
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = determinism.run()
     print(ctx.to_json())

@@ -1,10 +1,11 @@
+from flux.context import WorkflowExecutionContext
 from flux.decorators import task, workflow
 from flux.tasks import graph
 
 
 @task
-def get_name() -> str:
-    return "Joe"
+def get_name(input: str) -> str:
+    return input
 
 
 @task
@@ -13,8 +14,11 @@ def say_hello(name: str) -> str:
 
 
 @workflow
-def graph_workflow():
-    hello_graph = (
+def simple_graph(ctx: WorkflowExecutionContext[str]):
+    if not ctx.input:
+        raise TypeError("Input not provided")
+
+    hello = (
         graph("hello_world")
         .add_node("get_name", get_name)
         .add_node("say_hello", say_hello)
@@ -22,10 +26,9 @@ def graph_workflow():
         .set_entry_point("get_name")
         .set_finish_point("say_hello")
     )
-    return (yield hello_graph())
+    return (yield hello(ctx.input))
 
 
-if __name__ == "__main__":
-
-    ctx = graph_workflow.run()
+if __name__ == "__main__":  # pragma: no cover
+    ctx = simple_graph.run("Joe")
     print(ctx.to_json())

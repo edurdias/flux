@@ -1,7 +1,7 @@
 from examples.task_parallel import task_parallel
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     repositories = [
         "python/cpython",
         "microsoft/vscode",

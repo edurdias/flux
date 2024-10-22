@@ -29,6 +29,6 @@ def nested_tasks():
     yield three_levels_task()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = nested_tasks.run()
     print(ctx.to_json())

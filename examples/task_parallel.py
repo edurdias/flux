@@ -21,7 +21,7 @@ def task_parallel(ctx: WorkflowExecutionContext[list[str]]):
     return dict(zip(repos, stars))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     repositories = [
         "python/cpython",
         "microsoft/vscode",

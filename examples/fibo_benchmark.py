@@ -24,6 +24,6 @@ def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
     return results
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = fibo_benchmark.run((10, 33))
     print(ctx.to_json())

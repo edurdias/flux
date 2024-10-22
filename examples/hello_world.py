@@ -13,6 +13,6 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
     return (yield say_hello(ctx.input))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = hello_world.run("Joe")
     print(ctx.to_json())

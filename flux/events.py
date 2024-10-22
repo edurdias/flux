@@ -1,5 +1,7 @@
-from datetime import datetime
 from enum import Enum
+from datetime import datetime
+
+from flux.utils import make_hashable
 
 
 class ExecutionEventType(str, Enum):
@@ -46,5 +48,11 @@ class ExecutionEvent:
         return False
 
     def __generate_id(self):
-        args = {"name": self.name, "type": self.type, "source_id": self.source_id}
-        return f"{abs(hash(tuple(sorted(args.items()))))}"
+        args = {
+            "name": self.name,
+            "type": self.type,
+            "source_id": self.source_id,
+            "value": self.value,
+            "time": self.time,
+        }
+        return f"{abs(hash(tuple(sorted(make_hashable(args)))))}"

@@ -25,6 +25,6 @@ def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
     return result
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = pipeline_workflow.run(5)
     print(ctx.to_json())

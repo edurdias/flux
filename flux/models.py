@@ -1,22 +1,17 @@
-from datetime import datetime
-import json
+import dill
 from typing import Self
+from datetime import datetime
 from sqlalchemy import (
     Column,
-    Date,
     DateTime,
     Integer,
-    PrimaryKeyConstraint,
+    PickleType,
     String,
-    JSON,
     ForeignKey,
     Enum as SqlEnum,
-    UniqueConstraint,
-    event,
 )
 from sqlalchemy.orm import relationship, declarative_base
 from flux.context import WorkflowExecutionContext
-from flux.encoders import WorkflowContextEncoder
 from flux.events import ExecutionEvent, ExecutionEventType
 
 
@@ -33,8 +28,8 @@ class WorkflowExecutionContextModel(Base):
         nullable=False,
     )
     name = Column(String, nullable=False)
-    input = Column(JSON, nullable=False)  # Assuming input can be serialized as JSON
-    output = Column(JSON, nullable=True)  # Assuming input can be serialized as JSON
+    input = Column(PickleType(pickler=dill), nullable=True)
+    output = Column(PickleType(pickler=dill), nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -91,7 +86,7 @@ class ExecutionEventModel(Base):
     event_id = Column(String, nullable=False, unique=True)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
-    value = Column(JSON, nullable=True)
+    value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
     execution = relationship("WorkflowExecutionContextModel", back_populates="events")
 
@@ -119,8 +114,8 @@ class ExecutionEventModel(Base):
             id=self.event_id,
             source_id=self.source_id,
             name=self.name,
-            value=self.value,
             time=self.time,
+            value=self.value,
         )
 
     @classmethod
@@ -136,25 +131,25 @@ class ExecutionEventModel(Base):
         )
 
 
-@event.listens_for(ExecutionEventModel, "before_insert")
-def ExecutionEventModel_before_insert(mapper, connection, target: ExecutionEventModel):
-    target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
+# @event.listens_for(ExecutionEventModel, "before_insert")
+# def ExecutionEventModel_before_insert(mapper, connection, target: ExecutionEventModel):
+#     target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
 
 
-@event.listens_for(ExecutionEventModel, "before_update")
-def ExecutionEventModel_before_update(mapper, connection, target: ExecutionEventModel):
-    target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
+# @event.listens_for(ExecutionEventModel, "before_update")
+# def ExecutionEventModel_before_update(mapper, connection, target: ExecutionEventModel):
+#     target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
 
 
-@event.listens_for(WorkflowExecutionContextModel, "before_insert")
-def WorkflowExecutionContextModel_before_insert(
-    mapper, connection, target: WorkflowExecutionContextModel
-):
-    target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
+# @event.listens_for(WorkflowExecutionContextModel, "before_insert")
+# def WorkflowExecutionContextModel_before_insert(
+#     mapper, connection, target: WorkflowExecutionContextModel
+# ):
+#     target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
 
 
-@event.listens_for(WorkflowExecutionContextModel, "before_update")
-def WorkflowExecutionContextModel_before_update(
-    mapper, connection, target: WorkflowExecutionContextModel
-):
-    target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
+# @event.listens_for(WorkflowExecutionContextModel, "before_update")
+# def WorkflowExecutionContextModel_before_update(
+#     mapper, connection, target: WorkflowExecutionContextModel
+# ):
+#     target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))

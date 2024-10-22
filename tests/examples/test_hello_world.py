@@ -6,7 +6,7 @@ def test_should_succeed():
     ctx = hello_world.run("Joe")
     assert (
         ctx.finished and ctx.succeeded
-    ), "The workflow should have be completed and succeed."
+    ), "The workflow should have been completed successfully."
     assert ctx.output == "Hello, Joe"
 
 

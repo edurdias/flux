@@ -22,7 +22,7 @@ class WorkflowExecutor(ABC):
     def current(cls, options: dict[str, any] = None) -> Self:
         if cls._current is None:
             cls._current = WorkflowExecutor.create(options)
-        return cls._current
+        return cls._current.with_options(options)
 
     @abstractmethod
     def execute(
@@ -30,30 +30,38 @@ class WorkflowExecutor(ABC):
     ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
+    @abstractmethod
+    def with_options(self, options: dict[str, any]) -> Self:  # pragma: no cover
+        raise NotImplementedError()
+
     @staticmethod
     def create(options: dict[str, any] = None) -> Self:
         return DefaultWorkflowExecutor(options)
 
 
-class Options:
-
-    module: str
-
-
 class DefaultWorkflowExecutor(WorkflowExecutor):
 
-    def __init__(self, options: Options):
+    def __init__(self, options: dict[str, any]):
         self.catalog = WorkflowCatalog.create(options)
         self.context_manager = ContextManager.default()
+
+    def with_options(self, options: dict[str, any]) -> Self:
+        self.catalog = WorkflowCatalog.create(options)
+        return self
 
     def execute(
         self, name: str, input: any = None, execution_id: str = None
     ) -> WorkflowExecutionContext:
         workflow = self.catalog.get(name)
 
-        ctx = self.context_manager.get(execution_id) or WorkflowExecutionContext(
-            name, input, None, []
+        ctx = (
+            self.context_manager.get(execution_id)
+            if execution_id
+            else WorkflowExecutionContext(name, input, None, [])
         )
+
+        if ctx.finished:
+            return ctx
 
         self.context_manager.save(ctx)
         return self._execute(workflow, ctx)

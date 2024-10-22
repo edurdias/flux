@@ -77,5 +77,5 @@ def start(path: str):
     uvicorn.run(app)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     cli()

@@ -23,6 +23,6 @@ def fallback():
     yield bad_task(4)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = fallback.run()
     print(ctx.to_json())

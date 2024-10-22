@@ -1,7 +1,7 @@
 from examples.hello_world import hello_world
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     ctx = hello_world.run("Joe")
     print(ctx.to_json())
 

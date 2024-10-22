@@ -1,4 +1,5 @@
 import pickle
+
 from typing import Self
 from abc import ABC, abstractmethod
 
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from flux.context import WorkflowExecutionContext
+from flux.exceptions import ExecutionContextNotFoundException
 from flux.models import ExecutionEventModel, WorkflowExecutionContextModel
 from flux.models import Base
 
@@ -14,12 +16,12 @@ from flux.models import Base
 class ContextManager(ABC):
 
     @abstractmethod
-    def save(self, ctx: WorkflowExecutionContext):
-        raise NotImplementedError()  # pragma: no cover
+    def save(self, ctx: WorkflowExecutionContext):  # pragma: no cover
+        raise NotImplementedError()
 
     @abstractmethod
-    def get(self, execution_id: str) -> WorkflowExecutionContext:
-        raise NotImplementedError()  # pragma: no cover
+    def get(self, execution_id: str) -> WorkflowExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
 
     def default() -> Self:
         return SQLiteContextManager()
@@ -61,32 +63,25 @@ class SQLiteContextManager(ContextManager):
 
     def save(self, ctx: WorkflowExecutionContext):
         with Session(self._engine) as session:
-            for attempt in range(self.max_attempts):
-                try:
-                    context = session.get(
-                        WorkflowExecutionContextModel, ctx.execution_id
-                    )
-                    if context:
-                        context.output = ctx.output
-                        additional_events = self._get_additional_events(ctx, context)
-                        context.events.extend(additional_events)
-                    else:
-                        session.add(WorkflowExecutionContextModel.from_plain(ctx))
-                    session.commit()
-                    break
-                except IntegrityError as ex:
-                    session.rollback()
-                    if attempt >= self.max_attempts:
-                        raise
+            try:
+                context = session.get(WorkflowExecutionContextModel, ctx.execution_id)
+                if context:
+                    context.output = ctx.output
+                    additional_events = self._get_additional_events(ctx, context)
+                    context.events.extend(additional_events)
+                else:
+                    session.add(WorkflowExecutionContextModel.from_plain(ctx))
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                raise
 
     def get(self, execution_id: str) -> WorkflowExecutionContext:
         with Session(self._engine) as session:
-            context = (
-                session.query(WorkflowExecutionContextModel)
-                .filter_by(execution_id=execution_id)
-                .first()
-            )
-            return context.to_plain() if context else None
+            context = session.get(WorkflowExecutionContextModel, execution_id)
+            if context:
+                return context.to_plain()
+            raise ExecutionContextNotFoundException(execution_id)
 
     def _get_additional_events(self, ctx, context):
         existing_events = [(e.event_id, e.type) for e in context.events]

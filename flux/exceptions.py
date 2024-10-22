@@ -70,3 +70,8 @@ class WorkflowNotFoundException(ExecutionException):
 
     def __init__(self, name: str):
         super().__init__(message=f"Workflow '{name}' not found.")
+
+
+class ExecutionContextNotFoundException(ExecutionException):
+    def __init__(self, execution_id: str):
+        super().__init__(message=f"Execution context '{execution_id}' not found.")

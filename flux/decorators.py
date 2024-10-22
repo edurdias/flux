@@ -1,6 +1,6 @@
-import inspect
 import os
 import time
+import inspect
 
 from functools import wraps
 from types import GeneratorType
@@ -9,14 +9,13 @@ from typing import Any, Callable, TypeVar
 from concurrent.futures import ThreadPoolExecutor
 
 from flux.events import ExecutionEvent
-from flux.utils import call_with_timeout
+from flux.utils import call_with_timeout, make_hashable
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
 from flux.context import WorkflowExecutionContext
 from flux.exceptions import ExecutionException, RetryException, WorkflowPausedException
 
 F = TypeVar("F", bound=Callable[..., Any])
-
 END = "END"
 
 
@@ -85,10 +84,10 @@ class workflow:
     def run(
         self, input: any = None, execution_id: str = None, options: dict[str, any] = {}
     ) -> WorkflowExecutionContext:
-
         options.update({"module": self._func.__module__})
-        executor = WorkflowExecutor.create(options)
-        return executor.execute(self._func.__name__, input, execution_id)
+        return WorkflowExecutor.current(options).execute(
+            self._func.__name__, input, execution_id
+        )
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -323,14 +322,4 @@ class task:
         return dict(zip(arg_names, arg_values))
 
     def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
-        def make_hashable(item):
-            if isinstance(item, dict):
-                return tuple(sorted((k, make_hashable(v)) for k, v in item.items()))
-            elif isinstance(item, list):
-                return tuple(make_hashable(i) for i in item)
-            elif isinstance(item, set):
-                return frozenset(make_hashable(i) for i in item)
-            else:
-                return item
-
         return f"{task_name}_{abs(hash((task_name, make_hashable(args), make_hashable(kwargs))))}"

@@ -26,7 +26,7 @@ def subflows(ctx: WorkflowExecutionContext[list[str]]):
     return stars
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     repositories = [
         "python/cpython",
         "microsoft/vscode",

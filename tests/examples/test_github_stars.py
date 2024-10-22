@@ -13,7 +13,7 @@ def test_should_succeed():
     ctx = github_stars.run(repos)
     assert (
         ctx.finished and ctx.succeeded
-    ), "The workflow should have be completed and succeed."
+    ), "The workflow should have been completed successfully."
     assert all(
         repo in ctx.output for repo in repos
     ), "The output should contain all the specified repositories."
@@ -30,7 +30,7 @@ def test_should_replay():
     first_ctx = github_stars.run(repos)
     assert (
         first_ctx.finished and first_ctx.succeeded
-    ), "The workflow should have be completed and succeed."
+    ), "The workflow should have been completed successfully."
 
     second_ctx = github_stars.run(execution_id=first_ctx.execution_id)
     assert first_ctx.events[-1] == second_ctx.events[-1]
