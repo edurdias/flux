@@ -1,13 +1,18 @@
+from __future__ import annotations
+
 import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError
 from multiprocessing.managers import DictProxy
-from typing import Any, Callable, Literal
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from typing import Any
+from typing import Callable
+from typing import Literal
 
 from flux.errors import TimeoutError
 
 
 def call_with_timeout(
-    func: Callable, type: Literal["Workflow", "Task"], name: str, id: str, timeout: int
+    func: Callable, type: Literal['Workflow', 'Task'], name: str, id: str, timeout: int,
 ):
     if timeout > 0:
         with ThreadPoolExecutor(max_workers=1) as executor:

@@ -1,16 +1,19 @@
-import pickle
+from __future__ import annotations
 
+import pickle
+from abc import ABC
+from abc import abstractmethod
 from typing import Self
-from abc import ABC, abstractmethod
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from flux.context import WorkflowExecutionContext
 from flux.errors import ExecutionContextNotFoundError
-from flux.models import ExecutionEventModel, WorkflowExecutionContextModel
 from flux.models import Base
+from flux.models import ExecutionEventModel
+from flux.models import WorkflowExecutionContextModel
 
 
 class ContextManager(ABC):
@@ -41,15 +44,15 @@ class InMemoryContextManager(ContextManager):
 
 class LocalFileContextManager(ContextManager):
 
-    def __init__(self, base_path: str = "./"):
+    def __init__(self, base_path: str = './'):
         self._base_path = base_path
 
     def save(self, ctx: WorkflowExecutionContext):
-        with open(f"{self._base_path}.dill/{ctx.execution_id}.pkl", "wb+") as f:
+        with open(f"{self._base_path}.dill/{ctx.execution_id}.pkl", 'wb+') as f:
             pickle.dump(ctx, f)
 
     def get(self, execution_id: str) -> WorkflowExecutionContext:
-        with open(f"{self._base_path}.dill/{execution_id}.pkl", "rb+") as f:
+        with open(f"{self._base_path}.dill/{execution_id}.pkl", 'rb+') as f:
             return pickle.load(f)
 
 
@@ -57,17 +60,20 @@ class SQLiteContextManager(ContextManager):
 
     max_attempts = 10
 
-    def __init__(self, db_path: str = ".data"):
-        self._engine = create_engine(f"sqlite:///{db_path}/flux.db", echo=False)
+    def __init__(self, db_path: str = '.data'):
+        self._engine = create_engine(
+            f"sqlite:///{db_path}/flux.db", echo=False)
         Base.metadata.create_all(self._engine)
 
     def save(self, ctx: WorkflowExecutionContext):
         with Session(self._engine) as session:
             try:
-                context = session.get(WorkflowExecutionContextModel, ctx.execution_id)
+                context = session.get(
+                    WorkflowExecutionContextModel, ctx.execution_id)
                 if context:
                     context.output = ctx.output
-                    additional_events = self._get_additional_events(ctx, context)
+                    additional_events = self._get_additional_events(
+                        ctx, context)
                     context.events.extend(additional_events)
                 else:
                     session.add(WorkflowExecutionContextModel.from_plain(ctx))

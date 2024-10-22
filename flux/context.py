@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import json
+from typing import Generic
+from typing import TypeVar
 from uuid import uuid4
-from typing import Generic, TypeVar
 
 from flux.encoders import WorkflowContextEncoder
-from flux.events import ExecutionEvent, ExecutionEventType
+from flux.events import ExecutionEvent
+from flux.events import ExecutionEventType
 
-WorkflowInputType = TypeVar("InputType")
+WorkflowInputType = TypeVar('InputType')
 
 
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
@@ -69,10 +73,10 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     def summary(self):
         return {
-            "execution_id": self.execution_id,
-            "name": self.name,
-            "input": self.input,
-            "output": self.output,
+            'execution_id': self.execution_id,
+            'name': self.name,
+            'input': self.input,
+            'output': self.output,
         }
 
     def to_dict(self):

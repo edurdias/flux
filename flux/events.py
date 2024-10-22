@@ -1,27 +1,29 @@
-from enum import Enum
+from __future__ import annotations
+
 from datetime import datetime
+from enum import Enum
 
 from flux.utils import make_hashable
 
 
 class ExecutionEventType(str, Enum):
 
-    WORKFLOW_STARTED = "WORKFLOW_STARTED"
-    WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
-    WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
-    WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
-    WORKFLOW_FAILED = "WORKFLOW_FAILED"
+    WORKFLOW_STARTED = 'WORKFLOW_STARTED'
+    WORKFLOW_PAUSED = 'WORKFLOW_PAUSED'
+    WORKFLOW_RESUMED = 'WORKFLOW_RESUMED'
+    WORKFLOW_COMPLETED = 'WORKFLOW_COMPLETED'
+    WORKFLOW_FAILED = 'WORKFLOW_FAILED'
 
-    TASK_STARTED = "TASK_STARTED"
-    TASK_COMPLETED = "TASK_COMPLETED"
-    TASK_FAILED = "TASK_FAILED"
+    TASK_STARTED = 'TASK_STARTED'
+    TASK_COMPLETED = 'TASK_COMPLETED'
+    TASK_FAILED = 'TASK_FAILED'
 
-    TASK_RETRY_STARTED = "TASK_RETRY_STARTED"
-    TASK_RETRY_COMPLETED = "TASK_RETRY_COMPLETED"
-    TASK_RETRY_FAILED = "TASK_RETRY_FAILED"
+    TASK_RETRY_STARTED = 'TASK_RETRY_STARTED'
+    TASK_RETRY_COMPLETED = 'TASK_RETRY_COMPLETED'
+    TASK_RETRY_FAILED = 'TASK_RETRY_FAILED'
 
-    TASK_FALLBACK_STARTED = "TASK_FALLBACK_STARTED"
-    TASK_FALLBACK_COMPLETED = "TASK_FALLBACK_COMPLETED"
+    TASK_FALLBACK_STARTED = 'TASK_FALLBACK_STARTED'
+    TASK_FALLBACK_COMPLETED = 'TASK_FALLBACK_COMPLETED'
 
 
 class ExecutionEvent:
@@ -49,10 +51,10 @@ class ExecutionEvent:
 
     def __generate_id(self):
         args = {
-            "name": self.name,
-            "type": self.type,
-            "source_id": self.source_id,
-            "value": self.value,
-            "time": self.time,
+            'name': self.name,
+            'type': self.type,
+            'source_id': self.source_id,
+            'value': self.value,
+            'time': self.time,
         }
         return f"{abs(hash(tuple(sorted(make_hashable(args)))))}"

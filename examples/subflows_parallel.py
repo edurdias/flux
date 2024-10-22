@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from examples.subflows import get_stars_workflow
-from flux import workflow, WorkflowExecutionContext
+from flux import workflow
+from flux import WorkflowExecutionContext
 
 
 @workflow
@@ -9,13 +12,13 @@ def subflows_parallel(ctx: WorkflowExecutionContext[list[str]]):
     return {rc.input: rc.output for rc in responses}
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     repositories = [
-        "python/cpython",
-        "microsoft/vscode",
-        "localsend/localsend",
-        "srush/GPU-Puzzles",
-        "hyperknot/openfreemap",
+        'python/cpython',
+        'microsoft/vscode',
+        'localsend/localsend',
+        'srush/GPU-Puzzles',
+        'hyperknot/openfreemap',
     ]
     ctx = subflows_parallel.run(repositories)
     print(ctx.to_json())

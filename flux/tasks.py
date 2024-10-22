@@ -1,15 +1,21 @@
+from __future__ import annotations
+
 import os
+import random
 import time
 import uuid
-import random
-
-from typing import Callable, NoReturn, Optional, Self
-from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from datetime import timedelta
+from typing import Callable
+from typing import NoReturn
+from typing import Optional
+from typing import Self
 
 import flux.decorators as d
-from flux.executors import WorkflowExecutor
 from flux.errors import WorkflowPausedError
+from flux.executors import WorkflowExecutor
 
 
 @d.task
@@ -59,12 +65,12 @@ def sleep(duration: float | timedelta) -> NoReturn:
     time.sleep(duration)
 
 
-@d.task.with_options(name="pause_{reference}")
+@d.task.with_options(name='pause_{reference}')
 def pause(reference: str) -> NoReturn:
     raise WorkflowPausedError(reference)
 
 
-@d.task.with_options(name="call_workflow_{workflow}")
+@d.task.with_options(name='call_workflow_{workflow}')
 def call_workflow(workflow: str | d.workflow, input: any = None):
     name = workflow.name if isinstance(workflow, d.workflow) else str(workflow)
     return WorkflowExecutor.current().execute(name, input).output
@@ -80,8 +86,8 @@ def pipeline(tasks: list[d.task], input: any):
 
 class graph:
 
-    START = "START"
-    END = "END"
+    START = 'START'
+    END = 'END'
 
     def __init__(self, name: str):
         self._name = name
@@ -115,21 +121,21 @@ class graph:
             raise ValueError(f"Node {end_node} must be present.")
 
         if end_node == graph.START:
-            raise ValueError("START cannot be an end_node")
+            raise ValueError('START cannot be an end_node')
 
         if start_node == graph.END:
-            raise ValueError("END cannot be an start_node")
+            raise ValueError('END cannot be an start_node')
 
         self._edges[(start_node, end_node)] = condition
 
         return self
 
-    @d.task.with_options(name="graph_{self._name}")
-    def __call__(self, input: Optional[any] = None):
+    @d.task.with_options(name='graph_{self._name}')
+    def __call__(self, input: any | None = None):
 
         name = self.__get_edge_for(graph.START, input)
         if not name:
-            raise ValueError("Entry point must be defined.")
+            raise ValueError('Entry point must be defined.')
 
         if name == graph.END:
             return
@@ -146,7 +152,7 @@ class graph:
         return result
 
     def __get_edge_for(
-        self, node: str, input: Optional[any] = None, result: Optional[any] = None
+        self, node: str, input: any | None = None, result: any | None = None,
     ):
         for start, end in self._edges:
             if start == node and self._edges[(start, end)](input, result):

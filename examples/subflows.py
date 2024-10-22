@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import httpx
 
-from flux import workflow, task, WorkflowExecutionContext, call_workflow
+from flux import call_workflow
+from flux import task
+from flux import workflow
+from flux import WorkflowExecutionContext
 
 
 @task
@@ -13,7 +18,7 @@ def get_repo_info(repo):
 @workflow
 def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
     repo_info = yield get_repo_info(ctx.input)
-    return repo_info["stargazers_count"]
+    return repo_info['stargazers_count']
 
 
 @workflow
@@ -26,13 +31,13 @@ def subflows(ctx: WorkflowExecutionContext[list[str]]):
     return stars
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     repositories = [
-        "python/cpython",
-        "microsoft/vscode",
-        "localsend/localsend",
-        "srush/GPU-Puzzles",
-        "hyperknot/openfreemap",
+        'python/cpython',
+        'microsoft/vscode',
+        'localsend/localsend',
+        'srush/GPU-Puzzles',
+        'hyperknot/openfreemap',
     ]
     ctx = subflows.run(repositories)
     print(ctx.to_json())

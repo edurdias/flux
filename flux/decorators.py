@@ -1,22 +1,28 @@
+from __future__ import annotations
+
+import inspect
 import os
 import time
-import inspect
-
-from functools import wraps
-from types import GeneratorType
-from inspect import getfullargspec
-from typing import Any, Callable, TypeVar
 from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
+from inspect import getfullargspec
+from types import GeneratorType
+from typing import Any
+from typing import Callable
+from typing import TypeVar
 
+from flux.context import WorkflowExecutionContext
+from flux.errors import ExecutionError
+from flux.errors import RetryError
+from flux.errors import WorkflowPausedError
 from flux.events import ExecutionEvent
-from flux.utils import call_with_timeout, make_hashable
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
-from flux.context import WorkflowExecutionContext
-from flux.errors import ExecutionError, RetryError, WorkflowPausedError
+from flux.utils import call_with_timeout
+from flux.utils import make_hashable
 
-F = TypeVar("F", bound=Callable[..., Any])
-END = "END"
+F = TypeVar('F', bound=Callable[..., Any])
+END = 'END'
 
 
 class workflow:
@@ -33,7 +39,7 @@ class workflow:
 
         if len(args) > 1 or not isinstance(args[0], WorkflowExecutionContext):
             raise TypeError(
-                f"Expected first argument to be of type {type(WorkflowExecutionContext)}."
+                f"Expected first argument to be of type {type(WorkflowExecutionContext)}.",
             )
 
         ctx: WorkflowExecutionContext = args[0]
@@ -82,11 +88,11 @@ class workflow:
         yield END
 
     def run(
-        self, input: any = None, execution_id: str = None, options: dict[str, any] = {}
+        self, input: any = None, execution_id: str = None, options: dict[str, any] = {},
     ) -> WorkflowExecutionContext:
-        options.update({"module": self._func.__module__})
+        options.update({'module': self._func.__module__})
         return WorkflowExecutor.current(options).execute(
-            self._func.__name__, input, execution_id
+            self._func.__name__, input, execution_id,
         )
 
     def map(self, inputs: list[any] = []) -> list[WorkflowExecutionContext]:
@@ -105,9 +111,9 @@ class task:
         retry_backoff: int = 2,
         timeout: int = 0,
         disable_replay: bool = False,
-    ) -> Callable[[F], "task"]:
+    ) -> Callable[[F], task]:
 
-        def wrapper(func: F) -> "task":
+        def wrapper(func: F) -> task:
             return task(
                 func=func,
                 name=name,
@@ -144,18 +150,18 @@ class task:
 
     def __get__(self, instance, owner):
         return lambda *args, **kwargs: self(
-            *(args if instance is None else (instance,) + args), **kwargs
+            *(args if instance is None else (instance,) + args), **kwargs,
         )
 
     def __call__(self, *args, **kwargs) -> Any:
 
         task_args = self.__get_task_args(self._func, args)
         task_name = self.__get_task_name(self._func, self.name, task_args)
-        task_args = {k: v for k, v in task_args.items() if k != "self"}
+        task_args = {k: v for k, v in task_args.items() if k != 'self'}
         task_id = self.__get_task_id(task_name, task_args, kwargs)
 
         yield ExecutionEvent(
-            ExecutionEventType.TASK_STARTED, task_id, task_name, task_args
+            ExecutionEventType.TASK_STARTED, task_id, task_name, task_args,
         )
 
         output, replay = yield
@@ -166,7 +172,7 @@ class task:
 
             output = call_with_timeout(
                 lambda: self._func(*args, **kwargs),
-                "Task",
+                'Task',
                 task_name,
                 task_id,
                 self.timeout,
@@ -183,10 +189,10 @@ class task:
                 output = ex.value
             elif isinstance(ex, WorkflowPausedError):
                 yield ExecutionEvent(
-                    ExecutionEventType.TASK_COMPLETED, task_id, task_name
+                    ExecutionEventType.TASK_COMPLETED, task_id, task_name,
                 )
                 yield ExecutionEvent(
-                    ExecutionEventType.WORKFLOW_PAUSED, task_id, task_name
+                    ExecutionEventType.WORKFLOW_PAUSED, task_id, task_name,
                 )
                 raise
             elif self.retry_max_attemps > 0:
@@ -195,19 +201,20 @@ class task:
                     attempt += 1
                     current_delay = self.retry_delay
                     retry_args = {
-                        "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attemps,
-                        "current_delay": current_delay,
-                        "backoff": self.retry_backoff,
+                        'current_attempt': attempt,
+                        'max_attempts': self.retry_max_attemps,
+                        'current_delay': current_delay,
+                        'backoff': self.retry_backoff,
                     }
 
                     retry_task_id = self.__get_task_id(
-                        task_id, task_args, {**kwargs, **retry_args}
+                        task_id, task_args, {**kwargs, **retry_args},
                     )
 
                     try:
                         time.sleep(current_delay)
-                        current_delay = min(current_delay * self.retry_backoff, 600)
+                        current_delay = min(
+                            current_delay * self.retry_backoff, 600)
 
                         yield ExecutionEvent(
                             ExecutionEventType.TASK_RETRY_STARTED,
@@ -221,11 +228,11 @@ class task:
                             retry_task_id,
                             task_name,
                             {
-                                "current_attempt": attempt,
-                                "max_attempts": self.retry_max_attemps,
-                                "current_delay": current_delay,
-                                "backoff": self.retry_backoff,
-                                "output": output,
+                                'current_attempt': attempt,
+                                'max_attempts': self.retry_max_attemps,
+                                'current_delay': current_delay,
+                                'backoff': self.retry_backoff,
+                                'output': output,
                             },
                         )
                         break
@@ -235,10 +242,10 @@ class task:
                             retry_task_id,
                             task_name,
                             {
-                                "current_attempt": attempt,
-                                "max_attempts": self.retry_max_attemps,
-                                "current_delay": current_delay,
-                                "backoff": self.retry_backoff,
+                                'current_attempt': attempt,
+                                'max_attempts': self.retry_max_attemps,
+                                'current_delay': current_delay,
+                                'backoff': self.retry_backoff,
                             },
                         )
                         if attempt == self.retry_max_attemps:
@@ -279,12 +286,12 @@ class task:
                 )
             else:
                 yield ExecutionEvent(
-                    ExecutionEventType.TASK_FAILED, task_id, task_name, ex
+                    ExecutionEventType.TASK_FAILED, task_id, task_name, ex,
                 )
                 raise ExecutionError(ex)
 
         yield ExecutionEvent(
-            ExecutionEventType.TASK_COMPLETED, task_id, task_name, output
+            ExecutionEventType.TASK_COMPLETED, task_id, task_name, output,
         )
 
         yield END
@@ -293,8 +300,9 @@ class task:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             return list(
                 executor.map(
-                    lambda arg: self(*arg) if isinstance(arg, list) else self(arg), args
-                )
+                    lambda arg: self(*arg) if isinstance(arg,
+                                                         list) else self(arg), args,
+                ),
             )
 
     def __get_task_name(self, func: Callable, name: str, args: dict):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Literal
 
 
@@ -20,7 +22,7 @@ class ExecutionError(Exception):
 class RetryError(ExecutionError):
 
     def __init__(
-        self, inner_exception: Exception, attempts: int, delay: int, backoff: int
+        self, inner_exception: Exception, attempts: int, delay: int, backoff: int,
     ):
         super().__init__(inner_exception)
         self._attempts = attempts
@@ -39,9 +41,10 @@ class RetryError(ExecutionError):
 class TimeoutError(ExecutionError):
 
     def __init__(
-        self, type: Literal["Workflow", "Task"], name: str, id: str, timeout: int
+        self, type: Literal['Workflow', 'Task'], name: str, id: str, timeout: int,
     ):
-        super().__init__(message=f"{type} {name} ({id}) timed out ({timeout}s).")
+        super().__init__(
+            message=f"{type} {name} ({id}) timed out ({timeout}s).")
         self._timeout = timeout
 
     @property
@@ -52,7 +55,8 @@ class TimeoutError(ExecutionError):
 class WorkflowPausedError(ExecutionError):
 
     def __init__(self, reference: str):
-        super().__init__(message=f"Workflow paused. Task reference: {reference}")
+        super().__init__(
+            message=f"Workflow paused. Task reference: {reference}")
         self._reference = reference
 
     @property
@@ -74,4 +78,5 @@ class WorkflowNotFoundError(ExecutionError):
 
 class ExecutionContextNotFoundError(ExecutionError):
     def __init__(self, execution_id: str):
-        super().__init__(message=f"Execution context '{execution_id}' not found.")
+        super().__init__(
+            message=f"Execution context '{execution_id}' not found.")

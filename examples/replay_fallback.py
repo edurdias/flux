@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from examples.fallback import fallback
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     ctx = fallback.run()
     print(ctx.to_json())
 

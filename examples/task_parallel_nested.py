@@ -1,10 +1,10 @@
+from __future__ import annotations
+
 import httpx
 
-from flux import (
-    workflow,
-    task,
-    WorkflowExecutionContext,
-)
+from flux import task
+from flux import workflow
+from flux import WorkflowExecutionContext
 
 
 @task
@@ -16,7 +16,7 @@ def get_repo_info(repo):
 @task
 def get_stars(repo: str):
     repo_info = yield get_repo_info(repo)
-    return repo_info["stargazers_count"]
+    return repo_info['stargazers_count']
 
 
 @workflow
@@ -26,13 +26,13 @@ def task_parallel_nested(ctx: WorkflowExecutionContext[list[str]]):
     return dict(zip(repos, stars))
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     repositories = [
-        "python/cpython",
-        "microsoft/vscode",
-        "localsend/localsend",
-        "srush/GPU-Puzzles",
-        "hyperknot/openfreemap",
+        'python/cpython',
+        'microsoft/vscode',
+        'localsend/localsend',
+        'srush/GPU-Puzzles',
+        'hyperknot/openfreemap',
     ]
     ctx = task_parallel_nested.run(repositories)
     print(ctx.to_json())

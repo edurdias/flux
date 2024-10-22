@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import time
 
-from flux import workflow, task
+from flux import task
+from flux import workflow
 
 
 def fallback_for_long_task(number):
@@ -24,6 +27,6 @@ def fallback_after_timeout():
     yield bad_task(3)
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     ctx = fallback_after_timeout.run()
     print(ctx.to_json())

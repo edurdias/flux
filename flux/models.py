@@ -1,25 +1,29 @@
-import dill
-from typing import Self
+from __future__ import annotations
+
 from datetime import datetime
-from sqlalchemy import (
-    Column,
-    DateTime,
-    Integer,
-    PickleType,
-    String,
-    ForeignKey,
-    Enum as SqlEnum,
-)
-from sqlalchemy.orm import relationship, declarative_base
+from typing import Self
+
+import dill
+from sqlalchemy import Column
+from sqlalchemy import DateTime
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import ForeignKey
+from sqlalchemy import Integer
+from sqlalchemy import PickleType
+from sqlalchemy import String
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import relationship
+
 from flux.context import WorkflowExecutionContext
-from flux.events import ExecutionEvent, ExecutionEventType
+from flux.events import ExecutionEvent
+from flux.events import ExecutionEventType
 
 
 Base = declarative_base()
 
 
 class WorkflowExecutionContextModel(Base):
-    __tablename__ = "workflow_executions"
+    __tablename__ = 'workflow_executions'
 
     execution_id = Column(
         String,
@@ -33,10 +37,10 @@ class WorkflowExecutionContextModel(Base):
 
     # Relationship to events
     events = relationship(
-        "ExecutionEventModel",
-        back_populates="execution",
-        cascade="all, delete-orphan",
-        order_by="ExecutionEventModel.id",
+        'ExecutionEventModel',
+        back_populates='execution',
+        cascade='all, delete-orphan',
+        order_by='ExecutionEventModel.id',
     )
 
     def __init__(
@@ -44,7 +48,7 @@ class WorkflowExecutionContextModel(Base):
         execution_id: str,
         name: str,
         input: any,
-        events: list["ExecutionEventModel"] = [],
+        events: list[ExecutionEventModel] = [],
         output: any = None,
     ):
         self.execution_id = execution_id
@@ -75,10 +79,10 @@ class WorkflowExecutionContextModel(Base):
 
 
 class ExecutionEventModel(Base):
-    __tablename__ = "workflow_execution_events"
+    __tablename__ = 'workflow_execution_events'
 
     execution_id = Column(
-        String, ForeignKey("workflow_executions.execution_id"), nullable=False
+        String, ForeignKey('workflow_executions.execution_id'), nullable=False,
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -88,7 +92,8 @@ class ExecutionEventModel(Base):
     name = Column(String, nullable=False)
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
-    execution = relationship("WorkflowExecutionContextModel", back_populates="events")
+    execution = relationship(
+        'WorkflowExecutionContextModel', back_populates='events')
 
     def __init__(
         self,

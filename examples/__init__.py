@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from examples.determinism import *
 from examples.fallback import *
 from examples.fallback_after_retry import *

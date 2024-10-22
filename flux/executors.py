@@ -1,17 +1,20 @@
-import os
+from __future__ import annotations
 
-from typing import Callable, Self
-from types import GeneratorType
-from abc import ABC, abstractmethod
+import os
+from abc import ABC
+from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from types import GeneratorType
+from typing import Callable
+from typing import Self
 
 import flux.decorators as d
-
 from flux.catalogs import WorkflowCatalog
-from flux.errors import ExecutionError
-from flux.context_managers import ContextManager
 from flux.context import WorkflowExecutionContext
-from flux.events import ExecutionEvent, ExecutionEventType
+from flux.context_managers import ContextManager
+from flux.errors import ExecutionError
+from flux.events import ExecutionEvent
+from flux.events import ExecutionEventType
 
 
 class WorkflowExecutor(ABC):
@@ -26,7 +29,7 @@ class WorkflowExecutor(ABC):
 
     @abstractmethod
     def execute(
-        self, name: str, input: any = None, execution_id: str = None
+        self, name: str, input: any = None, execution_id: str = None,
     ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
@@ -50,7 +53,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         return self
 
     def execute(
-        self, name: str, input: any = None, execution_id: str = None
+        self, name: str, input: any = None, execution_id: str = None,
     ) -> WorkflowExecutionContext:
         workflow = self.catalog.get(name)
 
@@ -67,12 +70,12 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         return self._execute(workflow, ctx)
 
     def _execute(
-        self, workflow: Callable, ctx: WorkflowExecutionContext
+        self, workflow: Callable, ctx: WorkflowExecutionContext,
     ) -> WorkflowExecutionContext:
 
         gen = workflow(ctx)
         assert isinstance(
-            gen, GeneratorType
+            gen, GeneratorType,
         ), f"Function {ctx.name} should be a generator, check if it is decorated by @workflow."
 
         try:
@@ -132,13 +135,14 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             and all(isinstance(e, GeneratorType) for e in step)
         ):
             with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-                value = list(executor.map(lambda i: self.__process(ctx, gen, i), step))
+                value = list(executor.map(
+                    lambda i: self.__process(ctx, gen, i), step))
                 return self.__process(ctx, gen, value)
 
         if isinstance(step, ExecutionEvent):
             if step.type == ExecutionEventType.TASK_STARTED:
 
-                task = gen.gi_frame.f_locals["self"]
+                task = gen.gi_frame.f_locals['self']
 
                 next(gen)
 
@@ -148,7 +152,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
 
                 if past_events:
                     return self.__process_task_past_events(
-                        ctx, gen, task, replay, past_events
+                        ctx, gen, task, replay, past_events,
                     )
 
                 ctx.events.append(step)
@@ -240,7 +244,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                     latest_pause_event.source_id,
                     latest_pause_event.name,
                     latest_pause_event.value,
-                )
+                ),
             )
 
         terminal_event = next(

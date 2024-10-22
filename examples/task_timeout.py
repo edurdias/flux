@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import time
 
-from flux import task, workflow
+from flux import task
+from flux import workflow
 
 
 @task.with_options(timeout=3)
@@ -23,7 +26,7 @@ def task_nested_timeout():
     yield nested_task()
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == '__main__':  # pragma: no cover
     ctx = task_timeout.run()
     print(ctx.to_json())
 
