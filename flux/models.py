@@ -83,7 +83,7 @@ class ExecutionEventModel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     source_id = Column(String, nullable=False)
-    event_id = Column(String, nullable=False, unique=True)
+    event_id = Column(String, nullable=False)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
     value = Column(PickleType(pickler=dill), nullable=True)
@@ -129,27 +129,3 @@ class ExecutionEventModel(Base):
             time=obj.time,
             value=obj.value,
         )
-
-
-# @event.listens_for(ExecutionEventModel, "before_insert")
-# def ExecutionEventModel_before_insert(mapper, connection, target: ExecutionEventModel):
-#     target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
-
-
-# @event.listens_for(ExecutionEventModel, "before_update")
-# def ExecutionEventModel_before_update(mapper, connection, target: ExecutionEventModel):
-#     target.value = json.loads(json.dumps(target.value, cls=WorkflowContextEncoder))
-
-
-# @event.listens_for(WorkflowExecutionContextModel, "before_insert")
-# def WorkflowExecutionContextModel_before_insert(
-#     mapper, connection, target: WorkflowExecutionContextModel
-# ):
-#     target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
-
-
-# @event.listens_for(WorkflowExecutionContextModel, "before_update")
-# def WorkflowExecutionContextModel_before_update(
-#     mapper, connection, target: WorkflowExecutionContextModel
-# ):
-#     target.output = json.loads(json.dumps(target.output, cls=WorkflowContextEncoder))
