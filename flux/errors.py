@@ -1,7 +1,7 @@
 from typing import Literal
 
 
-class ExecutionException(Exception):
+class ExecutionError(Exception):
 
     def __init__(self, inner_exception: Exception = None, message: str = None):
         super().__init__(message)
@@ -17,7 +17,7 @@ class ExecutionException(Exception):
         return self._message
 
 
-class RetryException(ExecutionException):
+class RetryError(ExecutionError):
 
     def __init__(
         self, inner_exception: Exception, attempts: int, delay: int, backoff: int
@@ -36,7 +36,7 @@ class RetryException(ExecutionException):
         return self._delay
 
 
-class TimeoutException(ExecutionException):
+class TimeoutError(ExecutionError):
 
     def __init__(
         self, type: Literal["Workflow", "Task"], name: str, id: str, timeout: int
@@ -49,7 +49,7 @@ class TimeoutException(ExecutionException):
         return self._timeout
 
 
-class WorkflowPausedException(ExecutionException):
+class WorkflowPausedError(ExecutionError):
 
     def __init__(self, reference: str):
         super().__init__(message=f"Workflow paused. Task reference: {reference}")
@@ -60,18 +60,18 @@ class WorkflowPausedException(ExecutionException):
         return self._reference
 
 
-class WorkflowCatalogException(ExecutionException):
+class WorkflowCatalogError(ExecutionError):
 
     def __init__(self, message: str):
         super().__init__(message=message)
 
 
-class WorkflowNotFoundException(ExecutionException):
+class WorkflowNotFoundError(ExecutionError):
 
     def __init__(self, name: str):
         super().__init__(message=f"Workflow '{name}' not found.")
 
 
-class ExecutionContextNotFoundException(ExecutionException):
+class ExecutionContextNotFoundError(ExecutionError):
     def __init__(self, execution_id: str):
         super().__init__(message=f"Execution context '{execution_id}' not found.")

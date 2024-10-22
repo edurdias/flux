@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import flux.decorators as d
 
 from flux.catalogs import WorkflowCatalog
-from flux.exceptions import ExecutionException
+from flux.errors import ExecutionError
 from flux.context_managers import ContextManager
 from flux.context import WorkflowExecutionContext
 from flux.events import ExecutionEvent, ExecutionEventType
@@ -100,7 +100,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 value = self.__process(ctx, gen, step, replay=should_replay)
                 step = gen.send(value)
 
-        except ExecutionException as execution_exception:
+        except ExecutionError as execution_exception:
             event = gen.throw(execution_exception)
             if isinstance(event, ExecutionEvent):
                 ctx.events.append(event)
@@ -157,7 +157,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 while isinstance(value, GeneratorType):
                     try:
                         value = gen.send(self.__process(ctx, gen, value))
-                    except ExecutionException as ex:
+                    except ExecutionError as ex:
                         value = gen.throw(ex)
                     except StopIteration as ex:
                         value = ex.value

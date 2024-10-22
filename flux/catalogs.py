@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from importlib import import_module, util
 
 import flux.decorators as d
-from flux.exceptions import WorkflowNotFoundException
+from flux.errors import WorkflowNotFoundError
 
 
 # TODO: add catalog backed by database
@@ -38,5 +38,5 @@ class ModuleWorkflowCatalog(WorkflowCatalog):
     def get(self, name: str) -> Callable:
         w = getattr(self._module, name)
         if not w or not d.workflow.is_workflow(w):
-            raise WorkflowNotFoundException(name)
+            raise WorkflowNotFoundError(name)
         return w

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from flux.context import WorkflowExecutionContext
-from flux.exceptions import ExecutionContextNotFoundException
+from flux.errors import ExecutionContextNotFoundError
 from flux.models import ExecutionEventModel, WorkflowExecutionContextModel
 from flux.models import Base
 
@@ -81,7 +81,7 @@ class SQLiteContextManager(ContextManager):
             context = session.get(WorkflowExecutionContextModel, execution_id)
             if context:
                 return context.to_plain()
-            raise ExecutionContextNotFoundException(execution_id)
+            raise ExecutionContextNotFoundError(execution_id)
 
     def _get_additional_events(self, ctx, context):
         existing_events = [(e.event_id, e.type) for e in context.events]

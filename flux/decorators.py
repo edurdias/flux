@@ -13,7 +13,7 @@ from flux.utils import call_with_timeout, make_hashable
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
 from flux.context import WorkflowExecutionContext
-from flux.exceptions import ExecutionException, RetryException, WorkflowPausedException
+from flux.errors import ExecutionError, RetryError, WorkflowPausedError
 
 F = TypeVar("F", bound=Callable[..., Any])
 END = "END"
@@ -61,9 +61,9 @@ class workflow:
                 ctx.name,
                 output,
             )
-        except WorkflowPausedException as ex:
+        except WorkflowPausedError as ex:
             pass
-        except ExecutionException as ex:
+        except ExecutionError as ex:
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_FAILED,
                 qualified_name,
@@ -181,7 +181,7 @@ class task:
         except Exception as ex:
             if isinstance(ex, StopIteration):
                 output = ex.value
-            elif isinstance(ex, WorkflowPausedException):
+            elif isinstance(ex, WorkflowPausedError):
                 yield ExecutionEvent(
                     ExecutionEventType.TASK_COMPLETED, task_id, task_name
                 )
@@ -257,7 +257,7 @@ class task:
                                     output,
                                 )
                             else:
-                                raise RetryException(
+                                raise RetryError(
                                     e,
                                     self.retry_max_attemps,
                                     self.retry_delay,
@@ -281,7 +281,7 @@ class task:
                 yield ExecutionEvent(
                     ExecutionEventType.TASK_FAILED, task_id, task_name, ex
                 )
-                raise ExecutionException(ex)
+                raise ExecutionError(ex)
 
         yield ExecutionEvent(
             ExecutionEventType.TASK_COMPLETED, task_id, task_name, output

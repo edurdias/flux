@@ -5,7 +5,7 @@ from fastapi import Body, FastAPI, HTTPException, Query
 import uvicorn
 
 from flux.context_managers import ContextManager
-from flux.exceptions import ExecutionException, WorkflowNotFoundException
+from flux.errors import ExecutionError, WorkflowNotFoundError
 from flux.executors import WorkflowExecutor
 
 
@@ -51,9 +51,9 @@ def start(path: str):
 
             return context.summary() if not inspect else context.to_dict()
 
-        except WorkflowNotFoundException as ex:
+        except WorkflowNotFoundError as ex:
             raise HTTPException(status_code=404, detail=ex.message)
-        except ExecutionException as ex:
+        except ExecutionError as ex:
             raise HTTPException(status_code=404, detail=ex.message)
         except Exception as ex:
             raise HTTPException(status_code=500, detail=str(ex))

@@ -6,7 +6,7 @@ from types import GeneratorType
 from typing import Callable
 import uuid
 import flux.context as context
-from flux.exceptions import ExecutionException
+from flux.errors import ExecutionError
 
 
 class WorkflowContextEncoder(json.JSONEncoder):
@@ -24,7 +24,7 @@ class WorkflowContextEncoder(json.JSONEncoder):
                 "events": obj.events,
             }
 
-        if isinstance(obj, ExecutionException):
+        if isinstance(obj, ExecutionError):
             obj = obj.inner_exception if obj.inner_exception else obj
             return {"type": type(obj).__name__, "message": str(obj)}
 

@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import flux.decorators as d
 from flux.executors import WorkflowExecutor
-from flux.exceptions import WorkflowPausedException
+from flux.errors import WorkflowPausedError
 
 
 @d.task
@@ -61,7 +61,7 @@ def sleep(duration: float | timedelta) -> NoReturn:
 
 @d.task.with_options(name="pause_{reference}")
 def pause(reference: str) -> NoReturn:
-    raise WorkflowPausedException(reference)
+    raise WorkflowPausedError(reference)
 
 
 @d.task.with_options(name="call_workflow_{workflow}")

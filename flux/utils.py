@@ -3,7 +3,7 @@ from multiprocessing.managers import DictProxy
 from typing import Any, Callable, Literal
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-from flux.exceptions import TimeoutException
+from flux.errors import TimeoutError
 
 
 def call_with_timeout(
@@ -17,7 +17,7 @@ def call_with_timeout(
             except TimeoutError:
                 future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
-                raise TimeoutException(type, name, id, timeout)
+                raise TimeoutError(type, name, id, timeout)
     return func()
 
 
