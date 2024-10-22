@@ -59,12 +59,12 @@ def sleep(duration: float | timedelta) -> NoReturn:
     time.sleep(duration)
 
 
-@d.task.with_options(name="pause_$reference")
+@d.task.with_options(name="pause_{reference}")
 def pause(reference: str) -> NoReturn:
     raise WorkflowPausedException(reference)
 
 
-@d.task.with_options(name="call_workflow_$workflow")
+@d.task.with_options(name="call_workflow_{workflow}")
 def call_workflow(workflow: str | d.workflow, input: any = None):
     name = workflow.name if isinstance(workflow, d.workflow) else str(workflow)
     return WorkflowExecutor.current().execute(name, input).output
