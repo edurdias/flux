@@ -6,21 +6,62 @@ from abc import abstractmethod
 from importlib import import_module
 from importlib import util
 from typing import Any
-from typing import Callable
+
+from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 
 import flux.decorators as decorators
 from flux.errors import WorkflowNotFoundError
+from flux.models import SQLiteRepository
+from flux.models import WorkflowModel
 
 
-# TODO: add catalog backed by database
 class WorkflowCatalog(ABC):
     @abstractmethod
-    def get(self, name: str) -> Callable:  # pragma: no cover
+    def get(self, name: str) -> decorators.workflow:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def save(self, workflow: decorators.workflow):  # pragma: no cover
         raise NotImplementedError()
 
     @staticmethod
     def create(options: dict[str, Any] | None = None) -> WorkflowCatalog:
         return ModuleWorkflowCatalog(options)
+
+
+class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
+    def __init__(self, options: dict[str, Any] | None = None):
+        options = options or {}
+        path = options["path"] if "path" in options else ".data"
+        super().__init__(path)
+
+    def get(self, name: str) -> decorators.workflow:
+        model = self._get(name)
+        if not model:
+            raise WorkflowNotFoundError(name)
+        return model.code
+
+    def save(self, workflow: decorators.workflow):
+        with self.session() as session:
+            try:
+                name = workflow.name
+                model = self._get(name)
+                version = model.version + 1 if model else 1
+                session.add(WorkflowModel(name, workflow, version))
+                session.commit()
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def _get(self, name: str) -> WorkflowModel:
+        with self.session() as session:
+            return (
+                session.query(WorkflowModel)
+                .filter(WorkflowModel.name == name)
+                .order_by(desc(WorkflowModel.version))
+                .first()
+            )
 
 
 class ModuleWorkflowCatalog(WorkflowCatalog):
@@ -38,8 +79,11 @@ class ModuleWorkflowCatalog(WorkflowCatalog):
         else:
             self._module = sys.modules["__main__"]
 
-    def get(self, name: str) -> Callable:
+    def get(self, name: str) -> decorators.workflow:
         workflow = getattr(self._module, name) if hasattr(self._module, name) else None
         if not workflow or not decorators.workflow.is_workflow(workflow):
             raise WorkflowNotFoundError(name, self._module.__name__)
         return workflow
+
+    def save(self, workflow: decorators.workflow):  # pragma: no cover
+        raise NotImplementedError()

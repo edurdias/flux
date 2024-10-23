@@ -5,6 +5,7 @@ from typing import Any
 
 import dill
 from sqlalchemy import Column
+from sqlalchemy import create_engine
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
@@ -13,7 +14,9 @@ from sqlalchemy import PickleType
 from sqlalchemy import String
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Session
 
+import flux.decorators as decorators
 from flux.context import WorkflowExecutionContext
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
@@ -21,6 +24,29 @@ from flux.events import ExecutionEventType
 
 class Base(DeclarativeBase):
     pass
+
+
+class SQLiteRepository:
+    def __init__(self, path: str):
+        self._engine = create_engine(f"sqlite:///{path}/flux.db")
+        Base.metadata.create_all(self._engine)
+
+    def session(self) -> Session:
+        return Session(self._engine)
+
+
+class WorkflowModel(Base):
+    __tablename__ = "workflows"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    code = Column(PickleType(pickler=dill), nullable=False)
+
+    def __init__(self, name: str, code: decorators.workflow, version: int = 1):
+        self.name = name
+        self.code = code
+        self.version = version
 
 
 class WorkflowExecutionContextModel(Base):

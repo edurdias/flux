@@ -80,8 +80,15 @@ class WorkflowCatalogError(ExecutionError):
 
 
 class WorkflowNotFoundError(ExecutionError):
-    def __init__(self, name: str, module_name: str):
-        super().__init__(message=f"Workflow '{name}' not found in module {module_name}.")
+    def __init__(self, name: str, module_name: str | None = None):
+        super().__init__(
+            message=f"Workflow '{name}' not found {f"in module {module_name}." if module_name else ""}",
+        )
+
+
+class WorkflowAlreadyExistError(ExecutionError):
+    def __init__(self, name: str):
+        super().__init__(message=f"Workflow '{name}' already exists.")
 
 
 class ExecutionContextNotFoundError(ExecutionError):

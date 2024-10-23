@@ -3,14 +3,12 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 
-from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from flux.context import WorkflowExecutionContext
 from flux.errors import ExecutionContextNotFoundError
-from flux.models import Base
 from flux.models import ExecutionEventModel
+from flux.models import SQLiteRepository
 from flux.models import WorkflowExecutionContextModel
 
 
@@ -28,18 +26,12 @@ class ContextManager(ABC):
         return SQLiteContextManager()
 
 
-class SQLiteContextManager(ContextManager):
-    max_attempts = 10
-
-    def __init__(self, db_path: str = ".data"):
-        self._engine = create_engine(
-            f"sqlite:///{db_path}/flux.db",
-            echo=False,
-        )
-        Base.metadata.create_all(self._engine)
+class SQLiteContextManager(ContextManager, SQLiteRepository):
+    def __init__(self, path: str = ".data"):
+        super().__init__(path)
 
     def save(self, ctx: WorkflowExecutionContext):
-        with Session(self._engine) as session:
+        with self.session() as session:
             try:
                 context = session.get(
                     WorkflowExecutionContextModel,
@@ -60,7 +52,7 @@ class SQLiteContextManager(ContextManager):
                 raise
 
     def get(self, execution_id: str) -> WorkflowExecutionContext:
-        with Session(self._engine) as session:
+        with self.session() as session:
             context = session.get(WorkflowExecutionContextModel, execution_id)
             if context:
                 return context.to_plain()
