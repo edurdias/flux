@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.1.2"
+version = "0.1.3"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
