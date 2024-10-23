@@ -19,12 +19,12 @@ def bad_task(number: int, should_fail: bool = True):
 
 
 @workflow
-def fallback_after_retry():
+def task_fallback_after_retry():
     result1 = yield bad_task(1)
     result2 = yield bad_task(2, False)  # will pass
     return [result1, result2]
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = fallback_after_retry.run()
+    ctx = task_fallback_after_retry.run()
     print(ctx.to_json())

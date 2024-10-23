@@ -32,6 +32,7 @@ class WorkflowExecutor(ABC):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
+        force_replay: bool = False,
     ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
@@ -63,6 +64,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
+        force_replay: bool = False,
     ) -> WorkflowExecutionContext:
         workflow = self.catalog.get(name)
 
@@ -72,7 +74,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             else WorkflowExecutionContext(name, input, None, [])
         )
 
-        if ctx.finished:
+        if ctx.finished and not force_replay:
             return ctx
 
         self.context_manager.save(ctx)
@@ -98,11 +100,19 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             # always start workflow
             event = gen.send(None)
             assert (
-                event.type == ExecutionEventType.WORKFLOW_STARTED
+                isinstance(event, ExecutionEvent)
+                and event.type == ExecutionEventType.WORKFLOW_STARTED
             ), f"First event should always be {ExecutionEventType.WORKFLOW_STARTED}"
 
             if self._past_events:
-                self._past_events.pop(0)
+                past_start_event = next(
+                    e
+                    for e in self._past_events
+                    if e.type == ExecutionEventType.WORKFLOW_STARTED
+                    and e.source_id == event.source_id
+                    and e.name == event.name
+                )
+                self._past_events.remove(past_start_event)
             else:
                 ctx.events.append(event)
 

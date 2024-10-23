@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from examples.nested_tasks import nested_tasks_workflow
+from examples.parallel_tasks import parallel_tasks_workflow
 
 
 def test_should_succeed():
-    ctx = nested_tasks_workflow.run()
+    ctx = parallel_tasks_workflow.run("Joe")
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     return ctx
 
 
 def test_should_replay():
     first_ctx = test_should_succeed()
-    second_ctx = nested_tasks_workflow.run(execution_id=first_ctx.execution_id, force_replay=True)
+    second_ctx = parallel_tasks_workflow.run(execution_id=first_ctx.execution_id, force_replay=True)
     assert first_ctx.execution_id == second_ctx.execution_id
     assert first_ctx.output == second_ctx.output

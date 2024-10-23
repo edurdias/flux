@@ -19,7 +19,7 @@ def bad_task(number):
 
 
 @workflow
-def fallback():
+def task_fallback():
     yield bad_task(1)
     yield bad_task(2)
     yield bad_task(3)
@@ -27,5 +27,5 @@ def fallback():
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = fallback.run()
+    ctx = task_fallback.run()
     print(ctx.to_json())

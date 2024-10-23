@@ -26,12 +26,12 @@ def three_levels_task():
 
 
 @workflow
-def nested_tasks():
+def nested_tasks_workflow():
     yield first_task()
     yield second_task()
     yield three_levels_task()
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = nested_tasks.run()
+    ctx = nested_tasks_workflow.run()
     print(ctx.to_json())

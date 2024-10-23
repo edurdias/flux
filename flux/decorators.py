@@ -86,6 +86,7 @@ class workflow:
         self,
         input: Any | None = None,
         execution_id: str | None = None,
+        force_replay: bool = False,
         options: dict[str, Any] = {},
     ) -> WorkflowExecutionContext:
         options.update({"module": self._func.__module__})
@@ -93,6 +94,7 @@ class workflow:
             self._func.__name__,
             input,
             execution_id,
+            force_replay,
         )
 
     def map(self, inputs: list[Any] = []) -> list[WorkflowExecutionContext]:

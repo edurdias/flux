@@ -13,7 +13,7 @@ def test_should_succeed():
 
 def test_should_replay():
     first_ctx = test_should_succeed()
-    second_ctx = hello_world.run("Joe", execution_id=first_ctx.execution_id)
+    second_ctx = hello_world.run("Joe", execution_id=first_ctx.execution_id, force_replay=True)
     assert first_ctx.execution_id == second_ctx.execution_id
     assert first_ctx.output == second_ctx.output
 

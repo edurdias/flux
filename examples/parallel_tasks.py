@@ -27,7 +27,7 @@ def saluda(name: str):
 
 
 @workflow
-def hello_world(ctx: WorkflowExecutionContext[str]):
+def parallel_tasks_workflow(ctx: WorkflowExecutionContext[str]):
     results = yield parallel(
         lambda: say_hi(ctx.input),
         lambda: say_hello(ctx.input),
@@ -38,5 +38,5 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = hello_world.run("Joe")
+    ctx = parallel_tasks_workflow.run("Joe")
     print(ctx.to_json())

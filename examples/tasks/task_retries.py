@@ -15,11 +15,11 @@ def bad_task(number):
 
 
 @workflow
-def retries():
+def task_retries():
     yield bad_task(1)
     yield bad_task(2)
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = retries.run()
+    ctx = task_retries.run()
     print(ctx.to_json())

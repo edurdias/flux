@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from examples.task_timeout import task_nested_timeout
-from examples.task_timeout import task_timeout
+from examples.tasks.task_timeout import task_nested_timeout
+from examples.tasks.task_timeout import task_timeout
 from flux.errors import ExecutionError
 from flux.errors import ExecutionTimeoutError
 

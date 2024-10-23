@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from examples.hello_world_parallel import diga_ola
-from examples.hello_world_parallel import say_hello
+from examples.parallel_tasks import diga_ola
+from examples.parallel_tasks import say_hello
 from flux import workflow
 from flux.context import WorkflowExecutionContext
 from flux.tasks import pause
