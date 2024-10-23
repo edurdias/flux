@@ -6,7 +6,10 @@ from flux import WorkflowExecutionContext
 
 
 @workflow
-def subflows_parallel(ctx: WorkflowExecutionContext[list[str]]):
+def subflows_map_workflow(ctx: WorkflowExecutionContext[list[str]]):
+    if not ctx.input:
+        raise TypeError("The list of repositories cannot be empty.")
+
     repos = ctx.input
     responses = yield get_stars_workflow.map(repos)
     return {rc.input: rc.output for rc in responses}
@@ -20,5 +23,5 @@ if __name__ == "__main__":  # pragma: no cover
         "srush/GPU-Puzzles",
         "hyperknot/openfreemap",
     ]
-    ctx = subflows_parallel.run(repositories)
+    ctx = subflows_map_workflow.run(repositories)
     print(ctx.to_json())

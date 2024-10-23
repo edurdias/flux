@@ -23,8 +23,10 @@ def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
 
 @workflow
 def subflows(ctx: WorkflowExecutionContext[list[str]]):
-    repos = ctx.input
+    if not ctx.input:
+        raise TypeError("The list of repositories cannot be empty.")
 
+    repos = ctx.input
     stars = {}
     for repo in repos:
         stars[repo] = yield call_workflow(get_stars_workflow, repo)

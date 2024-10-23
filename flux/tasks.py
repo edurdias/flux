@@ -71,15 +71,9 @@ def pause(reference: str) -> Never:
 
 @decorators.task.with_options(name="call_workflow_{workflow}")
 def call_workflow(workflow: str | decorators.workflow, input: Any | None = None):
-    name = (
-        workflow.name
-        if isinstance(
-            workflow,
-            decorators.workflow,
-        )
-        else str(workflow)
-    )
-    return WorkflowExecutor.current().execute(name, input).output
+    if isinstance(workflow, decorators.workflow):
+        return workflow.run(input).output
+    return WorkflowExecutor.current().execute(str(workflow), input).output
 
 
 @decorators.task

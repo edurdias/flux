@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-from examples.github_stars import github_stars
+from examples.subflows_map import subflows_map_workflow
 from flux.events import ExecutionEventType
 
 
 def test_should_succeed():
-    repos = [
-        "python/cpython",
-        "microsoft/vscode",
-        "localsend/localsend",
-        "srush/GPU-Puzzles",
-        "hyperknot/openfreemap",
-    ]
-    ctx = github_stars.run(repos)
+    repos = ["python/cpython", "microsoft/vscode", "localsend/localsend"]
+    ctx = subflows_map_workflow.run(repos)
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     assert all(
         repo in ctx.output for repo in repos
@@ -22,20 +16,20 @@ def test_should_succeed():
 
 def test_should_replay():
     first_ctx = test_should_succeed()
-    second_ctx = github_stars.run(execution_id=first_ctx.execution_id)
+    second_ctx = subflows_map_workflow.run(execution_id=first_ctx.execution_id)
     assert first_ctx.execution_id == second_ctx.execution_id
     assert first_ctx.output == second_ctx.output
 
 
 def test_should_fail_no_input():
-    ctx = github_stars.run()
+    ctx = subflows_map_workflow.run()
     last_event = ctx.events[-1]
     assert last_event.type == ExecutionEventType.WORKFLOW_FAILED
     assert isinstance(last_event.value, TypeError)
 
 
 def test_should_fail_empty_list():
-    ctx = github_stars.run([])
+    ctx = subflows_map_workflow.run([])
     last_event = ctx.events[-1]
     assert last_event.type == ExecutionEventType.WORKFLOW_FAILED
     assert isinstance(last_event.value, TypeError)
