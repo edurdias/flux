@@ -6,7 +6,7 @@ from flux import workflow
 
 @task
 def third_task():
-    return 'result'
+    return "result"
 
 
 @task
@@ -17,7 +17,7 @@ def first_task():
 @task
 def second_task():
     second = yield third_task()
-    return [second, 'third']
+    return [second, "third"]
 
 
 @task
@@ -32,6 +32,6 @@ def nested_tasks():
     yield three_levels_task()
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     ctx = nested_tasks.run()
     print(ctx.to_json())

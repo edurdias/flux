@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Self
+from typing import Any
 
 import dill
 from sqlalchemy import Column
@@ -11,7 +11,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import PickleType
 from sqlalchemy import String
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 
 from flux.context import WorkflowExecutionContext
@@ -19,11 +19,12 @@ from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 
 class WorkflowExecutionContextModel(Base):
-    __tablename__ = 'workflow_executions'
+    __tablename__ = "workflow_executions"
 
     execution_id = Column(
         String,
@@ -37,19 +38,19 @@ class WorkflowExecutionContextModel(Base):
 
     # Relationship to events
     events = relationship(
-        'ExecutionEventModel',
-        back_populates='execution',
-        cascade='all, delete-orphan',
-        order_by='ExecutionEventModel.id',
+        "ExecutionEventModel",
+        back_populates="execution",
+        cascade="all, delete-orphan",
+        order_by="ExecutionEventModel.id",
     )
 
     def __init__(
         self,
         execution_id: str,
         name: str,
-        input: any,
+        input: Any,
         events: list[ExecutionEventModel] = [],
-        output: any = None,
+        output: Any | None = None,
     ):
         self.execution_id = execution_id
         self.name = name
@@ -66,23 +67,23 @@ class WorkflowExecutionContextModel(Base):
         )
 
     @classmethod
-    def from_plain(cls, obj: WorkflowExecutionContext) -> Self:
+    def from_plain(cls, obj: WorkflowExecutionContext) -> WorkflowExecutionContextModel:
         return cls(
             execution_id=obj.execution_id,
             name=obj.name,
             input=obj.input,
             output=obj.output,
-            events=[
-                ExecutionEventModel.from_plain(obj.execution_id, e) for e in obj.events
-            ],
+            events=[ExecutionEventModel.from_plain(obj.execution_id, e) for e in obj.events],
         )
 
 
 class ExecutionEventModel(Base):
-    __tablename__ = 'workflow_execution_events'
+    __tablename__ = "workflow_execution_events"
 
     execution_id = Column(
-        String, ForeignKey('workflow_executions.execution_id'), nullable=False,
+        String,
+        ForeignKey("workflow_executions.execution_id"),
+        nullable=False,
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -93,7 +94,8 @@ class ExecutionEventModel(Base):
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
     execution = relationship(
-        'WorkflowExecutionContextModel', back_populates='events',
+        "WorkflowExecutionContextModel",
+        back_populates="events",
     )
 
     def __init__(
@@ -104,7 +106,7 @@ class ExecutionEventModel(Base):
         type: ExecutionEventType,
         name: str,
         time: datetime,
-        value: any = None,
+        value: Any | None = None,
     ):
         self.source_id = source_id
         self.event_id = event_id
@@ -125,7 +127,7 @@ class ExecutionEventModel(Base):
         )
 
     @classmethod
-    def from_plain(cls, execution_id: str, obj: ExecutionEvent) -> Self:
+    def from_plain(cls, execution_id: str, obj: ExecutionEvent) -> ExecutionEventModel:
         return cls(
             execution_id=execution_id,
             source_id=obj.source_id,

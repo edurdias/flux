@@ -25,6 +25,6 @@ def fallback_after_retry():
     return [result1, result2]
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     ctx = fallback_after_retry.run()
     print(ctx.to_json())

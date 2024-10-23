@@ -37,6 +37,6 @@ def hello_world(ctx: WorkflowExecutionContext[str]):
     return results
 
 
-if __name__ == '__main__':  # pragma: no cover
-    ctx = hello_world.run('Joe')
+if __name__ == "__main__":  # pragma: no cover
+    ctx = hello_world.run("Joe")
     print(ctx.to_json())

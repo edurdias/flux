@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from typing import Generic
 from typing import TypeVar
 from uuid import uuid4
@@ -9,16 +10,15 @@ from flux.encoders import WorkflowContextEncoder
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 
-WorkflowInputType = TypeVar('InputType')
+WorkflowInputType = TypeVar("WorkflowInputType")
 
 
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
-
     def __init__(
         self,
         name: str,
         input: WorkflowInputType,
-        execution_id: str = None,
+        execution_id: str | None = None,
         events: list[ExecutionEvent] = [],
     ):
         self._execution_id = execution_id if execution_id else uuid4().hex
@@ -44,39 +44,32 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     @property
     def finished(self) -> bool:
-        return self.events and self.events[-1].type in (
+        return len(self.events) > 0 and self.events[-1].type in (
             ExecutionEventType.WORKFLOW_COMPLETED,
             ExecutionEventType.WORKFLOW_FAILED,
         )
 
     @property
     def succeeded(self) -> bool:
-        return (
-            self.finished
-            and self.events[-1].type == ExecutionEventType.WORKFLOW_COMPLETED
-        )
+        return self.finished and self.events[-1].type == ExecutionEventType.WORKFLOW_COMPLETED
 
     @property
     def paused(self) -> bool:
-        return (
-            self.events and self.events[-1].type == ExecutionEventType.WORKFLOW_PAUSED
-        )
+        return len(self.events) > 0 and self.events[-1].type == ExecutionEventType.WORKFLOW_PAUSED
 
     @property
-    def output(self) -> any:
-        completed = [
-            e for e in self.events if e.type == ExecutionEventType.WORKFLOW_COMPLETED
-        ]
+    def output(self) -> Any:
+        completed = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_COMPLETED]
         if len(completed) > 0:
             return completed[0].value
         return None
 
     def summary(self):
         return {
-            'execution_id': self.execution_id,
-            'name': self.name,
-            'input': self.input,
-            'output': self.output,
+            "execution_id": self.execution_id,
+            "name": self.name,
+            "input": self.input,
+            "output": self.output,
         }
 
     def to_dict(self):

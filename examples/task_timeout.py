@@ -26,7 +26,7 @@ def task_nested_timeout():
     yield nested_task()
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     ctx = task_timeout.run()
     print(ctx.to_json())
 

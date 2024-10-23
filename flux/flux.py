@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
 from typing import Any
-from typing import Dict
-from typing import Optional
 
 import click
 import uvicorn
@@ -24,26 +21,26 @@ def cli():
 
 
 @cli.command()
-@click.argument('file_path')
-@click.argument('workflow')
-@click.option('--input', '-i', help='Workflow input.')
-@click.option('--execution-id', '-e', help='Execution ID for existing executions.')
-def exec(file_path: str, workflow: str, input: any, execution_id: str = None):
+@click.argument("file_path")
+@click.argument("workflow")
+@click.option("--input", "-i", help="Workflow input.")
+@click.option("--execution-id", "-e", help="Execution ID for existing executions.")
+def exec(file_path: str, workflow: str, input: Any, execution_id: str | None = None):
     """Execute the specified workflow"""
 
-    executor = WorkflowExecutor.current({'file_path': file_path})
+    executor = WorkflowExecutor.current({"file_path": file_path})
     print(executor.execute(workflow, input, execution_id).to_json())
 
 
 @cli.command()
-@click.argument('path')
+@click.argument("path")
 def start(path: str):
     """Start the server to execute Workflows via API."""
 
     app = FastAPI()
 
-    @app.post('/{workflow}', response_model=dict[str, Any])
-    @app.post('/{workflow}/{execution_id}', response_model=dict[str, Any])
+    @app.post("/{workflow}", response_model=dict[str, Any])
+    @app.post("/{workflow}/{execution_id}", response_model=dict[str, Any])
     async def execute(
         workflow: str,
         execution_id: str | None = None,
@@ -51,7 +48,7 @@ def start(path: str):
         inspect: bool = Query(default=False),
     ) -> dict[str, Any]:
         try:
-            executor = WorkflowExecutor.current({'module': path})
+            executor = WorkflowExecutor.current({"module": path})
             context = executor.execute(
                 execution_id=execution_id,
                 name=workflow,
@@ -67,14 +64,14 @@ def start(path: str):
         except Exception as ex:
             raise HTTPException(status_code=500, detail=str(ex))
 
-    @app.get('/inspect/{execution_id}', response_model=dict[str, Any])
-    async def execute(execution_id: str) -> dict[str, Any]:
+    @app.get("/inspect/{execution_id}", response_model=dict[str, Any])
+    async def execute_with_id(execution_id: str) -> dict[str, Any]:
         try:
-
             context = ContextManager.default().get(execution_id)
             if not context:
                 raise HTTPException(
-                    status_code=404, detail=f"Execution '{execution_id}' not found!",
+                    status_code=404,
+                    detail=f"Execution '{execution_id}' not found!",
                 )
             return context.to_dict()
 
@@ -86,5 +83,5 @@ def start(path: str):
     uvicorn.run(app)
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     cli()

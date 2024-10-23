@@ -8,37 +8,36 @@ from concurrent.futures import as_completed
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from datetime import timedelta
+from typing import Any
 from typing import Callable
-from typing import NoReturn
-from typing import Optional
-from typing import Self
+from typing import Never
 
-import flux.decorators as d
+import flux.decorators as decorators
 from flux.errors import WorkflowPausedError
 from flux.executors import WorkflowExecutor
 
 
-@d.task
+@decorators.task
 def now() -> datetime:
     return datetime.now()
 
 
-@d.task
+@decorators.task
 def uuid4() -> uuid.UUID:
     return uuid.uuid4()
 
 
-@d.task
+@decorators.task
 def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 
 
-@d.task
+@decorators.task
 def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
 
 
-@d.task
+@decorators.task
 def parallel(*functions: Callable):
     results = []
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -49,8 +48,8 @@ def parallel(*functions: Callable):
     return results
 
 
-@d.task
-def sleep(duration: float | timedelta) -> NoReturn:
+@decorators.task
+def sleep(duration: float | timedelta):
     """
     Pauses the execution of the workflow for a given duration.
 
@@ -65,19 +64,26 @@ def sleep(duration: float | timedelta) -> NoReturn:
     time.sleep(duration)
 
 
-@d.task.with_options(name='pause_{reference}')
-def pause(reference: str) -> NoReturn:
+@decorators.task.with_options(name="pause_{reference}")
+def pause(reference: str) -> Never:
     raise WorkflowPausedError(reference)
 
 
-@d.task.with_options(name='call_workflow_{workflow}')
-def call_workflow(workflow: str | d.workflow, input: any = None):
-    name = workflow.name if isinstance(workflow, d.workflow) else str(workflow)
+@decorators.task.with_options(name="call_workflow_{workflow}")
+def call_workflow(workflow: str | decorators.workflow, input: Any | None = None):
+    name = (
+        workflow.name
+        if isinstance(
+            workflow,
+            decorators.workflow,
+        )
+        else str(workflow)
+    )
     return WorkflowExecutor.current().execute(name, input).output
 
 
-@d.task
-def pipeline(tasks: list[d.task], input: any):
+@decorators.task
+def pipeline(tasks: list[decorators.task], input: Any):
     result = input
     for task in tasks:
         result = yield task(result)
@@ -85,24 +91,23 @@ def pipeline(tasks: list[d.task], input: any):
 
 
 class graph:
-
-    START = 'START'
-    END = 'END'
+    START = "START"
+    END = "END"
 
     def __init__(self, name: str):
         self._name = name
-        self._nodes: dict[str, d.task] = {}
-        self._edges: dict[tuple[str, str], Callable[[any, any], bool]] = {}
+        self._nodes: dict[str, decorators.task] = {}
+        self._edges: dict[tuple[str, str], Callable[[Any, Any], bool]] = {}
 
-    def set_entry_point(self, node: str) -> Self:
+    def set_entry_point(self, node: str) -> graph:
         self.add_edge(graph.START, node)
         return self
 
-    def set_finish_point(self, node: str) -> Self:
+    def set_finish_point(self, node: str) -> graph:
         self.add_edge(node, graph.END)
         return self
 
-    def add_node(self, name: str, node: d.task | Callable[[any], any]) -> Self:
+    def add_node(self, name: str, node: decorators.task) -> graph:
         if name in self._nodes:
             raise ValueError(f"Node {name} already present.")
         self._nodes[name] = node
@@ -112,8 +117,8 @@ class graph:
         self,
         start_node: str,
         end_node: str,
-        condition: Callable[[any, any], bool] = lambda i, r: True,
-    ) -> Self:
+        condition: Callable[[Any, Any], bool] = lambda i, r: True,
+    ) -> graph:
         if start_node != graph.START and start_node not in self._nodes:
             raise ValueError(f"Node {start_node} must be present.")
 
@@ -121,21 +126,20 @@ class graph:
             raise ValueError(f"Node {end_node} must be present.")
 
         if end_node == graph.START:
-            raise ValueError('START cannot be an end_node')
+            raise ValueError("START cannot be an end_node")
 
         if start_node == graph.END:
-            raise ValueError('END cannot be an start_node')
+            raise ValueError("END cannot be an start_node")
 
         self._edges[(start_node, end_node)] = condition
 
         return self
 
-    @d.task.with_options(name='graph_{self._name}')
-    def __call__(self, input: any | None = None):
-
+    @decorators.task.with_options(name="graph_{self._name}")
+    def __call__(self, input: Any | None = None):
         name = self.__get_edge_for(graph.START, input)
         if not name:
-            raise ValueError('Entry point must be defined.')
+            raise ValueError("Entry point must be defined.")
 
         if name == graph.END:
             return
@@ -152,7 +156,10 @@ class graph:
         return result
 
     def __get_edge_for(
-        self, node: str, input: any | None = None, result: any | None = None,
+        self,
+        node: str,
+        input: Any | None = None,
+        result: Any | None = None,
     ):
         for start, end in self._edges:
             if start == node and self._edges[(start, end)](input, result):

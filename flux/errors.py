@@ -4,25 +4,31 @@ from typing import Literal
 
 
 class ExecutionError(Exception):
-
-    def __init__(self, inner_exception: Exception = None, message: str = None):
+    def __init__(
+        self,
+        inner_exception: Exception | None = None,
+        message: str | None = None,
+    ):
         super().__init__(message)
         self._message = message
         self._inner_exception = inner_exception
 
     @property
-    def inner_exception(self) -> Exception:
+    def inner_exception(self) -> Exception | None:
         return self._inner_exception
 
     @property
-    def message(self) -> str:
+    def message(self) -> str | None:
         return self._message
 
 
 class RetryError(ExecutionError):
-
     def __init__(
-        self, inner_exception: Exception, attempts: int, delay: int, backoff: int,
+        self,
+        inner_exception: Exception,
+        attempts: int,
+        delay: int,
+        backoff: int,
     ):
         super().__init__(inner_exception)
         self._attempts = attempts
@@ -39,9 +45,12 @@ class RetryError(ExecutionError):
 
 
 class TimeoutError(ExecutionError):
-
     def __init__(
-        self, type: Literal['Workflow', 'Task'], name: str, id: str, timeout: int,
+        self,
+        type: Literal["Workflow", "Task"],
+        name: str,
+        id: str,
+        timeout: int,
     ):
         super().__init__(
             message=f"{type} {name} ({id}) timed out ({timeout}s).",
@@ -54,7 +63,6 @@ class TimeoutError(ExecutionError):
 
 
 class WorkflowPausedError(ExecutionError):
-
     def __init__(self, reference: str):
         super().__init__(
             message=f"Workflow paused. Task reference: {reference}",
@@ -67,13 +75,11 @@ class WorkflowPausedError(ExecutionError):
 
 
 class WorkflowCatalogError(ExecutionError):
-
     def __init__(self, message: str):
         super().__init__(message=message)
 
 
 class WorkflowNotFoundError(ExecutionError):
-
     def __init__(self, name: str):
         super().__init__(message=f"Workflow '{name}' not found.")
 

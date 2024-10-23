@@ -27,6 +27,6 @@ def fallback_after_timeout():
     yield bad_task(3)
 
 
-if __name__ == '__main__':  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
     ctx = fallback_after_timeout.run()
     print(ctx.to_json())

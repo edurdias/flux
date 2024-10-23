@@ -6,33 +6,31 @@ from flux.events import ExecutionEventType
 
 def test_should_succeed():
     repos = [
-        'python/cpython',
-        'microsoft/vscode',
-        'localsend/localsend',
-        'srush/GPU-Puzzles',
-        'hyperknot/openfreemap',
+        "python/cpython",
+        "microsoft/vscode",
+        "localsend/localsend",
+        "srush/GPU-Puzzles",
+        "hyperknot/openfreemap",
     ]
     ctx = github_stars.run(repos)
-    assert (
-        ctx.finished and ctx.succeeded
-    ), 'The workflow should have been completed successfully.'
+    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     assert all(
         repo in ctx.output for repo in repos
-    ), 'The output should contain all the specified repositories.'
+    ), "The output should contain all the specified repositories."
 
 
 def test_should_replay():
     repos = [
-        'python/cpython',
-        'microsoft/vscode',
-        'localsend/localsend',
-        'srush/GPU-Puzzles',
-        'hyperknot/openfreemap',
+        "python/cpython",
+        "microsoft/vscode",
+        "localsend/localsend",
+        "srush/GPU-Puzzles",
+        "hyperknot/openfreemap",
     ]
     first_ctx = github_stars.run(repos)
     assert (
         first_ctx.finished and first_ctx.succeeded
-    ), 'The workflow should have been completed successfully.'
+    ), "The workflow should have been completed successfully."
 
     second_ctx = github_stars.run(execution_id=first_ctx.execution_id)
     assert first_ctx.events[-1] == second_ctx.events[-1]
