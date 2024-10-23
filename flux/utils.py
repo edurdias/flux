@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 from typing import Literal
 
-from flux.errors import TimeoutError
+from flux.errors import ExecutionTimeoutError
 
 
 def call_with_timeout(
@@ -22,7 +22,7 @@ def call_with_timeout(
             except TimeoutError:
                 future.cancel()
                 executor.shutdown(wait=False, cancel_futures=True)
-                raise TimeoutError(type, name, id, timeout)
+                raise ExecutionTimeoutError(type, name, id, timeout)
     return func()
 
 

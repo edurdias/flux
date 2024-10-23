@@ -51,17 +51,35 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     @property
     def succeeded(self) -> bool:
-        return self.finished and self.events[-1].type == ExecutionEventType.WORKFLOW_COMPLETED
+        return self.finished and any(
+            [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_COMPLETED],
+        )
+
+    @property
+    def failed(self) -> bool:
+        return self.finished and any(
+            [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_FAILED],
+        )
 
     @property
     def paused(self) -> bool:
-        return len(self.events) > 0 and self.events[-1].type == ExecutionEventType.WORKFLOW_PAUSED
+        return len(self.events) > 0 and any(
+            [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED],
+        )
 
     @property
     def output(self) -> Any:
-        completed = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_COMPLETED]
-        if len(completed) > 0:
-            return completed[0].value
+        finished = [
+            e
+            for e in self.events
+            if e.type
+            in (
+                ExecutionEventType.WORKFLOW_COMPLETED,
+                ExecutionEventType.WORKFLOW_FAILED,
+            )
+        ]
+        if len(finished) > 0:
+            return finished[0].value
         return None
 
     def summary(self):

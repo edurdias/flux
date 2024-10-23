@@ -44,7 +44,7 @@ class RetryError(ExecutionError):
         return self._delay
 
 
-class TimeoutError(ExecutionError):
+class ExecutionTimeoutError(ExecutionError):
     def __init__(
         self,
         type: Literal["Workflow", "Task"],
