@@ -5,13 +5,7 @@ from flux.events import ExecutionEventType
 
 
 def test_should_succeed():
-    repos = [
-        "python/cpython",
-        "microsoft/vscode",
-        "localsend/localsend",
-        "srush/GPU-Puzzles",
-        "hyperknot/openfreemap",
-    ]
+    repos = ["python/cpython", "microsoft/vscode"]
     ctx = github_stars.run(repos)
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     assert all(

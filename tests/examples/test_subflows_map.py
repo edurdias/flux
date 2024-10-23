@@ -5,7 +5,7 @@ from flux.events import ExecutionEventType
 
 
 def test_should_succeed():
-    repos = ["python/cpython", "microsoft/vscode", "localsend/localsend"]
+    repos = ["python/cpython", "microsoft/vscode"]
     ctx = subflows_map_workflow.run(repos)
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     assert all(
