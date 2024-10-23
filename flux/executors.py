@@ -33,7 +33,7 @@ class WorkflowExecutor(ABC):
         input: Any | None = None,
         execution_id: str | None = None,
         force_replay: bool = False,
-    ) -> WorkflowExecutionContext:
+    ) -> WorkflowExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod

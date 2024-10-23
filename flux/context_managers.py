@@ -55,7 +55,7 @@ class SQLiteContextManager(ContextManager):
                 else:
                     session.add(WorkflowExecutionContextModel.from_plain(ctx))
                 session.commit()
-            except IntegrityError:
+            except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
 
