@@ -6,10 +6,14 @@ import time
 import uuid
 from concurrent.futures import as_completed
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
+from types import GeneratorType
 from typing import Any
 from typing import Callable
+from typing import Literal
 from typing import Never
 
 import flux.decorators as decorators
@@ -84,78 +88,118 @@ def pipeline(tasks: list[decorators.task], input: Any):
     return result
 
 
-class graph:
-    START = "START"
-    END = "END"
+class Graph:
+    @dataclass
+    class Node:
+        name: str
+        upstream: dict[str, Callable[..., Any]] = field(default_factory=dict)
+        state: Literal["pending", "completed"] = "pending"
+        action: Callable[..., Any] = field(default=lambda: True)
+        output: Any = None
+
+        def __hash__(self):
+            return hash(self.name)
+
+    START = Node(name="START", action=lambda i: i)
+    END = Node(name="END", action=lambda i: i)
 
     def __init__(self, name: str):
         self._name = name
-        self._nodes: dict[str, decorators.task] = {}
-        self._edges: dict[tuple[str, str], Callable[[Any, Any], bool]] = {}
+        self._nodes: dict[str, Graph.Node] = {"START": Graph.START, "END": Graph.END}
 
-    def set_entry_point(self, node: str) -> graph:
-        self.add_edge(graph.START, node)
+    def start_with(self, node: str) -> Graph:
+        self.add_edge(Graph.START.name, node)
         return self
 
-    def set_finish_point(self, node: str) -> graph:
-        self.add_edge(node, graph.END)
+    def end_with(self, node: str) -> Graph:
+        self.add_edge(node, Graph.END.name)
         return self
 
-    def add_node(self, name: str, node: decorators.task) -> graph:
+    def add_node(self, name: str, action: Callable[..., Any]) -> Graph:
         if name in self._nodes:
             raise ValueError(f"Node {name} already present.")
-        self._nodes[name] = node
+        self._nodes[name] = Graph.Node(name=name, action=action)
         return self
 
     def add_edge(
         self,
         start_node: str,
         end_node: str,
-        condition: Callable[[Any, Any], bool] = lambda i, r: True,
-    ) -> graph:
-        if start_node != graph.START and start_node not in self._nodes:
+        condition: Callable[..., bool] = lambda _: True,
+    ) -> Graph:
+        if start_node not in self._nodes:
             raise ValueError(f"Node {start_node} must be present.")
 
-        if end_node != graph.END and end_node not in self._nodes:
+        if end_node not in self._nodes:
             raise ValueError(f"Node {end_node} must be present.")
 
-        if end_node == graph.START:
+        if end_node == Graph.START.name:
             raise ValueError("START cannot be an end_node")
 
-        if start_node == graph.END:
+        if start_node == Graph.END.name:
             raise ValueError("END cannot be an start_node")
 
-        self._edges[(start_node, end_node)] = condition
+        self._nodes[end_node].upstream[start_node] = condition
+        return self
+
+    def validate(self) -> Graph:
+        has_start = any(Graph.START.name in node.upstream for node in self._nodes.values())
+        if not has_start:
+            raise ValueError("Graph must have a starting node.")
+
+        has_end = self._nodes[Graph.END.name].upstream
+        if not has_end:
+            raise ValueError("Graph must have a ending node.")
+
+        def dfs(node_name: str, visited: set):
+            if node_name in visited:
+                return
+            visited.add(node_name)
+            for neighbor_name, node in self._nodes.items():
+                if node_name in node.upstream:
+                    dfs(neighbor_name, visited)
+
+        visited: set = set()
+        dfs(Graph.START.name, visited)
+        if len(visited) != len(self._nodes):
+            raise ValueError("Not all nodes are connected.")
 
         return self
 
     @decorators.task.with_options(name="graph_{self._name}")
     def __call__(self, input: Any | None = None):
-        name = self.__get_edge_for(graph.START, input)
-        if not name:
-            raise ValueError("Entry point must be defined.")
-
-        if name == graph.END:
-            return
-
-        entry_point_node = self._nodes[name]
-        result = yield (entry_point_node(input) if input else entry_point_node())
-        name = self.__get_edge_for(name, input, result)
-
-        while name is not None and name != graph.END:
-            node = self._nodes[name]
-            result = yield node(result)
-            name = self.__get_edge_for(name, input, result)
-
+        self.validate()
+        yield from self.__execute_node(Graph.START.name, input)
+        result = self._nodes[Graph.END.name].output
         return result
 
-    def __get_edge_for(
-        self,
-        node: str,
-        input: Any | None = None,
-        result: Any | None = None,
-    ):
-        for start, end in self._edges:
-            if start == node and self._edges[(start, end)](input, result):
-                return end
-        return None
+    def __execute_node(self, name: str, input: Any | None = None):
+        node = self._nodes[name]
+        if self.__can_execute(node):
+            upstream_outputs = (
+                [input]
+                if name == Graph.START.name
+                else [up.output for up in self.__get_upstream(node)]
+            )
+            output = node.action(*upstream_outputs)
+            node.output = (yield output) if isinstance(output, GeneratorType) else output
+            node.state = "completed"
+            for dnode in self.__get_downstream(node):
+                yield from self.__execute_node(dnode.name)
+
+    def __can_execute(self, node: Graph.Node) -> bool:
+        for name, ok_to_proceed in node.upstream.items():
+            upstream = self._nodes[name]
+            if (
+                upstream.state == "pending"
+                or not ok_to_proceed(upstream.output)
+                or not self.__can_execute(upstream)
+            ):
+                return False
+        return True
+
+    def __get_upstream(self, node):
+        return [self._nodes[name] for name in node.upstream]
+
+    def __get_downstream(self, node: Graph.Node):
+        return [dnode for dnode in self._nodes.values() if node.name in dnode.upstream]

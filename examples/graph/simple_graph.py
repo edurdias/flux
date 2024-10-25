@@ -3,7 +3,7 @@ from __future__ import annotations
 from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
-from flux.tasks import graph
+from flux.tasks import Graph
 
 
 @task
@@ -22,12 +22,12 @@ def simple_graph(ctx: WorkflowExecutionContext[str]):
         raise TypeError("Input not provided")
 
     hello = (
-        graph("hello_world")
+        Graph("hello_world")
         .add_node("get_name", get_name)
         .add_node("say_hello", say_hello)
         .add_edge("get_name", "say_hello")
-        .set_entry_point("get_name")
-        .set_finish_point("say_hello")
+        .start_with("get_name")
+        .end_with("say_hello")
     )
     return (yield hello(ctx.input))
 
