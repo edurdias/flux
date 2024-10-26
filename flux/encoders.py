@@ -50,4 +50,7 @@ class WorkflowContextEncoder(json.JSONEncoder):
         if isinstance(obj, uuid.UUID):
             return str(obj)
 
-        return obj.__dict__
+        if hasattr(obj, "__dict__"):
+            return obj.__dict__
+
+        return str(obj)

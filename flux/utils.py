@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 from typing import Literal
 
+import pandas as pd
+
 from flux.errors import ExecutionTimeoutError
 
 
@@ -33,5 +35,17 @@ def make_hashable(item):
         return tuple(make_hashable(i) for i in item)
     elif isinstance(item, set):
         return frozenset(make_hashable(i) for i in item)
-    else:
+    elif isinstance(item, pd.DataFrame):
+        return tuple(map(tuple, item.itertuples(index=False)))
+    elif is_hashable(item):
         return item
+    else:
+        return str(item)
+
+
+def is_hashable(obj) -> bool:
+    try:
+        hash(obj)
+        return True
+    except TypeError:
+        return False

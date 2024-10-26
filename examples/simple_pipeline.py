@@ -22,7 +22,7 @@ def square(x):
 
 
 @workflow
-def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
+def simple_pipeline(ctx: WorkflowExecutionContext[int]):
     if not ctx.input:
         raise TypeError("Input not provided")
     result = yield pipeline([multiply_by_two, add_three, square], ctx.input)
@@ -30,5 +30,5 @@ def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = pipeline_workflow.run(5)
+    ctx = simple_pipeline.run(5)
     print(ctx.to_json())

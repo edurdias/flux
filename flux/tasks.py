@@ -81,7 +81,7 @@ def call_workflow(workflow: str | decorators.workflow, input: Any | None = None)
 
 
 @decorators.task
-def pipeline(tasks: list[decorators.task], input: Any):
+def pipeline(*tasks: Callable, input: Any):
     result = input
     for task in tasks:
         result = yield task(result)
@@ -170,8 +170,7 @@ class Graph:
     def __call__(self, input: Any | None = None):
         self.validate()
         yield from self.__execute_node(Graph.START.name, input)
-        result = self._nodes[Graph.END.name].output
-        return result
+        return self._nodes[Graph.END.name].output
 
     def __execute_node(self, name: str, input: Any | None = None):
         node = self._nodes[name]
