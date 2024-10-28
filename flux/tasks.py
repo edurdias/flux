@@ -32,6 +32,11 @@ def uuid4() -> uuid.UUID:
 
 
 @decorators.task
+def choice(options: list[Any]) -> int:
+    return random.choice(options)
+
+
+@decorators.task
 def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 

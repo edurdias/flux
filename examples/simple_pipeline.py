@@ -25,7 +25,7 @@ def square(x):
 def simple_pipeline(ctx: WorkflowExecutionContext[int]):
     if not ctx.input:
         raise TypeError("Input not provided")
-    result = yield pipeline([multiply_by_two, add_three, square], ctx.input)
+    result = yield pipeline(multiply_by_two, add_three, square, input=ctx.input)
     return result
 
 

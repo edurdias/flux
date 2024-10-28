@@ -107,6 +107,7 @@ class task:
     def with_options(
         name: str | None = None,
         fallback: Callable | None = None,
+        rollback: Callable | None = None,
         retry_max_attemps: int = 0,
         retry_delay: int = 1,
         retry_backoff: int = 2,
@@ -118,6 +119,7 @@ class task:
                 func=func,
                 name=name,
                 fallback=fallback,
+                rollback=rollback,
                 retry_max_attemps=retry_max_attemps,
                 retry_delay=retry_delay,
                 retry_backoff=retry_backoff,
@@ -132,6 +134,7 @@ class task:
         func: F,
         name: str | None = None,
         fallback: Callable | None = None,
+        rollback: Callable | None = None,
         retry_max_attemps: int = 0,
         retry_delay: int = 1,
         retry_backoff: int = 2,
@@ -141,6 +144,7 @@ class task:
         self._func = func
         self.name = name if not None else func.__name__
         self.fallback = fallback
+        self.rollback = rollback
         self.retry_max_attemps = retry_max_attemps
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
@@ -261,20 +265,22 @@ class task:
                         )
                         if attempt == self.retry_max_attemps:
                             if self.fallback:
-                                yield ExecutionEvent(
-                                    ExecutionEventType.TASK_FALLBACK_STARTED,
+                                output = yield from self.__handle_fallback(
                                     task_id,
                                     task_name,
                                     task_args,
-                                )
-                                output = self.fallback(*args, **kwargs)
-                                yield ExecutionEvent(
-                                    ExecutionEventType.TASK_FALLBACK_COMPLETED,
-                                    task_id,
-                                    task_name,
-                                    output,
+                                    args,
+                                    kwargs,
                                 )
                             else:
+                                if self.rollback:
+                                    output = yield from self.__handle_rollback(
+                                        task_id,
+                                        task_name,
+                                        task_args,
+                                        args,
+                                        kwargs,
+                                    )
                                 raise RetryError(
                                     e,
                                     self.retry_max_attemps,
@@ -282,20 +288,22 @@ class task:
                                     self.retry_backoff,
                                 )
             elif self.fallback:
-                yield ExecutionEvent(
-                    ExecutionEventType.TASK_FALLBACK_STARTED,
+                output = yield from self.__handle_fallback(
                     task_id,
                     task_name,
                     task_args,
-                )
-                output = self.fallback(*args, **kwargs)
-                yield ExecutionEvent(
-                    ExecutionEventType.TASK_FALLBACK_COMPLETED,
-                    task_id,
-                    task_name,
-                    output,
+                    args,
+                    kwargs,
                 )
             else:
+                if self.rollback:
+                    output = yield from self.__handle_rollback(
+                        task_id,
+                        task_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
                 yield ExecutionEvent(
                     ExecutionEventType.TASK_FAILED,
                     task_id,
@@ -352,3 +360,53 @@ class task:
 
     def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
         return f"{task_name}_{abs(hash((task_name, make_hashable(args), make_hashable(kwargs))))}"
+
+    def __handle_fallback(
+        self,
+        task_id: str,
+        task_name: str,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+    ):
+        if self.fallback:
+            yield ExecutionEvent(
+                ExecutionEventType.TASK_FALLBACK_STARTED,
+                task_id,
+                task_name,
+                task_args,
+            )
+            output = self.fallback(*args, **kwargs)
+            yield ExecutionEvent(
+                ExecutionEventType.TASK_FALLBACK_COMPLETED,
+                task_id,
+                task_name,
+                output,
+            )
+            return output
+        return None
+
+    def __handle_rollback(
+        self,
+        task_id: str,
+        task_name: str,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+    ):
+        if self.rollback:
+            yield ExecutionEvent(
+                ExecutionEventType.TASK_ROLLBACK_STARTED,
+                task_id,
+                task_name,
+                task_args,
+            )
+            output = self.rollback(*args, **kwargs)
+            yield ExecutionEvent(
+                ExecutionEventType.TASK_ROLLBACK_COMPLETED,
+                task_id,
+                task_name,
+                output,
+            )
+            return output
+        return None

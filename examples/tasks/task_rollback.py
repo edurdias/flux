@@ -5,21 +5,21 @@ from flux import workflow
 from flux.tasks import choice
 
 
-def fallback_for_bad_task(number):
-    print(f"Fallback for task #{number}")
+def rollback_for_bad_task(number):
+    print(f"Rollback for task #{number}")
 
 
-@task.with_options(fallback=fallback_for_bad_task)
+@task.with_options(rollback=rollback_for_bad_task)
 def bad_task(number):
     should_fail = yield choice([True, False])
     if should_fail:
         print(f"Failed task #{number}")
-        raise ValueError()
+        raise ValueError(f"Task #{number} failed")
     print(f"Succeed task #{number}")
 
 
 @workflow
-def task_fallback():
+def task_rollback():
     yield bad_task(1)
     yield bad_task(2)
     yield bad_task(3)
@@ -27,5 +27,5 @@ def task_fallback():
 
 
 if __name__ == "__main__":  # pragma: no cover
-    ctx = task_fallback.run()
+    ctx = task_rollback.run()
     print(ctx.to_json())
