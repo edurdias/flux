@@ -15,7 +15,7 @@ pydantic = "^2.9.2"
 sqlalchemy = "^2.0.35"
 fastapi = "^0.115.2"
 uvicorn = "^0.31.1"
-
+pycryptodome = "^3.21.0"
 
 [tool.poetry.group.dev.dependencies]
 httpx = "^0.27.2"

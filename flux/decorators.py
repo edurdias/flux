@@ -18,6 +18,7 @@ from flux.errors import WorkflowPausedError
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
+from flux.secret_managers import SecretManager
 from flux.utils import call_with_timeout
 from flux.utils import make_hashable
 
@@ -113,6 +114,7 @@ class task:
         retry_backoff: int = 2,
         timeout: int = 0,
         disable_replay: bool = False,
+        secret_requests: list[str] = [],
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -125,6 +127,7 @@ class task:
                 retry_backoff=retry_backoff,
                 timeout=timeout,
                 disable_replay=disable_replay,
+                secret_requests=secret_requests,
             )
 
         return wrapper
@@ -140,6 +143,7 @@ class task:
         retry_backoff: int = 2,
         timeout: int = 0,
         disable_replay: bool = False,
+        secret_requests: list[str] = [],
     ):
         self._func = func
         self.name = name if not None else func.__name__
@@ -150,6 +154,7 @@ class task:
         self.retry_backoff = retry_backoff
         self.timeout = timeout
         self.disable_replay = disable_replay
+        self.secret_requests = secret_requests
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -176,6 +181,10 @@ class task:
         try:
             if replay:
                 yield output
+
+            if self.secret_requests:
+                secrets = SecretManager.current().get(self.secret_requests)
+                kwargs = {**kwargs, "secrets": secrets}
 
             output = call_with_timeout(
                 lambda: self._func(*args, **kwargs),

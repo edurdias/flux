@@ -6,9 +6,9 @@ from typing import Generic
 from typing import TypeVar
 from uuid import uuid4
 
-from flux.encoders import WorkflowContextEncoder
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
+from flux.utils import FluxEncoder
 
 WorkflowInputType = TypeVar("WorkflowInputType")
 
@@ -94,4 +94,4 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         return json.loads(self.to_json())
 
     def to_json(self):
-        return json.dumps(self, indent=4, cls=WorkflowContextEncoder)
+        return json.dumps(self, indent=4, cls=FluxEncoder)

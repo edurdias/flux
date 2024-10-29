@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Any
 
 import dill
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+from Crypto.Protocol.KDF import PBKDF2
+from Crypto.Random import get_random_bytes
 from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import DateTime
@@ -12,6 +17,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import PickleType
 from sqlalchemy import String
+from sqlalchemy import TypeDecorator
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
@@ -33,6 +39,85 @@ class SQLiteRepository:
 
     def session(self) -> Session:
         return Session(self._engine)
+
+
+class EncryptedType(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def __init__(
+        self,
+        key: str | None = None,
+        protocol: int = dill.HIGHEST_PROTOCOL,
+    ):
+        super().__init__()
+        self.key = key or base64.b64encode(get_random_bytes(32)).decode("utf-8")
+        self.protocol = protocol
+
+    def _derive_key(self, salt: bytes) -> bytes:
+        """Derive an encryption key using PBKDF2"""
+        return PBKDF2(
+            password=self.key.encode("utf-8"),
+            salt=salt,
+            dkLen=32,  # AES-256 key length
+            count=1000000,  # Number of iterations
+            hmac_hash_module=SHA256,
+        )
+
+    def _encrypt(self, data: bytes) -> bytes:
+        """Encrypt data using AES-GCM"""
+        salt = get_random_bytes(32)
+        key = self._derive_key(salt)
+
+        cipher = AES.new(key, AES.MODE_GCM)
+        ciphertext, tag = cipher.encrypt_and_digest(data)
+
+        # Combine all the pieces for storage
+        return salt + cipher.nonce + tag + ciphertext
+
+    def _decrypt(self, data: bytes) -> bytes:
+        """Decrypt data using AES-GCM"""
+        salt = data[:32]
+        nonce = data[32:48]  # AES GCM nonce is 16 bytes
+        tag = data[48:64]  # AES GCM tag is 16 bytes
+        ciphertext = data[64:]
+
+        key = self._derive_key(salt)
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        return cipher.decrypt_and_verify(ciphertext, tag)
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        """Encrypt value before storing"""
+        if value is not None:
+            try:
+                value = dill.dumps(value, protocol=self.protocol)
+                encrypted = self._encrypt(value)
+                return base64.b64encode(encrypted).decode("utf-8")
+            except Exception as e:
+                raise ValueError(f"Failed to encrypt value: {str(e)}") from e
+        return None
+
+    def process_result_value(self, value: str | None, dialect: Any) -> Any:
+        """Decrypt value when retrieving"""
+        if value is not None:
+            try:
+                # Decode base64 and decrypt
+                encrypted = base64.b64decode(value.encode("utf-8"))
+                decrypted = self._decrypt(encrypted)
+                return dill.loads(decrypted)
+            except Exception as e:
+                raise ValueError(f"Failed to decrypt value: {str(e)}") from e
+        return None
+
+
+class SecretModel(Base):
+    __tablename__ = "secrets"
+
+    name = Column(String, primary_key=True, unique=True, nullable=False)
+    value = Column(
+        EncryptedType(key="SECRET_BASE_KEY"),
+        nullable=False,
+    )  # TODO: replace static key with configuration
 
 
 class WorkflowModel(Base):
