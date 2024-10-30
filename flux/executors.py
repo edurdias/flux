@@ -12,6 +12,7 @@ import flux.decorators as decorators
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionError
+from flux.errors import WorkflowInterruptionRequested
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 
@@ -120,9 +121,10 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 should_replay = len(self._past_events) > 0
                 value = self.__process(ctx, gen, step, replay=should_replay)
                 step = gen.send(value)
-
-        except ExecutionError as execution_exception:
-            event = gen.throw(execution_exception)
+        except WorkflowInterruptionRequested:
+            pass
+        except ExecutionError as ex:
+            event = gen.throw(ex)
             if isinstance(event, ExecutionEvent):
                 ctx.events.append(event)
         except StopIteration:

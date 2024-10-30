@@ -14,7 +14,7 @@ from typing import TypeVar
 from flux.context import WorkflowExecutionContext
 from flux.errors import ExecutionError
 from flux.errors import RetryError
-from flux.errors import WorkflowPausedError
+from flux.errors import WorkflowInterruptionRequested
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
@@ -26,6 +26,15 @@ from flux.utils import make_hashable
 
 F = TypeVar("F", bound=Callable[..., Any])
 END = "END"
+
+
+class WorkflowPauseRequested:
+    def __init__(self, reference: str):
+        self._reference = reference
+
+    @property
+    def reference(self) -> str:
+        return self._reference
 
 
 class workflow:
@@ -121,7 +130,7 @@ class workflow:
                 ctx.name,
                 self.output_storage.store(workflow_id, output),
             )
-        except WorkflowPausedError:
+        except WorkflowInterruptionRequested:
             pass
         except ExecutionError as ex:
             yield ExecutionEvent(
@@ -245,14 +254,7 @@ class task:
         except Exception as ex:
             if isinstance(ex, StopIteration):
                 output = ex.value
-            elif isinstance(ex, WorkflowPausedError):
-                yield ExecutionEvent(ExecutionEventType.TASK_COMPLETED, task_id, task_name)
-                yield ExecutionEvent(
-                    ExecutionEventType.WORKFLOW_PAUSED,
-                    task_id,
-                    task_name,
-                    ex.reference,
-                )
+            elif isinstance(ex, WorkflowInterruptionRequested):
                 raise
             elif self.retry_max_attemps > 0:
                 output = yield from self.__handle_retry(task_id, task_name, task_args, args, kwargs)
@@ -343,6 +345,11 @@ class task:
             task_id,
             self.timeout,
         )
+
+        if isinstance(output, WorkflowPauseRequested):
+            yield ExecutionEvent(ExecutionEventType.TASK_COMPLETED, task_id, task_name)
+            yield ExecutionEvent(ExecutionEventType.WORKFLOW_PAUSED, task_id, task_name)
+            raise WorkflowInterruptionRequested(output.reference)
 
         if isinstance(output, GeneratorType):
             try:

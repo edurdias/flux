@@ -62,11 +62,8 @@ class ExecutionTimeoutError(ExecutionError):
         return self._timeout
 
 
-class WorkflowPausedError(ExecutionError):
+class WorkflowInterruptionRequested(ExecutionError):
     def __init__(self, reference: str):
-        super().__init__(
-            message=f"Workflow paused. Task reference: {reference}",
-        )
         self._reference = reference
 
     @property

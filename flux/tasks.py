@@ -14,10 +14,8 @@ from types import GeneratorType
 from typing import Any
 from typing import Callable
 from typing import Literal
-from typing import Never
 
 import flux.decorators as decorators
-from flux.errors import WorkflowPausedError
 from flux.executors import WorkflowExecutor
 
 
@@ -74,8 +72,14 @@ def sleep(duration: float | timedelta):
 
 
 @decorators.task.with_options(name="pause_{reference}")
-def pause(reference: str) -> Never:
-    raise WorkflowPausedError(reference)
+def pause(reference: str):
+    return decorators.WorkflowPauseRequested(reference)
+
+
+@decorators.task.with_options(name="wait_for_{reference}")
+def wait_for(reference: str, input_type: type | None = None) -> Any | None:
+    response = yield pause(reference)
+    return response
 
 
 @decorators.task.with_options(name="call_workflow_{workflow}")
