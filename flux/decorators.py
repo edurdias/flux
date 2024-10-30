@@ -45,12 +45,6 @@ class workflow:
     @staticmethod
     def with_options(
         name: str | None = None,
-        fallback: Callable | None = None,
-        rollback: Callable | None = None,
-        retry_max_attemps: int = 0,
-        retry_delay: int = 1,
-        retry_backoff: int = 2,
-        timeout: int = 0,
         secret_requests: list[str] = [],
         output_storage: OutputStorage = InlineOutputStorage(),
     ) -> Callable[[F], workflow]:
@@ -58,12 +52,6 @@ class workflow:
             return workflow(
                 func=func,
                 name=name,
-                fallback=fallback,
-                rollback=rollback,
-                retry_max_attemps=retry_max_attemps,
-                retry_delay=retry_delay,
-                retry_backoff=retry_backoff,
-                timeout=timeout,
                 secret_requests=secret_requests,
                 output_storage=output_storage,
             )
@@ -74,23 +62,11 @@ class workflow:
         self,
         func: F,
         name: str | None = None,
-        fallback: Callable | None = None,
-        rollback: Callable | None = None,
-        retry_max_attemps: int = 0,
-        retry_delay: int = 1,
-        retry_backoff: int = 2,
-        timeout: int = 0,
         secret_requests: list[str] = [],
         output_storage: OutputStorage = InlineOutputStorage(),
     ):
         self._func = func
         self.name = name if name else func.__name__
-        self.fallback = fallback
-        self.rollback = rollback
-        self.retry_max_attemps = retry_max_attemps
-        self.retry_delay = retry_delay
-        self.retry_backoff = retry_backoff
-        self.timeout = timeout
         self.secret_requests = secret_requests
         self.output_storage = output_storage
         wraps(func)(self)
