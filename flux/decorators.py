@@ -18,6 +18,8 @@ from flux.errors import WorkflowPausedError
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.executors import WorkflowExecutor
+from flux.output_storage import InlineOutputStorage
+from flux.output_storage import OutputStorage
 from flux.secret_managers import SecretManager
 from flux.utils import call_with_timeout
 from flux.utils import make_hashable
@@ -31,9 +33,64 @@ class workflow:
     def is_workflow(func: F) -> bool:
         return func is not None and isinstance(func, workflow)
 
-    def __init__(self, func: F):
+    @staticmethod
+    def with_options(
+        name: str | None = None,
+        fallback: Callable | None = None,
+        rollback: Callable | None = None,
+        retry_max_attemps: int = 0,
+        retry_delay: int = 1,
+        retry_backoff: int = 2,
+        timeout: int = 0,
+        secret_requests: list[str] = [],
+        output_storage: OutputStorage = InlineOutputStorage(),
+    ) -> Callable[[F], workflow]:
+        def wrapper(func: F) -> workflow:
+            return workflow(
+                func=func,
+                name=name,
+                fallback=fallback,
+                rollback=rollback,
+                retry_max_attemps=retry_max_attemps,
+                retry_delay=retry_delay,
+                retry_backoff=retry_backoff,
+                timeout=timeout,
+                secret_requests=secret_requests,
+                output_storage=output_storage,
+            )
+
+        return wrapper
+
+    def __init__(
+        self,
+        func: F,
+        name: str | None = None,
+        fallback: Callable | None = None,
+        rollback: Callable | None = None,
+        retry_max_attemps: int = 0,
+        retry_delay: int = 1,
+        retry_backoff: int = 2,
+        timeout: int = 0,
+        secret_requests: list[str] = [],
+        output_storage: OutputStorage = InlineOutputStorage(),
+    ):
         self._func = func
-        self.name = func.__name__
+        self.name = name if name else func.__name__
+        self.fallback = fallback
+        self.rollback = rollback
+        self.retry_max_attemps = retry_max_attemps
+        self.retry_delay = retry_delay
+        self.retry_backoff = retry_backoff
+        self.timeout = timeout
+        self.secret_requests = secret_requests
+        self.output_storage = output_storage
+        wraps(func)(self)
+
+    def __get__(self, instance, owner):
+        return lambda *args, **kwargs: self(
+            *(args if instance is None else (instance,) + args),
+            **kwargs,
+        )
 
     def __call__(self, *args) -> Any:
         if len(args) > 1 or not isinstance(args[0], WorkflowExecutionContext):
@@ -43,12 +100,13 @@ class workflow:
 
         ctx: WorkflowExecutionContext = args[0]
 
-        qualified_name = f"{ctx.name}_{ctx.execution_id}"
+        workflow_id = f"{ctx.name}_{ctx.execution_id}"
 
-        yield
+        yield self
+
         yield ExecutionEvent(
             ExecutionEventType.WORKFLOW_STARTED,
-            qualified_name,
+            workflow_id,
             ctx.name,
             ctx.input,
         )
@@ -59,16 +117,16 @@ class workflow:
 
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_COMPLETED,
-                qualified_name,
+                workflow_id,
                 ctx.name,
-                output,
+                self.output_storage.store(workflow_id, output),
             )
         except WorkflowPausedError:
             pass
         except ExecutionError as ex:
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_FAILED,
-                qualified_name,
+                workflow_id,
                 ctx.name,
                 ex.inner_exception,
             )
@@ -76,7 +134,7 @@ class workflow:
             # TODO: add retry support to workflow
             yield ExecutionEvent(
                 ExecutionEventType.WORKFLOW_FAILED,
-                qualified_name,
+                workflow_id,
                 ctx.name,
                 ex,
             )
@@ -113,8 +171,8 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        disable_replay: bool = False,
         secret_requests: list[str] = [],
+        output_storage: OutputStorage = InlineOutputStorage(),
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -126,8 +184,8 @@ class task:
                 retry_delay=retry_delay,
                 retry_backoff=retry_backoff,
                 timeout=timeout,
-                disable_replay=disable_replay,
                 secret_requests=secret_requests,
+                output_storage=output_storage,
             )
 
         return wrapper
@@ -142,8 +200,8 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        disable_replay: bool = False,
         secret_requests: list[str] = [],
+        output_storage: OutputStorage = InlineOutputStorage(),
     ):
         self._func = func
         self.name = name if not None else func.__name__
@@ -153,8 +211,8 @@ class task:
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
-        self.disable_replay = disable_replay
         self.secret_requests = secret_requests
+        self.output_storage = output_storage
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -178,124 +236,26 @@ class task:
 
         output, replay = yield
 
+        if replay:
+            yield
+            yield END
+
         try:
-            if replay:
-                yield output
-
-            if self.secret_requests:
-                secrets = SecretManager.current().get(self.secret_requests)
-                kwargs = {**kwargs, "secrets": secrets}
-
-            output = call_with_timeout(
-                lambda: self._func(*args, **kwargs),
-                "Task",
-                task_name,
-                task_id,
-                self.timeout,
-            )
-
-            if isinstance(output, GeneratorType):
-                value = output
-                while True:
-                    value = yield value
-                    value = output.send(value)
-
+            output = yield from self.__execute(task_id, task_name, args, kwargs)
         except Exception as ex:
             if isinstance(ex, StopIteration):
                 output = ex.value
             elif isinstance(ex, WorkflowPausedError):
-                yield ExecutionEvent(
-                    ExecutionEventType.TASK_COMPLETED,
-                    task_id,
-                    task_name,
-                )
+                yield ExecutionEvent(ExecutionEventType.TASK_COMPLETED, task_id, task_name)
                 yield ExecutionEvent(
                     ExecutionEventType.WORKFLOW_PAUSED,
                     task_id,
                     task_name,
+                    ex.reference,
                 )
                 raise
             elif self.retry_max_attemps > 0:
-                attempt = 0
-                while attempt < self.retry_max_attemps:
-                    attempt += 1
-                    current_delay = self.retry_delay
-                    retry_args = {
-                        "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attemps,
-                        "current_delay": current_delay,
-                        "backoff": self.retry_backoff,
-                    }
-
-                    retry_task_id = self.__get_task_id(
-                        task_id,
-                        task_args,
-                        {**kwargs, **retry_args},
-                    )
-
-                    try:
-                        time.sleep(current_delay)
-                        current_delay = min(
-                            current_delay * self.retry_backoff,
-                            600,
-                        )
-
-                        yield ExecutionEvent(
-                            ExecutionEventType.TASK_RETRY_STARTED,
-                            retry_task_id,
-                            task_name,
-                            retry_args,
-                        )
-                        output = self._func(*args, **kwargs)
-                        yield ExecutionEvent(
-                            ExecutionEventType.TASK_RETRY_COMPLETED,
-                            retry_task_id,
-                            task_name,
-                            {
-                                "current_attempt": attempt,
-                                "max_attempts": self.retry_max_attemps,
-                                "current_delay": current_delay,
-                                "backoff": self.retry_backoff,
-                                "output": output,
-                            },
-                        )
-                        break
-                    except Exception as e:
-                        yield ExecutionEvent(
-                            ExecutionEventType.TASK_RETRY_FAILED,
-                            retry_task_id,
-                            task_name,
-                            {
-                                "current_attempt": attempt,
-                                "max_attempts": self.retry_max_attemps,
-                                "current_delay": current_delay,
-                                "backoff": self.retry_backoff,
-                            },
-                        )
-                        if attempt == self.retry_max_attemps:
-                            if self.fallback:
-                                output = yield from self.__handle_fallback(
-                                    task_id,
-                                    task_name,
-                                    task_args,
-                                    args,
-                                    kwargs,
-                                )
-                            else:
-                                if self.rollback:
-                                    output = yield from self.__handle_rollback(
-                                        task_id,
-                                        task_name,
-                                        task_args,
-                                        args,
-                                        kwargs,
-                                    )
-                                raise RetryError(
-                                    e,
-                                    self.retry_max_attemps,
-                                    self.retry_delay,
-                                    self.retry_backoff,
-                                )
+                output = yield from self.__handle_retry(task_id, task_name, task_args, args, kwargs)
             elif self.fallback:
                 output = yield from self.__handle_fallback(
                     task_id,
@@ -313,19 +273,14 @@ class task:
                         args,
                         kwargs,
                     )
-                yield ExecutionEvent(
-                    ExecutionEventType.TASK_FAILED,
-                    task_id,
-                    task_name,
-                    ex,
-                )
+                yield ExecutionEvent(ExecutionEventType.TASK_FAILED, task_id, task_name, ex)
                 raise ExecutionError(ex)
 
         yield ExecutionEvent(
             ExecutionEventType.TASK_COMPLETED,
             task_id,
             task_name,
-            output,
+            self.output_storage.store(task_id, output),
         )
 
         yield END
@@ -369,6 +324,35 @@ class task:
 
     def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
         return f"{task_name}_{abs(hash((task_name, make_hashable(args), make_hashable(kwargs))))}"
+
+    def __execute(
+        self,
+        task_id: str,
+        task_name: str,
+        args: tuple,
+        kwargs: dict,
+    ):
+        if self.secret_requests:
+            secrets = SecretManager.current().get(self.secret_requests)
+            kwargs = {**kwargs, "secrets": secrets}
+
+        output = call_with_timeout(
+            lambda: self._func(*args, **kwargs),
+            "Task",
+            task_name,
+            task_id,
+            self.timeout,
+        )
+
+        if isinstance(output, GeneratorType):
+            try:
+                value = output
+                while True:
+                    value = yield value
+                    value = output.send(value)
+            except StopIteration as ex:
+                output = ex.value
+        return output
 
     def __handle_fallback(
         self,
@@ -419,3 +403,94 @@ class task:
             )
             return output
         return None
+
+    def __handle_retry(
+        self,
+        task_id: str,
+        task_name: str,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+    ):
+        attempt = 0
+        while attempt < self.retry_max_attemps:
+            attempt += 1
+            current_delay = self.retry_delay
+            retry_args = {
+                "current_attempt": attempt,
+                "max_attempts": self.retry_max_attemps,
+                "current_delay": current_delay,
+                "backoff": self.retry_backoff,
+            }
+
+            retry_task_id = self.__get_task_id(
+                task_id,
+                task_args,
+                {**kwargs, **retry_args},
+            )
+
+            try:
+                time.sleep(current_delay)
+                current_delay = min(
+                    current_delay * self.retry_backoff,
+                    600,
+                )
+
+                yield ExecutionEvent(
+                    ExecutionEventType.TASK_RETRY_STARTED,
+                    retry_task_id,
+                    task_name,
+                    retry_args,
+                )
+                output = yield from self.__execute(task_id, task_name, args, kwargs)
+                yield ExecutionEvent(
+                    ExecutionEventType.TASK_RETRY_COMPLETED,
+                    retry_task_id,
+                    task_name,
+                    {
+                        "current_attempt": attempt,
+                        "max_attempts": self.retry_max_attemps,
+                        "current_delay": current_delay,
+                        "backoff": self.retry_backoff,
+                        "output": output,
+                    },
+                )
+                return output
+            except Exception as ex:
+                yield ExecutionEvent(
+                    ExecutionEventType.TASK_RETRY_FAILED,
+                    retry_task_id,
+                    task_name,
+                    {
+                        "current_attempt": attempt,
+                        "max_attempts": self.retry_max_attemps,
+                        "current_delay": current_delay,
+                        "backoff": self.retry_backoff,
+                    },
+                )
+                if attempt == self.retry_max_attemps:
+                    if self.fallback:
+                        output = yield from self.__handle_fallback(
+                            task_id,
+                            task_name,
+                            task_args,
+                            args,
+                            kwargs,
+                        )
+                        return output
+                    elif self.rollback:
+                        output = yield from self.__handle_rollback(
+                            task_id,
+                            task_name,
+                            task_args,
+                            args,
+                            kwargs,
+                        )
+                        return output
+                    else:
+                        raise RetryError(
+                            ex,
+                            self.retry_max_attemps,
+                            self.retry_delay,
+                            self.retry_backoff,
+                        )
