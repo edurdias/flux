@@ -71,17 +71,6 @@ def sleep(duration: float | timedelta):
     time.sleep(duration)
 
 
-@decorators.task.with_options(name="pause_{reference}")
-def pause(reference: str):
-    return decorators.WorkflowPauseRequested(reference)
-
-
-@decorators.task.with_options(name="wait_for_{reference}")
-def wait_for(reference: str, input_type: type | None = None) -> Any | None:
-    response = yield pause(reference)
-    return response
-
-
 @decorators.task.with_options(name="call_workflow_{workflow}")
 def call_workflow(workflow: str | decorators.workflow, input: Any | None = None):
     if isinstance(workflow, decorators.workflow):

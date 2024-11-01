@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import random
-
 from flux import task
 from flux import workflow
 
+counter = 1
 
-@task.with_options(retry_max_attemps=10, retry_delay=2)
+
+@task.with_options(retry_max_attemps=3, retry_delay=1)
 def bad_task(number):
-    if random.random() < 0.7:
+    global counter
+    if counter < 3:
         print(f"Failed task #{number}")
+        counter += 1
         raise ValueError()
     print(f"Succeed task #{number}")
 

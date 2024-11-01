@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
-from concurrent.futures import ThreadPoolExecutor
 from types import GeneratorType
 from typing import Any
-from typing import Callable
+from typing import cast
 
 import flux.catalogs as catalogs
 import flux.decorators as decorators
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionError
-from flux.errors import WorkflowInterruptionRequested
+from flux.errors import ExecutionPaused
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 
@@ -23,7 +22,7 @@ class WorkflowExecutor(ABC):
     @classmethod
     def current(cls, options: dict[str, Any] | None = None) -> WorkflowExecutor:
         if cls._current is None:
-            cls._current = WorkflowExecutor.create(options)
+            cls._current = cls.create(options)
         return cls._current.with_options(options)
 
     @abstractmethod
@@ -32,15 +31,11 @@ class WorkflowExecutor(ABC):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
-        force_replay: bool = False,
-    ) -> WorkflowExecutionContext:  # pragma: no cover
+    ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
     @abstractmethod
-    def with_options(
-        self,
-        options: dict[str, Any] | None = None,
-    ) -> WorkflowExecutor:  # pragma: no cover
+    def with_options(self, options: dict[str, Any] | None = None) -> WorkflowExecutor:
         raise NotImplementedError()
 
     @staticmethod
@@ -50,10 +45,9 @@ class WorkflowExecutor(ABC):
 
 class DefaultWorkflowExecutor(WorkflowExecutor):
     def __init__(self, options: dict[str, Any] | None = None):
-        self.catalog: catalogs.WorkflowCatalog = catalogs.WorkflowCatalog.create(
-            options,
-        )
-        self.context_manager: ContextManager = ContextManager.default()
+        self.catalog = catalogs.WorkflowCatalog.create(options)
+        self.context_manager = ContextManager.default()
+        self._past_events: list[ExecutionEvent] = []
 
     def with_options(self, options: dict[str, Any] | None = None) -> WorkflowExecutor:
         self.catalog = catalogs.WorkflowCatalog.create(options)
@@ -64,229 +58,232 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
-        force_replay: bool = False,
     ) -> WorkflowExecutionContext:
         workflow = self.catalog.get(name)
 
-        ctx = (
-            self.context_manager.get(execution_id)
-            if execution_id
-            else WorkflowExecutionContext(name, input, None, [])
-        )
+        context = self.context_manager.get(execution_id)
+        if not context:
+            context = WorkflowExecutionContext(name, input, None, [])
+            self.context_manager.save(context)
 
-        if ctx.finished and not force_replay:
-            return ctx
+        if context.finished:
+            return context
 
-        self.context_manager.save(ctx)
-        return self._execute(workflow, ctx)
+        return self._execute_workflow(workflow, context, input)
 
-    def _execute(
+    def _execute_workflow(
         self,
-        workflow: Callable,
+        workflow: decorators.workflow,
         ctx: WorkflowExecutionContext,
+        input: Any | None = None,
     ) -> WorkflowExecutionContext:
-        gen = workflow(ctx)
-        assert isinstance(
-            gen,
-            GeneratorType,
-        ), f"Function {ctx.name} should be a generator, check if it is decorated by @workflow."
-
+        workflow_generator = workflow(ctx)
         try:
-            # initialize the generator
-            next(gen)
-            self._past_events = ctx.events.copy()
-
-            # always start workflow
-            event = gen.send(None)
-            assert (
-                isinstance(event, ExecutionEvent)
-                and event.type == ExecutionEventType.WORKFLOW_STARTED
-            ), f"First event should always be {ExecutionEventType.WORKFLOW_STARTED}"
-
-            if self._past_events:
-                past_start_event = next(
-                    e
-                    for e in self._past_events
-                    if e.type == ExecutionEventType.WORKFLOW_STARTED
-                    and e.source_id == event.source_id
-                    and e.name == event.name
-                )
-                self._past_events.remove(past_start_event)
+            self._check_generator_type(ctx, workflow_generator)
+            self._check_if_resuming(ctx)
+            value = None
+            if self._resuming:
+                self._replay_workflow_start(workflow_generator)
+                input_type = self._replay_iterate(workflow_generator, ctx)
+                if input_type:
+                    # TODO: validate input against type
+                    value = input
             else:
-                ctx.events.append(event)
-
-            # iterate the workflow
-            step = gen.send(None)
-            while step is not None:
-                should_replay = len(self._past_events) > 0
-                value = self.__process(ctx, gen, step, replay=should_replay)
-                step = gen.send(value)
-        except WorkflowInterruptionRequested:
-            pass
-        except ExecutionError as ex:
-            event = gen.throw(ex)
-            if isinstance(event, ExecutionEvent):
-                ctx.events.append(event)
-        except StopIteration:
-            pass
-
-        self.context_manager.save(ctx)
-        return ctx
-
-    def __process(
-        self,
-        ctx: WorkflowExecutionContext,
-        gen: GeneratorType,
-        step: GeneratorType | list[Any] | ExecutionEvent | None | Any,
-        replay: bool = False,
-    ) -> Any:
-        """
-        Process a workflow step and handle its execution flow.
-
-        Args:
-            ctx: The workflow execution context
-            gen: The generator managing the workflow
-            step: The current step to process
-            replay: Whether this is a replay of a previous execution
-
-        Returns:
-            The processed result of the step
-        """
-        if isinstance(step, GeneratorType):
-            return self._handle_generator_step(ctx, step, replay)
-
-        if isinstance(step, list) and step and all(isinstance(e, GeneratorType) for e in step):
-            return self._handle_parallel_steps(ctx, gen, step, replay)
-
-        if isinstance(step, ExecutionEvent):
-            return self._handle_event_step(ctx, gen, step, replay)
-
-        return step
-
-    def _handle_generator_step(
-        self,
-        ctx: WorkflowExecutionContext,
-        step: GeneratorType,
-        replay: bool,
-    ) -> Any:
-        """Handle processing of a generator step."""
-        try:
-            value = next(step)
-            return self.__process(ctx, step, value, replay)
-        except StopIteration as ex:
-            return self.__process(ctx, step, ex.value, replay)
-
-    def _handle_parallel_steps(
-        self,
-        ctx: WorkflowExecutionContext,
-        gen: GeneratorType,
-        steps: list[GeneratorType],
-        replay: bool,
-    ) -> Any:
-        """Handle processing of parallel steps using ThreadPoolExecutor."""
-        with ThreadPoolExecutor() as executor:
-            value = list(
-                executor.map(
-                    lambda step: self.__process(ctx, gen, step, replay),
-                    steps,
-                ),
-            )
-            return self.__process(ctx, gen, value, replay)
-
-    def _handle_event_step(
-        self,
-        ctx: WorkflowExecutionContext,
-        gen: GeneratorType,
-        event: ExecutionEvent,
-        replay: bool,
-    ) -> Any:
-        """Handle processing of an event step."""
-        if event.type == ExecutionEventType.TASK_STARTED:
-            return self._handle_task_start(ctx, gen, event, replay)
-
-        if not replay:
-            ctx.events.append(event)
-        value = gen.send(None)
-        if value != decorators.END:
-            return self.__process(ctx, gen, value)
-        self.context_manager.save(ctx)
-
-        instance = gen.gi_frame.f_locals["self"]
-        if type(instance) in [decorators.workflow, decorators.task]:
-            return instance.output_storage.get(event.value)
-
-        return event.value
-
-    def _handle_task_start(
-        self,
-        ctx: WorkflowExecutionContext,
-        gen: GeneratorType,
-        event: ExecutionEvent,
-        replay: bool,
-    ) -> Any:
-        """Handle task start event processing."""
-        next(gen)
-
-        past_events = [e for e in self._past_events if e.source_id == event.source_id]
-
-        if past_events:
-            return self.__process_task_past_events(ctx, gen, replay, past_events)
-
-        ctx.events.append(event)
-        value = gen.send([None, False])
-
-        while isinstance(value, GeneratorType):
-            try:
-                value = gen.send(self.__process(ctx, gen, value))
-            except ExecutionError as ex:
-                value = gen.throw(ex)
-            except StopIteration as ex:
-                value = ex.value
-            except Exception as ex:
-                print(ex)
-
-        return self.__process(ctx, gen, value)
-
-    def __process_task_past_events(
-        self,
-        ctx: WorkflowExecutionContext,
-        gen: GeneratorType,
-        replay: bool,
-        past_events: list[ExecutionEvent],
-    ):
-        for past_event in past_events:
-            self._past_events.remove(past_event)
-
-        paused_events = sorted(
-            [e for e in past_events if e.type == ExecutionEventType.WORKFLOW_PAUSED],
-            key=lambda e: e.time,
-        )
-
-        resumed_events = sorted(
-            [e for e in past_events if e.type == ExecutionEventType.WORKFLOW_RESUMED],
-            key=lambda e: e.time,
-        )
-
-        if len(paused_events) > len(resumed_events):
-            latest_pause_event = paused_events[-1]
+                self._start_workflow(workflow_generator, ctx)
+            self._iterate(workflow_generator, ctx, value)
+        except ExecutionPaused as ex:
             ctx.events.append(
                 ExecutionEvent(
-                    ExecutionEventType.WORKFLOW_RESUMED,
-                    latest_pause_event.source_id,
-                    latest_pause_event.name,
-                    latest_pause_event.value,
+                    ExecutionEventType.WORKFLOW_PAUSED,
+                    workflow.id,
+                    ctx.name,
+                    {"reference": ex.reference},
                 ),
             )
+        except ExecutionError as ex:
+            self._handle_execution_error(workflow_generator, ctx, ex)
+        except StopIteration as ex:  # noqa: F841
+            pass
+        except Exception as ex:  # noqa: F841
+            pass
+        finally:
+            self.context_manager.save(ctx)
+        return ctx
 
-        terminal_event = next(
-            e
-            for e in past_events
-            if e.type
-            in (
-                ExecutionEventType.TASK_COMPLETED,
-                ExecutionEventType.TASK_FAILED,
+    def _check_generator_type(self, ctx: WorkflowExecutionContext, generator: GeneratorType):
+        if not isinstance(generator, GeneratorType):
+            raise ValueError(f"Function {ctx.name} must be a generator")
+        decorator = generator.gi_frame.f_locals["self"]
+        if not isinstance(decorator, decorators.workflow):
+            raise ValueError(
+                f"The decorator {type(decorator).__name__} should be an `workflow` decorator.",
             )
-        )
 
-        gen.send([terminal_event.value, replay])
-        return self.__process(ctx, gen, terminal_event, replay)
+    def _check_if_resuming(self, ctx: WorkflowExecutionContext):
+        self._past_events = ctx.events.copy()
+        self._resuming = bool(self._past_events)
+
+    def _start_workflow(self, generator: GeneratorType, ctx: WorkflowExecutionContext):
+        next(generator)
+        event = generator.send(None)
+        if not self._is_event(event, ExecutionEventType.WORKFLOW_STARTED):
+            raise ValueError(f"First event must be {ExecutionEventType.WORKFLOW_STARTED}")
+        ctx.events.append(event)
+
+    def _replay_workflow(self, generator: GeneratorType, ctx: WorkflowExecutionContext):
+        self._replay_workflow_start(generator)
+        return self._replay_iterate(generator, ctx)
+
+    def _replay_iterate(self, generator: GeneratorType, ctx: WorkflowExecutionContext):
+        value = generator.send(None)
+        while True:
+            try:
+                if self._is_task(value):
+                    replay = self._replay_task(value, ctx)
+                    if replay == decorators.END:
+                        return value
+                    value = replay
+                elif isinstance(value, GeneratorType):
+                    replay = self._replay_iterate(value, ctx)
+                    if self._is_task(value):
+                        replay = self._replay_task(value, ctx)
+                        if replay == decorators.END:
+                            return value
+                        value = replay
+                elif isinstance(value, decorators.PauseRequested):
+                    if self._resuming:
+                        last_pause_event = self._find_last_event(ExecutionEventType.WORKFLOW_PAUSED)
+                        if value.reference == last_pause_event.value["reference"]:
+                            self._resuming = False
+                            ctx.events.append(
+                                ExecutionEvent(
+                                    ExecutionEventType.WORKFLOW_RESUMED,
+                                    last_pause_event.source_id,
+                                    ctx.name,
+                                    {"reference": last_pause_event.value["reference"]},
+                                ),
+                            )
+                            return value.input_type
+                value = generator.send(value)
+            except StopIteration as ex:
+                return ex.value if ex.value else value
+            except Exception as ex:
+                value = generator.throw(ex)
+
+    def _replay_task(
+        self,
+        task_generator: GeneratorType,
+        ctx: WorkflowExecutionContext,
+    ) -> Any:
+        task = cast(decorators.task, task_generator.gi_frame.f_locals["self"])
+        self._replay_task_start(task_generator, ctx)
+
+        task_past_events = [e for e in self._past_events if e.source_id == task.task_id]
+        terminal = [
+            e
+            for e in task_past_events
+            if e.type in (ExecutionEventType.TASK_COMPLETED, ExecutionEventType.TASK_FAILED)
+        ]
+
+        if terminal:
+            return terminal[0].value
+
+        return decorators.END
+
+    def _replay_task_start(self, task_generator: GeneratorType, ctx: WorkflowExecutionContext):
+        event = task_generator.send(None)
+        if self._is_event(event, ExecutionEventType.TASK_STARTED):
+            self._remove_past_event(event)
+
+    def _replay_workflow_start(self, generator):
+        next(generator)
+        event = generator.send(None)
+        if self._is_event(event, ExecutionEventType.WORKFLOW_STARTED):
+            self._remove_past_event(event)
+
+    def _remove_past_event(self, past_event: ExecutionEvent):
+        self._past_events.remove(past_event)
+
+    def _find_last_event(self, type: ExecutionEventType):
+        return next(e for e in reversed(self._past_events) if e.type == type)
+
+    def _iterate(self, generator: GeneratorType, ctx: WorkflowExecutionContext, value: Any = None):
+        value = generator.send(value)
+        while True:
+            try:
+                if self._is_task(value):
+                    value = self._execute_task(value, ctx)
+                elif isinstance(value, GeneratorType):
+                    value = self._iterate(value, ctx)
+                elif isinstance(value, decorators.PauseRequested):
+                    raise ExecutionPaused(value.reference, value.input_type)
+                elif isinstance(value, ExecutionEvent):
+                    value = self._process_event(ctx, value)
+                value = generator.send(value)
+            except StopIteration as ex:
+                return ex.value if ex.value else value
+            except ExecutionPaused:
+                raise
+            except Exception as ex:
+                try:
+                    value = generator.throw(ex)
+                except Exception as ex:
+                    raise
+
+    def _is_task(self, obj: Any) -> bool:
+        if isinstance(obj, GeneratorType) and "self" in obj.gi_frame.f_locals:
+            task = obj.gi_frame.f_locals["self"]
+            return task and isinstance(task, decorators.task)
+        return False
+
+    def _execute_task(
+        self,
+        task_generator: GeneratorType,
+        ctx: WorkflowExecutionContext,
+    ) -> Any:
+        try:
+            self._execute_task_start(task_generator, ctx)
+            self._execute_task_skip_replay(task_generator)
+            result = self._iterate(task_generator, ctx)
+            return result
+        except ExecutionError:
+            raise
+        except Exception as ex:  # noqa: F841
+            pass
+        finally:
+            self.context_manager.save(ctx)
+
+    def _execute_task_start(self, task_generator: GeneratorType, ctx: WorkflowExecutionContext):
+        event = task_generator.send(None)
+        if not self._is_event(event, ExecutionEventType.TASK_STARTED):
+            raise ValueError(
+                f"Event should be {ExecutionEventType.TASK_STARTED} but got {event.type}.",
+            )
+        ctx.events.append(event)
+
+    def _execute_task_skip_replay(self, task_generator: GeneratorType):
+        task_generator.send(None)
+        task_generator.send([None, False])
+
+    def _is_event(self, event: Any, expected_type: ExecutionEventType) -> bool:
+        return isinstance(event, ExecutionEvent) and event.type == expected_type
+
+    def _process_event(
+        self,
+        ctx: WorkflowExecutionContext,
+        event: ExecutionEvent,
+    ) -> ExecutionEvent | None:
+        ctx.events.append(event)
+        if event.type in (ExecutionEventType.TASK_COMPLETED, ExecutionEventType.WORKFLOW_COMPLETED):
+            return event.value
+        return None
+
+    def _handle_execution_error(
+        self,
+        generator: GeneratorType,
+        ctx: WorkflowExecutionContext,
+        ex: ExecutionError,
+    ):
+        event = generator.throw(ex)
+        if isinstance(event, ExecutionEvent):
+            ctx.events.append(event)

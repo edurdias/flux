@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from typing import Generic
 from typing import Literal
+from typing import TypeVar
 
 
 class ExecutionError(Exception):
@@ -55,25 +57,55 @@ class ExecutionTimeoutError(ExecutionError):
         super().__init__(
             message=f"{type} {name} ({id}) timed out ({timeout}s).",
         )
+        self._type = type
+        self._name = name
+        self._id = id
         self._timeout = timeout
 
     @property
     def timeout(self) -> int:
         return self._timeout
 
+    def __reduce__(self):
+        return (self.__class__, (self._type, self._name, self._id, self._timeout))
 
-class WorkflowInterruptionRequested(ExecutionError):
-    def __init__(self, reference: str):
+
+T = TypeVar("T")
+
+
+class ExecutionPaused(ExecutionError, Generic[T]):
+    """
+    Raised when the execution is paused and requires a reference and input type to resume.
+
+    Attributes:
+        reference (str): A reference string to identify the paused execution.
+        input_type (type[T]): The type of input required to resume the execution.
+    """
+
+    def __init__(self, reference: str, input_type: type[T] | None = None):
+        super().__init__()
         self._reference = reference
+        self._input_type = input_type
 
     @property
     def reference(self) -> str:
         return self._reference
 
+    @property
+    def input_type(self) -> type[T] | None:
+        return self._input_type
+
 
 class WorkflowCatalogError(ExecutionError):
     def __init__(self, message: str):
         super().__init__(message=message)
+
+
+class TaskNotFoundError(ExecutionError):
+    def __init__(self):
+        super().__init__(
+            message="Task not found.",
+        )
 
 
 class WorkflowNotFoundError(ExecutionError):

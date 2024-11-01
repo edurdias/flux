@@ -8,7 +8,7 @@ from flux.decorators import workflow
 from flux.output_storage import LocalFileStorage
 
 
-file_storage = LocalFileStorage(base_path=".data/output", serializer="pickle")
+file_storage = LocalFileStorage(base_path=".data/output", serializer="pkl")
 
 
 @task.with_options(output_storage=file_storage)
@@ -18,6 +18,8 @@ def load_data(file_name: str) -> pd.DataFrame:
 
 @workflow.with_options(output_storage=file_storage)
 def output_storage(ctx: WorkflowExecutionContext[str]):
+    if not ctx.input:
+        raise TypeError("Input not provided")
     data = yield load_data(ctx.input)
     return data
 

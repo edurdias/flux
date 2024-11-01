@@ -63,9 +63,9 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     @property
     def paused(self) -> bool:
-        return len(self.events) > 0 and any(
-            [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED],
-        )
+        paused_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
+        resumed_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMED]
+        return len(paused_events) > len(resumed_events)
 
     @property
     def output(self) -> Any:

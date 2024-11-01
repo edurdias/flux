@@ -11,7 +11,8 @@ def third_task():
 
 @task
 def first_task():
-    return (yield third_task())
+    result = yield third_task()
+    return result
 
 
 @task
@@ -22,7 +23,8 @@ def second_task():
 
 @task
 def three_levels_task():
-    return (yield second_task())
+    result = yield second_task()
+    return ["three_levels", *result]
 
 
 @workflow

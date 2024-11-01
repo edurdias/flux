@@ -18,7 +18,7 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get(self, execution_id: str) -> WorkflowExecutionContext:  # pragma: no cover
+    def get(self, execution_id: str | None) -> WorkflowExecutionContext | None:  # pragma: no cover
         raise NotImplementedError()
 
     @staticmethod
@@ -51,7 +51,10 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 session.rollback()
                 raise
 
-    def get(self, execution_id: str) -> WorkflowExecutionContext:
+    def get(self, execution_id: str | None) -> WorkflowExecutionContext | None:
+        if not execution_id:
+            return None
+
         with self.session() as session:
             context = session.get(WorkflowExecutionContextModel, execution_id)
             if context:

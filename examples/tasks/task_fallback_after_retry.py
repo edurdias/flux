@@ -4,7 +4,7 @@ from flux import task
 from flux import workflow
 
 
-def fallback_for_bad_task(number):
+def fallback_for_bad_task(number: int, should_fail: bool = True):
     print(f"Fallback for task #{number}")
     return f"fallback for bad_task #{number} succeed"
 

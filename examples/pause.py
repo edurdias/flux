@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-from examples.parallel_tasks import diga_ola
 from examples.parallel_tasks import say_hello
+from flux import pause
 from flux import workflow
 from flux.context import WorkflowExecutionContext
-from flux.tasks import pause
 
 
 @workflow
 def pause_workflow(ctx: WorkflowExecutionContext[str]):
-    yield pause("first_pause")
-    hello = yield say_hello(ctx.input)
-    yield pause("second_pause")
-    ola = yield diga_ola(ctx.input)
-    yield pause("third_pause")
-    return [hello, ola]
+    yield pause("pausing_here")  # reference should be unique
+    message = yield say_hello(ctx.input)
+    return message
 
 
 if __name__ == "__main__":  # pragma: no cover
