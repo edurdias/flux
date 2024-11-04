@@ -1,5 +1,9 @@
 # Flux Documentation
 
+> [!WARNING]
+> Our documentation is AI generated. If you find anything, please let us know.
+
+
 ## Introduction
 - [Overview of Flux](/docs/introduction.md#overview)
 - [Key Features](/docs/introduction.md#key-features)
