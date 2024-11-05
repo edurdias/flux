@@ -11,6 +11,10 @@
       
       
       
+        <link rel="prev" href="../workflow-management/">
+      
+      
+        <link rel="next" href="../error-handling/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -18,7 +22,7 @@
     
     
       
-        <title>Task System - Flux Documentation</title>
+        <title>Tasks - Flux Documentation</title>
       
     
     
@@ -108,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Task System
+              Tasks
             
           </span>
         </div>
@@ -510,8 +514,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -531,13 +537,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -551,7 +555,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Core Concepts
@@ -565,7 +569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/workflows-management.md" class="md-nav__link">
+      <a href="../workflow-management/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -583,10 +587,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../user-guide/tasks.md" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Tasks
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -595,6 +619,287 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#task-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Task Creation
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Task Creation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-task-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Task Creation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configured-task-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Configured Task Creation
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      Task Options
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Task Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retry-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Retry Configuration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeout-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Timeout Configuration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fallback-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fallback Configuration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rollback-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Rollback Configuration
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      Task Composition
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Task Composition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#parallel-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      Parallel Execution
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pipeline Processing
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Task Mapping
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Error Handling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retry-mechanism" class="md-nav__link">
+    <span class="md-ellipsis">
+      Retry Mechanism
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fallback-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Fallback Strategy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rollback-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Rollback Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeout-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      Timeout Handling
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Built-in Tasks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Built-in Tasks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#time-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Time Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#random-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Random Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uuid-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      UUID Generation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-based-task-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      Graph-based Task Composition
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Graph-based Task Composition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#graph-construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      Graph Construction
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#graph-properties" class="md-nav__link">
+    <span class="md-ellipsis">
+      Graph Properties
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-handling-in-graphs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling in Graphs
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -607,7 +912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/error-handling.md" class="md-nav__link">
+      <a href="../error-handling/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -628,7 +933,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../user-guide/execution-model.md" class="md-nav__link">
+      <a href="../execution-model/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
