@@ -54,8 +54,8 @@ markdown_extensions:
   - pymdownx.mark
   - attr_list
   - pymdownx.emoji:
-      emoji_index: https://twemoji.maxcdn.com/v/latest/72x72/
-      emoji_generator: pymdownx.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - toc:
       permalink: true
 
@@ -73,21 +73,21 @@ plugins:
 nav:
   - Home: index.md
   - Introduction:
-    - Overview: introduction/overview.md
-    - Key Features: introduction/features.md
-    - Use Cases: introduction/use-cases.md
+      - Overview: introduction/overview.md
+      - Key Features: introduction/features.md
+      - Use Cases: introduction/use-cases.md
   - Getting Started:
-    - Installation: getting-started/installation.md
-    - Basic Concepts: getting-started/basic_concepts.md
-    - Quick Start: getting-started/quick-start-guide.md
+      - Installation: getting-started/installation.md
+      - Basic Concepts: getting-started/basic_concepts.md
+      - Quick Start: getting-started/quick-start-guide.md
   - Core Concepts:
-    - Workflows Management: user-guide/workflows-management.md
-    - Tasks: user-guide/tasks.md
-    - Error Handling: user-guide/error-handling.md
-    - Execution Model: user-guide/execution-model.md
+      - Workflows Management: core-concepts/workflow-management.md
+      - Tasks: core-concepts/tasks.md
+      - Error Handling: core-concepts/error-handling.md
+      - Execution Model: core-concepts/execution-model.md
   - Advanced Features:
-    - Task Patterns: advanced-features/task-patterns.md
-    - Workflow Controls: advanced-features/workflow-controls.md
+      - Task Patterns: advanced-features/task-patterns.md
+      - Workflow Controls: advanced-features/workflow-controls.md
     # - Output Storage: advanced-features/output-storage.md
     # - Secrets Management: advanced-features/secrets-management.md
   # - Examples:
