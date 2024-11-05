@@ -30,8 +30,8 @@ class SecretManager(ABC):
 
 
 class SQLiteSecretManager(SecretManager, SQLiteRepository):
-    def __init__(self, path: str = ".data"):
-        super().__init__(path)
+    def __init__(self):
+        super().__init__()
 
     def save(self, name: str, value: Any):
         with self.session() as session:

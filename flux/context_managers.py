@@ -27,8 +27,8 @@ class ContextManager(ABC):
 
 
 class SQLiteContextManager(ContextManager, SQLiteRepository):
-    def __init__(self, path: str = ".data"):
-        super().__init__(path)
+    def __init__(self):
+        super().__init__()
 
     def save(self, ctx: WorkflowExecutionContext):
         with self.session() as session:

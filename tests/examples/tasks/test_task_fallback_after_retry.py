@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 from examples.tasks.task_fallback_after_retry import task_fallback_after_retry
+from flux.events import ExecutionEventType
 
 
 def test_should_succeed():
     ctx = task_fallback_after_retry.run()
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+
+    events = [e.type for e in ctx.events]
+    assert ExecutionEventType.WORKFLOW_STARTED in events
+    assert ExecutionEventType.TASK_STARTED in events
+    assert ExecutionEventType.TASK_RETRY_STARTED in events
+    assert ExecutionEventType.TASK_RETRY_FAILED in events
+    assert ExecutionEventType.TASK_FALLBACK_STARTED in events
+    assert ExecutionEventType.TASK_FALLBACK_COMPLETED in events
+    assert ExecutionEventType.TASK_COMPLETED in events
+    assert ExecutionEventType.WORKFLOW_COMPLETED in events
+
     return ctx
 
 

@@ -10,6 +10,8 @@ from typing import Literal
 
 import dill
 
+from flux.config import Configuration
+
 
 @dataclass
 class OutputStorageReference:
@@ -120,9 +122,14 @@ class InlineOutputStorage(OutputStorage):
 
 
 class LocalFileStorage(OutputStorage):
-    def __init__(self, base_path: str = ".data", serializer: Literal["json", "pkl"] = "pkl"):
-        self.base_path = Path(base_path)
-        self.serializer = serializer
+    def __init__(
+        self,
+        base_path: str | None = None,
+        serializer: Literal["json", "pkl"] | None = None,
+    ):
+        settings = Configuration.current().settings.local_storage
+        self.base_path = Path(base_path if base_path else settings.base_path)
+        self.serializer = serializer if serializer else settings.serializer
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def retrieve(self, reference: OutputStorageReference) -> Any:
@@ -130,7 +137,7 @@ class LocalFileStorage(OutputStorage):
 
         file_path = self._get_file_path(reference.reference_id)
         content = file_path.read_bytes()
-        return self.__deserialize(content, reference.metadata["serializer"] or self.serializer)
+        return self.__deserialize(content, reference.metadata["serializer"])
 
     def store(self, reference_id: str, value: Any) -> OutputStorageReference:
         file_path = self._get_file_path(reference_id)
@@ -156,5 +163,6 @@ class LocalFileStorage(OutputStorage):
     def __serialize(self, value: Any) -> bytes:
         return json.dumps(value).encode("utf-8") if self.serializer == "json" else dill.dumps(value)
 
-    def __deserialize(self, value: bytes, serializer: Literal["json", "pkl"]) -> Any:
-        return json.loads(value) if self.serializer == "json" else dill.loads(value)
+    def __deserialize(self, value: bytes, serializer: str) -> Any:
+        _serializer = serializer or self.serializer
+        return json.loads(value) if _serializer == "json" else dill.loads(value)

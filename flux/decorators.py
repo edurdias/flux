@@ -313,46 +313,64 @@ class task:
                 output = value
         return output
 
-    def __handle_exception(self, ex: Exception, task_args: dict, args: tuple, kwargs: dict):
-        if isinstance(ex, StopIteration):
-            return ex.value
-        elif self.retry_max_attemps > 0:
-            return (
-                yield from self.__handle_retry(
-                    self.task_id,
-                    self.full_name,
-                    task_args,
-                    args,
-                    kwargs,
+    def __handle_exception(
+        self,
+        ex: Exception,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+        retry_attempts: int = 0,
+    ):
+        try:
+            if isinstance(ex, StopIteration):
+                return ex.value
+            elif self.retry_max_attemps > 0 and retry_attempts < self.retry_max_attemps:
+                return (
+                    yield from self.__handle_retry(
+                        self.task_id,
+                        self.full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
                 )
-            )
-        elif self.fallback:
-            return (
-                yield from self.__handle_fallback(
-                    self.task_id,
-                    self.full_name,
-                    task_args,
-                    args,
-                    kwargs,
+            elif self.fallback:
+                return (
+                    yield from self.__handle_fallback(
+                        self.task_id,
+                        self.full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
                 )
-            )
-        else:
-            if self.rollback:
-                yield from self.__handle_rollback(
-                    self.task_id,
-                    self.full_name,
-                    task_args,
-                    args,
-                    kwargs,
-                )
+            else:
+                if self.rollback:
+                    yield from self.__handle_rollback(
+                        self.task_id,
+                        self.full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
 
-            yield ExecutionEvent(
-                type=ExecutionEventType.TASK_FAILED,
-                source_id=self.task_id,
-                name=self.full_name,
-                value=ex,
+                yield ExecutionEvent(
+                    type=ExecutionEventType.TASK_FAILED,
+                    source_id=self.task_id,
+                    name=self.full_name,
+                    value=ex,
+                )
+                raise ExecutionError(ex)
+
+        except RetryError as rex:
+            output = yield from self.__handle_exception(
+                rex,
+                task_args,
+                args,
+                kwargs,
+                retry_attempts=rex.retry_attempts,
             )
-            raise ExecutionError(ex)
+            return output
 
     def __handle_fallback(
         self,
@@ -386,6 +404,8 @@ class task:
                     name=task_name,
                     value=ex,
                 )
+                if isinstance(ex, ExecutionError):
+                    raise ex
                 raise ExecutionError(ex)
 
             return output
@@ -490,19 +510,9 @@ class task:
                     },
                 )
                 if attempt == self.retry_max_attemps:
-                    if self.fallback:
-                        output = yield from self.__handle_fallback(
-                            task_id,
-                            task_name,
-                            task_args,
-                            args,
-                            kwargs,
-                        )
-                        return output
-                    else:
-                        raise RetryError(
-                            ex,
-                            self.retry_max_attemps,
-                            self.retry_delay,
-                            self.retry_backoff,
-                        )
+                    raise RetryError(
+                        ex,
+                        self.retry_max_attemps,
+                        self.retry_delay,
+                        self.retry_backoff,
+                    )

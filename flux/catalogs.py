@@ -33,8 +33,7 @@ class WorkflowCatalog(ABC):
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def __init__(self, options: dict[str, Any] | None = None):
         options = options or {}
-        path = options["path"] if "path" in options else ".data"
-        super().__init__(path)
+        super().__init__()
 
     def get(self, name: str) -> decorators.workflow:
         model = self._get(name)

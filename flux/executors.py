@@ -8,6 +8,7 @@ from typing import cast
 
 import flux.catalogs as catalogs
 import flux.decorators as decorators
+from flux.config import Configuration
 from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionError
@@ -45,6 +46,13 @@ class WorkflowExecutor(ABC):
 
 class DefaultWorkflowExecutor(WorkflowExecutor):
     def __init__(self, options: dict[str, Any] | None = None):
+        settings = Configuration.current().settings.executor
+
+        self.default_timeout = settings.default_timeout
+        self.default_retry_attempts = settings.retry_attempts
+        self.default_retry_delay = settings.retry_delay
+        self.default_retry_backoff = settings.retry_backoff
+
         self.catalog = catalogs.WorkflowCatalog.create(options)
         self.context_manager = ContextManager.default()
         self._past_events: list[ExecutionEvent] = []
@@ -241,7 +249,19 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         task_generator: GeneratorType,
         ctx: WorkflowExecutionContext,
     ) -> Any:
+        """Execute a task with configured timeout and retry settings."""
         try:
+            task_instance = cast(decorators.task, task_generator.gi_frame.f_locals["self"])
+
+            # Use configured defaults if not specified in task
+            if task_instance.timeout in (None, 0):
+                task_instance.timeout = self.default_timeout
+
+            if task_instance.retry_max_attemps in (None, 0):
+                task_instance.retry_max_attemps = self.default_retry_attempts
+                task_instance.retry_delay = self.default_retry_delay
+                task_instance.retry_backoff = self.default_retry_backoff
+
             self._execute_task_start(task_generator, ctx)
             self._execute_task_skip_replay(task_generator)
             result = self._iterate(task_generator, ctx)

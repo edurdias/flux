@@ -23,6 +23,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
 
 import flux.decorators as decorators
+from flux.config import Configuration
 from flux.context import WorkflowExecutionContext
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
@@ -33,8 +34,9 @@ class Base(DeclarativeBase):
 
 
 class SQLiteRepository:
-    def __init__(self, path: str):
-        self._engine = create_engine(f"sqlite:///{path}/flux.db")
+    def __init__(self):
+        settings = Configuration.current().settings.database_sqlite
+        self._engine = create_engine(f"sqlite:///{settings.path}/{settings.filename}")
         Base.metadata.create_all(self._engine)
 
     def session(self) -> Session:
@@ -45,14 +47,11 @@ class EncryptedType(TypeDecorator):
     impl = String
     cache_ok = True
 
-    def __init__(
-        self,
-        key: str | None = None,
-        protocol: int = dill.HIGHEST_PROTOCOL,
-    ):
+    def __init__(self):
         super().__init__()
-        self.key = key or base64.b64encode(get_random_bytes(32)).decode("utf-8")
-        self.protocol = protocol
+        settings = Configuration.current().settings.security
+        self.key = settings.encryption_key
+        self.protocol = dill.HIGHEST_PROTOCOL
 
     def _derive_key(self, salt: bytes) -> bytes:
         """Derive an encryption key using PBKDF2"""
@@ -115,7 +114,7 @@ class SecretModel(Base):
 
     name = Column(String, primary_key=True, unique=True, nullable=False)
     value = Column(
-        EncryptedType(key="SECRET_BASE_KEY"),
+        EncryptedType(),
         nullable=False,
     )  # TODO: replace static key with configuration
 

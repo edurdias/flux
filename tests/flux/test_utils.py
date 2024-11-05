@@ -58,8 +58,8 @@ def test_make_hashable_collections():
 def test_is_hashable():
     assert is_hashable(1)
     assert is_hashable("test")
-    assert is_hashable([1, 2])
-    assert is_hashable({"a": 1})
+    assert not is_hashable([1, 2])
+    assert not is_hashable({"a": 1})
 
 
 class TestEnum(Enum):

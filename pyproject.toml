@@ -16,6 +16,8 @@ sqlalchemy = "^2.0.35"
 fastapi = "^0.115.2"
 uvicorn = "^0.31.1"
 pycryptodome = "^3.21.0"
+tomli = "^2.0.2"
+pydantic-settings = "^2.6.1"
 
 [tool.poetry.group.dev.dependencies]
 httpx = "^0.27.2"
@@ -40,9 +42,7 @@ mkdocstrings = "^0.26.2"
 flux = "flux.flux:cli"
 
 [tool.pytest.ini_options]
-filterwarnings = [
-    "ignore::pytest.PytestReturnNotNoneWarning"
-]
+filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
 
 [tool.ruff]
 line-length = 100
@@ -54,3 +54,26 @@ indent-style = "space"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.flux]
+debug = false      # Enable debug mode for additional logging
+log_level = "INFO" # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+api_port = 8000    # Port for the FastAPI server
+
+[tool.flux.local_storage]
+base_path = ".data/storage" # Base path for storing workflow outputs
+serializer = "pkl"          # Default serializer (json or pkl)
+
+[tool.flux.database_sqlite]
+path = ".data" # Path for SQLite database files
+
+[tool.flux.executor]
+max_workers = 4      # Maximum number of concurrent worker threads
+default_timeout = 30 # Default timeout for tasks in seconds
+retry_attempts = 0   # Default number of retry attempts for failed tasks
+retry_delay = 1      # Initial delay between retries in seconds
+retry_backoff = 2    # Multiplier for subsequent retry delays
+
+[tool.flux.security]
+encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P
