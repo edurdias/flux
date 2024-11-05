@@ -110,7 +110,7 @@ Key features:
 - Result aggregation
 - Error handling for individual mappings
 
-## Graph-based Execution
+## Graph
 
 Graphs allow complex task dependencies and conditional execution paths.
 
