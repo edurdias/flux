@@ -236,4 +236,4 @@ Contributions are welcome! Please feel free to submit pull requests. For major c
 
 ## Documentation
 
-For a more details, please check our [documentation](/docs/index.md).
+For a more details, please check our [documentation](https://edurdias.github.io/flux/).
