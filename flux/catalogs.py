@@ -5,12 +5,14 @@ from abc import ABC
 from abc import abstractmethod
 from importlib import import_module
 from importlib import util
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
 import flux.decorators as decorators
+from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
@@ -27,13 +29,23 @@ class WorkflowCatalog(ABC):
 
     @staticmethod
     def create(options: dict[str, Any] | None = None) -> WorkflowCatalog:
-        return ModuleWorkflowCatalog(options)
+        options = {**(options or {}), **Configuration.get().settings.catalog.to_dict()}
+
+        if "type" not in options:
+            raise ValueError("Catalog type not specified.")
+
+        catalogs = {
+            "module": lambda: ModuleWorkflowCatalog(options),
+            "sqlite": lambda: SQLiteWorkflowCatalog(options),
+        }
+
+        return catalogs[options["type"]]()
 
 
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def __init__(self, options: dict[str, Any] | None = None):
-        options = options or {}
         super().__init__()
+        self._load_module_workflows(options or {})
 
     def get(self, name: str) -> decorators.workflow:
         model = self._get(name)
@@ -61,6 +73,36 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
                 .order_by(desc(WorkflowModel.version))
                 .first()
             )
+
+    def _load_module_workflows(self, options: dict[str, Any]):
+        module = self._get_module(options)
+
+        if not module:
+            return
+
+        for name in dir(module):
+            workflow = getattr(module, name)
+            if decorators.workflow.is_workflow(workflow):
+                self.save(workflow)
+
+    def _get_module(self, options: dict[str, Any]) -> Any:
+        module = None
+        if "module" in options:
+            module = import_module(options["module"])
+        elif "path" in options:
+            path = Path(options["path"])
+
+            if path.is_dir():
+                path = path / "__init__.py"
+            elif path.suffix != ".py":
+                raise ValueError(f"Invalid module path: {path}")
+
+            spec = util.spec_from_file_location("workflow_module", path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Cannot find module at {path}.")
+            module = util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        return module
 
 
 class ModuleWorkflowCatalog(WorkflowCatalog):

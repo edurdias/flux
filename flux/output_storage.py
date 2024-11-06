@@ -127,7 +127,7 @@ class LocalFileStorage(OutputStorage):
         base_path: str | None = None,
         serializer: Literal["json", "pkl"] | None = None,
     ):
-        settings = Configuration.current().settings.local_storage
+        settings = Configuration.get().settings.local_storage
         self.base_path = Path(base_path if base_path else settings.base_path)
         self.serializer = serializer if serializer else settings.serializer
         self.base_path.mkdir(parents=True, exist_ok=True)

@@ -35,7 +35,7 @@ class Base(DeclarativeBase):
 
 class SQLiteRepository:
     def __init__(self):
-        settings = Configuration.current().settings.database_sqlite
+        settings = Configuration.get().settings.database_sqlite
         self._engine = create_engine(f"sqlite:///{settings.path}/{settings.filename}")
         Base.metadata.create_all(self._engine)
 
@@ -49,7 +49,7 @@ class EncryptedType(TypeDecorator):
 
     def __init__(self):
         super().__init__()
-        settings = Configuration.current().settings.security
+        settings = Configuration.get().settings.security
         self.key = settings.encryption_key
         self.protocol = dill.HIGHEST_PROTOCOL
 

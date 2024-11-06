@@ -83,12 +83,7 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         return None
 
     def summary(self):
-        return {
-            "execution_id": self.execution_id,
-            "name": self.name,
-            "input": self.input,
-            "output": self.output,
-        }
+        return {key: value for key, value in self.to_dict().items() if key != "events"}
 
     def to_dict(self):
         return json.loads(self.to_json())

@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import wraps
 from inspect import getfullargspec
-from types import GeneratorType
 from typing import Any
 from typing import Callable
 from typing import Generic
@@ -133,7 +132,7 @@ class workflow:
         options: dict[str, Any] = {},
     ) -> WorkflowExecutionContext:
         options.update({"module": self._func.__module__})
-        return WorkflowExecutor.current(options).execute(self._func.__name__, input, execution_id)
+        return WorkflowExecutor.get(options).execute(self._func.__name__, input, execution_id)
 
     def map(self, inputs: list[Any] = []) -> list[WorkflowExecutionContext]:
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -226,6 +225,8 @@ class task:
         except Exception as ex:
             output = yield from self.__handle_exception(ex, task_args, args, kwargs)
 
+        output = yield output
+
         yield ExecutionEvent(
             type=ExecutionEventType.TASK_COMPLETED,
             source_id=self.task_id,
@@ -303,14 +304,14 @@ class task:
             self.timeout,
         )
 
-        if isinstance(output, GeneratorType):
-            try:
-                value = output
-                while value is not None:
-                    value = yield value
-                    value = output.send(value)
-            except StopIteration:
-                output = value
+        # if isinstance(output, GeneratorType):
+        #     try:
+        #         value = output
+        #         while value is not None:
+        #             value = yield value
+        #             value = output.send(value)
+        #     except StopIteration:
+        #         output = value
         return output
 
     def __handle_exception(

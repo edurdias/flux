@@ -50,7 +50,7 @@ def parallel(*functions: Callable):
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [executor.submit(func) for func in functions]
         for future in as_completed(futures):
-            result = yield future.result()
+            result = yield from future.result()
             results.append(result)
     return results
 
@@ -75,14 +75,14 @@ def sleep(duration: float | timedelta):
 def call_workflow(workflow: str | decorators.workflow, input: Any | None = None):
     if isinstance(workflow, decorators.workflow):
         return workflow.run(input).output
-    return WorkflowExecutor.current().execute(str(workflow), input).output
+    return WorkflowExecutor.get().execute(str(workflow), input).output
 
 
 @decorators.task
 def pipeline(*tasks: Callable, input: Any):
     result = input
     for task in tasks:
-        result = yield task(result)
+        result = yield from task(result)
     return result
 
 

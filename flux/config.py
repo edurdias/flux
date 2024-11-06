@@ -12,7 +12,12 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
 
-class LocalStorageConfig(BaseModel):
+class BaseConfig(BaseModel):
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump()
+
+
+class LocalStorageConfig(BaseConfig):
     """Configuration for local file storage."""
 
     base_path: str = Field(default=".data", description="Base path for local storage")
@@ -25,14 +30,26 @@ class LocalStorageConfig(BaseModel):
         return v
 
 
-class SQLiteDatabaseConfig(BaseModel):
+class CatalogConfig(BaseConfig):
+    """Configuration for local file storage."""
+
+    type: str = Field(default="module", description="Default catalog type (module or sqlite)")
+
+    @field_validator("type")
+    def validate_type(cls, v: str) -> str:
+        if v not in ["module", "sqlite"]:
+            raise ValueError("Type must be either 'module' or 'sqlite'")
+        return v
+
+
+class SQLiteDatabaseConfig(BaseConfig):
     """Configuration for SQLite database."""
 
     path: str = Field(default=".data", description="Path for SQLite database")
     filename: str = Field(default="flux.db", description="File name for SQLite database")
 
 
-class ExecutorConfig(BaseModel):
+class ExecutorConfig(BaseConfig):
     """Configuration for workflow executor."""
 
     max_workers: int = Field(default=None, description="Maximum number of worker threads")
@@ -42,7 +59,7 @@ class ExecutorConfig(BaseModel):
     retry_backoff: int = Field(default=2, description="Default backoff multiplier for retries")
 
 
-class EncryptionConfig(BaseModel):
+class EncryptionConfig(BaseConfig):
     """Security-related configuration."""
 
     encryption_key: str | None = Field(
@@ -60,17 +77,15 @@ class FluxConfig(BaseSettings):
         case_sensitive=False,
     )
 
-    local_storage: LocalStorageConfig = Field(default_factory=LocalStorageConfig)
-
-    database_sqlite: SQLiteDatabaseConfig = Field(default_factory=SQLiteDatabaseConfig)
-
-    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
-
-    security: EncryptionConfig = Field(default_factory=EncryptionConfig)
-
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
     api_port: int = Field(default=8000, description="Port for the API server")
+
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    local_storage: LocalStorageConfig = Field(default_factory=LocalStorageConfig)
+    database_sqlite: SQLiteDatabaseConfig = Field(default_factory=SQLiteDatabaseConfig)
+    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    security: EncryptionConfig = Field(default_factory=EncryptionConfig)
 
     @classmethod
     def load(cls) -> FluxConfig:
@@ -168,6 +183,6 @@ class Configuration:
                 d[k] = v
 
     @staticmethod
-    def current() -> Configuration:
+    def get() -> Configuration:
         """Get the current configuration settings."""
         return Configuration()

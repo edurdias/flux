@@ -21,7 +21,7 @@ class WorkflowExecutor(ABC):
     _current: WorkflowExecutor | None = None
 
     @classmethod
-    def current(cls, options: dict[str, Any] | None = None) -> WorkflowExecutor:
+    def get(cls, options: dict[str, Any] | None = None) -> WorkflowExecutor:
         if cls._current is None:
             cls._current = cls.create(options)
         return cls._current.with_options(options)
@@ -46,7 +46,7 @@ class WorkflowExecutor(ABC):
 
 class DefaultWorkflowExecutor(WorkflowExecutor):
     def __init__(self, options: dict[str, Any] | None = None):
-        settings = Configuration.current().settings.executor
+        settings = Configuration.get().settings.executor
 
         self.default_timeout = settings.default_timeout
         self.default_retry_attempts = settings.retry_attempts
