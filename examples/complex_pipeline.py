@@ -16,14 +16,11 @@ from flux.tasks import pipeline
 def load_data(file_name: str) -> pd.DataFrame:
     if not Path(file_name).exists():
         raise FileNotFoundError(f"File not found: {file_name}")
-    df = pd.read_csv(file_name)
-    return df
+    return pd.read_csv(file_name)
 
 
 @task
 def split_data(df: pd.DataFrame) -> list[pd.DataFrame]:
-    if df is None or df.empty:
-        raise ValueError("Dataframe is empty!")
     return np.array_split(df, 10)
 
 

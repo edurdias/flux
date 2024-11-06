@@ -18,13 +18,14 @@ def cli():
 @cli.command()
 @click.argument("path")
 @click.argument("workflow")
-@click.option("--input", "-i", help="Workflow input.")
+@click.argument("input")
 @click.option("--execution-id", "-e", help="Execution ID for existing executions.")
-def exec(path: str, workflow: str, input: Any, execution_id: str | None = None):
+def exec(path: str, workflow: str, input: Any | None = None, execution_id: str | None = None):
     """Execute the specified workflow"""
 
     executor = WorkflowExecutor.get({"path": path})
-    print(executor.execute(workflow, input, execution_id).to_json())
+    context = executor.execute(workflow, input, execution_id)
+    print(context.to_json())
 
 
 @cli.command()
