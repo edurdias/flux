@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from examples import complex_pipeline
+from flux.config import Configuration
 
 
 def test_should_succeed():
+    settings = Configuration.get().settings
+
     input = {
         "input_file": "examples/data/sample.csv",
-        "output_file": ".data/sample_output.csv",
+        "output_file": f"{settings.home}/.test/sample_output.csv",
     }
 
     ctx = complex_pipeline.run(input)

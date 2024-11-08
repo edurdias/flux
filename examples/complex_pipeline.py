@@ -43,6 +43,7 @@ def join_data(dfs: list[pd.DataFrame]) -> pd.DataFrame:
 
 @task
 def save_data(df: pd.DataFrame, file_name: str):
+    Path(file_name).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(file_name)
     return df
 

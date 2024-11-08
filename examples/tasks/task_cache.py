@@ -12,6 +12,8 @@ def multiply(a: int, b: int):
 
 @workflow
 def workflow_with_cached_task(ctx: WorkflowExecutionContext[tuple[int, int, int]]):
+    if ctx.input is None or len(ctx.input) != 3:
+        raise ValueError("The input should be a tuple of three integers.")
     a, b, i = ctx.input
     results = []
     for _ in range(i):
