@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
-from importlib import import_module
-from importlib import util
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import desc
@@ -14,15 +11,25 @@ import flux.decorators as decorators
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
+from flux.utils import import_module
+from flux.utils import import_module_from_file
 
 
 class WorkflowCatalog(ABC):
     @abstractmethod
-    def get(self, name: str) -> decorators.workflow:  # pragma: no cover
+    def all(self) -> list[WorkflowModel]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get(self, name: str, version: int | None = None) -> WorkflowModel:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
     def save(self, workflow: decorators.workflow):  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def delete(self, name: str, version: int | None = None):  # pragma: no cover
         raise NotImplementedError()
 
     @staticmethod
@@ -33,37 +40,64 @@ class WorkflowCatalog(ABC):
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def __init__(self, options: dict[str, Any] | None = None):
         super().__init__()
-        self._load_module_workflows(options or {})
 
-    def get(self, name: str) -> decorators.workflow:
-        model = self._get(name)
+    def all(self) -> list[WorkflowModel]:
+        with self.session() as session:
+            return [
+                model
+                for model in session.query(WorkflowModel).order_by(
+                    WorkflowModel.name,
+                    desc(WorkflowModel.version),
+                )
+            ]
+
+    def get(self, name: str, version: int | None = None) -> WorkflowModel:
+        model = self._get(name, version)
         if not model:
             raise WorkflowNotFoundError(name)
-        return model.code
+        return model
 
     def save(self, workflow: decorators.workflow):
         with self.session() as session:
             try:
                 name = workflow.name
-                model = self._get(name)
-                version = model.version + 1 if model else 1
+                existing_model = self._get(name)
+                version = existing_model.version + 1 if existing_model else 1
                 session.add(WorkflowModel(name, workflow, version))
                 session.commit()
             except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
 
-    def _get(self, name: str) -> WorkflowModel:
+    def delete(self, name: str, version: int | None = None):  # pragma: no cover
         with self.session() as session:
-            return (
-                session.query(WorkflowModel)
-                .filter(WorkflowModel.name == name)
-                .order_by(desc(WorkflowModel.version))
-                .first()
-            )
+            try:
+                query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
+
+                if version:
+                    query = query.filter(WorkflowModel.version == version)
+
+                query.delete()
+                session.commit()
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def _get(self, name: str, version: int | None = None) -> WorkflowModel:
+        with self.session() as session:
+            query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
+
+            if version:
+                return query.filter(WorkflowModel.version == version).first()
+
+            return query.order_by(desc(WorkflowModel.version)).first()
 
     def _load_module_workflows(self, options: dict[str, Any]):
-        module = self._get_module(options)
+        module = (
+            import_module(options["module"])
+            if "module" in options
+            else import_module_from_file(options["path"])
+        )
 
         if not module:
             return
@@ -72,22 +106,3 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
             workflow = getattr(module, name)
             if decorators.workflow.is_workflow(workflow):
                 self.save(workflow)
-
-    def _get_module(self, options: dict[str, Any]) -> Any:
-        module = None
-        if "module" in options:
-            module = import_module(options["module"])
-        elif "path" in options:
-            path = Path(options["path"])
-
-            if path.is_dir():
-                path = path / "__init__.py"
-            elif path.suffix != ".py":
-                raise ValueError(f"Invalid module path: {path}")
-
-            spec = util.spec_from_file_location("workflow_module", path)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"Cannot find module at {path}.")
-            module = util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-        return module

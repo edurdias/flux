@@ -32,6 +32,7 @@ class WorkflowExecutor(ABC):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
+        version: int | None = None,
     ) -> WorkflowExecutionContext:
         raise NotImplementedError()
 
@@ -66,8 +67,9 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
         name: str,
         input: Any | None = None,
         execution_id: str | None = None,
+        version: int | None = None,
     ) -> WorkflowExecutionContext:
-        workflow = self.catalog.get(name)
+        workflow = self.catalog.get(name, version).code
 
         context = self.context_manager.get(execution_id)
         if not context:

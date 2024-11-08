@@ -7,7 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from datetime import timedelta
 from enum import Enum
+from importlib import import_module as imodule
+from importlib import util
+from pathlib import Path
 from types import GeneratorType
+from typing import Any
 from typing import Callable
 from typing import Literal
 
@@ -60,6 +64,74 @@ def is_hashable(obj) -> bool:
 
 def to_json(obj):
     return json.dumps(obj, indent=4, cls=FluxEncoder)
+
+
+def import_module(name: str) -> Any:
+    return imodule(name)
+
+
+def import_module_from_file(path: str) -> Any:
+    file_path = Path(path)
+
+    if file_path.is_dir():
+        file_path = file_path / "__init__.py"
+    elif file_path.suffix != ".py":
+        raise ValueError(f"Invalid module path: {file_path}")
+
+    spec = util.spec_from_file_location("workflow_module", file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot find module at {file_path}.")
+    module = util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def parse_value(value: str | None) -> Any:
+    """Parse a string value into the correct Python type.
+
+    Supports:
+    - None, null, empty string -> None
+    - true/false -> bool
+    - integers -> int
+    - floats -> float
+    - valid JSON -> parsed JSON
+    - everything else -> str
+
+    Args:
+        value: The value to parse
+
+    Returns:
+        The parsed value in its correct type
+    """
+    if value is None or value.lower() in ("none", "null") or value == "":
+        return None
+
+    if value.lower() == "true":
+        return True
+
+    if value.lower() == "false":
+        return False
+
+    if value.lower() == "nan":
+        return float("nan")
+    if value.lower() == "infinity" or value.lower() == "inf":
+        return float("inf")
+    if value.lower() == "-infinity" or value.lower() == "-inf":
+        return float("-inf")
+
+    try:
+        if "." in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        pass
+
+    try:
+        return json.loads(value)
+    except Exception as ex:  # noqa: F841
+        pass
+
+    return value
 
 
 class FluxEncoder(json.JSONEncoder):
