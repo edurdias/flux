@@ -17,38 +17,6 @@ class BaseConfig(BaseModel):
         return self.model_dump()
 
 
-class LocalStorageConfig(BaseConfig):
-    """Configuration for local file storage."""
-
-    base_path: str = Field(default=".data", description="Base path for local storage")
-    serializer: str = Field(default="pkl", description="Default serializer (json or pkl)")
-
-    @field_validator("serializer")
-    def validate_serializer(cls, v: str) -> str:
-        if v not in ["json", "pkl"]:
-            raise ValueError("Serializer must be either 'json' or 'pkl'")
-        return v
-
-
-class CatalogConfig(BaseConfig):
-    """Configuration for local file storage."""
-
-    type: str = Field(default="module", description="Default catalog type (module or sqlite)")
-
-    @field_validator("type")
-    def validate_type(cls, v: str) -> str:
-        if v not in ["module", "sqlite"]:
-            raise ValueError("Type must be either 'module' or 'sqlite'")
-        return v
-
-
-class SQLiteDatabaseConfig(BaseConfig):
-    """Configuration for SQLite database."""
-
-    path: str = Field(default=".data", description="Path for SQLite database")
-    filename: str = Field(default="flux.db", description="File name for SQLite database")
-
-
 class ExecutorConfig(BaseConfig):
     """Configuration for workflow executor."""
 
@@ -79,13 +47,26 @@ class FluxConfig(BaseSettings):
 
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
-    api_port: int = Field(default=8000, description="Port for the API server")
+    server_port: int = Field(default=8000, description="Port for the API server")
+    server_host: str = Field(default="localhost", description="Host for the API server")
+    api_url: str = Field(
+        default="http://localhost:8000",
+        description="API URL for remote execution",
+    )
+    home: str = Field(default=".flux", description="Home directory for Flux")
+    cache_path: str = Field(default=".cache", description="Path for cache directory")
+    local_storage_path: str = Field(default=".data", description="Path for local storage directory")
+    serializer: str = Field(default="pkl", description="Default serializer (json or pkl)")
+    database_url: str = Field(default="sqlite:///.flux/flux.db", description="Database URL")
 
-    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
-    local_storage: LocalStorageConfig = Field(default_factory=LocalStorageConfig)
-    database_sqlite: SQLiteDatabaseConfig = Field(default_factory=SQLiteDatabaseConfig)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
+
+    @field_validator("serializer")
+    def validate_serializer(cls, v: str) -> str:
+        if v not in ["json", "pkl"]:
+            raise ValueError("Serializer must be either 'json' or 'pkl'")
+        return v
 
     @classmethod
     def load(cls) -> FluxConfig:

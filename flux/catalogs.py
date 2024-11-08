@@ -12,7 +12,6 @@ from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
 import flux.decorators as decorators
-from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
@@ -29,17 +28,7 @@ class WorkflowCatalog(ABC):
 
     @staticmethod
     def create(options: dict[str, Any] | None = None) -> WorkflowCatalog:
-        options = {**(options or {}), **Configuration.get().settings.catalog.to_dict()}
-
-        if "type" not in options:
-            raise ValueError("Catalog type not specified.")
-
-        catalogs = {
-            "module": lambda: ModuleWorkflowCatalog(options),
-            "sqlite": lambda: SQLiteWorkflowCatalog(options),
-        }
-
-        return catalogs[options["type"]]()
+        return SQLiteWorkflowCatalog(options)
 
 
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):

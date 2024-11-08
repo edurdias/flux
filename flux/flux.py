@@ -33,7 +33,7 @@ def exec(path: str, workflow: str, input: Any | None = None, execution_id: str |
 def start(path: str):
     """Start the server to execute Workflows via API."""
     settings = Configuration.get().settings
-    uvicorn.run(create_app(path), port=settings.api_port)
+    uvicorn.run(create_app(path), port=settings.server_port)
 
 
 if __name__ == "__main__":  # pragma: no cover

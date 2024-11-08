@@ -58,19 +58,17 @@ build-backend = "poetry.core.masonry.api"
 
 
 [tool.flux]
-debug = false      # Enable debug mode for additional logging
-log_level = "INFO" # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-api_port = 8000    # Port for the FastAPI server
+debug = false                            # Enable debug mode for additional logging
+log_level = "INFO"                       # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+server_port = 8000                       # Port for the API server
+server_host = "localhost"                # Host for the API server
+api_url = "http://localhost:8000"        # API URL for remote execution
+home = ".flux"                           # Home directory
+cache_path = ".cache"                    # Cache directory
+local_storage_path = ".storage"          # Base path for storing task outputs
+serializer = "pkl"                       # Default serializer (json or pkl)
+database_url = "sqlite:///.flux/flux.db" # Database URL
 
-[tool.flux.catalog]
-type = "sqlite" # Catalog type (module, sqlite)
-
-[tool.flux.local_storage]
-base_path = ".data/storage" # Base path for storing workflow outputs
-serializer = "pkl"          # Default serializer (json or pkl)
-
-[tool.flux.database_sqlite]
-path = ".data" # Path for SQLite database files
 
 [tool.flux.executor]
 max_workers = 4      # Maximum number of concurrent worker threads

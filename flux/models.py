@@ -35,8 +35,7 @@ class Base(DeclarativeBase):
 
 class SQLiteRepository:
     def __init__(self):
-        settings = Configuration.get().settings.database_sqlite
-        self._engine = create_engine(f"sqlite:///{settings.path}/{settings.filename}")
+        self._engine = create_engine(Configuration.get().settings.database_url)
         Base.metadata.create_all(self._engine)
 
     def session(self) -> Session:

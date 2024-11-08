@@ -8,7 +8,7 @@ from flux.decorators import workflow
 from flux.output_storage import LocalFileStorage
 
 
-file_storage = LocalFileStorage(base_path=".data/output", serializer="pkl")
+file_storage = LocalFileStorage()
 
 
 @task.with_options(output_storage=file_storage)

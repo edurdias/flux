@@ -6,7 +6,6 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from typing import Literal
 
 import dill
 
@@ -122,14 +121,10 @@ class InlineOutputStorage(OutputStorage):
 
 
 class LocalFileStorage(OutputStorage):
-    def __init__(
-        self,
-        base_path: str | None = None,
-        serializer: Literal["json", "pkl"] | None = None,
-    ):
-        settings = Configuration.get().settings.local_storage
-        self.base_path = Path(base_path if base_path else settings.base_path)
-        self.serializer = serializer if serializer else settings.serializer
+    def __init__(self):
+        settings = Configuration.get().settings
+        self.base_path = Path(settings.home) / settings.local_storage_path
+        self.serializer = settings.serializer
         self.base_path.mkdir(parents=True, exist_ok=True)
 
     def retrieve(self, reference: OutputStorageReference) -> Any:
