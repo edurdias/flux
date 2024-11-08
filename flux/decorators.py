@@ -12,6 +12,7 @@ from typing import Callable
 from typing import Generic
 from typing import TypeVar
 
+from flux.cache import CacheManager
 from flux.context import WorkflowExecutionContext
 from flux.errors import ExecutionError
 from flux.errors import RetryError
@@ -139,13 +140,6 @@ class workflow:
             return list(executor.map(lambda i: self.run(i), inputs))
 
 
-@dataclass
-class TaskContext:
-    id: str
-    name: str
-    full_name: str
-
-
 class task:
     @staticmethod
     def with_options(
@@ -158,6 +152,7 @@ class task:
         timeout: int = 0,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
+        cache: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -171,6 +166,7 @@ class task:
                 timeout=timeout,
                 secret_requests=secret_requests,
                 output_storage=output_storage,
+                cache=cache,
             )
 
         return wrapper
@@ -187,6 +183,7 @@ class task:
         timeout: int = 0,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
+        cache: bool = False,
     ):
         self._func = func
         self.name = name if not None else func.__name__
@@ -198,6 +195,7 @@ class task:
         self.timeout = timeout
         self.secret_requests = secret_requests
         self.output_storage = output_storage
+        self.cache = cache
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -292,6 +290,11 @@ class task:
 
         yield
 
+        if self.cache:
+            output = CacheManager.get(self.task_id)
+            if output:
+                return output
+
         if self.secret_requests:
             secrets = SecretManager.current().get(self.secret_requests)
             kwargs = {**kwargs, "secrets": secrets}
@@ -304,14 +307,9 @@ class task:
             self.timeout,
         )
 
-        # if isinstance(output, GeneratorType):
-        #     try:
-        #         value = output
-        #         while value is not None:
-        #             value = yield value
-        #             value = output.send(value)
-        #     except StopIteration:
-        #         output = value
+        if self.cache:
+            CacheManager.set(self.task_id, output)
+
         return output
 
     def __handle_exception(
