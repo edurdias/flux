@@ -5,7 +5,13 @@ import pytest
 import flux.decorators as decorators
 from examples.hello_world import hello_world
 from flux.catalogs import SQLiteWorkflowCatalog
+from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
+
+
+@pytest.fixture(autouse=True)
+def setup():
+    Configuration().override(catalog={"auto_register": False})
 
 
 def test_should_create_database():
@@ -21,17 +27,16 @@ def test_should_save_workflow():
 def test_should_get():
     catalog = test_should_save_workflow()
     workflow = catalog.get("hello_world")
-    assert workflow
-
-
-def test_should_get_and_execute():
-    catalog = test_should_save_workflow()
-    workflow = catalog.get("hello_world")
     assert workflow, "The workflow should have been retrieved."
     assert isinstance(
-        workflow,
+        workflow.code,
         decorators.workflow,
     ), "The workflow should be an instance of the workflow decorator."
+    return workflow.code
+
+
+def test_should_execute():
+    workflow = test_should_get()
 
     ctx = workflow.run("Joe")
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."

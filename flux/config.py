@@ -17,6 +17,17 @@ class BaseConfig(BaseModel):
         return self.model_dump()
 
 
+class CatalogConfig(BaseConfig):
+    auto_register: bool = Field(
+        default=False,
+        description="Automatically register workflows on startup",
+    )
+    options: dict[str, Any] = Field(
+        default={},
+        description="Additional options for the catalog",
+    )
+
+
 class ExecutorConfig(BaseConfig):
     """Configuration for workflow executor."""
 
@@ -61,6 +72,7 @@ class FluxConfig(BaseSettings):
 
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
     @field_validator("serializer")
     def validate_serializer(cls, v: str) -> str:

@@ -8,6 +8,7 @@ from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
 import flux.decorators as decorators
+from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
@@ -40,6 +41,10 @@ class WorkflowCatalog(ABC):
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def __init__(self, options: dict[str, Any] | None = None):
         super().__init__()
+        settings = Configuration.get().settings
+        if settings.catalog.auto_register:
+            options = options or {}
+            self._auto_register_workflows({**settings.catalog.options, **options})
 
     def all(self) -> list[WorkflowModel]:
         with self.session() as session:
@@ -92,7 +97,7 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
 
             return query.order_by(desc(WorkflowModel.version)).first()
 
-    def _load_module_workflows(self, options: dict[str, Any]):
+    def _auto_register_workflows(self, options: dict[str, Any]):
         module = (
             import_module(options["module"])
             if "module" in options
