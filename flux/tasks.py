@@ -179,7 +179,7 @@ class Graph:
                 else [up.output for up in self.__get_upstream(node)]
             )
             output = node.action(*upstream_outputs)
-            node.output = (yield output) if isinstance(output, GeneratorType) else output
+            node.output = (yield from output) if isinstance(output, GeneratorType) else output
             node.state = "completed"
             for dnode in self.__get_downstream(node):
                 yield from self.__execute_node(dnode.name)

@@ -1,0 +1,25 @@
+[flux]
+debug = false                            # Enable debug mode for additional logging
+log_level = "INFO"                       # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+server_port = 8000                       # Port for the API server
+server_host = "localhost"                # Host for the API server
+api_url = "http://localhost:8000"        # API URL for remote execution
+home = ".flux"                           # Home directory
+cache_path = ".cache"                    # Cache directory
+local_storage_path = ".storage"          # Base path for storing task outputs
+serializer = "pkl"                       # Default serializer (json or pkl)
+database_url = "sqlite:///.flux/flux.db" # Database URL
+
+[flux.catalog]
+auto_register = true # Automatically register workflows in the catalog on startup
+
+
+[flux.executor]
+max_workers = 4      # Maximum number of concurrent worker threads
+default_timeout = 30 # Default timeout for tasks in seconds
+retry_attempts = 0   # Default number of retry attempts for failed tasks
+retry_delay = 1      # Initial delay between retries in seconds
+retry_backoff = 2    # Multiplier for subsequent retry delays
+
+[flux.security]
+encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P

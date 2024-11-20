@@ -85,27 +85,43 @@ class FluxConfig(BaseSettings):
         """
         Load configuration from multiple sources in order of precedence:
         1. Environment variables
-        2. pyproject.toml
-        3. Default values
+        2. flux.toml
+        3. pyproject.toml
+        4. Default values
         """
-        # Try to load from pyproject.toml
-        config_dict = cls._load_from_pyproject()
+        # Try to load from flux.toml
+        config = cls._load_from_config()
 
-        # Create instance with both pyproject.toml and env vars
-        # Environment variables will take precedence over pyproject.toml
-        return cls(**config_dict)
+        # Try to load from pyproject.toml
+        config = {**config, **cls._load_from_pyproject()}
+
+        # Create instance with both flux.toml, pyproject.toml and env vars
+        # Environment variables will take precedence over flux.toml and pyproject.toml
+        return cls(**config)
 
     @staticmethod
     def _load_from_pyproject() -> dict[str, Any]:
         """Load configuration from pyproject.toml if available."""
-        pyproject_path = Path("pyproject.toml")
-        if not pyproject_path.exists():
+        return FluxConfig._load_from_toml("pyproject.toml", ["tool", "flux"])
+
+    @staticmethod
+    def _load_from_config() -> dict[str, Any]:
+        """Load configuration from flux.toml if available."""
+        return FluxConfig._load_from_toml("flux.toml", ["flux"])
+
+    @staticmethod
+    def _load_from_toml(file_name: str, keys: list[str]) -> dict[str, Any]:
+        """Load configuration from a TOML file if available."""
+        file_path = Path(file_name)
+        if not file_path.exists():
             return {}
 
         try:
-            with open(pyproject_path, "rb") as f:
-                pyproject = tomli.load(f)
-                return pyproject.get("tool", {}).get("flux", {})
+            with open(file_path, "rb") as f:
+                config = tomli.load(f)
+                for key in keys:
+                    config = config.get(key, {})
+                return config
         except Exception:
             return {}
 
