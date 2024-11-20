@@ -2,7 +2,7 @@
 debug = false                            # Enable debug mode for additional logging
 log_level = "INFO"                       # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 server_port = 8000                       # Port for the API server
-server_host = "localhost"                # Host for the API server
+server_host = ""                # Host for the API server
 api_url = "http://localhost:8000"        # API URL for remote execution
 home = ".flux"                           # Home directory
 cache_path = ".cache"                    # Cache directory
@@ -11,7 +11,7 @@ serializer = "pkl"                       # Default serializer (json or pkl)
 database_url = "sqlite:///.flux/flux.db" # Database URL
 
 [flux.catalog]
-auto_register = true # Automatically register workflows in the catalog on startup
+auto_register = false # Automatically register workflows in the catalog on startup
 
 
 [flux.executor]
