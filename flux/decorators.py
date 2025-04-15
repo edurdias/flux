@@ -31,18 +31,48 @@ END = "END"
 
 @dataclass
 class PauseRequested(Generic[T]):
+    """
+    A generic class representing a pause request with associated metadata.
+
+    Attributes:
+        reference (str): A string reference identifier for the pause request.
+        value (Any): The value associated with the pause request.
+        input_type (type[T] | None): The type of the input value, or None if not specified.
+    """
+
     reference: str
     value: Any
     input_type: type[T] | None
 
 
 def pause(reference: str, value=Any, wait_for_input: type[T] | None = None):
+    """
+    Pauses the execution by requesting a pause with the given reference and value.
+
+    Args:
+        reference (str): A string identifier for the pause request.
+        value (Any, optional): The value associated with the pause request. Defaults to Any.
+        wait_for_input (type[T] | None, optional): The expected type of input to resume execution, or None if no input is required. Defaults to None.
+
+    Returns:
+        PauseRequested: An instance representing the pause request.
+    """
     return PauseRequested(reference, value, wait_for_input)
 
 
 class workflow:
     @staticmethod
     def is_workflow(func: F) -> bool:
+        """
+        Check if the given function is a workflow.
+
+        Args:
+            func (F): The function to check.
+
+        Returns:
+            bool: True if the function is not None and is an instance of `workflow`,
+                  otherwise False.
+        """
         return func is not None and isinstance(func, workflow)
 
     @staticmethod
@@ -51,6 +81,18 @@ class workflow:
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
     ) -> Callable[[F], workflow]:
+        """
+        A decorator to configure options for a workflow function.
+
+        Args:
+            name (str | None, optional): The name of the workflow. Defaults to None.
+            secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
+            output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
+
+        Returns:
+            Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
+        """
+
         def wrapper(func: F) -> workflow:
             return workflow(
                 func=func,
@@ -133,6 +175,19 @@ class workflow:
         execution_id: str | None = None,
         options: dict[str, Any] = {},
     ) -> WorkflowExecutionContext:
+        """
+        Executes the workflow function with the provided input, execution ID, and options.
+
+        Args:
+            input (Any | None): The input data to be passed to the workflow function. Defaults to None.
+            execution_id (str | None): An optional unique identifier for the execution. Defaults to None.
+            options (dict[str, Any]): A dictionary of options to configure the workflow execution.
+                Defaults to an empty dictionary. The 'module' key is automatically updated with the
+                module name of the workflow function.
+
+        Returns:
+            WorkflowExecutionContext: The context of the executed workflow, containing execution details.
+        """
         options.update({"module": self._func.__module__})
         return WorkflowExecutor.get(options).execute(self._func.__name__, input, execution_id)
 
@@ -155,6 +210,25 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
     ) -> Callable[[F], task]:
+        """
+        A decorator that wraps a function and returns a `task` object with the specified options.
+
+        Parameters:
+            name (str | None): An optional name for the task. Defaults to None.
+            fallback (Callable | None): An optional fallback function to execute in case of failure. Defaults to None.
+            rollback (Callable | None): An optional rollback function to execute in case of failure. Defaults to None.
+            retry_max_attempts (int): The maximum number of retry attempts for the task. Defaults to 0.
+            retry_delay (int): The delay (in seconds) between retry attempts. Defaults to 1.
+            retry_backoff (int): The backoff multiplier for retry delays. Defaults to 2.
+            timeout (int): The timeout (in seconds) for the task execution. Defaults to 0 (no timeout).
+            secret_requests (list[str]): A list of secret request identifiers. Defaults to an empty list.
+            output_storage (OutputStorage | None): An optional storage mechanism for task outputs. Defaults to None.
+            cache (bool): Whether to enable caching for the task. Defaults to False.
+
+        Returns:
+            Callable[[F], task]: A decorator that wraps the given function and returns a `task` object.
+        """
+
         def wrapper(func: F) -> task:
             return task(
                 func=func,
@@ -238,6 +312,25 @@ class task:
         return output
 
     def map(self, args: list[Any] = []):
+        """
+        Applies the decorated function to each element in the provided list of arguments
+        using a thread pool for parallel execution.
+
+        Args:
+            args (list[Any]): A list of arguments to be passed to the decorated function.
+                Each element can either be a single argument or a list of arguments.
+
+        Returns:
+            list: A list of results obtained by applying the decorated function to each
+            element in the input list. The order of results corresponds to the order of
+            input arguments.
+
+        Notes:
+            - If an element in `args` is a list, it is unpacked and passed as multiple
+              arguments to the decorated function.
+            - The number of threads in the thread pool is determined by the number of
+              CPU cores available on the system.
+        """
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             return list(
                 executor.map(
