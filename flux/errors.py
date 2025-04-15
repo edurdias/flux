@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from typing import Generic
 from typing import Literal
 from typing import TypeVar
@@ -82,14 +83,19 @@ class ExecutionPaused(ExecutionError, Generic[T]):
         input_type (type[T]): The type of input required to resume the execution.
     """
 
-    def __init__(self, reference: str, input_type: type[T] | None = None):
+    def __init__(self, reference: str, value: Any, input_type: type[T] | None = None):
         super().__init__()
         self._reference = reference
+        self._value = value
         self._input_type = input_type
 
     @property
     def reference(self) -> str:
         return self._reference
+
+    @property
+    def value(self) -> str:
+        return self._value
 
     @property
     def input_type(self) -> type[T] | None:

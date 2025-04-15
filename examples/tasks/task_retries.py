@@ -6,7 +6,7 @@ from flux import workflow
 counter = 1
 
 
-@task.with_options(retry_max_attemps=3, retry_delay=1)
+@task.with_options(retry_max_attempts=3, retry_delay=1)
 def bad_task(number):
     global counter
     if counter < 3:

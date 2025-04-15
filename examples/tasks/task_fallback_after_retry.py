@@ -9,7 +9,7 @@ def fallback_for_bad_task(number: int, should_fail: bool = True):
     return f"fallback for bad_task #{number} succeed"
 
 
-@task.with_options(fallback=fallback_for_bad_task, retry_max_attemps=2)
+@task.with_options(fallback=fallback_for_bad_task, retry_max_attempts=2)
 def bad_task(number: int, should_fail: bool = True):
     if should_fail:
         print(f"Failed task #{number}")

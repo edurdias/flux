@@ -11,7 +11,7 @@ serializer = "pkl"                       # Default serializer (json or pkl)
 database_url = "sqlite:///.flux/flux.db" # Database URL
 
 [flux.catalog]
-auto_register = false # Automatically register workflows in the catalog on startup
+auto_register = true # Automatically register workflows in the catalog on startup
 
 
 [flux.executor]

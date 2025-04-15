@@ -107,7 +107,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                     ExecutionEventType.WORKFLOW_PAUSED,
                     workflow.id,
                     ctx.name,
-                    {"reference": ex.reference},
+                    {"reference": ex.reference, "value": ex.value},
                 ),
             )
         except ExecutionError as ex:
@@ -226,7 +226,7 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
                 elif isinstance(value, GeneratorType):
                     value = self._iterate(value, ctx)
                 elif isinstance(value, decorators.PauseRequested):
-                    raise ExecutionPaused(value.reference, value.input_type)
+                    raise ExecutionPaused(value.reference, value.value, value.input_type)
                 elif isinstance(value, ExecutionEvent):
                     value = self._process_event(ctx, value)
                 value = generator.send(value)
@@ -259,8 +259,8 @@ class DefaultWorkflowExecutor(WorkflowExecutor):
             if task_instance.timeout in (None, 0):
                 task_instance.timeout = self.default_timeout
 
-            if task_instance.retry_max_attemps in (None, 0):
-                task_instance.retry_max_attemps = self.default_retry_attempts
+            if task_instance.retry_max_attempts in (None, 0):
+                task_instance.retry_max_attempts = self.default_retry_attempts
                 task_instance.retry_delay = self.default_retry_delay
                 task_instance.retry_backoff = self.default_retry_backoff
 

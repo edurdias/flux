@@ -17,7 +17,7 @@ def simple_task(data: str):
 ```python
 @task.with_options(
     name="process_data",                 # Custom task name
-    retry_max_attemps=3,                 # Maximum retry attempts
+    retry_max_attempts=3,                 # Maximum retry attempts
     retry_delay=1,                       # Initial delay between retries
     retry_backoff=2,                     # Backoff multiplier
     timeout=30,                          # Task timeout in seconds
@@ -36,7 +36,7 @@ def complex_task(data: str, secrets: dict = {}):
 ### Retry Configuration
 ```python
 @task.with_options(
-    retry_max_attemps=3,    # Try up to 3 times
+    retry_max_attempts=3,    # Try up to 3 times
     retry_delay=1,          # Wait 1 second initially
     retry_backoff=2         # Double delay after each retry
 )
@@ -130,7 +130,7 @@ Tasks support multiple error handling strategies that can be combined:
 ### Retry Mechanism
 ```python
 @task.with_options(
-    retry_max_attemps=3,
+    retry_max_attempts=3,
     retry_delay=1,
     retry_backoff=2
 )
@@ -147,7 +147,7 @@ def fallback_handler():
 
 @task.with_options(
     fallback=fallback_handler,
-    retry_max_attemps=3
+    retry_max_attempts=3
 )
 def task_with_fallback():
     # Retries first, then fallback if all retries fail

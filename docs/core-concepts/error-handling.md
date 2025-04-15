@@ -19,7 +19,7 @@ from flux.errors import (
 ### Retry Mechanism
 ```python
 @task.with_options(
-    retry_max_attemps=3,    # Maximum retry attempts
+    retry_max_attempts=3,    # Maximum retry attempts
     retry_delay=1,          # Initial delay in seconds
     retry_backoff=2         # Multiply delay by this factor each retry
 )
@@ -39,7 +39,7 @@ def fallback_handler(input_data):
 
 @task.with_options(
     fallback=fallback_handler,
-    retry_max_attemps=3
+    retry_max_attempts=3
 )
 def task_with_fallback(input_data):
     # If all retries fail, fallback_handler is called
@@ -67,7 +67,7 @@ def task_with_rollback(input_data):
 ### Combining Error Handling Strategies
 ```python
 @task.with_options(
-    retry_max_attemps=3,
+    retry_max_attempts=3,
     retry_delay=1,
     retry_backoff=2,
     fallback=fallback_handler,
@@ -155,7 +155,7 @@ def analyze_errors(ctx: WorkflowExecutionContext):
 ### 1. Layer Your Error Handling
 ```python
 @task.with_options(
-    retry_max_attemps=3,
+    retry_max_attempts=3,
     fallback=fallback_handler
 )
 def resilient_task():

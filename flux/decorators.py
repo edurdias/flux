@@ -32,11 +32,12 @@ END = "END"
 @dataclass
 class PauseRequested(Generic[T]):
     reference: str
+    value: Any
     input_type: type[T] | None
 
 
-def pause(reference: str, wait_for_input: type[T] | None = None):
-    return PauseRequested(reference, wait_for_input)
+def pause(reference: str, value=Any, wait_for_input: type[T] | None = None):
+    return PauseRequested(reference, value, wait_for_input)
 
 
 class workflow:
@@ -146,7 +147,7 @@ class task:
         name: str | None = None,
         fallback: Callable | None = None,
         rollback: Callable | None = None,
-        retry_max_attemps: int = 0,
+        retry_max_attempts: int = 0,
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
@@ -160,7 +161,7 @@ class task:
                 name=name,
                 fallback=fallback,
                 rollback=rollback,
-                retry_max_attemps=retry_max_attemps,
+                retry_max_attempts=retry_max_attempts,
                 retry_delay=retry_delay,
                 retry_backoff=retry_backoff,
                 timeout=timeout,
@@ -177,7 +178,7 @@ class task:
         name: str | None = None,
         fallback: Callable | None = None,
         rollback: Callable | None = None,
-        retry_max_attemps: int = 0,
+        retry_max_attempts: int = 0,
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
@@ -189,7 +190,7 @@ class task:
         self.name = name if not None else func.__name__
         self.fallback = fallback
         self.rollback = rollback
-        self.retry_max_attemps = retry_max_attemps
+        self.retry_max_attempts = retry_max_attempts
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
@@ -323,7 +324,7 @@ class task:
         try:
             if isinstance(ex, StopIteration):
                 return ex.value
-            elif self.retry_max_attemps > 0 and retry_attempts < self.retry_max_attemps:
+            elif self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
                 return (
                     yield from self.__handle_retry(
                         self.task_id,
@@ -451,12 +452,12 @@ class task:
         kwargs: dict,
     ):
         attempt = 0
-        while attempt < self.retry_max_attemps:
+        while attempt < self.retry_max_attempts:
             attempt += 1
             current_delay = self.retry_delay
             retry_args = {
                 "current_attempt": attempt,
-                "max_attempts": self.retry_max_attemps,
+                "max_attempts": self.retry_max_attempts,
                 "current_delay": current_delay,
                 "backoff": self.retry_backoff,
             }
@@ -487,7 +488,7 @@ class task:
                     name=task_name,
                     value={
                         "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attemps,
+                        "max_attempts": self.retry_max_attempts,
                         "current_delay": current_delay,
                         "backoff": self.retry_backoff,
                         "output": self.output_storage.store(self.task_id, output)
@@ -503,15 +504,15 @@ class task:
                     name=task_name,
                     value={
                         "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attemps,
+                        "max_attempts": self.retry_max_attempts,
                         "current_delay": current_delay,
                         "backoff": self.retry_backoff,
                     },
                 )
-                if attempt == self.retry_max_attemps:
+                if attempt == self.retry_max_attempts:
                     raise RetryError(
                         ex,
-                        self.retry_max_attemps,
+                        self.retry_max_attempts,
                         self.retry_delay,
                         self.retry_backoff,
                     )

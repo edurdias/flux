@@ -15,7 +15,7 @@ Flux is a distributed workflow orchestration engine written in Python that enabl
 - **Flexible Task Configuration**:
   ```python
   @task.with_options(
-      retry_max_attemps=3,        # Auto-retry failed tasks
+      retry_max_attempts=3,        # Auto-retry failed tasks
       retry_delay=1,              # Initial delay between retries
       retry_backoff=2,            # Exponential backoff for retries
       timeout=30,                 # Task execution timeout
@@ -163,7 +163,7 @@ for event in ctx.events:
 
 ```python
 @task.with_options(
-    retry_max_attemps=3,
+    retry_max_attempts=3,
     retry_delay=1,
     retry_backoff=2,
     fallback=lambda: "fallback result",

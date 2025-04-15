@@ -48,7 +48,7 @@ def simple_task(data: str):
 # Configured task
 @task.with_options(
     name="custom_task",                  # Custom task name
-    retry_max_attemps=3,                 # Maximum retry attempts
+    retry_max_attempts=3,                 # Maximum retry attempts
     retry_delay=1,                       # Initial delay between retries
     retry_backoff=2,                     # Backoff multiplier for retries
     timeout=30,                          # Task timeout in seconds
@@ -64,7 +64,7 @@ def complex_task(data: str):
 Task features:
 - Basic tasks with `@task` decorator
 - Configurable options:
-  - `retry_max_attemps`: Maximum retry attempts
+  - `retry_max_attempts`: Maximum retry attempts
   - `retry_delay`: Initial delay between retries
   - `retry_backoff`: Backoff multiplier for subsequent retries
   - `timeout`: Task execution timeout
