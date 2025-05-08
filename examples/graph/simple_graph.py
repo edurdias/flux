@@ -7,17 +7,17 @@ from flux.tasks import Graph
 
 
 @task
-def get_name(input: str) -> str:
+async def get_name(input: str) -> str:
     return input
 
 
 @task
-def say_hello(name: str) -> str:
+async def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 
 @workflow
-def simple_graph(ctx: WorkflowExecutionContext[str]):
+async def simple_graph(ctx: WorkflowExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
 
@@ -29,7 +29,7 @@ def simple_graph(ctx: WorkflowExecutionContext[str]):
         .start_with("get_name")
         .end_with("say_hello")
     )
-    return (yield hello(ctx.input))
+    return await hello(ctx.input)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -10,11 +10,8 @@ from examples.hello_world import *
 from examples.nested_tasks import *
 from examples.output_storage import *
 from examples.parallel_tasks import *
-from examples.pause import *
-from examples.pause_with_input import *
 from examples.simple_pipeline import *
 from examples.sleep import *
 from examples.subflows import *
-from examples.subflows_map import *
 from examples.tasks import *
 from examples.using_secrets import *

@@ -8,21 +8,21 @@ Let's start with a simple "Hello World" workflow:
 from flux import task, workflow, WorkflowExecutionContext
 
 @task
-def say_hello(name: str):
+async def say_hello(name: str):
     return f"Hello, {name}"
 
 @workflow
-def hello_world(ctx: WorkflowExecutionContext[str]):
+async def hello_world(ctx: WorkflowExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
-    return (yield say_hello(ctx.input))
+    return await say_hello(ctx.input)
 ```
 
 This simple example shows:
 - A basic task with the `@task` decorator
 - A workflow with the `@workflow` decorator
 - Basic error handling for missing input
-- Usage of `yield` to execute tasks
+- Usage of `async/await` for asynchronous execution
 
 ## Running Workflows
 

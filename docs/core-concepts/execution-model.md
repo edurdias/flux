@@ -9,8 +9,8 @@ Local execution runs workflows directly in your Python application.
 from flux import workflow, WorkflowExecutionContext
 
 @workflow
-def my_workflow(ctx: WorkflowExecutionContext[str]):
-    result = yield some_task(ctx.input)
+async def my_workflow(ctx: WorkflowExecutionContext[str]):
+    result = await some_task(ctx.input)
     return result
 
 # Execute the workflow
@@ -94,7 +94,6 @@ workflow_name = ctx.name        # Workflow name
 is_finished = ctx.finished     # Execution completed
 has_succeeded = ctx.succeeded  # Execution succeeded
 has_failed = ctx.failed       # Execution failed
-is_paused = ctx.paused        # Execution paused
 
 # Data access
 input_data = ctx.input        # Input data
@@ -139,8 +138,6 @@ from flux.events import ExecutionEventType
 ExecutionEventType.WORKFLOW_STARTED    # Workflow begins
 ExecutionEventType.WORKFLOW_COMPLETED  # Workflow succeeds
 ExecutionEventType.WORKFLOW_FAILED     # Workflow fails
-ExecutionEventType.WORKFLOW_PAUSED     # Workflow pauses
-ExecutionEventType.WORKFLOW_RESUMED    # Workflow resumes
 ```
 
 ### Task Events

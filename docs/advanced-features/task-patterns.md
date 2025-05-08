@@ -10,23 +10,23 @@ from flux import task, workflow
 from flux.tasks import parallel
 
 @task
-def say_hi(name: str):
+async def say_hi(name: str):
     return f"Hi, {name}"
 
 @task
-def say_hello(name: str):
+async def say_hello(name: str):
     return f"Hello, {name}"
 
 @task
-def say_hola(name: str):
+async def say_hola(name: str):
     return f"Hola, {name}"
 
 @workflow
-def parallel_workflow(ctx: WorkflowExecutionContext[str]):
-    results = yield parallel(
-        lambda: say_hi(ctx.input),
-        lambda: say_hello(ctx.input),
-        lambda: say_hola(ctx.input)
+async def parallel_workflow(ctx: WorkflowExecutionContext[str]):
+    results = await parallel(
+        say_hi(ctx.input),
+        say_hello(ctx.input),
+        say_hola(ctx.input)
     )
     return results
 ```
@@ -58,8 +58,8 @@ def square(x):
     return x * x
 
 @workflow
-def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
-    result = yield pipeline(
+async def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
+    result = await pipeline(
         multiply_by_two,
         add_three,
         square,
@@ -85,22 +85,22 @@ def process_item(item: str):
     return item.upper()
 
 @workflow
-def mapping_workflow(ctx: WorkflowExecutionContext[list[str]]):
+async def mapping_workflow(ctx: WorkflowExecutionContext[list[str]]):
     # Process multiple items in parallel
-    results = yield process_item.map(ctx.input)
+    results = await process_item.map(ctx.input)
     return results
 ```
 
 ### Complex Mapping
 ```python
 @task
-def count(to: int):
+async def count(to: int):
     return [i for i in range(0, to + 1)]
 
 @workflow
-def task_map_workflow(ctx: WorkflowExecutionContext[int]):
+async def task_map_workflow(ctx: WorkflowExecutionContext[int]):
     # Generate sequences in parallel
-    results = yield count.map(list(range(0, ctx.input)))
+    results = await count.map(list(range(0, ctx.input)))
     return len(results)
 ```
 
@@ -127,7 +127,7 @@ def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow
-def graph_workflow(ctx: WorkflowExecutionContext[str]):
+async def graph_workflow(ctx: WorkflowExecutionContext[str]):
     hello = (
         Graph("hello_world")
         .add_node("get_name", get_name)
@@ -136,13 +136,13 @@ def graph_workflow(ctx: WorkflowExecutionContext[str]):
         .start_with("get_name")
         .end_with("say_hello")
     )
-    return (yield hello(ctx.input))
+    return await hello(ctx.input)
 ```
 
 ### Conditional Graph Execution
 ```python
 @workflow
-def conditional_graph_workflow(ctx: WorkflowExecutionContext):
+async def conditional_graph_workflow(ctx: WorkflowExecutionContext):
     workflow = (
         Graph("conditional_flow")
         .add_node("validate", validate_data)
@@ -156,7 +156,7 @@ def conditional_graph_workflow(ctx: WorkflowExecutionContext):
         .end_with("process")
         .end_with("error")
     )
-    return (yield workflow(ctx.input))
+    return await workflow(ctx.input)
 ```
 
 Key features:
@@ -199,13 +199,13 @@ Choose the appropriate pattern based on your needs:
 from flux.tasks import parallel
 
 @workflow
-def parallel_workflow(ctx: WorkflowExecutionContext):
+async def parallel_workflow(ctx: WorkflowExecutionContext):
     # Tasks are executed using ThreadPoolExecutor
     # Number of workers = CPU cores available
-    results = yield parallel(
-        lambda: task1(),
-        lambda: task2(),
-        lambda: task3()
+    results = await parallel(
+        task1(),
+        task2(),
+        task3()
     )
 ```
 
@@ -219,32 +219,32 @@ Optimization tips:
 1. Group tasks appropriately:
 ```python
 # Less efficient (too granular)
-results = yield parallel(
-    lambda: task1(item1),
-    lambda: task1(item2),
-    lambda: task1(item3),
-    lambda: task2(item1),
-    lambda: task2(item2),
-    lambda: task2(item3)
+results = await parallel(
+    task1(item1),
+    task1(item2),
+    task1(item3),
+    task2(item1),
+    task2(item2),
+    task2(item3)
 )
 
 # More efficient (better grouping)
-group1 = yield parallel(
-    lambda: task1(item1),
-    lambda: task1(item2),
-    lambda: task1(item3)
+group1 = await parallel(
+    task1(item1),
+    task1(item2),
+    task1(item3)
 )
-group2 = yield parallel(
-    lambda: task2(item1),
-    lambda: task2(item2),
-    lambda: task2(item3)
+group2 = await parallel(
+    task2(item1),
+    task2(item2),
+    task2(item3)
 )
 ```
 
 2. Consider resource constraints:
 ```python
 # Resource-intensive tasks should be grouped appropriately
-results = yield parallel(
+results = await parallel(
     lambda: heavy_task1(),  # Uses significant memory
     lambda: light_task(),   # Minimal resource usage
     lambda: heavy_task2()   # Uses significant memory
@@ -257,8 +257,8 @@ Pipeline execution is sequential, making performance dependent on the slowest ta
 
 ```python
 @workflow
-def pipeline_workflow(ctx: WorkflowExecutionContext):
-    result = yield pipeline(
+async def pipeline_workflow(ctx: WorkflowExecutionContext):
+    result = await pipeline(
         fast_task,      # 0.1s
         slow_task,      # 2.0s
         medium_task,    # 0.5s
@@ -276,7 +276,7 @@ Optimization tips:
 2. Balance task granularity:
 ```python
 # Less efficient (too granular)
-result = yield pipeline(
+result = await pipeline(
     validate_input,
     transform_data,
     process_part1,
@@ -287,7 +287,7 @@ result = yield pipeline(
 )
 
 # More efficient (better grouping)
-result = yield pipeline(
+result = await pipeline(
     validate_and_transform,  # Combined validation and transformation
     process_all_parts,      # Combined processing
     save_result,
@@ -305,9 +305,9 @@ def process_item(item: str):
     return item.upper()
 
 @workflow
-def mapping_workflow(ctx: WorkflowExecutionContext):
+async def mapping_workflow(ctx: WorkflowExecutionContext):
     # Be mindful of the input size
-    results = yield process_item.map(large_input_list)
+    results = await process_item.map(large_input_list)
 ```
 
 Key considerations:
@@ -319,26 +319,26 @@ Optimization tips:
 1. Batch processing for large datasets:
 ```python
 @workflow
-def optimized_mapping(ctx: WorkflowExecutionContext):
+async def optimized_mapping(ctx: WorkflowExecutionContext):
     # Process in smaller batches
     batch_size = 1000
     results = []
     for i in range(0, len(ctx.input), batch_size):
         batch = ctx.input[i:i + batch_size]
-        batch_results = yield process_item.map(batch)
+        batch_results = await process_item.map(batch)
         results.extend(batch_results)
 ```
 
 2. Memory-efficient processing:
 ```python
 @workflow
-def memory_efficient_mapping(ctx: WorkflowExecutionContext):
+async def memory_efficient_mapping(ctx: WorkflowExecutionContext):
     # Process and store results incrementally
     results = []
     for batch in chunk_generator(ctx.input, size=1000):
-        batch_results = yield process_item.map(batch)
+        batch_results = await process_item.map(batch)
         # Process or store results before next batch
-        yield store_results(batch_results)
+        await store_results(batch_results)
 ```
 
 ### Graph Performance

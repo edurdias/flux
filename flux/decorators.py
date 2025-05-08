@@ -1,80 +1,60 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
-import os
 import time
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from contextvars import ContextVar
 from functools import wraps
-from inspect import getfullargspec
 from typing import Any
 from typing import Callable
-from typing import Generic
 from typing import TypeVar
 
 from flux.cache import CacheManager
 from flux.context import WorkflowExecutionContext
+from flux.context_managers import ContextManager
 from flux.errors import ExecutionError
+from flux.errors import ExecutionTimeoutError
 from flux.errors import RetryError
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
-from flux.executors import WorkflowExecutor
 from flux.output_storage import OutputStorage
 from flux.secret_managers import SecretManager
-from flux.utils import call_with_timeout
 from flux.utils import make_hashable
+from flux.utils import maybe_awaitable
 
-T = TypeVar("T", bound=Any)
 F = TypeVar("F", bound=Callable[..., Any])
-END = "END"
+CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
 
 
-@dataclass
-class PauseRequested(Generic[T]):
-    """
-    A generic class representing a pause request with associated metadata.
+def get_func_args(func: Callable, args: tuple) -> dict:
+    arg_names = inspect.getfullargspec(func).args
+    arg_values: list[Any] = []
 
-    Attributes:
-        reference (str): A string reference identifier for the pause request.
-        value (Any): The value associated with the pause request.
-        input_type (type[T] | None): The type of the input value, or None if not specified.
-    """
+    for arg in args:
+        if isinstance(arg, workflow):
+            arg_values.append(arg.name)
+        elif inspect.isclass(type(arg)) and isinstance(arg, Callable):  # type: ignore[arg-type]
+            arg_values.append(arg)
+        elif isinstance(arg, Callable):  # type: ignore[arg-type]
+            arg_values.append(arg.__name__)
+        elif isinstance(arg, list):
+            arg_values.append(tuple(arg))
+        else:
+            arg_values.append(arg)
 
-    reference: str
-    value: Any
-    input_type: type[T] | None
+    return dict(zip(arg_names, arg_values))
 
 
-def pause(reference: str, value=Any, wait_for_input: type[T] | None = None):
-    """
-    Pauses the execution by requesting a pause with the given reference and value.
-
-    Args:
-        reference (str): A string identifier for the pause request.
-        value (Any, optional): The value associated with the pause request. Defaults to Any.
-        wait_for_input (type[T] | None, optional): The expected type of input to resume execution, or None if no input is required. Defaults to None.
-
-    Returns:
-        PauseRequested: An instance representing the pause request.
-    """
-    return PauseRequested(reference, value, wait_for_input)
+async def get_current_context() -> WorkflowExecutionContext:
+    ctx = CURRENT_CONTEXT.get()
+    if ctx is None:
+        raise ExecutionError(
+            message="No active WorkflowExecutionContext found. Make sure you are running inside a workflow or task execution.",
+        )
+    return ctx
 
 
 class workflow:
-    @staticmethod
-    def is_workflow(func: F) -> bool:
-        """
-        Check if the given function is a workflow.
-
-        Args:
-            func (F): The function to check.
-
-        Returns:
-            bool: True if the function is not None and is an instance of `workflow`,
-                  otherwise False.
-        """
-        return func is not None and isinstance(func, workflow)
-
     @staticmethod
     def with_options(
         name: str | None = None,
@@ -116,84 +96,65 @@ class workflow:
         self.output_storage = output_storage
         wraps(func)(self)
 
-    def __get__(self, instance, owner):
-        return lambda *args, **kwargs: self(
-            *(args if instance is None else (instance,) + args),
-            **kwargs,
-        )
-
-    def __call__(self, *args) -> Any:
-        if len(args) > 1 or not isinstance(args[0], WorkflowExecutionContext):
-            raise TypeError(
-                f"Expected first argument to be of type {type(WorkflowExecutionContext)}.",
-            )
-
-        ctx: WorkflowExecutionContext = args[0]
+    async def __call__(self, ctx: WorkflowExecutionContext, *args) -> Any:
+        if ctx.finished:
+            return ctx
 
         self.id = f"{ctx.name}_{ctx.execution_id}"
 
-        yield self
-
-        yield ExecutionEvent(
-            ExecutionEventType.WORKFLOW_STARTED,
-            self.id,
-            ctx.name,
-            ctx.input,
+        ctx.events.append(
+            ExecutionEvent(
+                ExecutionEventType.WORKFLOW_STARTED,
+                self.id,
+                ctx.name,
+                ctx.input,
+            ),
         )
-        try:
-            output = yield from (
-                self._func(ctx) if self._func.__code__.co_argcount == 1 else self._func()
-            )
 
-            yield ExecutionEvent(
-                type=ExecutionEventType.WORKFLOW_COMPLETED,
-                source_id=self.id,
-                name=ctx.name,
-                value=self.output_storage.store(self.id, output) if self.output_storage else output,
+        try:
+            token = CURRENT_CONTEXT.set(ctx)
+            output = await maybe_awaitable(self._func(ctx))
+            CURRENT_CONTEXT.reset(token)
+
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_COMPLETED,
+                    source_id=self.id,
+                    name=ctx.name,
+                    value=self.output_storage.store(self.id, output)
+                    if self.output_storage
+                    else output,
+                ),
             )
         except ExecutionError as ex:
-            yield ExecutionEvent(
-                type=ExecutionEventType.WORKFLOW_FAILED,
-                source_id=self.id,
-                name=ctx.name,
-                value=ex.inner_exception,
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_FAILED,
+                    source_id=self.id,
+                    name=ctx.name,
+                    value=ex,
+                ),
             )
         except Exception as ex:
-            # TODO: add retry support to workflow
-            yield ExecutionEvent(
-                type=ExecutionEventType.WORKFLOW_FAILED,
-                source_id=self.id,
-                name=ctx.name,
-                value=ex,
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_FAILED,
+                    source_id=self.id,
+                    name=ctx.name,
+                    value=ex,
+                ),
             )
 
-        yield END
+        ContextManager.default().save(ctx)
+        return ctx
 
-    def run(
-        self,
-        input: Any | None = None,
-        execution_id: str | None = None,
-        options: dict[str, Any] = {},
-    ) -> WorkflowExecutionContext:
-        """
-        Executes the workflow function with the provided input, execution ID, and options.
-
-        Args:
-            input (Any | None): The input data to be passed to the workflow function. Defaults to None.
-            execution_id (str | None): An optional unique identifier for the execution. Defaults to None.
-            options (dict[str, Any]): A dictionary of options to configure the workflow execution.
-                Defaults to an empty dictionary. The 'module' key is automatically updated with the
-                module name of the workflow function.
-
-        Returns:
-            WorkflowExecutionContext: The context of the executed workflow, containing execution details.
-        """
-        options.update({"module": self._func.__module__})
-        return WorkflowExecutor.get(options).execute(self._func.__name__, input, execution_id)
-
-    def map(self, inputs: list[Any] = []) -> list[WorkflowExecutionContext]:
-        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            return list(executor.map(lambda i: self.run(i), inputs))
+    def run(self, *args, **kwargs) -> WorkflowExecutionContext:
+        ctx = (
+            ContextManager.default().get(kwargs["execution_id"])
+            if "execution_id" in kwargs
+            else WorkflowExecutionContext(self.name, *args)
+        )
+        return asyncio.run(self(ctx))
 
 
 class task:
@@ -210,25 +171,6 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
     ) -> Callable[[F], task]:
-        """
-        A decorator that wraps a function and returns a `task` object with the specified options.
-
-        Parameters:
-            name (str | None): An optional name for the task. Defaults to None.
-            fallback (Callable | None): An optional fallback function to execute in case of failure. Defaults to None.
-            rollback (Callable | None): An optional rollback function to execute in case of failure. Defaults to None.
-            retry_max_attempts (int): The maximum number of retry attempts for the task. Defaults to 0.
-            retry_delay (int): The delay (in seconds) between retry attempts. Defaults to 1.
-            retry_backoff (int): The backoff multiplier for retry delays. Defaults to 2.
-            timeout (int): The timeout (in seconds) for the task execution. Defaults to 0 (no timeout).
-            secret_requests (list[str]): A list of secret request identifiers. Defaults to an empty list.
-            output_storage (OutputStorage | None): An optional storage mechanism for task outputs. Defaults to None.
-            cache (bool): Whether to enable caching for the task. Defaults to False.
-
-        Returns:
-            Callable[[F], task]: A decorator that wraps the given function and returns a `task` object.
-        """
-
         def wrapper(func: F) -> task:
             return task(
                 func=func,
@@ -261,7 +203,7 @@ class task:
         cache: bool = False,
     ):
         self._func = func
-        self.name = name if not None else func.__name__
+        self.name = name if name else func.__name__
         self.fallback = fallback
         self.rollback = rollback
         self.retry_max_attempts = retry_max_attempts
@@ -279,223 +221,196 @@ class task:
             **kwargs,
         )
 
-    def __call__(self, *args, **kwargs) -> Any:
-        args_with_self = self.__get_task_args(self._func, args)
-        self.full_name = self.__get_task_name(self._func, self.name, args_with_self)
+    async def __call__(self, *args, **kwargs) -> Any:
+        ctx = await get_current_context()
 
-        task_args = {k: v for k, v in args_with_self.items() if k != "self"}
-        self.task_id = self.__get_task_id(self.full_name, task_args, kwargs)
+        task_args = get_func_args(self._func, args)
+        full_name = self.name.format(**task_args)
 
-        yield ExecutionEvent(
-            type=ExecutionEventType.TASK_STARTED,
-            source_id=self.task_id,
-            name=self.full_name,
-            value=task_args,
+        task_id = (
+            f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(kwargs))))}"
+        )
+
+        finished = [
+            e
+            for e in ctx.events
+            if e.source_id == task_id
+            and e.type
+            in (
+                ExecutionEventType.TASK_COMPLETED,
+                ExecutionEventType.TASK_FAILED,
+            )
+        ]
+
+        if len(finished) > 0:
+            return finished[0].value
+
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_STARTED,
+                source_id=task_id,
+                name=full_name,
+                value=task_args,
+            ),
         )
 
         try:
-            output = yield from self.__execute(self.task_id, self.full_name, args, kwargs)
-        except Exception as ex:
-            output = yield from self.__handle_exception(ex, task_args, args, kwargs)
+            output = None
+            if self.cache:
+                output = CacheManager.get(task_id)
 
-        output = yield output
+            if not output:
+                if self.secret_requests:
+                    secrets = SecretManager.current().get(self.secret_requests)
+                    kwargs = {**kwargs, "secrets": secrets}
 
-        yield ExecutionEvent(
-            type=ExecutionEventType.TASK_COMPLETED,
-            source_id=self.task_id,
-            name=self.full_name,
-            value=self.output_storage.store(self.task_id, output)
-            if self.output_storage
-            else output,
-        )
-
-        return output
-
-    def map(self, args: list[Any] = []):
-        """
-        Applies the decorated function to each element in the provided list of arguments
-        using a thread pool for parallel execution.
-
-        Args:
-            args (list[Any]): A list of arguments to be passed to the decorated function.
-                Each element can either be a single argument or a list of arguments.
-
-        Returns:
-            list: A list of results obtained by applying the decorated function to each
-            element in the input list. The order of results corresponds to the order of
-            input arguments.
-
-        Notes:
-            - If an element in `args` is a list, it is unpacked and passed as multiple
-              arguments to the decorated function.
-            - The number of threads in the thread pool is determined by the number of
-              CPU cores available on the system.
-        """
-        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            return list(
-                executor.map(
-                    lambda arg: (
-                        self(*arg)
-                        if isinstance(
-                            arg,
-                            list,
+                if self.timeout > 0:
+                    try:
+                        output = await asyncio.wait_for(
+                            maybe_awaitable(self._func(*args, **kwargs)),
+                            timeout=self.timeout,
                         )
-                        else self(arg)
-                    ),
-                    args,
-                ),
+                    except asyncio.TimeoutError as ex:
+                        raise ExecutionTimeoutError(
+                            "Task",
+                            self.name,
+                            task_id,
+                            self.timeout,
+                        ) from ex
+                else:
+                    output = await maybe_awaitable(self._func(*args, **kwargs))
+
+                if self.cache:
+                    CacheManager.set(task_id, output)
+
+        except Exception as ex:
+            output = await self.__handle_exception(
+                ctx,
+                ex,
+                task_id,
+                full_name,
+                task_args,
+                args,
+                kwargs,
             )
 
-    def __get_task_name(self, func: Callable, name: str | None, args: dict) -> str:
-        return name.format(**args) if name else f"{func.__name__}"
-
-    def __get_task_args(self, func: Callable, args: tuple) -> dict:
-        arg_names = getfullargspec(func).args
-        arg_values: list[Any] = []
-
-        for arg in args:
-            if isinstance(arg, workflow):
-                arg_values.append(arg.name)
-            elif inspect.isclass(type(arg)) and isinstance(arg, Callable):  # type: ignore[arg-type]
-                arg_values.append(arg)
-            elif isinstance(arg, Callable):  # type: ignore[arg-type]
-                arg_values.append(arg.__name__)
-            elif isinstance(arg, list):
-                arg_values.append(tuple(arg))
-            else:
-                arg_values.append(arg)
-
-        return dict(zip(arg_names, arg_values))
-
-    def __get_task_id(self, task_name: str, args: dict, kwargs: dict):
-        return f"{task_name}_{abs(hash((task_name, make_hashable(args), make_hashable(kwargs))))}"
-
-    def __execute(
-        self,
-        task_id: str,
-        task_name: str,
-        args: tuple,
-        kwargs: dict,
-    ):
-        output_replay = yield
-        output, replay = output_replay if output_replay else (None, False)
-        if replay:
-            return output
-
-        yield
-
-        if self.cache:
-            output = CacheManager.get(self.task_id)
-            if output:
-                return output
-
-        if self.secret_requests:
-            secrets = SecretManager.current().get(self.secret_requests)
-            kwargs = {**kwargs, "secrets": secrets}
-
-        output = call_with_timeout(
-            lambda: self._func(*args, **kwargs),
-            "Task",
-            task_name,
-            task_id,
-            self.timeout,
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_COMPLETED,
+                source_id=task_id,
+                name=full_name,
+                value=self.output_storage.store(task_id, output) if self.output_storage else output,
+            ),
         )
 
-        if self.cache:
-            CacheManager.set(self.task_id, output)
-
+        ContextManager.default().save(ctx)
         return output
 
-    def __handle_exception(
+    async def map(self, args):
+        return await asyncio.gather(*(self(arg) for arg in args))
+
+    async def __handle_exception(
         self,
+        ctx: WorkflowExecutionContext,
         ex: Exception,
+        task_id: str,
+        task_full_name: str,
         task_args: dict,
         args: tuple,
         kwargs: dict,
         retry_attempts: int = 0,
     ):
         try:
-            if isinstance(ex, StopIteration):
-                return ex.value
-            elif self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
-                return (
-                    yield from self.__handle_retry(
-                        self.task_id,
-                        self.full_name,
-                        task_args,
-                        args,
-                        kwargs,
-                    )
+            if self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
+                return await self.__handle_retry(
+                    ctx,
+                    task_id,
+                    task_full_name,
+                    args,
+                    kwargs,
                 )
             elif self.fallback:
-                return (
-                    yield from self.__handle_fallback(
-                        self.task_id,
-                        self.full_name,
-                        task_args,
-                        args,
-                        kwargs,
-                    )
+                return await self.__handle_fallback(
+                    ctx,
+                    task_id,
+                    task_full_name,
+                    task_args,
+                    args,
+                    kwargs,
                 )
             else:
-                if self.rollback:
-                    yield from self.__handle_rollback(
-                        self.task_id,
-                        self.full_name,
-                        task_args,
-                        args,
-                        kwargs,
-                    )
-
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_FAILED,
-                    source_id=self.task_id,
-                    name=self.full_name,
-                    value=ex,
+                await self.__handle_rollback(
+                    ctx,
+                    task_id,
+                    task_full_name,
+                    task_args,
+                    args,
+                    kwargs,
                 )
+
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=ex,
+                    ),
+                )
+                if isinstance(ex, ExecutionError):
+                    raise ex
                 raise ExecutionError(ex)
 
-        except RetryError as rex:
-            output = yield from self.__handle_exception(
-                rex,
+        except RetryError as ex:
+            output = await self.__handle_exception(
+                ctx,
+                ex,
+                task_id,
+                task_full_name,
                 task_args,
                 args,
                 kwargs,
-                retry_attempts=rex.retry_attempts,
+                retry_attempts=ex.retry_attempts,
             )
             return output
 
-    def __handle_fallback(
+    async def __handle_fallback(
         self,
+        ctx: WorkflowExecutionContext,
         task_id: str,
-        task_name: str,
+        task_full_name: str,
         task_args: dict,
         args: tuple,
         kwargs: dict,
     ):
         if self.fallback:
-            yield ExecutionEvent(
-                type=ExecutionEventType.TASK_FALLBACK_STARTED,
-                source_id=task_id,
-                name=task_name,
-                value=task_args,
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.TASK_FALLBACK_STARTED,
+                    source_id=task_id,
+                    name=task_full_name,
+                    value=task_args,
+                ),
             )
             try:
-                output = self.fallback(*args, **kwargs)
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_FALLBACK_COMPLETED,
-                    source_id=task_id,
-                    name=task_name,
-                    value=self.output_storage.store(self.task_id, output)
-                    if self.output_storage
-                    else output,
+                output = await maybe_awaitable(self.fallback(*args, **kwargs))
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_FALLBACK_COMPLETED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=self.output_storage.store(task_id, output)
+                        if self.output_storage
+                        else output,
+                    ),
                 )
             except Exception as ex:
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_FALLBACK_FAILED,
-                    source_id=task_id,
-                    name=task_name,
-                    value=ex,
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_FALLBACK_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=ex,
+                    ),
                 )
                 if isinstance(ex, ExecutionError):
                     raise ex
@@ -503,44 +418,53 @@ class task:
 
             return output
 
-    def __handle_rollback(
+    async def __handle_rollback(
         self,
+        ctx: WorkflowExecutionContext,
         task_id: str,
-        task_name: str,
+        task_full_name: str,
         task_args: dict,
         args: tuple,
         kwargs: dict,
     ):
         if self.rollback:
-            yield ExecutionEvent(
-                type=ExecutionEventType.TASK_ROLLBACK_STARTED,
-                source_id=task_id,
-                name=task_name,
-                value=task_args,
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.TASK_ROLLBACK_STARTED,
+                    source_id=task_id,
+                    name=task_full_name,
+                    value=task_args,
+                ),
             )
             try:
-                output = self.rollback(*args, **kwargs)
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_ROLLBACK_COMPLETED,
-                    source_id=task_id,
-                    name=task_name,
-                    value=self.output_storage.store(self.task_id, output)
-                    if self.output_storage
-                    else output,
+                output = await maybe_awaitable(self.rollback(*args, **kwargs))
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_ROLLBACK_COMPLETED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=self.output_storage.store(task_id, output)
+                        if self.output_storage
+                        else output,
+                    ),
                 )
+                return output
             except Exception as ex:
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_ROLLBACK_FAILED,
-                    source_id=task_id,
-                    name=task_name,
-                    value=ex,
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_ROLLBACK_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=ex,
+                    ),
                 )
+                raise ex
 
-    def __handle_retry(
+    async def __handle_retry(
         self,
+        ctx: WorkflowExecutionContext,
         task_id: str,
-        task_name: str,
-        task_args: dict,
+        task_full_name: str,
         args: tuple,
         kwargs: dict,
     ):
@@ -555,12 +479,6 @@ class task:
                 "backoff": self.retry_backoff,
             }
 
-            retry_task_id = self.__get_task_id(
-                task_id,
-                task_args,
-                {**kwargs, **retry_args},
-            )
-
             try:
                 time.sleep(current_delay)
                 current_delay = min(
@@ -568,39 +486,45 @@ class task:
                     600,
                 )
 
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_RETRY_STARTED,
-                    source_id=retry_task_id,
-                    name=task_name,
-                    value=retry_args,
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_RETRY_STARTED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=retry_args,
+                    ),
                 )
-                output = yield from self.__execute(task_id, task_name, args, kwargs)
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_RETRY_COMPLETED,
-                    source_id=retry_task_id,
-                    name=task_name,
-                    value={
-                        "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attempts,
-                        "current_delay": current_delay,
-                        "backoff": self.retry_backoff,
-                        "output": self.output_storage.store(self.task_id, output)
-                        if self.output_storage
-                        else output,
-                    },
+                output = await maybe_awaitable(self._func(*args, **kwargs))
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_RETRY_COMPLETED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value={
+                            "current_attempt": attempt,
+                            "max_attempts": self.retry_max_attempts,
+                            "current_delay": current_delay,
+                            "backoff": self.retry_backoff,
+                            "output": self.output_storage.store(task_id, output)
+                            if self.output_storage
+                            else output,
+                        },
+                    ),
                 )
                 return output
             except Exception as ex:
-                yield ExecutionEvent(
-                    type=ExecutionEventType.TASK_RETRY_FAILED,
-                    source_id=retry_task_id,
-                    name=task_name,
-                    value={
-                        "current_attempt": attempt,
-                        "max_attempts": self.retry_max_attempts,
-                        "current_delay": current_delay,
-                        "backoff": self.retry_backoff,
-                    },
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_RETRY_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value={
+                            "current_attempt": attempt,
+                            "max_attempts": self.retry_max_attempts,
+                            "current_delay": current_delay,
+                            "backoff": self.retry_backoff,
+                        },
+                    ),
                 )
                 if attempt == self.retry_max_attempts:
                     raise RetryError(

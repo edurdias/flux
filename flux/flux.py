@@ -11,7 +11,6 @@ import flux.decorators as decorators
 from flux.api import create_app
 from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
-from flux.executors import WorkflowExecutor
 from flux.utils import import_module_from_file
 from flux.utils import parse_value
 from flux.utils import to_json
@@ -68,7 +67,7 @@ def register_workflow(filename: str, workflow_name: str):
 
         workflow = getattr(module, workflow_name)
 
-        if not decorators.workflow.is_workflow(workflow):
+        if not isinstance(workflow, decorators.workflow):
             raise ValueError(f"Object '{workflow_name}' is not a valid workflow.")
 
         WorkflowCatalog.create().save(workflow)
@@ -142,32 +141,14 @@ def run_workflow(
 ):
     """Run the specified workflow."""
     try:
-        context = WorkflowExecutor.get().execute(
-            name=workflow_name,
-            input=parse_value(input),
-            execution_id=execution_id,
-            version=version,
-        )
-
+        workflow = WorkflowCatalog.create().get(workflow_name, version).code
+        context = workflow.run(parse_value(input), execution_id)
         output = context if inspect else context.summary()
 
         click.echo(to_json(output))
 
     except Exception as ex:
         click.echo(f"Error running workflow: {str(ex)}", err=True)
-
-
-@cli.command()
-@click.argument("path")
-@click.argument("workflow")
-@click.argument("input")
-@click.option("--execution-id", "-e", help="Execution ID for existing executions.")
-def exec(path: str, workflow: str, input: Any | None = None, execution_id: str | None = None):
-    """Execute the specified workflow"""
-
-    executor = WorkflowExecutor.get({"path": path})
-    context = executor.execute(workflow, input, execution_id)
-    print(context.to_json())
 
 
 @cli.command()

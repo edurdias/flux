@@ -6,18 +6,18 @@ from flux import WorkflowExecutionContext
 
 
 @task.with_options(cache=True)
-def multiply(a: int, b: int):
+async def multiply(a: int, b: int):
     return a * b
 
 
 @workflow
-def workflow_with_cached_task(ctx: WorkflowExecutionContext[tuple[int, int, int]]):
+async def workflow_with_cached_task(ctx: WorkflowExecutionContext[tuple[int, int, int]]):
     if ctx.input is None or len(ctx.input) != 3:
         raise ValueError("The input should be a tuple of three integers.")
     a, b, i = ctx.input
     results = []
     for _ in range(i):
-        result = yield multiply(a, b)
+        result = await multiply(a, b)
         results.append(result)
     return results
 

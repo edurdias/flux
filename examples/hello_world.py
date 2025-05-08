@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from flux import task
-from flux import workflow
 from flux import WorkflowExecutionContext
+from flux.decorators import task
+from flux.decorators import workflow
 
 
 @task
@@ -11,10 +11,10 @@ def say_hello(name: str):
 
 
 @workflow
-def hello_world(ctx: WorkflowExecutionContext[str]):
+async def hello_world(ctx: WorkflowExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
-    return (yield say_hello(ctx.input))
+    return await say_hello(ctx.input)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -3,7 +3,7 @@ from __future__ import annotations
 from examples.using_secrets import SECRET_NAME
 from examples.using_secrets import SECRET_VALUE
 from examples.using_secrets import using_secrets
-from flux.events import ExecutionEventType
+from flux.errors import ExecutionError
 from flux.secret_managers import SecretManager
 
 
@@ -30,7 +30,9 @@ def test_should_fail():
     secret_manager.remove(SECRET_NAME)
 
     ctx = using_secrets.run()
-    last_event = ctx.events[-1]
-    assert last_event.type == ExecutionEventType.WORKFLOW_FAILED
-    assert isinstance(last_event.value, ValueError)
-    assert last_event.value.args == (f"The following secrets were not found: ['{SECRET_NAME}']",)
+    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert isinstance(ctx.output, ExecutionError)
+    assert isinstance(ctx.output.inner_exception, ValueError)
+    assert ctx.output.inner_exception.args == (
+        f"The following secrets were not found: ['{SECRET_NAME}']",
+    )

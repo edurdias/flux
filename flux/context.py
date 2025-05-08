@@ -17,14 +17,14 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
     def __init__(
         self,
         name: str,
-        input: WorkflowInputType,
+        input: WorkflowInputType | None = None,
         execution_id: str | None = None,
-        events: list[ExecutionEvent] = [],
+        events: list[ExecutionEvent] | None = None,
     ):
-        self._execution_id = execution_id if execution_id else uuid4().hex
         self._name = name
         self._input = input
-        self._events = events
+        self._execution_id = execution_id if execution_id else uuid4().hex
+        self._events = list(events) if events else []
 
     @property
     def execution_id(self) -> str:
@@ -36,7 +36,7 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
 
     @property
     def input(self) -> WorkflowInputType:
-        return self._input
+        return self._input  # type: ignore [return-value]
 
     @property
     def events(self) -> list[ExecutionEvent]:
@@ -60,12 +60,6 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         return self.finished and any(
             [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_FAILED],
         )
-
-    @property
-    def paused(self) -> bool:
-        paused_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
-        resumed_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMED]
-        return len(paused_events) > len(resumed_events)
 
     @property
     def output(self) -> Any:

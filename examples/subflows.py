@@ -2,34 +2,34 @@ from __future__ import annotations
 
 import httpx
 
-from flux import call_workflow
+from flux import call
 from flux import task
 from flux import workflow
 from flux import WorkflowExecutionContext
 
 
 @task
-def get_repo_info(repo):
+async def get_repo_info(repo):
     url = f"https://api.github.com/repos/{repo}"
     repo_info = httpx.get(url).json()
     return repo_info
 
 
 @workflow
-def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
-    repo_info = yield get_repo_info(ctx.input)
+async def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
+    repo_info = await get_repo_info(ctx.input)
     return repo_info["stargazers_count"]
 
 
 @workflow
-def subflows(ctx: WorkflowExecutionContext[list[str]]):
+async def subflows(ctx: WorkflowExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("The list of repositories cannot be empty.")
 
     repos = ctx.input
     stars = {}
     for repo in repos:
-        stars[repo] = yield call_workflow(get_stars_workflow, repo)
+        stars[repo] = await call(get_stars_workflow, repo)
     return stars
 
 

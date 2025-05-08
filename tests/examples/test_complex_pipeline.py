@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from examples import complex_pipeline
 from flux.config import Configuration
+from flux.errors import ExecutionError
 
 
 def test_should_succeed():
@@ -39,5 +40,5 @@ def test_should_fail_invalid_input_file():
     input = {"input_file": "examples/data/invalid.csv"}
     ctx = complex_pipeline.run(input)
     assert ctx.finished and ctx.failed, "The workflow should have failed."
-
-    assert isinstance(ctx.output, FileNotFoundError)
+    assert isinstance(ctx.output, ExecutionError)
+    assert isinstance(ctx.output.inner_exception, FileNotFoundError)

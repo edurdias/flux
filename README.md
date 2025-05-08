@@ -89,9 +89,9 @@ from flux.tasks import parallel
 @workflow
 def parallel_workflow(ctx: WorkflowExecutionContext[str]):
     results = yield parallel(
-        lambda: task1(ctx.input),
-        lambda: task2(ctx.input),
-        lambda: task3(ctx.input)
+        task1(ctx.input),
+        task2(ctx.input),
+        task3(ctx.input)
     )
     return results
 ```
@@ -128,21 +128,6 @@ def map_workflow(ctx: WorkflowExecutionContext[list[str]]):
 ## Advanced Usage
 
 ### Workflow Control
-
-#### Pause and Resume
-```python
-@workflow
-def pausable_workflow():
-    yield pause("checkpoint_1")  # Pause execution
-    yield next_task()           # Will resume from here
-
-# Run until pause point
-ctx = pausable_workflow.run()
-
-# Resume execution
-ctx = pausable_workflow.run(execution_id=ctx.execution_id)
-```
-
 #### State Management
 ```python
 # Resume existing workflow execution
@@ -152,7 +137,6 @@ ctx = workflow.run(execution_id="previous_execution_id")
 print(f"Finished: {ctx.finished}")
 print(f"Succeeded: {ctx.succeeded}")
 print(f"Failed: {ctx.failed}")
-print(f"Paused: {ctx.paused}")
 
 # Inspect workflow events
 for event in ctx.events:

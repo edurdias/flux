@@ -1,29 +1,30 @@
 from __future__ import annotations
 
-import time
+import asyncio
 
 from flux import task
 from flux import workflow
+from flux.context import WorkflowExecutionContext
 
 
-@task.with_options(timeout=3)
-def long_task():
-    time.sleep(5)
+@task.with_options(timeout=1)
+async def long_task():
+    await asyncio.sleep(10)
 
 
 @task
-def nested_task():
-    yield long_task()
+async def nested_task():
+    await long_task()
 
 
 @workflow
-def task_timeout():
-    yield long_task()
+async def task_timeout(ctx: WorkflowExecutionContext):
+    await long_task()
 
 
 @workflow
-def task_nested_timeout():
-    yield nested_task()
+async def task_nested_timeout(ctx: WorkflowExecutionContext):
+    await nested_task()
 
 
 if __name__ == "__main__":  # pragma: no cover

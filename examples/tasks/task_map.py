@@ -6,13 +6,13 @@ from flux import WorkflowExecutionContext
 
 
 @task
-def count(to: int):
+async def count(to: int):
     return [i for i in range(0, to + 1)]
 
 
 @workflow
-def task_map(ctx: WorkflowExecutionContext[int]):
-    results = yield count.map(list(range(0, ctx.input)))
+async def task_map(ctx: WorkflowExecutionContext[int]):
+    results = await count.map(list(range(0, ctx.input)))
     return len(results)
 
 

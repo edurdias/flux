@@ -102,6 +102,8 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
             import_module(options["module"])
             if "module" in options
             else import_module_from_file(options["path"])
+            if "path" in options
+            else None
         )
 
         if not module:
@@ -109,5 +111,5 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
 
         for name in dir(module):
             workflow = getattr(module, name)
-            if decorators.workflow.is_workflow(workflow):
+            if isinstance(workflow, decorators.workflow):
                 self.save(workflow)

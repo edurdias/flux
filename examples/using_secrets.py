@@ -4,6 +4,7 @@ from typing import Any
 
 from flux import task
 from flux import workflow
+from flux.context import WorkflowExecutionContext
 from flux.secret_managers import SecretManager
 
 SECRET_NAME = "example"
@@ -11,15 +12,15 @@ SECRET_VALUE = "super secret"
 
 
 @task.with_options(secret_requests=[SECRET_NAME])
-def task_with_secrets(secrets: dict[str, Any] = {}):  # Secrets are not stored in events
+async def task_with_secrets(secrets: dict[str, Any] = {}):  # Secrets are not stored in events
     # Do not print a secret value, this is just an example.
     print(f"Secret {SECRET_NAME} = {secrets[SECRET_NAME]}")
     return secrets[SECRET_NAME]
 
 
 @workflow
-def using_secrets():
-    return (yield task_with_secrets())
+async def using_secrets(ctx: WorkflowExecutionContext):
+    return await task_with_secrets()
 
 
 if __name__ == "__main__":  # pragma: no cover

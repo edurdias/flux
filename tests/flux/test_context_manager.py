@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from examples.complex_pipeline import complex_pipeline
 from examples.hello_world import hello_world
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionContextNotFoundError
@@ -24,3 +25,8 @@ def test_should_raise_exception_when_not_found():
         match=f"Execution context '{execution_id}' not found",
     ):
         ContextManager.default().get(execution_id)
+
+
+def test_should_save_events_with_exception():
+    ctx = complex_pipeline.run({"input_file": "invalid_file.csv"})
+    assert ctx.finished and ctx.failed, "The workflow should have failed."

@@ -7,32 +7,32 @@ from flux.tasks import parallel
 
 
 @task
-def say_hi(name: str):
+async def say_hi(name: str):
     return f"Hi, {name}"
 
 
 @task
-def say_hello(name: str):
+async def say_hello(name: str):
     return f"Hello, {name}"
 
 
 @task
-def diga_ola(name: str):
+async def diga_ola(name: str):
     return f"Ola, {name}"
 
 
 @task
-def saluda(name: str):
+async def saluda(name: str):
     return f"Hola, {name}"
 
 
 @workflow
-def parallel_tasks_workflow(ctx: WorkflowExecutionContext[str]):
-    results = yield parallel(
-        lambda: say_hi(ctx.input),
-        lambda: say_hello(ctx.input),
-        lambda: diga_ola(ctx.input),
-        lambda: saluda(ctx.input),
+async def parallel_tasks_workflow(ctx: WorkflowExecutionContext[str]):
+    results = await parallel(
+        say_hi(ctx.input),
+        say_hello(ctx.input),
+        diga_ola(ctx.input),
+        saluda(ctx.input),
     )
     return results
 

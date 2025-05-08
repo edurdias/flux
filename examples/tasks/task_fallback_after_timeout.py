@@ -4,15 +4,16 @@ import time
 
 from flux import task
 from flux import workflow
+from flux.context import WorkflowExecutionContext
 
 
-def fallback_for_long_task(number):
+async def fallback_for_long_task(number):
     print(f"Fallback for task #{number}")
     return f"Task #{number} fellback."
 
 
 @task.with_options(fallback=fallback_for_long_task, timeout=3)
-def bad_task(number: int, should_take_time: bool = True):
+async def bad_task(number: int, should_take_time: bool = True):
     if should_take_time:
         print(f"Long task #{number}")
         time.sleep(5)
@@ -21,10 +22,10 @@ def bad_task(number: int, should_take_time: bool = True):
 
 
 @workflow
-def task_fallback_after_timeout():
-    yield bad_task(1)
-    yield bad_task(2, False)  # will pass
-    yield bad_task(3)
+async def task_fallback_after_timeout(ctx: WorkflowExecutionContext):
+    await bad_task(1)
+    await bad_task(2, False)  # will pass
+    await bad_task(3)
 
 
 if __name__ == "__main__":  # pragma: no cover
