@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import time
-from contextvars import ContextVar
 from functools import wraps
 from typing import Any
 from typing import Callable
@@ -23,7 +22,6 @@ from flux.utils import make_hashable
 from flux.utils import maybe_awaitable
 
 F = TypeVar("F", bound=Callable[..., Any])
-CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
 
 
 def get_func_args(func: Callable, args: tuple) -> dict:
@@ -43,15 +41,6 @@ def get_func_args(func: Callable, args: tuple) -> dict:
             arg_values.append(arg)
 
     return dict(zip(arg_names, arg_values))
-
-
-async def get_current_context() -> WorkflowExecutionContext:
-    ctx = CURRENT_CONTEXT.get()
-    if ctx is None:
-        raise ExecutionError(
-            message="No active WorkflowExecutionContext found. Make sure you are running inside a workflow or task execution.",
-        )
-    return ctx
 
 
 class workflow:
@@ -112,9 +101,9 @@ class workflow:
         )
 
         try:
-            token = CURRENT_CONTEXT.set(ctx)
+            token = WorkflowExecutionContext.set(ctx)
             output = await maybe_awaitable(self._func(ctx))
-            CURRENT_CONTEXT.reset(token)
+            WorkflowExecutionContext.reset(token)
 
             ctx.events.append(
                 ExecutionEvent(
@@ -222,14 +211,14 @@ class task:
         )
 
     async def __call__(self, *args, **kwargs) -> Any:
-        ctx = await get_current_context()
-
         task_args = get_func_args(self._func, args)
         full_name = self.name.format(**task_args)
 
         task_id = (
             f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(kwargs))))}"
         )
+
+        ctx = await WorkflowExecutionContext.get()
 
         finished = [
             e

@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
+from contextvars import Token
 from typing import Any
 from typing import Generic
 from typing import TypeVar
 from uuid import uuid4
 
+from flux.errors import ExecutionError
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
 from flux.utils import FluxEncoder
 
 WorkflowInputType = TypeVar("WorkflowInputType")
+CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
 
 
 class WorkflowExecutionContext(Generic[WorkflowInputType]):
@@ -25,6 +29,23 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         self._input = input
         self._execution_id = execution_id if execution_id else uuid4().hex
         self._events = list(events) if events else []
+
+    @staticmethod
+    async def get() -> WorkflowExecutionContext:
+        ctx = CURRENT_CONTEXT.get()
+        if ctx is None:
+            raise ExecutionError(
+                message="No active WorkflowExecutionContext found. Make sure you are running inside a workflow or task execution.",
+            )
+        return ctx
+
+    @staticmethod
+    def set(ctx: WorkflowExecutionContext) -> Token:
+        return CURRENT_CONTEXT.set(ctx)
+
+    @staticmethod
+    def reset(token: Token) -> None:
+        CURRENT_CONTEXT.reset(token)
 
     @property
     def execution_id(self) -> str:
