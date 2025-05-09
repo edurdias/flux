@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.1.4"
+version = "0.2.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -57,7 +57,7 @@ test-workflows = { script = "scripts.ci:test_workflows" }
 help = "Test the PR workflow locally"
 script = "scripts.ci:test_workflow"
 args = [
-    { name = "workflow", default = "pr-test.yml", positional = true },
+    { name = "workflow", default = "pull-request.yml", positional = true },
     { name = "job", default = "test", positional = true },
     { name = "event", default = "pull_request", positional = true },
     { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
@@ -67,7 +67,7 @@ args = [
 help = "Test the build workflow locally"
 script = "scripts.ci:test_workflow"
 args = [
-    { name = "workflow", default = "build-deploy.yml", positional = true },
+    { name = "workflow", default = "build-publish.yml", positional = true },
     { name = "job", default = "build", positional = true },
     { name = "event", default = "push", positional = true },
     { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }

@@ -1,0 +1,95 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for version bump
+      run: |
+        # Determine the target branch (default to main if not in PR context)
+        if [ "${{ github.event_name }}" == "pull_request" ]; then
+          TARGET_BRANCH="${{ github.base_ref }}"
+        else
+          TARGET_BRANCH="main"
+        fi
+        echo "Target branch: $TARGET_BRANCH"
+
+        # Check if pyproject.toml was modified
+        if ! git diff --name-only origin/$TARGET_BRANCH HEAD | grep -q 'pyproject.toml'; then
+          echo "Error: pyproject.toml must be modified to include a version bump."
+          exit 1
+        fi
+
+        # Extract the version from target branch
+        git checkout origin/$TARGET_BRANCH -- pyproject.toml
+        TARGET_VERSION=$(grep -m 1 'version = ' pyproject.toml | sed 's/version = //g' | sed 's/"//g' | sed "s/'//g" | tr -d ' ')
+        git checkout HEAD -- pyproject.toml
+
+        # Extract the current version
+        PR_VERSION=$(grep -m 1 'version = ' pyproject.toml | sed 's/version = //g' | sed 's/"//g' | sed "s/'//g" | tr -d ' ')
+
+        # Print versions prominently
+        echo "==============================="
+        echo "CURRENT VERSION: $PR_VERSION"
+        echo "TARGET BRANCH VERSION: $TARGET_VERSION"
+        echo "==============================="
+
+        # Compare versions using sort -V (version sort)
+        if ! printf '%s\n' "$TARGET_VERSION" "$PR_VERSION" | sort -V -C; then
+          echo "Error: Version in PR ($PR_VERSION) must be higher than version in target branch ($TARGET_VERSION)"
+          exit 1
+        else
+          echo "✅ Version bump verified: $TARGET_VERSION -> $PR_VERSION"
+        fi
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction
+
+    - name: Linting and code quality
+      run: |
+        poetry run pre-commit run --all-files --show-diff-on-failure
+
+    - name: Run tests
+      run: |
+        poetry run pytest tests/ --cov=flux --cov-report=xml --cov-report=html --cov-report=term
+
+    - name: Archive coverage results
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: htmlcov/
+        retention-days: 14
