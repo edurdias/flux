@@ -2,20 +2,20 @@
 
 ## Creating Workflows
 
-A workflow in Flux is created by combining the `@workflow` decorator with a Python generator function that yields tasks. Workflows are the primary way to organize and orchestrate task execution.
+A workflow in Flux is created by combining the `@workflow` decorator with a Python async function that uses await for tasks. Workflows are the primary way to organize and orchestrate task execution.
 
 ```python
 from flux import workflow, WorkflowExecutionContext, task
 
 @task
-def process_data(data: str):
+async def process_data(data: str):
     return data.upper()
 
 @workflow
-def my_workflow(ctx: WorkflowExecutionContext[str]):
+async def my_workflow(ctx: WorkflowExecutionContext[str]):
     # Workflows must take a WorkflowExecutionContext as first argument
     # The type parameter [str] indicates the expected input type
-    result = yield process_data(ctx.input)
+    result = await process_data(ctx.input)
     return result
 ```
 
@@ -29,7 +29,7 @@ Workflows can be configured using `with_options`:
     secret_requests=["API_KEY"],         # Secrets required by the workflow
     output_storage=custom_storage        # Custom storage for workflow outputs
 )
-def configured_workflow(ctx: WorkflowExecutionContext):
+async def configured_workflow(ctx: WorkflowExecutionContext):
     pass
 ```
 
@@ -46,10 +46,10 @@ A workflow goes through several stages during its execution:
 2. **Execution**
    ```python
    @workflow
-   def lifecycle_example(ctx: WorkflowExecutionContext):
+   async def lifecycle_example(ctx: WorkflowExecutionContext):
        # Start event is generated
-       first_result = yield task_one()    # Task execution
-       second_result = yield task_two()    # Next task
+       first_result = await task_one()    # Task execution
+       second_result = await task_two()    # Next task
        return second_result                # Completion
    ```
 
@@ -79,25 +79,14 @@ Workflows can be in several states:
    print(ctx.finished)  # False while running
    ```
 
-2. **Paused**
-   ```python
-   @workflow
-   def pausable_workflow(ctx: WorkflowExecutionContext):
-       yield pause("checkpoint")  # Workflow pauses here
-       yield next_task()
-
-   ctx = pausable_workflow.run()
-   print(ctx.paused)  # True when paused
-   ```
-
-3. **Completed**
+2. **Completed**
    ```python
    # Successfully completed
    print(ctx.finished and ctx.succeeded)  # True
    print(ctx.output)  # Contains workflow result
    ```
 
-4. **Failed**
+3. **Failed**
    ```python
    # Failed execution
    print(ctx.finished and ctx.failed)  # True

@@ -12,15 +12,15 @@ file_storage = LocalFileStorage()
 
 
 @task.with_options(output_storage=file_storage)
-def load_data(file_name: str) -> pd.DataFrame:
+async def load_data(file_name: str) -> pd.DataFrame:
     return pd.read_csv(file_name)
 
 
 @workflow.with_options(output_storage=file_storage)
-def output_storage(ctx: WorkflowExecutionContext[str]):
+async def output_storage(ctx: WorkflowExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
-    data = yield load_data(ctx.input)
+    data = await load_data(ctx.input)
     return data
 
 

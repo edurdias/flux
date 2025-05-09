@@ -7,25 +7,25 @@ from flux.tasks import pipeline
 
 
 @task
-def multiply_by_two(x):
+async def multiply_by_two(x):
     return x * 2
 
 
 @task
-def add_three(x):
+async def add_three(x):
     return x + 3
 
 
 @task
-def square(x):
+async def square(x):
     return x * x
 
 
 @workflow
-def simple_pipeline(ctx: WorkflowExecutionContext[int]):
+async def simple_pipeline(ctx: WorkflowExecutionContext[int]):
     if not ctx.input:
         raise TypeError("Input not provided")
-    result = yield pipeline(multiply_by_two, add_three, square, input=ctx.input)
+    result = await pipeline(multiply_by_two, add_three, square, input=ctx.input)
     return result
 
 

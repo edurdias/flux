@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from examples.tasks.task_rollback import task_rollback
+from flux.errors import ExecutionError
 from flux.events import ExecutionEventType
 
 
@@ -23,5 +24,12 @@ def test_should_skip_if_finished():
     first_ctx = test_should_rollback_and_fail()
     second_ctx = task_rollback.run(execution_id=first_ctx.execution_id)
     assert first_ctx.execution_id == second_ctx.execution_id
-    assert isinstance(first_ctx.output, ValueError) and isinstance(second_ctx.output, ValueError)
-    assert first_ctx.output.args == second_ctx.output.args
+    assert isinstance(first_ctx.output, ExecutionError) and isinstance(
+        second_ctx.output,
+        ExecutionError,
+    )
+    assert isinstance(first_ctx.output.inner_exception, ValueError) and isinstance(
+        second_ctx.output.inner_exception,
+        ValueError,
+    )
+    assert first_ctx.output.inner_exception.args == second_ctx.output.inner_exception.args

@@ -2,9 +2,11 @@
 
 ## Requirements
 
-### Python Environment
+Before installing Flux, ensure you have:
+
 - Python 3.12 or later
-- pip or Poetry for package management
+- pip (Python package installer)
+- Optional: Poetry for dependency management
 
 ### Core Dependencies
 Flux relies on the following packages:
@@ -29,7 +31,14 @@ pip install flux-core
 
 ### Using Poetry
 ```bash
+# Initialize a new project
+poetry init
+
+# Add Flux as a dependency
 poetry add flux-core
+
+# Enter the virtual environment
+poetry shell
 ```
 
 ### Installing for Development
@@ -54,12 +63,12 @@ Check that Flux is properly installed by creating a simple test workflow:
 from flux import task, workflow, WorkflowExecutionContext
 
 @task
-def say_hello(name: str):
+async def say_hello(name: str):
     return f"Hello, {name}"
 
 @workflow
-def hello_world(ctx: WorkflowExecutionContext[str]):
-    return (yield say_hello(ctx.input))
+async def hello_world(ctx: WorkflowExecutionContext[str]):
+    return await say_hello(ctx.input)
 ```
 
 2. **Run the Workflow**

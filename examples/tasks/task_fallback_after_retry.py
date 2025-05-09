@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from flux import task
 from flux import workflow
+from flux.context import WorkflowExecutionContext
 
 
-def fallback_for_bad_task(number: int, should_fail: bool = True):
+async def fallback_for_bad_task(number: int, should_fail: bool = True):
     print(f"Fallback for task #{number}")
     return f"fallback for bad_task #{number} succeed"
 
 
 @task.with_options(fallback=fallback_for_bad_task, retry_max_attempts=2)
-def bad_task(number: int, should_fail: bool = True):
+async def bad_task(number: int, should_fail: bool = True):
     if should_fail:
         print(f"Failed task #{number}")
         raise ValueError()
@@ -19,9 +20,9 @@ def bad_task(number: int, should_fail: bool = True):
 
 
 @workflow
-def task_fallback_after_retry():
-    result1 = yield bad_task(1)
-    result2 = yield bad_task(2, False)  # will pass
+async def task_fallback_after_retry(ctx: WorkflowExecutionContext):
+    result1 = await bad_task(1)
+    result2 = await bad_task(2, False)  # will pass
     return [result1, result2]
 
 

@@ -61,7 +61,6 @@
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
 ### [Workflow Controls](advanced-features/workflow-controls.md)
-   - [Pause/Resume](advanced-features/workflow-controls.md#pause-and-resume)
    - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
    - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
 

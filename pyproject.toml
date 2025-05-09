@@ -39,12 +39,48 @@ mkdocs-material = "^9.5.43"
 mkdocs-material-extensions = "^1.3.1"
 mkdocstrings = "^0.26.2"
 ipykernel = "^6.29.5"
+poethepoet = "^0.34.0"
 
 [tool.poetry.scripts]
 flux = "flux.flux:cli"
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+
+# Custom commands for workflow management
+[tool.poe.tasks]
+test-workflows = { script = "scripts.ci:test_workflows" }
+
+# Individual workflow tests
+[tool.poe.tasks.test-pr]
+help = "Test the PR workflow locally"
+script = "scripts.ci:test_workflow"
+args = [
+    { name = "workflow", default = "pr-test.yml", positional = true },
+    { name = "job", default = "test", positional = true },
+    { name = "event", default = "pull_request", positional = true },
+    { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
+]
+
+[tool.poe.tasks.test-build]
+help = "Test the build workflow locally"
+script = "scripts.ci:test_workflow"
+args = [
+    { name = "workflow", default = "build-deploy.yml", positional = true },
+    { name = "job", default = "build", positional = true },
+    { name = "event", default = "push", positional = true },
+    { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
+]
+
+[tool.poe.tasks.test-docs]
+help = "Test the docs workflow locally"
+script = "scripts.ci:test_workflow"
+args = [
+    { name = "workflow", default = "docs.yml", positional = true },
+    { name = "job", default = "deploy", positional = true },
+    { name = "event", default = "paths", positional = true },
+    { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
+]
 
 [tool.ruff]
 line-length = 100

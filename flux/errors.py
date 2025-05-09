@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
-from typing import Generic
 from typing import Literal
 from typing import TypeVar
+
+T = TypeVar("T", bound=Any)
 
 
 class ExecutionError(Exception):
@@ -71,37 +72,6 @@ class ExecutionTimeoutError(ExecutionError):
         return (self.__class__, (self._type, self._name, self._id, self._timeout))
 
 
-T = TypeVar("T")
-
-
-class ExecutionPaused(ExecutionError, Generic[T]):
-    """
-    Raised when the execution is paused and requires a reference and input type to resume.
-
-    Attributes:
-        reference (str): A reference string to identify the paused execution.
-        input_type (type[T]): The type of input required to resume the execution.
-    """
-
-    def __init__(self, reference: str, value: Any, input_type: type[T] | None = None):
-        super().__init__()
-        self._reference = reference
-        self._value = value
-        self._input_type = input_type
-
-    @property
-    def reference(self) -> str:
-        return self._reference
-
-    @property
-    def value(self) -> str:
-        return self._value
-
-    @property
-    def input_type(self) -> type[T] | None:
-        return self._input_type
-
-
 class WorkflowCatalogError(ExecutionError):
     def __init__(self, message: str):
         super().__init__(message=message)
@@ -117,7 +87,7 @@ class TaskNotFoundError(ExecutionError):
 class WorkflowNotFoundError(ExecutionError):
     def __init__(self, name: str, module_name: str | None = None):
         super().__init__(
-            message=f"Workflow '{name}' not found {f"in module {module_name}." if module_name else ""}",
+            message=f"Workflow '{name}' not found {f'in module {module_name}.' if module_name else ''}",
         )
 
 
@@ -127,7 +97,7 @@ class WorkflowAlreadyExistError(ExecutionError):
 
 
 class ExecutionContextNotFoundError(ExecutionError):
-    def __init__(self, execution_id: str):
+    def __init__(self, execution_id: str | None):
         super().__init__(
             message=f"Execution context '{execution_id}' not found.",
         )

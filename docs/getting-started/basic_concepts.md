@@ -4,14 +4,13 @@
 
 A workflow in Flux is a Python function that orchestrates a series of tasks to achieve a specific goal. Workflows are defined using the `@workflow` decorator and provide a high-level way to organize and manage task execution.
 
-
 ```python
 from flux import workflow, WorkflowExecutionContext
 
 # Basic workflow
 @workflow
-def my_workflow(ctx: WorkflowExecutionContext[str]):
-    result = yield some_task(ctx.input)
+async def my_workflow(ctx: WorkflowExecutionContext[str]):
+    result = await some_task(ctx.input)
     return result
 
 # Configured workflow
@@ -20,18 +19,17 @@ def my_workflow(ctx: WorkflowExecutionContext[str]):
     secret_requests=["API_KEY"],         # Required secrets
     output_storage=custom_storage        # Custom output storage
 )
-def configured_workflow(ctx: WorkflowExecutionContext):
-    result = yield some_task()
+async def configured_workflow(ctx: WorkflowExecutionContext):
+    result = await some_task()
     return result
 ```
 
 Key characteristics of workflows:
 - Must be decorated with `@workflow` or `@workflow.with_options()`
 - Take a `WorkflowExecutionContext` as their first argument
-- Use `yield` to execute tasks
+- Use `async/await` to execute tasks asynchronously
 - Can be run directly, via CLI, or through HTTP API
 - Maintain execution state between runs
-- Can be paused and resumed
 
 ## Tasks
 
@@ -42,7 +40,7 @@ from flux import task
 
 # Basic task
 @task
-def simple_task(data: str):
+async def simple_task(data: str):
     return data.upper()
 
 # Configured task
@@ -57,7 +55,7 @@ def simple_task(data: str):
     secret_requests=["API_KEY"],         # Required secrets
     output_storage=custom_storage        # Custom output storage
 )
-def complex_task(data: str):
+async def complex_task(data: str):
     return process_data(data)
 ```
 
@@ -80,13 +78,12 @@ The `WorkflowExecutionContext` is a container that maintains the state and infor
 from flux import WorkflowExecutionContext
 
 @workflow
-def example_workflow(ctx: WorkflowExecutionContext[str]):
+async def example_workflow(ctx: WorkflowExecutionContext[str]):
     # Access context properties
     execution_id = ctx.execution_id  # Unique execution identifier
     input_data = ctx.input          # Workflow input
     is_finished = ctx.finished      # Execution status
     has_succeeded = ctx.succeeded   # Success status
-    is_paused = ctx.paused         # Pause status
     output_data = ctx.output       # Workflow output
 ```
 
@@ -98,7 +95,6 @@ Context properties:
 - `finished`: Whether the workflow has completed
 - `succeeded`: Whether the workflow completed successfully
 - `failed`: Whether the workflow failed
-- `paused`: Whether the workflow is paused
 - `output`: Final output of the workflow
 
 ## Events
@@ -118,8 +114,6 @@ ExecutionEventType.TASK_COMPLETED     # Task completes successfully
 Event categories:
 1. Workflow Events:
    - `WORKFLOW_STARTED`
-   - `WORKFLOW_PAUSED`
-   - `WORKFLOW_RESUMED`
    - `WORKFLOW_COMPLETED`
    - `WORKFLOW_FAILED`
 

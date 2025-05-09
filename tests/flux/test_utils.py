@@ -1,46 +1,16 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 
-import pytest
-
 from flux.context import WorkflowExecutionContext
-from flux.errors import ExecutionTimeoutError
-from flux.utils import call_with_timeout
 from flux.utils import FluxEncoder
 from flux.utils import is_hashable
 from flux.utils import make_hashable
 from flux.utils import to_json
-
-
-def test_call_with_timeout_no_timeout():
-    def func():
-        return "success"
-
-    result = call_with_timeout(func, "Task", "test_task", "123", 0)
-    assert result == "success"
-
-
-def test_call_with_timeout_within_timeout():
-    def func():
-        return "success"
-
-    result = call_with_timeout(func, "Task", "test_task", "123", 1)
-    assert result == "success"
-
-
-def test_call_with_timeout_exceeds_timeout():
-    def slow_func():
-        time.sleep(2)
-        return "success"
-
-    with pytest.raises(ExecutionTimeoutError):
-        call_with_timeout(slow_func, "Task", "test_task", "123", 1)
 
 
 def test_make_hashable_basic_types():
@@ -62,14 +32,14 @@ def test_is_hashable():
     assert not is_hashable({"a": 1})
 
 
-class TestEnum(Enum):
+class SampleEnum(Enum):
     A = "a"
     B = "b"
 
 
 def test_flux_encoder():
     test_data = {
-        "enum": TestEnum.A,
+        "enum": SampleEnum.A,
         "datetime": datetime(2023, 1, 1),
         "timedelta": timedelta(seconds=60),
         "uuid": uuid.uuid4(),

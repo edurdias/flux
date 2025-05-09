@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flux import workflow
+from flux.context import WorkflowExecutionContext
 from flux.tasks import now
 from flux.tasks import randint
 from flux.tasks import randrange
@@ -8,12 +9,12 @@ from flux.tasks import uuid4
 
 
 @workflow
-def determinism():
-    start = yield now()
-    yield uuid4()
-    yield randint(1, 5)
-    yield randrange(1, 10)
-    end = yield now()
+async def determinism(ctx: WorkflowExecutionContext):
+    start = await now()
+    await uuid4()
+    await randint(1, 5)
+    await randrange(1, 10)
+    end = await now()
     return end - start
 
 

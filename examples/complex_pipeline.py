@@ -13,43 +13,43 @@ from flux.tasks import pipeline
 
 
 @task
-def load_data(file_name: str) -> pd.DataFrame:
+async def load_data(file_name: str) -> pd.DataFrame:
     if not Path(file_name).exists():
         raise FileNotFoundError(f"File not found: {file_name}")
     return pd.read_csv(file_name)
 
 
 @task
-def split_data(df: pd.DataFrame) -> list[pd.DataFrame]:
+async def split_data(df: pd.DataFrame) -> list[pd.DataFrame]:
     return np.array_split(df, 10)
 
 
 @task
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+async def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop("email", axis=1)
 
 
 @task
-def process_data(dfs: list[pd.DataFrame]):
-    tasks = [lambda: clean_data(df) for df in dfs]
-    results = yield parallel(*tasks)
+async def process_data(dfs: list[pd.DataFrame]):
+    tasks = [clean_data(df) for df in dfs]
+    results = await parallel(*tasks)
     return results
 
 
 @task
-def join_data(dfs: list[pd.DataFrame]) -> pd.DataFrame:
+async def join_data(dfs: list[pd.DataFrame]) -> pd.DataFrame:
     return pd.concat(dfs, ignore_index=True)
 
 
 @task
-def save_data(df: pd.DataFrame, file_name: str):
+async def save_data(df: pd.DataFrame, file_name: str):
     Path(file_name).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(file_name)
     return df
 
 
 @task
-def analyze_data(df: pd.DataFrame):
+async def analyze_data(df: pd.DataFrame):
     summary = {
         "shape": df.shape,
         "columns": df.columns.tolist(),
@@ -73,13 +73,16 @@ def analyze_data(df: pd.DataFrame):
 
 
 @workflow
-def complex_pipeline(ctx: WorkflowExecutionContext[dict[str, str]]):
-    df = yield pipeline(
+async def complex_pipeline(ctx: WorkflowExecutionContext[dict[str, str]]):
+    async def save(df: pd.DataFrame):
+        return await save_data(df, ctx.input["output_file"])
+
+    df = await pipeline(
         load_data,
         split_data,
         process_data,
         join_data,
-        lambda df: save_data(df, ctx.input["output_file"]),
+        save,
         analyze_data,
         input=ctx.input["input_file"],
     )

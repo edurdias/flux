@@ -1,62 +1,59 @@
 from __future__ import annotations
 
-import os
+import asyncio
 import random
-import time
 import uuid
-from concurrent.futures import as_completed
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Awaitable
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
-from types import GeneratorType
 from typing import Any
 from typing import Callable
 from typing import Literal
+from typing import TypeVar
 
 import flux.decorators as decorators
-from flux.executors import WorkflowExecutor
+from flux.catalogs import WorkflowCatalog
+from flux.context import WorkflowExecutionContext
+
+T = TypeVar("T", bound=Any)
 
 
 @decorators.task
-def now() -> datetime:
+async def now() -> datetime:
     return datetime.now()
 
 
 @decorators.task
-def uuid4() -> uuid.UUID:
+async def uuid4() -> uuid.UUID:
     return uuid.uuid4()
 
 
 @decorators.task
-def choice(options: list[Any]) -> int:
+async def choice(options: list[Any]) -> int:
     return random.choice(options)
 
 
 @decorators.task
-def randint(a: int, b: int) -> int:
+async def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 
 
 @decorators.task
-def randrange(start: int, stop: int | None = None, step: int = 1):
+async def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
 
 
 @decorators.task
-def parallel(*functions: Callable):
-    results = []
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = [executor.submit(func) for func in functions]
-        for future in as_completed(futures):
-            result = yield from future.result()
-            results.append(result)
-    return results
+async def parallel(*functions: Coroutine[Any, Any, Any]) -> list[Any]:
+    tasks: list[asyncio.Task] = [asyncio.create_task(f) for f in functions]
+    return await asyncio.gather(*tasks)
 
 
 @decorators.task
-def sleep(duration: float | timedelta):
+async def sleep(duration: float | timedelta):
     """
     Pauses the execution of the workflow for a given duration.
 
@@ -68,38 +65,43 @@ def sleep(duration: float | timedelta):
     """
     if isinstance(duration, timedelta):
         duration = duration.total_seconds()
-    time.sleep(duration)
+    await asyncio.sleep(duration)
 
 
 @decorators.task.with_options(name="call_workflow_{workflow}")
-def call_workflow(workflow: str | decorators.workflow, input: Any | None = None):
-    if isinstance(workflow, decorators.workflow):
-        return workflow.run(input).output
-    return WorkflowExecutor.get().execute(str(workflow), input).output
+async def call(workflow: str | decorators.workflow, *args):
+    if isinstance(workflow, str):
+        workflow = WorkflowCatalog.create().get(workflow)
+    ctx = await workflow(WorkflowExecutionContext(workflow.name, *args))
+    return ctx.output
 
 
 @decorators.task
-def pipeline(*tasks: Callable, input: Any):
+async def pipeline(*tasks: Callable, input: Any):
     result = input
     for task in tasks:
-        result = yield from task(result)
+        result = await task(result)
     return result
+
+
+async def default_action(arg: Any) -> Any:
+    return arg
 
 
 class Graph:
     @dataclass
     class Node:
         name: str
-        upstream: dict[str, Callable[..., Any]] = field(default_factory=dict)
+        upstream: dict[str, Callable[..., Awaitable[Any]]] = field(default_factory=dict)
         state: Literal["pending", "completed"] = "pending"
-        action: Callable[..., Any] = field(default=lambda: True)
+        action: Callable[..., Awaitable[Any]] = field(default=lambda _: default_action(True))
         output: Any = None
 
         def __hash__(self):
             return hash(self.name)
 
-    START = Node(name="START", action=lambda i: i)
-    END = Node(name="END", action=lambda i: i)
+    START = Node(name="START", action=default_action)
+    END = Node(name="END", action=default_action)
 
     def __init__(self, name: str):
         self._name = name
@@ -123,7 +125,7 @@ class Graph:
         self,
         start_node: str,
         end_node: str,
-        condition: Callable[..., bool] = lambda _: True,
+        condition: Callable[..., Awaitable[bool]] = lambda _: default_action(True),
     ) -> Graph:
         if start_node not in self._nodes:
             raise ValueError(f"Node {start_node} must be present.")
@@ -165,12 +167,12 @@ class Graph:
         return self
 
     @decorators.task.with_options(name="graph_{self._name}")
-    def __call__(self, input: Any | None = None):
+    async def __call__(self, input: Any | None = None):
         self.validate()
-        yield from self.__execute_node(Graph.START.name, input)
+        await self.__execute_node(Graph.START.name, input)
         return self._nodes[Graph.END.name].output
 
-    def __execute_node(self, name: str, input: Any | None = None):
+    async def __execute_node(self, name: str, input: Any | None = None):
         node = self._nodes[name]
         if self.__can_execute(node):
             upstream_outputs = (
@@ -178,19 +180,18 @@ class Graph:
                 if name == Graph.START.name
                 else [up.output for up in self.__get_upstream(node)]
             )
-            output = node.action(*upstream_outputs)
-            node.output = (yield from output) if isinstance(output, GeneratorType) else output
+            node.output = await node.action(*upstream_outputs)
             node.state = "completed"
             for dnode in self.__get_downstream(node):
-                yield from self.__execute_node(dnode.name)
+                await self.__execute_node(dnode.name)
 
-    def __can_execute(self, node: Graph.Node) -> bool:
+    async def __can_execute(self, node: Graph.Node) -> bool:
         for name, ok_to_proceed in node.upstream.items():
             upstream = self._nodes[name]
             if (
                 upstream.state == "pending"
-                or not ok_to_proceed(upstream.output)
-                or not self.__can_execute(upstream)
+                or not await ok_to_proceed(upstream.output)
+                or not await self.__can_execute(upstream)
             ):
                 return False
         return True

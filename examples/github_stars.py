@@ -8,20 +8,20 @@ from flux import WorkflowExecutionContext
 
 
 @task
-def get_stars(repo: str):
+async def get_stars(repo: str):
     url = f"https://api.github.com/repos/{repo}"
     return httpx.get(url).json()["stargazers_count"]
 
 
 @workflow
-def github_stars(ctx: WorkflowExecutionContext[list[str]]):
+async def github_stars(ctx: WorkflowExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("The list of repositories cannot be empty.")
 
     repos = ctx.input
     stars = {}
     for repo in repos:
-        stars[repo] = yield get_stars(repo)
+        stars[repo] = await get_stars(repo)
     return stars
 
 

@@ -9,7 +9,7 @@ Tasks in Flux are Python functions decorated with `@task`. They represent indivi
 from flux import task
 
 @task
-def simple_task(data: str):
+async def simple_task(data: str):
     return data.upper()
 ```
 
@@ -17,7 +17,7 @@ def simple_task(data: str):
 ```python
 @task.with_options(
     name="process_data",                 # Custom task name
-    retry_max_attempts=3,                 # Maximum retry attempts
+    retry_max_attempts=3,                # Maximum retry attempts
     retry_delay=1,                       # Initial delay between retries
     retry_backoff=2,                     # Backoff multiplier
     timeout=30,                          # Task timeout in seconds
@@ -26,7 +26,7 @@ def simple_task(data: str):
     secret_requests=["API_KEY"],         # Required secrets
     output_storage=custom_storage        # Custom output storage
 )
-def complex_task(data: str, secrets: dict = {}):
+async def complex_task(data: str, secrets: dict = {}):
     # Task implementation using secrets
     return process_data(data, secrets["API_KEY"])
 ```
@@ -86,11 +86,11 @@ Flux provides several ways to compose tasks:
 from flux.tasks import parallel
 
 @workflow
-def parallel_workflow(ctx: WorkflowExecutionContext):
-    results = yield parallel(
-        lambda: task1(),
-        lambda: task2(),
-        lambda: task3()
+async def parallel_workflow(ctx: WorkflowExecutionContext):
+    results = await parallel(
+        task1(),
+        task2(),
+        task3()
     )
     return results
 ```
@@ -100,8 +100,8 @@ def parallel_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import pipeline
 
 @workflow
-def pipeline_workflow(ctx: WorkflowExecutionContext):
-    result = yield pipeline(
+async def pipeline_workflow(ctx: WorkflowExecutionContext):
+    result = await pipeline(
         task1,
         task2,
         task3,
@@ -113,13 +113,13 @@ def pipeline_workflow(ctx: WorkflowExecutionContext):
 ### Task Mapping
 ```python
 @task
-def process_item(item: str):
+async def process_item(item: str):
     return item.upper()
 
 @workflow
-def mapping_workflow(ctx: WorkflowExecutionContext):
+async def mapping_workflow(ctx: WorkflowExecutionContext):
     items = ["a", "b", "c"]
-    results = yield process_item.map(items)
+    results = await process_item.map(items)
     return results
 ```
 
@@ -186,10 +186,10 @@ Flux provides several built-in tasks for common operations:
 from flux.tasks import now, sleep
 
 @workflow
-def timing_workflow(ctx: WorkflowExecutionContext):
-    start_time = yield now()           # Get current time
-    yield sleep(timedelta(seconds=5))   # Sleep for duration
-    end_time = yield now()
+async def timing_workflow(ctx: WorkflowExecutionContext):
+    start_time = await now()           # Get current time
+    await sleep(timedelta(seconds=5))   # Sleep for duration
+    end_time = await now()
     return end_time - start_time
 ```
 
@@ -198,10 +198,10 @@ def timing_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import choice, randint, randrange
 
 @workflow
-def random_workflow(ctx: WorkflowExecutionContext):
-    chosen = yield choice(["a", "b", "c"])    # Random choice
-    number = yield randint(1, 10)             # Random integer
-    range_num = yield randrange(0, 10, 2)     # Random range
+async def random_workflow(ctx: WorkflowExecutionContext):
+    chosen = await choice(["a", "b", "c"])    # Random choice
+    number = await randint(1, 10)             # Random integer
+    range_num = await randrange(0, 10, 2)     # Random range
 ```
 
 ### UUID Generation
@@ -209,8 +209,8 @@ def random_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import uuid4
 
 @workflow
-def id_workflow(ctx: WorkflowExecutionContext):
-    new_id = yield uuid4()  # Generate UUID
+async def id_workflow(ctx: WorkflowExecutionContext):
+    new_id = await uuid4()  # Generate UUID
 ```
 
 ### Graph-based Task Composition
@@ -229,7 +229,7 @@ def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow
-def graph_workflow(ctx: WorkflowExecutionContext[str]):
+async def graph_workflow(ctx: WorkflowExecutionContext[str]):
     # Create a graph named "hello_world"
     hello = (
         Graph("hello_world")
@@ -244,7 +244,7 @@ def graph_workflow(ctx: WorkflowExecutionContext[str]):
     )
 
     # Execute the graph
-    return (yield hello(ctx.input))
+    return await hello(ctx.input)
 ```
 
 Graph features:

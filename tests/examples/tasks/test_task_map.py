@@ -5,7 +5,7 @@ from flux.events import ExecutionEventType
 
 
 def test_should_succeed():
-    ctx = task_map.run(2)
+    ctx = task_map.run(4)
     assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
     return ctx
 
