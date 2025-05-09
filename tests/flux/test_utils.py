@@ -32,14 +32,14 @@ def test_is_hashable():
     assert not is_hashable({"a": 1})
 
 
-class TestEnum(Enum):
+class SampleEnum(Enum):
     A = "a"
     B = "b"
 
 
 def test_flux_encoder():
     test_data = {
-        "enum": TestEnum.A,
+        "enum": SampleEnum.A,
         "datetime": datetime(2023, 1, 1),
         "timedelta": timedelta(seconds=60),
         "uuid": uuid.uuid4(),

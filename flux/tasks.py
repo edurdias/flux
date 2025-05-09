@@ -185,13 +185,13 @@ class Graph:
             for dnode in self.__get_downstream(node):
                 await self.__execute_node(dnode.name)
 
-    def __can_execute(self, node: Graph.Node) -> bool:
+    async def __can_execute(self, node: Graph.Node) -> bool:
         for name, ok_to_proceed in node.upstream.items():
             upstream = self._nodes[name]
             if (
                 upstream.state == "pending"
-                or not ok_to_proceed(upstream.output)
-                or not self.__can_execute(upstream)
+                or not await ok_to_proceed(upstream.output)
+                or not await self.__can_execute(upstream)
             ):
                 return False
         return True
