@@ -119,7 +119,7 @@ def test_workflow(
     Test a specific GitHub Actions workflow locally.
 
     Args:
-        workflow: Name of the workflow file (e.g., 'pr-test.yml')
+        workflow: Name of the workflow file (e.g., 'pull-request.yml')
         job: The job ID to run (e.g., 'test')
         event: The event name (e.g., 'pull_request')
         dryrun: Whether to run in dry-run mode (don't actually run the workflow)
@@ -180,8 +180,8 @@ def test_workflows() -> None:
 
     # Test each workflow
     workflows_to_test = [
-        ("pr-test.yml", "test", "pull_request"),
-        ("build-deploy.yml", "build", "push"),
+        ("pull-request.yml", "test", "pull_request"),
+        ("build-publish.yml", "build", "push"),
         ("docs.yml", "deploy", "paths"),
     ]
 
