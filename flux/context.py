@@ -83,6 +83,22 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         )
 
     @property
+    def paused(self) -> bool:
+        paused_count = sum(1 for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED)
+        resumed_count = sum(1 for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMED)
+        return not self.finished and paused_count > resumed_count
+
+    @property
+    def resumed(self) -> bool:
+        resumed_count = sum(1 for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMED)
+        paused_count = sum(1 for e in self.events if e.type == ExecutionEventType.WORKFLOW_PAUSED)
+        return not self.finished and resumed_count > 0 and resumed_count == paused_count
+
+    @property
+    def started(self) -> bool:
+        return any(e.type == ExecutionEventType.WORKFLOW_STARTED for e in self.events)
+
+    @property
     def output(self) -> Any:
         finished = [
             e

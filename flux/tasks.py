@@ -17,6 +17,9 @@ from typing import TypeVar
 import flux.decorators as decorators
 from flux.catalogs import WorkflowCatalog
 from flux.context import WorkflowExecutionContext
+from flux.errors import PauseRequested
+from flux.events import ExecutionEvent
+from flux.events import ExecutionEventType
 
 T = TypeVar("T", bound=Any)
 
@@ -82,6 +85,22 @@ async def pipeline(*tasks: Callable, input: Any):
     for task in tasks:
         result = await task(result)
     return result
+
+
+@decorators.task.with_options(metadata=True)
+async def pause(name: str, metadata: decorators.TaskMetadata):
+    ctx = await WorkflowExecutionContext.get()
+    if ctx.resumed:
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_RESUMED,
+                source_id=metadata.task_id,
+                name=metadata.task_name,
+                value=name,
+            ),
+        )
+        return
+    raise PauseRequested(name=name)
 
 
 async def default_action(arg: Any) -> Any:

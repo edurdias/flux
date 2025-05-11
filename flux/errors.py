@@ -72,6 +72,18 @@ class ExecutionTimeoutError(ExecutionError):
         return (self.__class__, (self._type, self._name, self._id, self._timeout))
 
 
+class PauseRequested(ExecutionError):
+    def __init__(self, name: str):
+        super().__init__(
+            message="Workflow execution suspended.",
+        )
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+
 class WorkflowCatalogError(ExecutionError):
     def __init__(self, message: str):
         super().__init__(message=message)
