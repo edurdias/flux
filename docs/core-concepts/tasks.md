@@ -213,6 +213,22 @@ async def id_workflow(ctx: WorkflowExecutionContext):
     new_id = await uuid4()  # Generate UUID
 ```
 
+### Workflow Pauses
+```python
+from flux.tasks import pause
+
+@workflow
+async def approval_workflow(ctx: WorkflowExecutionContext):
+    # Process something
+    result = await process_data()
+
+    # Pause the workflow with a named pause point
+    await pause("wait_for_approval")
+
+    # This code will only execute after the workflow is resumed
+    return f"Approved: {result}"
+```
+
 ### Graph-based Task Composition
 
 The Graph task allows you to create complex task dependencies using a directed acyclic graph (DAG):

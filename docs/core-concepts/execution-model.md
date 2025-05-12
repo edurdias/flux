@@ -94,6 +94,7 @@ workflow_name = ctx.name        # Workflow name
 is_finished = ctx.finished     # Execution completed
 has_succeeded = ctx.succeeded  # Execution succeeded
 has_failed = ctx.failed       # Execution failed
+is_paused = ctx.paused       # Execution paused
 
 # Data access
 input_data = ctx.input        # Input data
@@ -101,14 +102,43 @@ output_data = ctx.output      # Output/result data
 event_list = ctx.events       # Execution events
 ```
 
+## Paused Workflows
+
+Flux supports pausing and resuming workflows:
+
+```python
+from flux import workflow
+from flux.context import WorkflowExecutionContext
+from flux.tasks import pause
+
+@workflow
+async def pausable_workflow(ctx: WorkflowExecutionContext):
+    # Run until the pause point
+    result = await initial_task()
+
+    # Pause execution
+    await pause("approval_required")
+
+    # This code runs only after resuming
+    return await final_task(result)
+
+# Start execution (runs until pause point)
+ctx = pausable_workflow.run()
+print(f"Paused: {ctx.paused}")  # True
+
+# Resume execution with the same execution_id
+ctx = pausable_workflow.run(execution_id=ctx.execution_id)
+print(f"Completed: {ctx.finished}")  # True
+```
+
 ### Resuming Execution
 
 ```python
 # Start workflow
-ctx = my_workflow.run("input_data")
+ctx = pausable_workflow.run()
 
 # Resume using execution ID
-ctx = my_workflow.run(execution_id=ctx.execution_id)
+ctx = pausable_workflow.run(execution_id=ctx.execution_id)
 ```
 
 ## State Management

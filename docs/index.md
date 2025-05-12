@@ -44,11 +44,17 @@
    - [Task Composition](core-concepts/tasks.md#task-composition)
    - [Error Handling](core-concepts/tasks.md#error-handling)
    - [Built-in Tasks](core-concepts/tasks.md#built-in-tasks)
+     - [Time Operations](core-concepts/tasks.md#time-operations)
+     - [Random Operations](core-concepts/tasks.md#random-operations)
+     - [UUID Generation](core-concepts/tasks.md#uuid-generation)
+     - [Workflow Pauses](core-concepts/tasks.md#workflow-pauses)
+     - [Graph-based Task Composition](core-concepts/tasks.md#graph-based-task-composition)
 
 ### [Execution Model](core-concepts/execution-model.md)
    - [Local Execution](core-concepts/execution-model.md#local-execution)
    - [API-based Execution](core-concepts/execution-model.md#api-based-execution)
    - [Execution Context](core-concepts/execution-model.md#execution-context)
+   - [Paused Workflows](core-concepts/execution-model.md#paused-workflows)
    - [State Management](core-concepts/execution-model.md#state-management)
    - [Event System](core-concepts/execution-model.md#event-system)
 
@@ -61,6 +67,7 @@
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
 ### [Workflow Controls](advanced-features/workflow-controls.md)
+   - [Workflow Pause Points](advanced-features/workflow-controls.md#workflow-pause-points)
    - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
    - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
 

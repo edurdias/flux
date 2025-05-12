@@ -79,14 +79,33 @@ Workflows can be in several states:
    print(ctx.finished)  # False while running
    ```
 
-2. **Completed**
+2. **Paused**
+   ```python
+   # Workflow with pause point
+   from flux.tasks import pause
+
+   @workflow
+   async def pausable_workflow(ctx: WorkflowExecutionContext):
+       await some_task()
+       await pause("manual_approval")
+       return "Complete"
+
+   ctx = pausable_workflow.run()
+   print(ctx.paused)  # True when paused
+   print(ctx.finished)  # False when paused
+
+   # Resume paused workflow
+   ctx = pausable_workflow.run(execution_id=ctx.execution_id)
+   ```
+
+3. **Completed**
    ```python
    # Successfully completed
    print(ctx.finished and ctx.succeeded)  # True
    print(ctx.output)  # Contains workflow result
    ```
 
-3. **Failed**
+4. **Failed**
    ```python
    # Failed execution
    print(ctx.finished and ctx.failed)  # True
