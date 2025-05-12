@@ -90,6 +90,7 @@ async def pipeline(*tasks: Callable, input: Any):
 @decorators.task.with_options(metadata=True)
 async def pause(name: str, metadata: decorators.TaskMetadata):
     ctx = await WorkflowExecutionContext.get()
+
     if ctx.resumed:
         ctx.events.append(
             ExecutionEvent(

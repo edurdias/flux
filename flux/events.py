@@ -61,5 +61,6 @@ class ExecutionEvent:
             "type": self.type,
             "source_id": self.source_id,
             "value": self.value,
+            "time": self.time,
         }
         return f"{abs(hash(tuple(sorted(make_hashable(args)))))}"
