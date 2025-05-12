@@ -11,10 +11,14 @@ class ExecutionEventType(str, Enum):
     WORKFLOW_STARTED = "WORKFLOW_STARTED"
     WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
+    WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
+    WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
 
     TASK_STARTED = "TASK_STARTED"
     TASK_COMPLETED = "TASK_COMPLETED"
     TASK_FAILED = "TASK_FAILED"
+    TASK_PAUSED = "TASK_PAUSED"
+    TASK_RESUMED = "TASK_RESUMED"
 
     TASK_RETRY_STARTED = "TASK_RETRY_STARTED"
     TASK_RETRY_COMPLETED = "TASK_RETRY_COMPLETED"
@@ -57,5 +61,6 @@ class ExecutionEvent:
             "type": self.type,
             "source_id": self.source_id,
             "value": self.value,
+            "time": self.time,
         }
         return f"{abs(hash(tuple(sorted(make_hashable(args)))))}"

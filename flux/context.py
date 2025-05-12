@@ -83,6 +83,38 @@ class WorkflowExecutionContext(Generic[WorkflowInputType]):
         )
 
     @property
+    def paused(self) -> bool:
+        """
+        Check if the execution is currently paused.
+
+        Returns:
+            bool: True if the last execution event is a WORKFLOW_PAUSED event, False otherwise.
+        """
+        if self.events:
+            last_event = self.events[-1]
+            if last_event.type == ExecutionEventType.WORKFLOW_PAUSED:
+                return True
+        return False
+
+    @property
+    def resumed(self) -> bool:
+        """
+        Checks if the workflow is currently in a resumed state.
+
+        Returns:
+            bool: True if the last event is a workflow resume event, False otherwise.
+        """
+        if self.events:
+            last_event = self.events[-1]
+            if last_event.type == ExecutionEventType.WORKFLOW_RESUMED:
+                return True
+        return False
+
+    @property
+    def started(self) -> bool:
+        return any(e.type == ExecutionEventType.WORKFLOW_STARTED for e in self.events)
+
+    @property
     def output(self) -> Any:
         finished = [
             e

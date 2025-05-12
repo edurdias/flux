@@ -13,6 +13,7 @@ from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionError
 from flux.errors import ExecutionTimeoutError
+from flux.errors import PauseRequested
 from flux.errors import RetryError
 from flux.events import ExecutionEvent
 from flux.events import ExecutionEventType
@@ -91,14 +92,24 @@ class workflow:
 
         self.id = f"{ctx.name}_{ctx.execution_id}"
 
-        ctx.events.append(
-            ExecutionEvent(
-                ExecutionEventType.WORKFLOW_STARTED,
-                self.id,
-                ctx.name,
-                ctx.input,
-            ),
-        )
+        if ctx.paused:
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_RESUMED,
+                    source_id=self.id,
+                    name=ctx.name,
+                    value=ctx.input,
+                ),
+            )
+        elif not ctx.started:
+            ctx.events.append(
+                ExecutionEvent(
+                    ExecutionEventType.WORKFLOW_STARTED,
+                    self.id,
+                    ctx.name,
+                    ctx.input,
+                ),
+            )
 
         try:
             token = WorkflowExecutionContext.set(ctx)
@@ -113,6 +124,15 @@ class workflow:
                     value=self.output_storage.store(self.id, output)
                     if self.output_storage
                     else output,
+                ),
+            )
+        except PauseRequested as ex:
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_PAUSED,
+                    source_id=self.id,
+                    name=ctx.name,
+                    value=ex.name,
                 ),
             )
         except ExecutionError as ex:
@@ -146,6 +166,15 @@ class workflow:
         return asyncio.run(self(ctx))
 
 
+class TaskMetadata:
+    def __init__(self, task_id: str, task_name: str):
+        self.task_id = task_id
+        self.task_name = task_name
+
+    def __repr__(self):
+        return f"TaskMetadata(task_id={self.task_id}, task_name={self.task_name})"
+
+
 class task:
     @staticmethod
     def with_options(
@@ -159,6 +188,7 @@ class task:
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         cache: bool = False,
+        metadata: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -173,6 +203,7 @@ class task:
                 secret_requests=secret_requests,
                 output_storage=output_storage,
                 cache=cache,
+                metadata=metadata,
             )
 
         return wrapper
@@ -190,6 +221,7 @@ class task:
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         cache: bool = False,
+        metadata: bool = False,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -202,6 +234,7 @@ class task:
         self.secret_requests = secret_requests
         self.output_storage = output_storage
         self.cache = cache
+        self.metadata = metadata
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -234,14 +267,15 @@ class task:
         if len(finished) > 0:
             return finished[0].value
 
-        ctx.events.append(
-            ExecutionEvent(
-                type=ExecutionEventType.TASK_STARTED,
-                source_id=task_id,
-                name=full_name,
-                value=task_args,
-            ),
-        )
+        if not ctx.resumed:
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.TASK_STARTED,
+                    source_id=task_id,
+                    name=full_name,
+                    value=task_args,
+                ),
+            )
 
         try:
             output = None
@@ -252,6 +286,9 @@ class task:
                 if self.secret_requests:
                     secrets = SecretManager.current().get(self.secret_requests)
                     kwargs = {**kwargs, "secrets": secrets}
+
+                if self.metadata:
+                    kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
 
                 if self.timeout > 0:
                     try:
@@ -309,6 +346,18 @@ class task:
         kwargs: dict,
         retry_attempts: int = 0,
     ):
+        if isinstance(ex, PauseRequested):
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.TASK_PAUSED,
+                    source_id=task_id,
+                    name=task_full_name,
+                    value=ex.name,
+                ),
+            )
+            ContextManager.default().save(ctx)
+            raise ex
+
         try:
             if self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
                 return await self.__handle_retry(
