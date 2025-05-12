@@ -6,6 +6,7 @@ A workflow in Flux is a Python function that orchestrates a series of tasks to a
 
 ```python
 from flux import workflow, WorkflowExecutionContext
+from flux.tasks import pause
 
 # Basic workflow
 @workflow
@@ -22,6 +23,15 @@ async def my_workflow(ctx: WorkflowExecutionContext[str]):
 async def configured_workflow(ctx: WorkflowExecutionContext):
     result = await some_task()
     return result
+
+# Workflow with pause point
+@workflow
+async def approval_workflow(ctx: WorkflowExecutionContext):
+    data = await process_data(ctx.input)
+    # Pause for manual approval
+    await pause("manual_approval")
+    # Continues after workflow is resumed
+    return f"Approved: {data}"
 ```
 
 Key characteristics of workflows:
@@ -30,6 +40,7 @@ Key characteristics of workflows:
 - Use `async/await` to execute tasks asynchronously
 - Can be run directly, via CLI, or through HTTP API
 - Maintain execution state between runs
+- Support pause and resume operations for manual interventions
 
 ## Tasks
 
@@ -95,6 +106,7 @@ Context properties:
 - `finished`: Whether the workflow has completed
 - `succeeded`: Whether the workflow completed successfully
 - `failed`: Whether the workflow failed
+- `paused`: Whether the workflow is currently paused
 - `output`: Final output of the workflow
 
 ## Events
@@ -107,8 +119,10 @@ from flux.events import ExecutionEventType
 # Example of event types
 ExecutionEventType.WORKFLOW_STARTED    # Workflow begins execution
 ExecutionEventType.WORKFLOW_COMPLETED  # Workflow completes successfully
+ExecutionEventType.WORKFLOW_PAUSED    # Workflow is paused
 ExecutionEventType.TASK_STARTED       # Task begins execution
 ExecutionEventType.TASK_COMPLETED     # Task completes successfully
+ExecutionEventType.TASK_PAUSED       # Task is paused
 ```
 
 Event categories:
@@ -116,11 +130,13 @@ Event categories:
    - `WORKFLOW_STARTED`
    - `WORKFLOW_COMPLETED`
    - `WORKFLOW_FAILED`
+   - `WORKFLOW_PAUSED`
 
 2. Task Events:
    - `TASK_STARTED`
    - `TASK_COMPLETED`
    - `TASK_FAILED`
+   - `TASK_PAUSED`
    - `TASK_RETRY_STARTED`
    - `TASK_RETRY_COMPLETED`
    - `TASK_RETRY_FAILED`

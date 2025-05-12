@@ -1,5 +1,67 @@
 # Workflow Controls
 
+## Workflow Pause Points
+
+Flux allows you to introduce pause points in your workflows, enabling manual verification, approval steps, or integration with external systems before continuation.
+
+### Basic Pause Functionality
+
+```python
+from flux import workflow
+from flux.context import WorkflowExecutionContext
+from flux.decorators import task
+from flux.tasks import pause
+
+@task
+async def process_data():
+    # Process data
+    return "Data processed"
+
+@workflow
+async def pause_workflow(ctx: WorkflowExecutionContext):
+    result = await process_data()
+
+    # Pause workflow execution until resumed
+    await pause("wait_for_approval")
+
+    return result + " and approved"
+
+# First execution - runs until pause point
+ctx = pause_workflow.run()
+
+# Resume execution from pause point
+ctx = pause_workflow.run(execution_id=ctx.execution_id)
+```
+
+### Multiple Pause Points
+
+Workflows can contain multiple pause points, giving you fine-grained control over execution flow:
+
+```python
+@workflow
+async def multi_stage_workflow(ctx: WorkflowExecutionContext):
+    # Stage 1
+    data = await prepare_data()
+    await pause("verify_data")
+
+    # Stage 2
+    processed = await process_data(data)
+    await pause("review_processing")
+
+    # Stage 3
+    result = await finalize_data(processed)
+    return result
+```
+
+### Checking Pause State
+
+You can check if a workflow is paused through the context object:
+
+```python
+ctx = workflow.run()
+if ctx.paused:
+    print(f"Workflow is paused.")
+```
 
 ## Workflow Replay
 
