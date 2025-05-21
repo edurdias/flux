@@ -101,8 +101,9 @@ class WorkerServer:
             data = response.json()
             self.session_token = data["session_token"]
             self.echo("OK")
-        except Exception:
+        except Exception as e:
             self.echo("ERROR", err=True)
+            self.echo(e, err=True)
             raise
 
     async def _start_sse_connection(self):
@@ -139,23 +140,11 @@ class WorkerServer:
                                 f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                             )
 
-                            source_code = base64.b64decode(request.workflow.source).decode("utf-8")
-                            module_name = (
-                                f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+                            ctx = await self._execute_workflow(request)
+                            self.echo(
+                                f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                                err=ctx.has_failed,
                             )
-                            module_spec = importlib.util.spec_from_loader(module_name, loader=None)
-                            module = importlib.util.module_from_spec(module_spec)
-                            sys.modules[module_name] = module
-                            exec(source_code, module.__dict__)
-
-                            if request.workflow.name in module.__dict__:
-                                workflow = module.__dict__[request.workflow.name]
-                                if isinstance(workflow, decorators.workflow):
-                                    ctx: ExecutionContext = await workflow(request.context)
-                                    self.echo(
-                                        f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                                        err=ctx.has_failed,
-                                    )
 
                         if e.event == "keep-alive":
                             self.echo("Event received: Keep-alive")
@@ -167,6 +156,30 @@ class WorkerServer:
         except Exception as e:
             self.echo(e, err=True)
             raise
+
+    async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
+        """Execute a workflow from a workflow execution request.
+
+        Args:
+            request: The workflow execution request containing the workflow definition and context
+
+        Returns:
+            ExecutionContext: The execution context after workflow execution
+        """
+        source_code = base64.b64decode(request.workflow.source).decode("utf-8")
+        module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+        module_spec = importlib.util.spec_from_loader(module_name, loader=None)
+        module = importlib.util.module_from_spec(module_spec)  # type: ignore
+        sys.modules[module_name] = module
+        exec(source_code, module.__dict__)
+
+        ctx = request.context
+        if request.workflow.name in module.__dict__:
+            workflow = module.__dict__[request.workflow.name]
+            if isinstance(workflow, decorators.workflow):
+                ctx = await workflow(request.context)
+
+        return ctx
 
     async def _checkpoint(self, ctx: ExecutionContext):
         base_url = f"{self.base_url}/{self.name}"
