@@ -70,8 +70,8 @@ def test_workflow_with_inline_storage(inline_storage, workflow_with_storage):
     ctx = workflow_with_storage.run("workflow_value")
 
     # Verify the workflow completed successfully
-    assert ctx.finished
-    assert ctx.succeeded
+    assert ctx.has_finished
+    assert ctx.has_succeeded
 
     # Verify the output is stored correctly
     assert isinstance(ctx.output, OutputStorageReference)
