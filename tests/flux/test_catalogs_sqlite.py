@@ -1,338 +1,240 @@
+"""Tests for the SQLiteWorkflowCatalog implementation."""
 from __future__ import annotations
+
+import os
+import tempfile
+from unittest.mock import patch
 
 import pytest
 
-import flux.decorators as decorators
-from examples.hello_world import hello_world
-from examples.parallel_tasks import parallel_tasks_workflow
 from flux.catalogs import SQLiteWorkflowCatalog
-from flux.catalogs import WorkflowCatalog
-from flux.config import Configuration
+from flux.catalogs import WorkflowInfo
 from flux.errors import WorkflowNotFoundError
-
-
-@pytest.fixture(autouse=True)
-def setup():
-    # Disable auto-registration for our tests
-    Configuration().override(catalog={"auto_register": False})
-
-    # Create a test catalog and save the hello_world workflow
-    catalog = SQLiteWorkflowCatalog()
-
-    # Clean up any existing workflows from previous test runs
-    try:
-        catalog.delete("hello_world")
-        catalog.delete("parallel_tasks_workflow")
-    except:  # noqa: E722
-        pass
-
-    yield
-
-    # Clean up after tests
-    try:
-        catalog.delete("hello_world")
-        catalog.delete("parallel_tasks_workflow")
-    except:  # noqa: E722
-        pass
-
-
-def test_should_save_multiple_workflows():
-    """Test that multiple workflows can be saved to the catalog."""
-    catalog = SQLiteWorkflowCatalog()
-    catalog.save(hello_world)
-    catalog.save(parallel_tasks_workflow)
-
-    workflows = catalog.all()
-    workflow_names = [w.name for w in workflows]
-
-    assert len(workflows) >= 2
-    assert "hello_world" in workflow_names
-    assert "parallel_tasks_workflow" in workflow_names
-
-
-def test_should_save_multiple_versions():
-    """Test that multiple versions of the same workflow can be saved."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Save first version
-    catalog.save(hello_world)
-
-    # Create a new version by wrapping the same workflow
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"  # Override the name to match
-
-    # Save second version
-    catalog.save(hello_world_v2)
-
-    # Get latest version
-    latest = catalog._get("hello_world")
-    assert latest.version == 2, "The latest version should be 2"
-
-    # Get specific version
-    v1 = catalog._get("hello_world", 1)
-    assert v1.version == 1, "Should be able to retrieve version 1"
-
-    # Both versions should exist but be different objects
-    assert v1.id != latest.id, "The two versions should have different IDs"
-
-
-def test_should_get_latest_version_by_default():
-    """Test that get() returns the latest version when version is not specified."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Setup multiple versions
-    catalog.save(hello_world)
-
-    # Create and save a second version
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"
-    catalog.save(hello_world_v2)
-
-    # Get without specifying version should return the latest
-    workflow = catalog.get("hello_world")
-    assert workflow.version == 2, "Should get the latest version (2)"
-
-
-def test_should_get_specific_version():
-    """Test that get() can retrieve a specific version."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Setup multiple versions
-    catalog.save(hello_world)
-
-    # Create and save a second version
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"
-    catalog.save(hello_world_v2)
-
-    # Get specific version
-    workflow = catalog.get("hello_world", 1)
-    assert workflow.version == 1, "Should get version 1"
-
-
-def test_all_should_return_sorted_versions():
-    """Test that all() returns workflows sorted by name and descending version."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Clean existing workflows
-    try:
-        catalog.delete("hello_world")
-    except Exception:
-        pass
-
-    # Save first version of hello_world
-    catalog.save(hello_world)
-
-    # Create and save a second version of hello_world
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"
-    catalog.save(hello_world_v2)
-
-    # Get all hello_world workflows
-    workflows = [w for w in catalog.all() if w.name == "hello_world"]
-
-    # Check that hello_world workflows are sorted by version (descending)
-    assert len(workflows) >= 2, "Should have at least 2 versions"
-    assert workflows[0].name == "hello_world", "First workflow should be hello_world"
-    assert workflows[0].version == 2, "First workflow should be version 2"
-    assert workflows[1].name == "hello_world", "Second workflow should be hello_world"
-    assert workflows[1].version == 1, "Second workflow should be version 1"
-
-
-def test_all_should_return_workflows_with_expected_names():
-    """Test that all() returns workflows with the expected names."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Clean up first
-    try:
-        catalog.delete("hello_world")
-        catalog.delete("parallel_tasks_workflow")
-    except Exception:
-        pass
-
-    # Save workflows in reverse alphabetical order
-    catalog.save(parallel_tasks_workflow)
-    catalog.save(hello_world)
-
-    workflows = catalog.all()
-    workflow_names = [w.name for w in workflows]
-
-    # Check that our workflows are in the result
-    assert "hello_world" in workflow_names, "hello_world should be in the workflows"
-    assert (
-        "parallel_tasks_workflow" in workflow_names
-    ), "parallel_tasks_workflow should be in the workflows"
-
-
-def test_delete_specific_version():
-    """Test deleting a specific version of a workflow."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Setup multiple versions
-    catalog.save(hello_world)
-
-    # Create and save a second version
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"
-    catalog.save(hello_world_v2)
-
-    # Delete version 1
-    catalog.delete("hello_world", 1)
-
-    # Version 1 should be gone
-    with pytest.raises(WorkflowNotFoundError):
-        catalog.get("hello_world", 1)
-
-    # Latest version (2) should still exist
-    workflow = catalog.get("hello_world")
-    assert workflow.version == 2, "Version 2 should still exist"
-
-
-def test_delete_all_versions():
-    """Test deleting all versions of a workflow."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Setup multiple versions
-    catalog.save(hello_world)
-
-    # Create and save a second version
-    @decorators.workflow
-    async def hello_world_v2(ctx):
-        return await hello_world(ctx)
-
-    hello_world_v2.name = "hello_world"
-    catalog.save(hello_world_v2)
-
-    # Delete all versions
-    catalog.delete("hello_world")
-
-    # No versions should exist
-    with pytest.raises(WorkflowNotFoundError):
-        catalog.get("hello_world")
-
-
-def test_auto_register_from_module(monkeypatch):
-    """Test auto-registration of workflows from a module."""
-    # Configure to auto-register from examples module
-    Configuration().override(catalog={"auto_register": True, "options": {"module": "examples"}})
-
-    # Create catalog which should trigger auto-registration
-    catalog = SQLiteWorkflowCatalog()
-
-    # Check that workflows from examples module were registered
-    workflows = catalog.all()
-    workflow_names = [w.name for w in workflows]
-
-    assert "hello_world" in workflow_names, "hello_world should be auto-registered"
-    assert (
-        "parallel_tasks_workflow" in workflow_names
-    ), "parallel_tasks_workflow should be auto-registered"
-
-
-def test_auto_register_from_path(monkeypatch):
-    """Test auto-registration of workflows from a file path."""
-    # Configure to auto-register from examples/hello_world.py
-    Configuration().override(
-        catalog={"auto_register": True, "options": {"path": "examples/hello_world.py"}},
+from flux.models import Base
+
+
+@pytest.fixture
+def sqlite_workflow_catalog():
+    """Create a SQLiteWorkflowCatalog with temporary DB for testing."""
+    # Create a temporary file for the SQLite database
+    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+        db_path = temp_file.name
+
+    # Configure temporary database URL
+    with patch("flux.config.Configuration.get") as mock_config:
+        mock_config.return_value.settings.database_url = f"sqlite:///{db_path}"
+
+        # Create catalog instance
+        catalog = SQLiteWorkflowCatalog()
+
+        # Create tables
+        Base.metadata.create_all(catalog._engine)
+
+        yield catalog
+
+    # Clean up the temporary file
+    if os.path.exists(db_path):
+        os.unlink(db_path)
+
+
+@pytest.fixture
+def sample_workflow():
+    """Generate a sample workflow for testing."""
+    return WorkflowInfo(
+        name="test_workflow",
+        imports=["import1", "import2"],
+        source=b"""
+import asyncio
+from flux.decorators import workflow
+
+@workflow
+async def test_workflow():
+    return "Hello World"
+        """,
     )
 
-    # Create catalog which should trigger auto-registration
-    catalog = SQLiteWorkflowCatalog()
 
-    # Check that hello_world was registered
-    workflow = catalog.get("hello_world")
-    assert workflow.name == "hello_world", "hello_world should be auto-registered from path"
+def test_save_and_get_workflow(sqlite_workflow_catalog, sample_workflow):
+    """Test saving a workflow and retrieving it."""
+    # Save a workflow
+    sqlite_workflow_catalog.save([sample_workflow])
 
+    # Get the workflow back
+    workflow = sqlite_workflow_catalog.get("test_workflow")
 
-def test_should_create_database():
-    SQLiteWorkflowCatalog()
-
-
-def test_should_save_workflow():
-    catalog = SQLiteWorkflowCatalog()
-    catalog.save(hello_world)
-    return catalog
+    # Check that we got the right workflow
+    assert workflow.name == "test_workflow"
+    assert workflow.version == 1
+    assert workflow.imports == ["import1", "import2"]
+    assert workflow.source == sample_workflow.source
 
 
-def test_should_get():
-    catalog = test_should_save_workflow()
-    workflow = catalog.get("hello_world")
-    assert workflow, "The workflow should have been retrieved."
-    assert isinstance(
-        workflow.source,
-        decorators.workflow,
-    ), "The workflow should be an instance of the workflow decorator."
-    return workflow.source
+def test_get_workflow_with_version(sqlite_workflow_catalog, sample_workflow):
+    """Test retrieving a specific version of a workflow."""
+    # Save the workflow twice to create two versions
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    # Create a slightly modified version
+    updated_workflow = WorkflowInfo(
+        name="test_workflow",
+        imports=["import1", "import2", "import3"],
+        source=b"""
+import asyncio
+from flux.decorators import workflow
+
+@workflow
+async def test_workflow():
+    return "Hello Updated World"
+        """,
+    )
+    sqlite_workflow_catalog.save([updated_workflow])
+
+    # Get the first version
+    workflow_v1 = sqlite_workflow_catalog.get("test_workflow", version=1)
+    assert workflow_v1.version == 1
+
+    # Get the second version
+    workflow_v2 = sqlite_workflow_catalog.get("test_workflow", version=2)
+    assert workflow_v2.version == 2
+
+    # Without specifying a version, should get the latest
+    latest_workflow = sqlite_workflow_catalog.get("test_workflow")
+    assert latest_workflow.version == 2
 
 
-def test_should_execute():
-    workflow = test_should_get()
+def test_all_workflows(sqlite_workflow_catalog, sample_workflow):
+    """Test retrieving all workflows."""
+    # Save a workflow
+    sqlite_workflow_catalog.save([sample_workflow])
 
-    ctx = workflow.run("Joe")
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
-    assert ctx.output == "Hello, Joe"
+    # Create another workflow
+    another_workflow = WorkflowInfo(
+        name="another_workflow",
+        imports=["import1"],
+        source=b"""
+import asyncio
+from flux.decorators import workflow
+
+@workflow
+async def another_workflow():
+    return "Another Hello World"
+        """,
+    )
+    sqlite_workflow_catalog.save([another_workflow])
+
+    # Get all workflows
+    workflows = sqlite_workflow_catalog.all()
+
+    # Should have two workflows
+    assert len(workflows) == 2
+
+    # Check names
+    names = [w.name for w in workflows]
+    assert "test_workflow" in names
+    assert "another_workflow" in names
 
 
-def test_should_raise_exception_when_not_found():
-    workflow_name = "invalid_name"
-    with pytest.raises(
-        WorkflowNotFoundError,
-        match=f"Workflow '{workflow_name}' not found",
-    ):
-        catalog = SQLiteWorkflowCatalog()
-        catalog.get(workflow_name)
+def test_workflow_not_found(sqlite_workflow_catalog):
+    """Test that an exception is raised when a workflow is not found."""
+    with pytest.raises(WorkflowNotFoundError) as excinfo:
+        sqlite_workflow_catalog.get("non_existent_workflow")
+
+    assert "Workflow 'non_existent_workflow' not found" in str(excinfo.value)
 
 
-def test_workflow_catalog_factory():
-    """Test that WorkflowCatalog.create() returns an SQLiteWorkflowCatalog instance."""
+def test_delete_workflow(sqlite_workflow_catalog, sample_workflow):
+    """Test deleting a workflow."""
+    # Save a workflow
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    # Delete the workflow
+    sqlite_workflow_catalog.delete("test_workflow")
+
+    # Trying to get the workflow should raise WorkflowNotFoundError
+    with pytest.raises(WorkflowNotFoundError):
+        sqlite_workflow_catalog.get("test_workflow")
+
+
+def test_delete_specific_version(sqlite_workflow_catalog, sample_workflow):
+    """Test deleting a specific version of a workflow."""
+    # Save the workflow twice to create two versions
+    sqlite_workflow_catalog.save([sample_workflow])
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    # Delete only the first version
+    sqlite_workflow_catalog.delete("test_workflow", version=1)
+
+    # Should still be able to get the second version
+    workflow = sqlite_workflow_catalog.get("test_workflow")
+    assert workflow.version == 2
+
+    # But trying to get the first version should fail
+    with pytest.raises(WorkflowNotFoundError):
+        sqlite_workflow_catalog.get("test_workflow", version=1)
+
+
+def test_parse_workflow(sqlite_workflow_catalog):
+    """Test parsing a workflow from source code."""
+    source = b"""
+import asyncio
+from flux.decorators import workflow
+
+@workflow
+async def test_parse_workflow():
+    return "Hello Parsed World"
+    """
+
+    workflows = sqlite_workflow_catalog.parse(source)
+
+    assert len(workflows) == 1
+    assert workflows[0].name == "test_parse_workflow"
+    assert workflows[0].imports == ["asyncio", "flux.decorators.workflow"]
+    assert workflows[0].source == source
+
+
+def test_parse_workflow_no_workflow_found(sqlite_workflow_catalog):
+    """Test parsing source code with no workflow."""
+    source = b"""
+import asyncio
+
+async def not_a_workflow():
+    return "This is not a workflow"
+    """
+
+    with pytest.raises(SyntaxError) as excinfo:
+        sqlite_workflow_catalog.parse(source)
+
+    assert "No workflow found in the provided code" in str(excinfo.value)
+
+
+def test_parse_workflow_syntax_error(sqlite_workflow_catalog):
+    """Test parsing source code with syntax error."""
+    source = b"""
+import asyncio
+from flux.decorators import workflow
+
+@workflow
+async def syntax_error_workflow():
+    return "Missing closing quote
+    """
+
+    with pytest.raises(SyntaxError):
+        sqlite_workflow_catalog.parse(source)
+
+
+def test_workflow_info_to_dict(sample_workflow):
+    """Test the to_dict method of WorkflowInfo."""
+    result = sample_workflow.to_dict()
+
+    assert result["name"] == "test_workflow"
+    assert result["version"] == 1
+    assert result["imports"] == ["import1", "import2"]
+    assert result["source"] == sample_workflow.source
+
+
+def test_workflow_catalog_create():
+    """Test the static create method returns an SQLiteWorkflowCatalog instance."""
+    from flux.catalogs import WorkflowCatalog
+
     catalog = WorkflowCatalog.create()
-    assert isinstance(
-        catalog,
-        SQLiteWorkflowCatalog,
-    ), "Should create SQLiteWorkflowCatalog instance"
-
-
-def test_get_nonexistent_workflow():
-    """Test error handling when getting a workflow that doesn't exist."""
-    catalog = SQLiteWorkflowCatalog()
-    with pytest.raises(WorkflowNotFoundError, match="Workflow 'nonexistent' not found"):
-        catalog.get("nonexistent")
-
-
-def test_get_nonexistent_version():
-    """Test error handling when getting a version that doesn't exist."""
-    # First create a workflow
-    from examples.hello_world import hello_world
-
-    catalog = SQLiteWorkflowCatalog()
-    catalog.save(hello_world)
-
-    # Try to get a version that doesn't exist
-    with pytest.raises(WorkflowNotFoundError, match="Workflow 'hello_world' not found"):
-        catalog.get("hello_world", 999)
-
-
-def test_auto_register_with_no_options():
-    """Test auto-register with no module or path options."""
-    # Configure to auto-register but without specifying module or path
-    Configuration().override(catalog={"auto_register": True, "options": {}})
-
-    # Creating catalog should not raise errors even with invalid options
-    SQLiteWorkflowCatalog()
+    assert isinstance(catalog, SQLiteWorkflowCatalog)
