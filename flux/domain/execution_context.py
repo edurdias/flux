@@ -234,6 +234,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
     async def checkpoint(self) -> Awaitable:
         return await maybe_awaitable(self._checkpoint(self))
 
+    def set_checkpoint(self, checkpoint: Callable[[ExecutionContext], Awaitable]) -> Self:
+        self._checkpoint = checkpoint
+        return self
+
     def summary(self):
         return {key: value for key, value in self.to_dict().items() if key != "events"}
 

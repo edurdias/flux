@@ -96,7 +96,7 @@ async def pause(name: str, metadata: decorators.TaskMetadata):
                 value=name,
             ),
         )
-        return
+        return name
     raise PauseRequested(name=name)
 
 
