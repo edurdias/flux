@@ -18,7 +18,11 @@ from flux.errors import ExecutionError
 
 def maybe_awaitable(func: Any | None) -> Any:
     if func is None:
-        return None
+
+        async def none_wrapper():
+            return None
+
+        return none_wrapper()
 
     if inspect.isawaitable(func):
         return func

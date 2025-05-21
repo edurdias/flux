@@ -114,18 +114,17 @@ class workflow:
         return ctx
 
     def run(self, *args, **kwargs) -> ExecutionContext:
+        async def save(ctx: ExecutionContext):
+            return ContextManager.create().save(ctx)
+
         if "execution_id" in kwargs:
             ctx = ContextManager.create().get(kwargs["execution_id"])
         else:
-
-            async def save(ctx: ExecutionContext):
-                return ContextManager.create().save(ctx)
-
             ctx = ExecutionContext(
                 self.name,
                 input=args[0] if len(args) > 0 else None,
-                checkpoint=save,
             )
+        ctx.set_checkpoint(save)
         return asyncio.run(self(ctx))
 
 
