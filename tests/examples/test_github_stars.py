@@ -6,7 +6,9 @@ from examples.github_stars import github_stars
 def test_should_succeed():
     repos = ["python/cpython", "microsoft/vscode"]
     ctx = github_stars.run(repos)
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert all(
         repo in ctx.output for repo in repos
     ), "The output should contain all the specified repositories."
@@ -22,9 +24,9 @@ def test_should_skip_if_finished():
 
 def test_should_fail_no_input():
     ctx = github_stars.run()
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."
 
 
 def test_should_fail_empty_list():
     ctx = github_stars.run([])
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."

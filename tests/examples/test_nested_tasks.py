@@ -5,7 +5,9 @@ from examples.nested_tasks import nested_tasks_workflow
 
 def test_should_succeed():
     ctx = nested_tasks_workflow.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     return ctx
 
 

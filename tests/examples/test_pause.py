@@ -9,10 +9,10 @@ def test_should_pause():
     ctx = pause_workflow.run()
 
     # Workflow should be paused, not finished
-    assert ctx.paused, "The workflow should be paused."
-    assert not ctx.finished, "The workflow should not be finished while paused."
-    assert not ctx.succeeded, "The workflow should not be marked as succeeded while paused."
-    assert not ctx.failed, "The workflow should not be marked as failed while paused."
+    assert ctx.is_paused, "The workflow should be paused."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
+    assert not ctx.has_succeeded, "The workflow should not be marked as succeeded while paused."
+    assert not ctx.has_failed, "The workflow should not be marked as failed while paused."
 
     # When paused, the output should be None since there's no completed event yet
     assert ctx.output is None
@@ -29,8 +29,8 @@ def test_should_resume_and_complete():
     resumed_ctx = pause_workflow.run(execution_id=paused_ctx.execution_id)
 
     # Workflow should now be finished and succeeded
-    assert resumed_ctx.finished, "The workflow should have finished after resuming."
-    assert resumed_ctx.succeeded, "The workflow should have succeeded after resuming."
+    assert resumed_ctx.has_finished, "The workflow should have finished after resuming."
+    assert resumed_ctx.has_succeeded, "The workflow should have succeeded after resuming."
     assert resumed_ctx.output == "Data processed and approved"
 
     return resumed_ctx

@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
+from flux.domain.execution_context import ExecutionContext
 from flux.tasks import pause
 from flux.tasks import sleep
 
@@ -17,7 +17,7 @@ async def proces_data():
 
 
 @workflow
-async def pause_workflow(ctx: WorkflowExecutionContext):
+async def pause_workflow(ctx: ExecutionContext):
     result = await proces_data()
     await pause("wait_for_approval")
     return result + " and approved"

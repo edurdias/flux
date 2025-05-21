@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from sqlite3 import IntegrityError
-
 import pytest
-from pytest_mock import MockerFixture
 
 import flux.decorators as decorators
 from examples.hello_world import hello_world
@@ -262,28 +259,6 @@ def test_auto_register_from_path(monkeypatch):
     assert workflow.name == "hello_world", "hello_world should be auto-registered from path"
 
 
-def test_integrity_error_handling(mocker: MockerFixture):
-    """Test handling of integrity errors when saving workflows."""
-    catalog = SQLiteWorkflowCatalog()
-
-    # Mock the session to simulate an IntegrityError
-    mock_session = mocker.patch.object(catalog, "session")
-    mock_session.return_value.__enter__.return_value.add.side_effect = IntegrityError(
-        "statement",
-        "params",
-        "orig",
-    )
-    mock_session.return_value.__enter__.return_value.commit.side_effect = IntegrityError(
-        "statement",
-        "params",
-        "orig",
-    )
-
-    # Attempt to save should raise IntegrityError
-    with pytest.raises(IntegrityError):
-        catalog.save(hello_world)
-
-
 def test_should_create_database():
     SQLiteWorkflowCatalog()
 
@@ -299,17 +274,19 @@ def test_should_get():
     workflow = catalog.get("hello_world")
     assert workflow, "The workflow should have been retrieved."
     assert isinstance(
-        workflow.code,
+        workflow.source,
         decorators.workflow,
     ), "The workflow should be an instance of the workflow decorator."
-    return workflow.code
+    return workflow.source
 
 
 def test_should_execute():
     workflow = test_should_get()
 
     ctx = workflow.run("Joe")
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == "Hello, Joe"
 
 

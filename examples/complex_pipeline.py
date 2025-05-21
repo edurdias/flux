@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
+from flux.domain.execution_context import ExecutionContext
 from flux.tasks import parallel
 from flux.tasks import pipeline
 
@@ -73,7 +73,7 @@ async def analyze_data(df: pd.DataFrame):
 
 
 @workflow
-async def complex_pipeline(ctx: WorkflowExecutionContext[dict[str, str]]):
+async def complex_pipeline(ctx: ExecutionContext[dict[str, str]]):
     async def save(df: pd.DataFrame):
         return await save_data(df, ctx.input["output_file"])
 

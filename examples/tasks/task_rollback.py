@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
+from flux.domain.execution_context import ExecutionContext
 
 
 async def rollback_for_bad_task(number: int, should_fail: bool = True):
@@ -18,7 +18,7 @@ async def bad_task(number: int, should_fail: bool = True):
 
 
 @workflow
-async def task_rollback(ctx: WorkflowExecutionContext):
+async def task_rollback(ctx: ExecutionContext):
     await bad_task(1, False)
     await bad_task(2, False)
     await bad_task(3)

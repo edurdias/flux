@@ -13,7 +13,6 @@ from types import GeneratorType
 from typing import Any
 from typing import Callable
 
-import flux.context as context
 from flux.errors import ExecutionError
 
 
@@ -131,12 +130,16 @@ class FluxEncoder(json.JSONEncoder):
             return obj.value
         if isinstance(obj, datetime):
             return obj.isoformat()
-        if isinstance(obj, context.WorkflowExecutionContext):
+
+        from flux.domain.execution_context import ExecutionContext
+
+        if isinstance(obj, ExecutionContext):
             return {
                 "name": obj.name,
                 "execution_id": obj.execution_id,
                 "input": obj.input,
                 "output": obj.output,
+                "state": obj.state,
                 "events": obj.events,
             }
 

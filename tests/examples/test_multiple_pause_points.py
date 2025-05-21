@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from examples.multiple_pause_points import multi_pause_workflow
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 
 def test_first_pause():
@@ -9,8 +9,8 @@ def test_first_pause():
     ctx = multi_pause_workflow.run()
 
     # Workflow should be paused, not finished
-    assert ctx.paused, "The workflow should be paused at the first checkpoint."
-    assert not ctx.finished, "The workflow should not be finished while paused."
+    assert ctx.is_paused, "The workflow should be paused at the first checkpoint."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
 
     # Check for the pause event
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
@@ -26,8 +26,8 @@ def test_second_pause():
     ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Should still be paused (at second point)
-    assert ctx.paused, "The workflow should be paused at the second checkpoint."
-    assert not ctx.finished, "The workflow should not be finished while paused."
+    assert ctx.is_paused, "The workflow should be paused at the second checkpoint."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
 
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
@@ -43,8 +43,8 @@ def test_third_pause():
     ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Should still be paused (at third point)
-    assert ctx.paused, "The workflow should be paused at the third checkpoint."
-    assert not ctx.finished, "The workflow should not be finished while paused."
+    assert ctx.is_paused, "The workflow should be paused at the third checkpoint."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
 
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
@@ -60,8 +60,8 @@ def test_fourth_pause():
     ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Should still be paused (at fourth point)
-    assert ctx.paused, "The workflow should be paused at the fourth checkpoint."
-    assert not ctx.finished, "The workflow should not be finished while paused."
+    assert ctx.is_paused, "The workflow should be paused at the fourth checkpoint."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
 
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
@@ -77,8 +77,8 @@ def test_fifth_pause():
     ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Should still be paused (at final approval)
-    assert ctx.paused, "The workflow should be paused at the final approval point."
-    assert not ctx.finished, "The workflow should not be finished while paused."
+    assert ctx.is_paused, "The workflow should be paused at the final approval point."
+    assert not ctx.has_finished, "The workflow should not be finished while paused."
 
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
@@ -94,9 +94,9 @@ def test_complete_workflow():
     ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Should be finished and succeeded
-    assert not ctx.paused, "The workflow should not be paused anymore."
-    assert ctx.finished, "The workflow should be finished."
-    assert ctx.succeeded, "The workflow should have succeeded."
+    assert not ctx.is_paused, "The workflow should not be paused anymore."
+    assert ctx.has_finished, "The workflow should be finished."
+    assert ctx.has_succeeded, "The workflow should have succeeded."
 
     # Check the final output
     assert ctx.output["stage"] == "complete"
@@ -110,7 +110,7 @@ def test_full_resume_sequence():
     """Test the full sequence of pausing and resuming the workflow."""
     # First run
     ctx = multi_pause_workflow.run()
-    assert ctx.paused and not ctx.finished
+    assert ctx.is_paused and not ctx.has_finished
 
     # Resume multiple times, checking state at each point
     pause_points = [
@@ -131,6 +131,6 @@ def test_full_resume_sequence():
         ctx = multi_pause_workflow.run(execution_id=ctx.execution_id)
 
     # Final state should be complete
-    assert ctx.finished and ctx.succeeded
+    assert ctx.has_finished and ctx.has_succeeded
     assert ctx.output["stage"] == "complete"
     assert ctx.output["chunks_processed"] == 3

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from examples.tasks.task_retries import task_retries
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 
 def test_should_succeed():
     ctx = task_retries.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
 
     events = [e.type for e in ctx.events]
     assert ExecutionEventType.WORKFLOW_STARTED in events
@@ -21,7 +23,7 @@ def test_should_succeed():
 def test_should_skip_if_finished():
     first_ctx = task_retries.run()
     assert (
-        first_ctx.finished and first_ctx.succeeded
+        first_ctx.has_finished and first_ctx.has_succeeded
     ), "The workflow should have been completed successfully."
 
     second_ctx = task_retries.run(execution_id=first_ctx.execution_id)

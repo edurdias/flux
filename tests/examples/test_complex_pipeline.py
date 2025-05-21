@@ -14,7 +14,9 @@ def test_should_succeed():
     }
 
     ctx = complex_pipeline.run(input)
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
 
     return ctx
 
@@ -24,7 +26,7 @@ def test_should_skip_if_finished():
     second_ctx = complex_pipeline.run(execution_id=first_ctx.execution_id)
 
     assert (
-        second_ctx.finished and second_ctx.succeeded
+        second_ctx.has_finished and second_ctx.has_succeeded
     ), "The workflow should have been completed successfully."
 
     assert first_ctx.execution_id == second_ctx.execution_id
@@ -33,12 +35,12 @@ def test_should_skip_if_finished():
 
 def test_should_fail_no_input():
     ctx = complex_pipeline.run()
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."
 
 
 def test_should_fail_invalid_input_file():
     input = {"input_file": "examples/data/invalid.csv"}
     ctx = complex_pipeline.run(input)
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."
     assert isinstance(ctx.output, ExecutionError)
     assert isinstance(ctx.output.inner_exception, FileNotFoundError)

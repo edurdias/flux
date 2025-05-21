@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 
 from flux import call
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 
 
 @task
@@ -16,13 +16,13 @@ async def get_repo_info(repo):
 
 
 @workflow
-async def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
+async def get_stars_workflow(ctx: ExecutionContext[str]):
     repo_info = await get_repo_info(ctx.input)
     return repo_info["stargazers_count"]
 
 
 @workflow
-async def subflows(ctx: WorkflowExecutionContext[list[str]]):
+async def subflows(ctx: ExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("The list of repositories cannot be empty.")
 
