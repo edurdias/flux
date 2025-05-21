@@ -26,6 +26,35 @@ from flux.worker_registry import WorkerInfo
 from flux.worker_registry import WorkerRegistry
 
 
+class WorkerRuntimeModel(BaseModel):
+    os_name: str
+    os_version: str
+    python_version: str
+
+
+class WorkerGPUModel(BaseModel):
+    name: str
+    memory_total: float
+    memory_available: float
+
+
+class WorkerResourcesModel(BaseModel):
+    cpu_total: float
+    cpu_available: float
+    memory_total: float
+    memory_available: float
+    disk_total: float
+    disk_free: float
+    gpus: list[WorkerGPUModel]
+
+
+class WorkerRegistration(BaseModel):
+    name: str
+    runtime: WorkerRuntimeModel
+    packages: list[dict[str, str]]
+    resources: WorkerResourcesModel
+
+
 class ControlPlaneServer:
     """
     Control Plane for managing workflows and tasks.
@@ -73,34 +102,6 @@ class ControlPlaneServer:
             allow_methods=["*"],
             allow_headers=["*"],
         )
-
-        class WorkerRuntimeModel(BaseModel):
-            os_name: str
-            os_version: str
-            python_version: str
-
-        class WorkerGPUModel(BaseModel):
-            name: str
-            memory_total: float
-            memory_available: float
-
-        class WorkerResourcesModel(BaseModel):
-            cpu_total: float
-            cpu_available: float
-            memory_total: float
-            memory_available: float
-            disk_total: float
-            disk_free: float
-            gpus: list[WorkerGPUModel]
-
-        class WorkerRegistration(BaseModel):
-            name: str
-            runtime: WorkerRuntimeModel
-            packages: list[dict[str, str]]
-            resources: WorkerResourcesModel
-
-            class Config:
-                arbitrary_types_allowed = True
 
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
@@ -170,7 +171,7 @@ class ControlPlaneServer:
 
         @api.post("/workers/register")
         async def workers_register(
-            registration: WorkerRegistration,
+            registration: WorkerRegistration = Body(...),
             authorization: str = Header(None),
         ):
             try:
@@ -234,7 +235,6 @@ class ControlPlaneServer:
                                 "event": "error",
                                 "data": str(e),
                             }
-                            await asyncio.sleep(5)
 
                 return EventSourceResponse(
                     check_for_new_executions(),
