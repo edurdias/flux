@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
+from flux.domain.execution_context import ExecutionContext
 from flux.tasks import Graph
 
 
@@ -17,7 +17,7 @@ async def say_hello(name: str) -> str:
 
 
 @workflow
-async def simple_graph(ctx: WorkflowExecutionContext[str]):
+async def simple_graph(ctx: ExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
 

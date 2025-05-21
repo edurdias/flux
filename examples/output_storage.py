@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
+from flux.domain.execution_context import ExecutionContext
 from flux.output_storage import LocalFileStorage
 
 
@@ -17,7 +17,7 @@ async def load_data(file_name: str) -> pd.DataFrame:
 
 
 @workflow.with_options(output_storage=file_storage)
-async def output_storage(ctx: WorkflowExecutionContext[str]):
+async def output_storage(ctx: ExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
     data = await load_data(ctx.input)

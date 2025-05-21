@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from abc import ABC
 from abc import abstractmethod
 from typing import Any
@@ -7,69 +8,86 @@ from typing import Any
 from sqlalchemy import desc
 from sqlalchemy.exc import IntegrityError
 
-import flux.decorators as decorators
-from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
-from flux.utils import import_module
-from flux.utils import import_module_from_file
+
+
+class WorkflowInfo:
+    def __init__(self, name: str, imports: list[str], source: bytes, version: int = 1):
+        self.name = name
+        self.imports = imports
+        self.source = source
+        self.version = version
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "version": self.version,
+            "imports": self.imports,
+            "source": self.source,
+        }
 
 
 class WorkflowCatalog(ABC):
     @abstractmethod
-    def all(self) -> list[WorkflowModel]:  # pragma: no cover
+    def all(self) -> list[WorkflowInfo]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
-    def get(self, name: str, version: int | None = None) -> WorkflowModel:  # pragma: no cover
+    def get(self, name: str, version: int | None = None) -> WorkflowInfo:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
-    def save(self, workflow: decorators.workflow):  # pragma: no cover
+    def save(self, workflows: list[WorkflowInfo]):  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
     def delete(self, name: str, version: int | None = None):  # pragma: no cover
         raise NotImplementedError()
 
+    @abstractmethod
+    def parse(self, source: bytes) -> list[WorkflowInfo]:  # pragma: no cover
+        raise NotImplementedError()
+
     @staticmethod
-    def create(options: dict[str, Any] | None = None) -> WorkflowCatalog:
-        return SQLiteWorkflowCatalog(options)
+    def create() -> WorkflowCatalog:
+        return SQLiteWorkflowCatalog()
 
 
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
-    def __init__(self, options: dict[str, Any] | None = None):
-        super().__init__()
-        settings = Configuration.get().settings
-        if settings.catalog.auto_register:
-            options = options or {}
-            self._auto_register_workflows({**settings.catalog.options, **options})
-
-    def all(self) -> list[WorkflowModel]:
+    def all(self) -> list[WorkflowInfo]:
         with self.session() as session:
+            models = session.query(WorkflowModel).order_by(
+                WorkflowModel.name,
+                desc(WorkflowModel.version),
+            )
+
             return [
-                model
-                for model in session.query(WorkflowModel).order_by(
-                    WorkflowModel.name,
-                    desc(WorkflowModel.version),
+                WorkflowInfo(
+                    model.name,
+                    model.imports,
+                    model.source,
+                    model.version,
                 )
+                for model in models
             ]
 
-    def get(self, name: str, version: int | None = None) -> WorkflowModel:
+    def get(self, name: str, version: int | None = None) -> WorkflowInfo:
         model = self._get(name, version)
         if not model:
             raise WorkflowNotFoundError(name)
-        return model
+        return WorkflowInfo(model.name, model.imports, model.source, model.version)
 
-    def save(self, workflow: decorators.workflow):
+    def save(self, workflows: list[WorkflowInfo]):
         with self.session() as session:
             try:
-                name = workflow.name
-                existing_model = self._get(name)
-                version = existing_model.version + 1 if existing_model else 1
-                session.add(WorkflowModel(name, workflow, version))
+                for workflow in workflows:
+                    existing_model = self._get(workflow.name)
+                    workflow.version = existing_model.version + 1 if existing_model else 1
+                    session.add(WorkflowModel(**workflow.to_dict()))
                 session.commit()
+                return workflows
             except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
@@ -97,19 +115,51 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
 
             return query.order_by(desc(WorkflowModel.version)).first()
 
-    def _auto_register_workflows(self, options: dict[str, Any]):
-        module = (
-            import_module(options["module"])
-            if "module" in options
-            else import_module_from_file(options["path"])
-            if "path" in options
-            else None
-        )
+    def parse(self, source: bytes):
+        try:
+            tree = ast.parse(source)
 
-        if not module:
-            return
+            workflow_names = []
+            imports: list[str] = []
 
-        for name in dir(module):
-            workflow = getattr(module, name)
-            if isinstance(workflow, decorators.workflow):
-                self.save(workflow)
+            # Extract imports
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    imports.extend(name.name for name in node.names)
+
+                elif isinstance(node, ast.ImportFrom):
+                    module_prefix = f"{node.module}." if node.module else ""
+                    imports.extend(f"{module_prefix}{name.name}" for name in node.names)
+
+                elif isinstance(node, ast.AsyncFunctionDef):
+                    for decorator in node.decorator_list:
+                        if (
+                            isinstance(decorator, ast.Name)
+                            and getattr(decorator, "id", None) == "workflow"
+                        ):
+                            workflow_names.append(node.name)
+                            break
+
+            if not workflow_names:
+                raise SyntaxError("No workflow found in the provided code.")
+
+            return [WorkflowInfo(name, imports, source) for name in workflow_names]
+        except SyntaxError as e:
+            raise SyntaxError(f"Invalid syntax: {e.msg}")
+
+    # def _auto_register_workflows(self, options: dict[str, Any]):
+    #     module = (
+    #         import_module(options["module"])
+    #         if "module" in options
+    #         else import_module_from_file(options["path"])
+    #         if "path" in options
+    #         else None
+    #     )
+
+    #     if not module:
+    #         return
+
+    #     for name in dir(module):
+    #         workflow = getattr(module, name)
+    #         if isinstance(workflow, decorators.workflow):
+    #             self.save(workflow)

@@ -4,7 +4,7 @@ from typing import Any
 
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
+from flux.domain.execution_context import ExecutionContext
 from flux.secret_managers import SecretManager
 
 SECRET_NAME = "example"
@@ -19,7 +19,7 @@ async def task_with_secrets(secrets: dict[str, Any] = {}):  # Secrets are not st
 
 
 @workflow
-async def using_secrets(ctx: WorkflowExecutionContext):
+async def using_secrets(ctx: ExecutionContext):
     return await task_with_secrets()
 
 

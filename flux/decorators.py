@@ -2,21 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import time
 from functools import wraps
 from typing import Any
 from typing import Callable
 from typing import TypeVar
 
 from flux.cache import CacheManager
-from flux.context import WorkflowExecutionContext
 from flux.context_managers import ContextManager
+from flux.domain.events import ExecutionEvent
+from flux.domain.events import ExecutionEventType
+from flux.domain.execution_context import ExecutionContext
 from flux.errors import ExecutionError
 from flux.errors import ExecutionTimeoutError
 from flux.errors import PauseRequested
 from flux.errors import RetryError
-from flux.events import ExecutionEvent
-from flux.events import ExecutionEventType
 from flux.output_storage import OutputStorage
 from flux.secret_managers import SecretManager
 from flux.utils import make_hashable
@@ -86,83 +85,47 @@ class workflow:
         self.output_storage = output_storage
         wraps(func)(self)
 
-    async def __call__(self, ctx: WorkflowExecutionContext, *args) -> Any:
-        if ctx.finished:
+    async def __call__(self, ctx: ExecutionContext, *args) -> Any:
+        if ctx.has_finished:
             return ctx
 
         self.id = f"{ctx.name}_{ctx.execution_id}"
 
-        if ctx.paused:
-            ctx.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_RESUMED,
-                    source_id=self.id,
-                    name=ctx.name,
-                    value=ctx.input,
-                ),
-            )
-        elif not ctx.started:
-            ctx.events.append(
-                ExecutionEvent(
-                    ExecutionEventType.WORKFLOW_STARTED,
-                    self.id,
-                    ctx.name,
-                    ctx.input,
-                ),
-            )
+        if ctx.is_paused:
+            ctx.resume(self.id)
+        elif not ctx.has_started:
+            ctx.start(self.id)
 
+        token = ExecutionContext.set(ctx)
         try:
-            token = WorkflowExecutionContext.set(ctx)
             output = await maybe_awaitable(self._func(ctx))
-            WorkflowExecutionContext.reset(token)
-
-            ctx.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_COMPLETED,
-                    source_id=self.id,
-                    name=ctx.name,
-                    value=self.output_storage.store(self.id, output)
-                    if self.output_storage
-                    else output,
-                ),
+            output_value = (
+                self.output_storage.store(self.id, output) if self.output_storage else output
             )
+            ctx.complete(self.id, output_value)
         except PauseRequested as ex:
-            ctx.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_PAUSED,
-                    source_id=self.id,
-                    name=ctx.name,
-                    value=ex.name,
-                ),
-            )
-        except ExecutionError as ex:
-            ctx.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_FAILED,
-                    source_id=self.id,
-                    name=ctx.name,
-                    value=ex,
-                ),
-            )
+            ctx.pause(self.id, ex.name)
         except Exception as ex:
-            ctx.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_FAILED,
-                    source_id=self.id,
-                    name=ctx.name,
-                    value=ex,
-                ),
-            )
+            ctx.fail(self.id, ex)
+        finally:
+            ExecutionContext.reset(token)
 
-        ContextManager.default().save(ctx)
+        await ctx.checkpoint()
         return ctx
 
-    def run(self, *args, **kwargs) -> WorkflowExecutionContext:
-        ctx = (
-            ContextManager.default().get(kwargs["execution_id"])
-            if "execution_id" in kwargs
-            else WorkflowExecutionContext(self.name, *args)
-        )
+    def run(self, *args, **kwargs) -> ExecutionContext:
+        if "execution_id" in kwargs:
+            ctx = ContextManager.create().get(kwargs["execution_id"])
+        else:
+
+            async def save(ctx: ExecutionContext):
+                return ContextManager.create().save(ctx)
+
+            ctx = ExecutionContext(
+                self.name,
+                input=args[0] if len(args) > 0 else None,
+                checkpoint=save,
+            )
         return asyncio.run(self(ctx))
 
 
@@ -251,7 +214,7 @@ class task:
             f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(kwargs))))}"
         )
 
-        ctx = await WorkflowExecutionContext.get()
+        ctx = await ExecutionContext.get()
 
         finished = [
             e
@@ -267,7 +230,7 @@ class task:
         if len(finished) > 0:
             return finished[0].value
 
-        if not ctx.resumed:
+        if not ctx.has_resumed:
             ctx.events.append(
                 ExecutionEvent(
                     type=ExecutionEventType.TASK_STARTED,
@@ -329,7 +292,7 @@ class task:
             ),
         )
 
-        ContextManager.default().save(ctx)
+        await ctx.checkpoint()
         return output
 
     async def map(self, args):
@@ -337,7 +300,7 @@ class task:
 
     async def __handle_exception(
         self,
-        ctx: WorkflowExecutionContext,
+        ctx: ExecutionContext,
         ex: Exception,
         task_id: str,
         task_full_name: str,
@@ -355,7 +318,7 @@ class task:
                     value=ex.name,
                 ),
             )
-            ContextManager.default().save(ctx)
+            await ctx.checkpoint()
             raise ex
 
         try:
@@ -413,7 +376,7 @@ class task:
 
     async def __handle_fallback(
         self,
-        ctx: WorkflowExecutionContext,
+        ctx: ExecutionContext,
         task_id: str,
         task_full_name: str,
         task_args: dict,
@@ -458,7 +421,7 @@ class task:
 
     async def __handle_rollback(
         self,
-        ctx: WorkflowExecutionContext,
+        ctx: ExecutionContext,
         task_id: str,
         task_full_name: str,
         task_args: dict,
@@ -500,7 +463,7 @@ class task:
 
     async def __handle_retry(
         self,
-        ctx: WorkflowExecutionContext,
+        ctx: ExecutionContext,
         task_id: str,
         task_full_name: str,
         args: tuple,
@@ -518,7 +481,7 @@ class task:
             }
 
             try:
-                time.sleep(current_delay)
+                await asyncio.sleep(current_delay)
                 current_delay = min(
                     current_delay * self.retry_backoff,
                     600,

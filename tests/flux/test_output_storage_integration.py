@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
+from flux.domain.execution_context import ExecutionContext
 from flux.output_storage import InlineOutputStorage
 from flux.output_storage import OutputStorageReference
 
@@ -33,7 +33,7 @@ def workflow_with_storage(inline_storage, task_with_storage):
     """Create a workflow that uses inline storage."""
 
     @workflow.with_options(output_storage=inline_storage)
-    async def workflow_with_inline_storage(ctx: WorkflowExecutionContext):
+    async def workflow_with_inline_storage(ctx: ExecutionContext):
         result = await task_with_storage(ctx.input)
         return result
 
@@ -45,7 +45,7 @@ def test_task_with_inline_storage(inline_storage, task_with_storage):
 
     # Create a workflow that uses the task
     @workflow.with_options(output_storage=inline_storage)
-    async def wrapper_workflow(ctx: WorkflowExecutionContext):
+    async def wrapper_workflow(ctx: ExecutionContext):
         result = await task_with_storage("test_value")
         return result
 
@@ -53,8 +53,8 @@ def test_task_with_inline_storage(inline_storage, task_with_storage):
     ctx = wrapper_workflow.run()
 
     # Verify the workflow completed successfully
-    assert ctx.finished
-    assert ctx.succeeded
+    assert ctx.has_finished
+    assert ctx.has_succeeded
 
     # Verify the output is stored correctly
     assert isinstance(ctx.output, OutputStorageReference)
@@ -95,7 +95,7 @@ def test_workflow_with_configured_storage():
 
         # Define a workflow with the mock storage
         @workflow.with_options(output_storage=mock_storage)
-        async def workflow_with_mock_storage(ctx: WorkflowExecutionContext):
+        async def workflow_with_mock_storage(ctx: ExecutionContext):
             return ctx.input
 
         # Run the workflow

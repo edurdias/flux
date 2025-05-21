@@ -113,3 +113,8 @@ class ExecutionContextNotFoundError(ExecutionError):
         super().__init__(
             message=f"Execution context '{execution_id}' not found.",
         )
+
+
+class WorkerNotFoundError(ExecutionError):
+    def __init__(self, name: str):
+        super().__init__(message=f"Worker '{name}' not found.")

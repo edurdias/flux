@@ -7,7 +7,19 @@ from typing import Any
 from flux.utils import make_hashable
 
 
+class ExecutionState(str, Enum):
+    CREATED = "CREATED"
+    SCHEDULED = "SCHEDULED"
+    CLAIMED = "CLAIMED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    PAUSED = "PAUSED"
+
+
 class ExecutionEventType(str, Enum):
+    WORKFLOW_SCHEDULED = "WORKFLOW_SCHEDULED"
+    WORKFLOW_CLAIMED = "WORKFLOW_CLAIMED"
     WORKFLOW_STARTED = "WORKFLOW_STARTED"
     WORKFLOW_COMPLETED = "WORKFLOW_COMPLETED"
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
@@ -47,7 +59,9 @@ class ExecutionEvent:
         self.name = name
         self.source_id = source_id
         self.value = value
+
         self.time = time or datetime.now()
+
         self.id = id if id else self.__generate_id()
 
     def __eq__(self, other):

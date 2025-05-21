@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 from flux.tasks import parallel
 
 
@@ -27,7 +27,7 @@ async def saluda(name: str):
 
 
 @workflow
-async def parallel_tasks_workflow(ctx: WorkflowExecutionContext[str]):
+async def parallel_tasks_workflow(ctx: ExecutionContext[str]):
     results = await parallel(
         say_hi(ctx.input),
         say_hello(ctx.input),

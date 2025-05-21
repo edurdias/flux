@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
+from flux.domain.execution_context import ExecutionContext
 
 
 @task
@@ -29,7 +29,7 @@ async def three_levels_task():
 
 
 @workflow
-async def nested_tasks_workflow(ctx: WorkflowExecutionContext):
+async def nested_tasks_workflow(ctx: ExecutionContext):
     await first_task()
     await second_task()
     await three_levels_task()

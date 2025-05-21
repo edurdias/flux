@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from examples.hello_world import hello_world
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 
 def test_should_succeed():
     ctx = hello_world.run("Joe")
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == "Hello, Joe"
     return ctx
 

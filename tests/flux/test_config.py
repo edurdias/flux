@@ -13,8 +13,8 @@ from flux.config import BaseConfig
 from flux.config import CatalogConfig
 from flux.config import Configuration
 from flux.config import EncryptionConfig
-from flux.config import ExecutorConfig
 from flux.config import FluxConfig
+from flux.config import WorkersConfig
 
 
 def test_base_config_to_dict():
@@ -48,8 +48,9 @@ def test_catalog_config_custom_values():
 
 def test_executor_config_defaults():
     """Test default values for ExecutorConfig."""
-    config = ExecutorConfig()
-    assert config.max_workers is None
+    config = WorkersConfig()
+    assert config.bootstrap_token is not None
+    assert config.control_plane_url == "http://localhost:8000"
     assert config.default_timeout == 0
     assert config.retry_attempts == 3
     assert config.retry_delay == 1
@@ -58,14 +59,17 @@ def test_executor_config_defaults():
 
 def test_executor_config_custom_values():
     """Test custom values for ExecutorConfig."""
-    config = ExecutorConfig(
-        max_workers=10,
+    config = WorkersConfig(
+        bootstrap_token="custom-token",
+        control_plane_url="http://local:8000",
         default_timeout=30,
         retry_attempts=5,
         retry_delay=2,
         retry_backoff=3,
     )
-    assert config.max_workers == 10
+
+    assert config.bootstrap_token == "custom-token"
+    assert config.control_plane_url == "http://local:8000"
     assert config.default_timeout == 30
     assert config.retry_attempts == 5
     assert config.retry_delay == 2
@@ -91,13 +95,12 @@ def test_flux_config_defaults():
     assert config.log_level == "INFO"
     assert config.server_port == 8000
     assert config.server_host == "localhost"
-    assert config.api_url == "http://localhost:8000"
     assert config.home == ".flux"
     assert config.cache_path == ".cache"
     assert config.local_storage_path == ".data"
     assert config.serializer == "pkl"
     assert config.database_url == "sqlite:///.flux/flux.db"
-    assert isinstance(config.executor, ExecutorConfig)
+    assert isinstance(config.workers, WorkersConfig)
     assert isinstance(config.security, EncryptionConfig)
     assert isinstance(config.catalog, CatalogConfig)
 
@@ -109,13 +112,12 @@ def test_flux_config_custom_values():
         log_level="DEBUG",
         server_port=9000,
         server_host="0.0.0.0",
-        api_url="http://api.example.com",
         home="/opt/flux",
         cache_path="/tmp/cache",
         local_storage_path="/tmp/data",
         serializer="json",
         database_url="postgresql://user:pass@localhost/flux",
-        executor={"max_workers": 10, "default_timeout": 30},
+        workers={"max_workers": 10, "default_timeout": 30},
         security={"encryption_key": "test-key"},
         catalog={"auto_register": True},
     )
@@ -124,14 +126,12 @@ def test_flux_config_custom_values():
     assert config.log_level == "DEBUG"
     assert config.server_port == 9000
     assert config.server_host == "0.0.0.0"
-    assert config.api_url == "http://api.example.com"
     assert config.home == "/opt/flux"
     assert config.cache_path == "/tmp/cache"
     assert config.local_storage_path == "/tmp/data"
     assert config.serializer == "json"
     assert config.database_url == "postgresql://user:pass@localhost/flux"
-    assert config.executor.max_workers == 10
-    assert config.executor.default_timeout == 30
+    assert config.workers.default_timeout == 30
     assert config.security.encryption_key == "test-key"
     assert config.catalog.auto_register is True
 
@@ -144,7 +144,6 @@ def test_flux_config_env_vars():
             "FLUX_DEBUG": "true",
             "FLUX_LOG_LEVEL": "DEBUG",
             "FLUX_SERVER_PORT": "9000",
-            "FLUX_EXECUTOR__MAX_WORKERS": "10",
             "FLUX_CATALOG__AUTO_REGISTER": "true",
         },
     ):
@@ -152,7 +151,6 @@ def test_flux_config_env_vars():
         assert config.debug is True
         assert config.log_level == "DEBUG"
         assert config.server_port == 9000
-        assert config.executor.max_workers == 10
         assert config.catalog.auto_register is True
 
 
@@ -183,8 +181,7 @@ debug = true
 log_level = "DEBUG"
 server_port = 9000
 
-[flux.executor]
-max_workers = 10
+[flux.workers]
 default_timeout = 30
 
 [flux.catalog]
@@ -324,8 +321,8 @@ def test_configuration_override(reset_configuration):
     assert config.settings.debug is True
 
     # Nested override
-    config.override(executor={"max_workers": 10})
-    assert config.settings.executor.max_workers == 10
+    config.override(workers={"bootstrap_token": "test-token"})
+    assert config.settings.workers.bootstrap_token == "test-token"
 
     # Multiple overrides
     config.override(log_level="DEBUG", server_port=9000)
@@ -333,10 +330,9 @@ def test_configuration_override(reset_configuration):
     assert config.settings.server_port == 9000
 
     # Deeply nested override
-    config.override(executor={"retry_attempts": 5, "retry_delay": 2})
-    assert config.settings.executor.max_workers == 10  # Should keep previous value
-    assert config.settings.executor.retry_attempts == 5  # Should update
-    assert config.settings.executor.retry_delay == 2  # Should update
+    config.override(workers={"retry_delay": 2})
+    assert config.settings.workers.retry_attempts == 0  # Should keep old value
+    assert config.settings.workers.retry_delay == 2  # Should update
 
 
 def test_configuration_reset(reset_configuration):
