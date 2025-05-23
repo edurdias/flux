@@ -15,11 +15,10 @@ from typing import Literal
 from typing import TypeVar
 
 import flux.decorators as decorators
-from flux.catalogs import WorkflowCatalog
-from flux.context import WorkflowExecutionContext
+from flux import ExecutionContext
+from flux.domain.events import ExecutionEvent
+from flux.domain.events import ExecutionEventType
 from flux.errors import PauseRequested
-from flux.events import ExecutionEvent
-from flux.events import ExecutionEventType
 
 T = TypeVar("T", bound=Any)
 
@@ -72,11 +71,8 @@ async def sleep(duration: float | timedelta):
 
 
 @decorators.task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: str | decorators.workflow, *args):
-    if isinstance(workflow, str):
-        workflow = WorkflowCatalog.create().get(workflow)
-    ctx = await workflow(WorkflowExecutionContext(workflow.name, *args))
-    return ctx.output
+async def call(workflow: str, *args):
+    raise NotImplementedError("Call workflow is not implemented yet.")
 
 
 @decorators.task
@@ -89,9 +85,9 @@ async def pipeline(*tasks: Callable, input: Any):
 
 @decorators.task.with_options(metadata=True)
 async def pause(name: str, metadata: decorators.TaskMetadata):
-    ctx = await WorkflowExecutionContext.get()
+    ctx = await ExecutionContext.get()
 
-    if ctx.resumed:
+    if ctx.has_resumed:
         ctx.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.TASK_RESUMED,
@@ -100,7 +96,7 @@ async def pause(name: str, metadata: decorators.TaskMetadata):
                 value=name,
             ),
         )
-        return
+        return name
     raise PauseRequested(name=name)
 
 

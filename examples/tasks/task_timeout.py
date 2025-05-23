@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 
 
 @task.with_options(timeout=1)
@@ -18,12 +18,12 @@ async def nested_task():
 
 
 @workflow
-async def task_timeout(ctx: WorkflowExecutionContext):
+async def task_timeout(ctx: ExecutionContext):
     await long_task()
 
 
 @workflow
-async def task_nested_timeout(ctx: WorkflowExecutionContext):
+async def task_nested_timeout(ctx: ExecutionContext):
     await nested_task()
 
 

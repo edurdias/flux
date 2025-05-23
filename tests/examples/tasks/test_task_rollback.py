@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from examples.tasks.task_rollback import task_rollback
+from flux.domain.events import ExecutionEventType
 from flux.errors import ExecutionError
-from flux.events import ExecutionEventType
 
 
 def test_should_rollback_and_fail():
     ctx = task_rollback.run()
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."
 
     events = [e.type for e in ctx.events]
     assert ExecutionEventType.WORKFLOW_STARTED in events

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from flux import task
-from flux import workflow
-from flux import WorkflowExecutionContext
+from flux import ExecutionContext, task, workflow
 from flux.tasks import pipeline
 
 
@@ -22,7 +20,7 @@ async def square(x):
 
 
 @workflow
-async def simple_pipeline(ctx: WorkflowExecutionContext[int]):
+async def simple_pipeline(ctx: ExecutionContext[int]):
     if not ctx.input:
         raise TypeError("Input not provided")
     result = await pipeline(multiply_by_two, add_three, square, input=ctx.input)

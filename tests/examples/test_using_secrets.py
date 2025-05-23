@@ -12,7 +12,9 @@ def test_should_succeed():
     secret_manager.save(SECRET_NAME, SECRET_VALUE)
 
     ctx = using_secrets.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == SECRET_VALUE
     return ctx
 
@@ -30,7 +32,7 @@ def test_should_fail():
     secret_manager.remove(SECRET_NAME)
 
     ctx = using_secrets.run()
-    assert ctx.finished and ctx.failed, "The workflow should have failed."
+    assert ctx.has_finished and ctx.has_failed, "The workflow should have failed."
     assert isinstance(ctx.output, ExecutionError)
     assert isinstance(ctx.output.inner_exception, ValueError)
     assert ctx.output.inner_exception.args == (

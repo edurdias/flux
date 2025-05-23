@@ -5,7 +5,9 @@ from examples.tasks.task_fallback_after_timeout import task_fallback_after_timeo
 
 def test_should_succeed():
     ctx = task_fallback_after_timeout.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     return ctx
 
 

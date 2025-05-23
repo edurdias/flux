@@ -17,11 +17,6 @@ repos:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
-  - repo: https://github.com/asottile/reorder-python-imports
-    rev: v3.14.0
-    hooks:
-      - id: reorder-python-imports
-        args: [--py39-plus, --add-import, "from __future__ import annotations"]
   - repo: https://github.com/asottile/add-trailing-comma
     rev: v3.1.0
     hooks:

@@ -6,7 +6,9 @@ from examples.fibo_benchmark import fibo_benchmark
 def test_should_succeed():
     expected_output = {"Iteration #0": 13, "Iteration #1": 13}
     ctx = fibo_benchmark.run((2, 7))
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == expected_output
     return ctx
 

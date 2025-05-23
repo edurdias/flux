@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 
 
 async def fallback_for_bad_task(number: int, should_fail: bool = True):
@@ -18,7 +18,7 @@ async def bad_task(number: int, should_fail: bool = True):
 
 
 @workflow
-async def task_fallback(ctx: WorkflowExecutionContext):
+async def task_fallback(ctx: ExecutionContext):
     await bad_task(1)
     await bad_task(2, False)
     await bad_task(3)

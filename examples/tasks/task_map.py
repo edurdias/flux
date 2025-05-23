@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 
 
 @task
@@ -11,7 +11,7 @@ async def count(to: int):
 
 
 @workflow
-async def task_map(ctx: WorkflowExecutionContext[int]):
+async def task_map(ctx: ExecutionContext[int]):
     results = await count.map(list(range(0, ctx.input)))
     return len(results)
 

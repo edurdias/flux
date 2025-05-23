@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 
 
 def fibo(n: int):
@@ -18,7 +18,7 @@ async def sum_fibo(iteration: int, n: int):
 
 
 @workflow
-async def fibo_benchmark(ctx: WorkflowExecutionContext[tuple[int, int]]):
+async def fibo_benchmark(ctx: ExecutionContext[tuple[int, int]]):
     iterations = ctx.input[0]
     n = ctx.input[1]
     results = {}
