@@ -7,8 +7,7 @@ Flux allows you to introduce pause points in your workflows, enabling manual ver
 ### Basic Pause Functionality
 
 ```python
-from flux import workflow
-from flux.context import WorkflowExecutionContext
+from flux import workflow, ExecutionContext
 from flux.decorators import task
 from flux.tasks import pause
 

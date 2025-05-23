@@ -6,7 +6,7 @@ Parallel execution allows multiple tasks to run concurrently, improving performa
 
 ### Using the Parallel Task
 ```python
-from flux import task, workflow
+from flux import task, workflow, ExecutionContext
 from flux.tasks import parallel
 
 @task
@@ -22,7 +22,7 @@ async def say_hola(name: str):
     return f"Hola, {name}"
 
 @workflow
-async def parallel_workflow(ctx: WorkflowExecutionContext[str]):
+async def parallel_workflow(ctx: ExecutionContext[str]):
     results = await parallel(
         say_hi(ctx.input),
         say_hello(ctx.input),
@@ -43,22 +43,23 @@ Pipelines chain multiple tasks together, passing results from one task to the ne
 
 ### Using the Pipeline Task
 ```python
+from flux import task, workflow, ExecutionContext
 from flux.tasks import pipeline
 
 @task
-def multiply_by_two(x):
+async def multiply_by_two(x):
     return x * 2
 
 @task
-def add_three(x):
+async def add_three(x):
     return x + 3
 
 @task
-def square(x):
+async def square(x):
     return x * x
 
 @workflow
-async def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
+async def pipeline_workflow(ctx: ExecutionContext[int]):
     result = await pipeline(
         multiply_by_two,
         add_three,
@@ -80,12 +81,14 @@ Task mapping applies a single task to multiple inputs in parallel.
 
 ### Basic Task Mapping
 ```python
+from flux import task, workflow, ExecutionContext
+
 @task
-def process_item(item: str):
+async def process_item(item: str):
     return item.upper()
 
 @workflow
-async def mapping_workflow(ctx: WorkflowExecutionContext[list[str]]):
+async def mapping_workflow(ctx: ExecutionContext[list[str]]):
     # Process multiple items in parallel
     results = await process_item.map(ctx.input)
     return results
@@ -98,7 +101,7 @@ async def count(to: int):
     return [i for i in range(0, to + 1)]
 
 @workflow
-async def task_map_workflow(ctx: WorkflowExecutionContext[int]):
+async def task_map_workflow(ctx: ExecutionContext[int]):
     # Generate sequences in parallel
     results = await count.map(list(range(0, ctx.input)))
     return len(results)
@@ -116,18 +119,19 @@ Graphs allow complex task dependencies and conditional execution paths.
 
 ### Basic Graph
 ```python
+from flux import task, workflow, ExecutionContext
 from flux.tasks import Graph
 
 @task
-def get_name(input: str) -> str:
+async def get_name(input: str) -> str:
     return input
 
 @task
-def say_hello(name: str) -> str:
+async def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow
-async def graph_workflow(ctx: WorkflowExecutionContext[str]):
+async def graph_workflow(ctx: ExecutionContext[str]):
     hello = (
         Graph("hello_world")
         .add_node("get_name", get_name)
@@ -142,7 +146,7 @@ async def graph_workflow(ctx: WorkflowExecutionContext[str]):
 ### Conditional Graph Execution
 ```python
 @workflow
-async def conditional_graph_workflow(ctx: WorkflowExecutionContext):
+async def conditional_graph_workflow(ctx: ExecutionContext):
     workflow = (
         Graph("conditional_flow")
         .add_node("validate", validate_data)
@@ -199,7 +203,7 @@ Choose the appropriate pattern based on your needs:
 from flux.tasks import parallel
 
 @workflow
-async def parallel_workflow(ctx: WorkflowExecutionContext):
+async def parallel_workflow(ctx: ExecutionContext):
     # Tasks are executed using ThreadPoolExecutor
     # Number of workers = CPU cores available
     results = await parallel(
@@ -210,9 +214,8 @@ async def parallel_workflow(ctx: WorkflowExecutionContext):
 ```
 
 Key considerations:
-- Uses Python's ThreadPoolExecutor with workers = CPU cores
+- Uses Python's asyncio for concurrent task execution
 - Best for I/O-bound tasks (network requests, file operations)
-- Less effective for CPU-bound tasks due to Python's GIL
 - All tasks start simultaneously, consuming resources immediately
 
 Optimization tips:
@@ -257,7 +260,7 @@ Pipeline execution is sequential, making performance dependent on the slowest ta
 
 ```python
 @workflow
-async def pipeline_workflow(ctx: WorkflowExecutionContext):
+async def pipeline_workflow(ctx: ExecutionContext):
     result = await pipeline(
         fast_task,      # 0.1s
         slow_task,      # 2.0s
@@ -301,17 +304,17 @@ Task mapping parallelizes the same operation across multiple inputs.
 
 ```python
 @task
-def process_item(item: str):
+async def process_item(item: str):
     return item.upper()
 
 @workflow
-async def mapping_workflow(ctx: WorkflowExecutionContext):
+async def mapping_workflow(ctx: ExecutionContext):
     # Be mindful of the input size
     results = await process_item.map(large_input_list)
 ```
 
 Key considerations:
-- Automatically batches tasks based on available CPU cores
+- Built on top of asyncio.gather for concurrent execution
 - Memory usage scales with input size
 - All results are collected in memory
 
@@ -319,7 +322,7 @@ Optimization tips:
 1. Batch processing for large datasets:
 ```python
 @workflow
-async def optimized_mapping(ctx: WorkflowExecutionContext):
+async def optimized_mapping(ctx: ExecutionContext):
     # Process in smaller batches
     batch_size = 1000
     results = []
@@ -332,7 +335,7 @@ async def optimized_mapping(ctx: WorkflowExecutionContext):
 2. Memory-efficient processing:
 ```python
 @workflow
-async def memory_efficient_mapping(ctx: WorkflowExecutionContext):
+async def memory_efficient_mapping(ctx: ExecutionContext):
     # Process and store results incrementally
     results = []
     for batch in chunk_generator(ctx.input, size=1000):
@@ -347,7 +350,7 @@ Graph execution performance depends on task dependencies and conditions.
 
 ```python
 @workflow
-def graph_workflow(ctx: WorkflowExecutionContext):
+async def graph_workflow(ctx: ExecutionContext):
     workflow = (
         Graph("optimized_flow")
         .add_node("validate", quick_validation)
