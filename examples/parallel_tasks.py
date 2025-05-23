@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from flux import ExecutionContext
-from flux import task
-from flux import workflow
+from flux import ExecutionContext, task, workflow
 from flux.tasks import parallel
 
 
