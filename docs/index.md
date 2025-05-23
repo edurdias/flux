@@ -1,6 +1,6 @@
 # Flux Documentation
 
-> Flux documentation is AI generated. If you find anything, please let us know.
+> Flux documentation is AI generated. If you find any issues, please let us know.
 
 ## Introduction
 ### [Overview of Flux](introduction/overview.md)
@@ -13,8 +13,6 @@
   - [Security](introduction/features.md#security)
   - [Development Features](introduction/features.md#development-features)
 ### [Use Cases](introduction/use-cases.md)
-
-
 
 ## Getting Started
 ### [Installation](getting-started/installation.md)
@@ -44,11 +42,6 @@
    - [Task Composition](core-concepts/tasks.md#task-composition)
    - [Error Handling](core-concepts/tasks.md#error-handling)
    - [Built-in Tasks](core-concepts/tasks.md#built-in-tasks)
-     - [Time Operations](core-concepts/tasks.md#time-operations)
-     - [Random Operations](core-concepts/tasks.md#random-operations)
-     - [UUID Generation](core-concepts/tasks.md#uuid-generation)
-     - [Workflow Pauses](core-concepts/tasks.md#workflow-pauses)
-     - [Graph-based Task Composition](core-concepts/tasks.md#graph-based-task-composition)
 
 ### [Execution Model](core-concepts/execution-model.md)
    - [Local Execution](core-concepts/execution-model.md#local-execution)
@@ -58,10 +51,18 @@
    - [State Management](core-concepts/execution-model.md#state-management)
    - [Event System](core-concepts/execution-model.md#event-system)
 
+### [Error Handling & Recovery](core-concepts/error-handling.md)
+   - [Task-Level Error Handling](core-concepts/error-handling.md#task-level-error-handling)
+   - [Retry Mechanisms](core-concepts/error-handling.md#retry-mechanism)
+   - [Fallback Strategies](core-concepts/error-handling.md#fallback-strategy)
+   - [Rollback Operations](core-concepts/error-handling.md#rollback-operations)
+   - [Timeout Handling](core-concepts/error-handling.md#timeout-handling)
+   - [Task Caching](core-concepts/error-handling.md#task-caching)
+
 ## Advanced Features
 ### [Task Patterns](advanced-features/task-patterns.md)
    - [Parallel Execution](advanced-features/task-patterns.md#parallel-execution)
-   - [Task Pipeline](advanced-features/task-patterns.md#pipeline-processing)
+   - [Pipeline Processing](advanced-features/task-patterns.md#pipeline-processing)
    - [Task Mapping](advanced-features/task-patterns.md#task-mapping)
    - [Graph](advanced-features/task-patterns.md#graph)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
@@ -71,76 +72,8 @@
    - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
    - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
 
----
-<!--
-
-## Deployment
-### Local Development
-   - Setup
-   - Configuration
-   - Testing
-   - Debugging
-
-### Production Deployment
-   - Requirements
-   - Configuration
-   - Scaling
-   - Monitoring
-
-## Best Practices
-### Workflow Design
-   - Patterns
-   - Anti-patterns
-   - Performance Tips
-   - Error Handling
-
-### Task Implementation
-   - Task Sizing
-   - Error Handling
-   - State Management
-   - Resource Management
-
-### Testing
-   - Unit Testing
-   - Integration Testing
-   - Mocking
-   - Test Patterns
-
-## Examples
-### Basic Examples
-   - Hello World
-   - Simple Pipeline
-   - Parallel Tasks
-   - Error Handling
-
-### Advanced Examples
-   - Complex Workflows
-   - Data Processing
-   - Integration Patterns
-   - Real-world Use Cases
-
-## Troubleshooting
-### Common Issues
-   - Task Failures
-   - State Management
-   - Performance Issues
-   - Resource Problems
-
-### Debugging
-   - Logging
-   - Event Inspection
-   - State Inspection
-   - Error Analysis
-
-## Migration Guide
-- Version Compatibility
-- Breaking Changes
-- Migration Steps
-- Backward Compatibility
-
-## Contributing
-- Development Setup
-- Coding Standards
-- Testing Guidelines
-- Pull Request Process
-- Documentation Guidelines -->
+## Appendix
+- [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
+- [API Reference](https://github.com/flux-framework/flux/tree/main/flux)
+- [Version History](https://github.com/flux-framework/flux/releases)
+- [Contributing Guidelines](https://github.com/flux-framework/flux/blob/main/CONTRIBUTING.md)

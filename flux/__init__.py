@@ -1,19 +1,23 @@
 # ruff: noqa: F403
+# reorder-python-imports: skip-file
 from __future__ import annotations
 
-from flux.catalogs import *
-from flux.context import WorkflowExecutionContext
-from flux.context_managers import *
+# First import the core domain classes to avoid circular imports
+from flux.domain.execution_context import ExecutionContext
+from flux.domain.events import *
+
+# Then import the rest of the modules
 from flux.decorators import task
 from flux.decorators import workflow
 from flux.encoders import *
-from flux.events import *
 from flux.output_storage import *
 from flux.secret_managers import *
 from flux.tasks import *
+from flux.catalogs import *
+from flux.context_managers import *
 
 __all__ = [
     "task",
     "workflow",
-    "WorkflowExecutionContext",
+    "ExecutionContext",
 ]

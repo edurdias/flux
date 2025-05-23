@@ -5,7 +5,9 @@ from examples.parallel_tasks import parallel_tasks_workflow
 
 def test_should_succeed():
     ctx = parallel_tasks_workflow.run("Joe")
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     return ctx
 
 

@@ -5,7 +5,9 @@ from examples.sleep import sleep_workflow
 
 def test_should_succeed():
     ctx = sleep_workflow.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     return ctx
 
 

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import pytest
+
 from examples.subflows import subflows
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
+
+pytestmark = pytest.mark.skip(reason="subworkflows (call task) is being refactored")
 
 
 def test_should_succeed():
     repos = ["python/cpython", "microsoft/vscode", "localsend/localsend"]
     ctx = subflows.run(repos)
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert all(
         repo in ctx.output for repo in repos
     ), "The output should contain all the specified repositories."

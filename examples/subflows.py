@@ -3,26 +3,32 @@ from __future__ import annotations
 import httpx
 
 from flux import call
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 
 
 @task
 async def get_repo_info(repo):
     url = f"https://api.github.com/repos/{repo}"
-    repo_info = httpx.get(url).json()
+    response = httpx.get(url)
+    response.raise_for_status()  # Raise an exception for 4XX/5XX responses
+    repo_info = response.json()
     return repo_info
 
 
 @workflow
-async def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
-    repo_info = await get_repo_info(ctx.input)
-    return repo_info["stargazers_count"]
+async def get_stars_workflow(ctx: ExecutionContext[str]):
+    try:
+        repo_info = await get_repo_info(ctx.input)
+        return repo_info["stargazers_count"]
+    except Exception as e:
+        # Handle any exceptions that might occur during API call or data processing
+        raise Exception(f"Failed to get stars for {ctx.input}: {str(e)}") from e
 
 
 @workflow
-async def subflows(ctx: WorkflowExecutionContext[list[str]]):
+async def subflows(ctx: ExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("The list of repositories cannot be empty.")
 

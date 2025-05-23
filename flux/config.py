@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 import tomli
 from pydantic import BaseModel
@@ -28,10 +29,18 @@ class CatalogConfig(BaseConfig):
     )
 
 
-class ExecutorConfig(BaseConfig):
+class WorkersConfig(BaseConfig):
     """Configuration for workflow executor."""
 
-    max_workers: int = Field(default=None, description="Maximum number of worker threads")
+    bootstrap_token: str = Field(
+        default_factory=lambda: uuid4().hex,
+        description="Token for bootstrapping workers",
+    )
+
+    control_plane_url: str = Field(
+        default="http://localhost:8000",
+        description="Default control plane URL",
+    )
     default_timeout: int = Field(default=0, description="Default task timeout in seconds")
     retry_attempts: int = Field(default=3, description="Default number of retry attempts")
     retry_delay: int = Field(default=1, description="Default delay between retries in seconds")
@@ -58,19 +67,15 @@ class FluxConfig(BaseSettings):
 
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
-    server_port: int = Field(default=8000, description="Port for the API server")
-    server_host: str = Field(default="localhost", description="Host for the API server")
-    api_url: str = Field(
-        default="http://localhost:8000",
-        description="API URL for remote execution",
-    )
+    server_port: int = Field(default=8000, description="Port for the control plane server")
+    server_host: str = Field(default="localhost", description="Host for the control plane server")
     home: str = Field(default=".flux", description="Home directory for Flux")
     cache_path: str = Field(default=".cache", description="Path for cache directory")
     local_storage_path: str = Field(default=".data", description="Path for local storage directory")
     serializer: str = Field(default="pkl", description="Default serializer (json or pkl)")
     database_url: str = Field(default="sqlite:///.flux/flux.db", description="Database URL")
 
-    executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
+    workers: WorkersConfig = Field(default_factory=WorkersConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 

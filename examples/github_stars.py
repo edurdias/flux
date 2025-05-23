@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import httpx
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux import WorkflowExecutionContext
 
 
 @task
@@ -14,7 +14,7 @@ async def get_stars(repo: str):
 
 
 @workflow
-async def github_stars(ctx: WorkflowExecutionContext[list[str]]):
+async def github_stars(ctx: ExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("The list of repositories cannot be empty.")
 

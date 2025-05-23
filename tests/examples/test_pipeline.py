@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from examples.simple_pipeline import simple_pipeline
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 
 def test_should_succeed():
     ctx = simple_pipeline.run(5)
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == 169
     return ctx
 

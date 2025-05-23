@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import time
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 
 
 async def fallback_for_long_task(number):
@@ -22,7 +22,7 @@ async def bad_task(number: int, should_take_time: bool = True):
 
 
 @workflow
-async def task_fallback_after_timeout(ctx: WorkflowExecutionContext):
+async def task_fallback_after_timeout(ctx: ExecutionContext):
     await bad_task(1)
     await bad_task(2, False)  # will pass
     await bad_task(3)

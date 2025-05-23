@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from examples.tasks.task_fallback import task_fallback
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 
 def test_should_succeed():
     ctx = task_fallback.run()
-    assert ctx.finished and ctx.succeeded, "The workflow should have been completed successfully."
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
 
     events = [e.type for e in ctx.events]
     assert ExecutionEventType.WORKFLOW_STARTED in events

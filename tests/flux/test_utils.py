@@ -6,7 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 
-from flux.context import WorkflowExecutionContext
+from flux import ExecutionContext
 from flux.utils import FluxEncoder
 from flux.utils import is_hashable
 from flux.utils import make_hashable
@@ -43,7 +43,7 @@ def test_flux_encoder():
         "datetime": datetime(2023, 1, 1),
         "timedelta": timedelta(seconds=60),
         "uuid": uuid.uuid4(),
-        "context": WorkflowExecutionContext("test", {"input": "test"}, "123", []),
+        "context": ExecutionContext("test", {"input": "test"}, "123", []),
         "exception": ValueError("test error"),
         "callable": lambda x: x,
     }

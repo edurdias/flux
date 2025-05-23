@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 from flux.decorators import task
 from flux.tasks import pause
 
@@ -26,7 +26,7 @@ async def process_chunk(state, chunk_id):
 
 
 @workflow
-async def multi_pause_workflow(ctx: WorkflowExecutionContext):
+async def multi_pause_workflow(ctx: ExecutionContext):
     """
     A workflow demonstrating multiple pause points:
     1. Initial pause after setup for verification

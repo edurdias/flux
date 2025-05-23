@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.context import WorkflowExecutionContext
 
 counter = 1
 
@@ -18,7 +18,7 @@ async def bad_task(number):
 
 
 @workflow
-async def task_retries(ctx: WorkflowExecutionContext):
+async def task_retries(ctx: ExecutionContext):
     await bad_task(1)
     await bad_task(2)
 

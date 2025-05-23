@@ -13,13 +13,16 @@ from types import GeneratorType
 from typing import Any
 from typing import Callable
 
-import flux.context as context
 from flux.errors import ExecutionError
 
 
 def maybe_awaitable(func: Any | None) -> Any:
     if func is None:
-        return None
+
+        async def none_wrapper():
+            return None
+
+        return none_wrapper()
 
     if inspect.isawaitable(func):
         return func
@@ -131,12 +134,16 @@ class FluxEncoder(json.JSONEncoder):
             return obj.value
         if isinstance(obj, datetime):
             return obj.isoformat()
-        if isinstance(obj, context.WorkflowExecutionContext):
+
+        from flux import ExecutionContext
+
+        if isinstance(obj, ExecutionContext):
             return {
                 "name": obj.name,
                 "execution_id": obj.execution_id,
                 "input": obj.input,
                 "output": obj.output,
+                "state": obj.state,
                 "events": obj.events,
             }
 

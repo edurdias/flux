@@ -107,12 +107,11 @@ event_list = ctx.events       # Execution events
 Flux supports pausing and resuming workflows:
 
 ```python
-from flux import workflow
-from flux.context import WorkflowExecutionContext
+from flux import workflow, ExecutionContext
 from flux.tasks import pause
 
 @workflow
-async def pausable_workflow(ctx: WorkflowExecutionContext):
+async def pausable_workflow(ctx: ExecutionContext):
     # Run until the pause point
     result = await initial_task()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 import dill
 from Crypto.Cipher import AES
@@ -22,11 +23,11 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
 
-import flux.decorators as decorators
+from flux import ExecutionContext
 from flux.config import Configuration
-from flux.context import WorkflowExecutionContext
-from flux.events import ExecutionEvent
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEvent
+from flux.domain.events import ExecutionEventType
+from flux.domain.events import ExecutionState
 
 
 class Base(DeclarativeBase):
@@ -48,14 +49,18 @@ class EncryptedType(TypeDecorator):
 
     def __init__(self):
         super().__init__()
-        settings = Configuration.get().settings.security
-        self.key = settings.encryption_key
         self.protocol = dill.HIGHEST_PROTOCOL
+
+    def _get_key(self) -> str:
+        key = Configuration.get().settings.security.encryption_key
+        if not key:
+            raise ValueError("Encryption key is not set in the configuration.")
+        return key
 
     def _derive_key(self, salt: bytes) -> bytes:
         """Derive an encryption key using PBKDF2"""
         return PBKDF2(
-            password=self.key.encode("utf-8"),
+            password=self._get_key().encode("utf-8"),
             salt=salt,
             dkLen=32,  # AES-256 key length
             count=1000000,  # Number of iterations
@@ -108,6 +113,35 @@ class EncryptedType(TypeDecorator):
         return None
 
 
+class Base64Type(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def __init__(self):
+        super().__init__()
+        self.protocol = dill.HIGHEST_PROTOCOL
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        """Serialize to base64 before storing"""
+        if value is not None:
+            try:
+                serialized = dill.dumps(value, protocol=self.protocol)
+                return base64.b64encode(serialized).decode("utf-8")
+            except Exception as e:
+                raise ValueError(f"Failed to serialize value: {str(e)}") from e
+        return None
+
+    def process_result_value(self, value: str | None, dialect: Any) -> Any:
+        """Deserialize from base64 when retrieving"""
+        if value is not None:
+            try:
+                serialized = base64.b64decode(value.encode("utf-8"))
+                return dill.loads(serialized)
+            except Exception as e:
+                raise ValueError(f"Failed to deserialize value: {str(e)}") from e
+        return None
+
+
 class SecretModel(Base):
     __tablename__ = "secrets"
 
@@ -115,7 +149,120 @@ class SecretModel(Base):
     value = Column(
         EncryptedType(),
         nullable=False,
-    )  # TODO: replace static key with configuration
+    )
+
+
+class WorkerRuntimeModel(Base):
+    __tablename__ = "worker_runtimes"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    os_name = Column(String, nullable=False)
+    os_version = Column(String, nullable=False)
+    python_version = Column(String, nullable=False)
+
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
+    worker = relationship("WorkerModel", back_populates="runtime", uselist=False)
+
+    def __init__(self, os_name: str, os_version: str, python_version: str):
+        self.os_name = os_name
+        self.os_version = os_version
+        self.python_version = python_version
+
+
+class WorkerResourcesGPUModel(Base):
+    __tablename__ = "worker_resources_gpus"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    name = Column(String, nullable=False)
+    memory_total = Column(Integer, nullable=False)
+    memory_available = Column(Integer, nullable=False)
+
+    resources_id = Column(String, ForeignKey("worker_resources.id"), nullable=False)
+    resources = relationship("WorkerResourcesModel", back_populates="gpus")
+
+    def __init__(self, name: str, memory_total: int, memory_available: int):
+        self.name = name
+        self.memory_total = memory_total
+        self.memory_available = memory_available
+
+
+class WorkerResourcesModel(Base):
+    __tablename__ = "worker_resources"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    cpu_total = Column(Integer, nullable=False)
+    cpu_available = Column(Integer, nullable=False)
+    memory_total = Column(Integer, nullable=False)
+    memory_available = Column(Integer, nullable=False)
+    disk_total = Column(Integer, nullable=False)
+    disk_free = Column(Integer, nullable=False)
+
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
+    worker = relationship("WorkerModel", back_populates="resources", uselist=False)
+
+    gpus = relationship("WorkerResourcesGPUModel", back_populates="resources")
+
+    def __init__(
+        self,
+        cpu_total: int,
+        cpu_available: int,
+        memory_total: int,
+        memory_available: int,
+        disk_total: int,
+        disk_free: int,
+        gpus: list[WorkerResourcesGPUModel] | None = None,
+    ):
+        self.cpu_total = cpu_total
+        self.cpu_available = cpu_available
+        self.memory_total = memory_total
+        self.memory_available = memory_available
+        self.disk_total = disk_total
+        self.disk_free = disk_free
+        self.gpus = gpus or []
+
+
+class WorkerPackageModel(Base):
+    __tablename__ = "worker_packages"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    name = Column(String, nullable=False)
+    version = Column(String, nullable=False)
+
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
+    worker = relationship("WorkerModel", back_populates="packages")
+
+    def __init__(self, name: str, version: str):
+        self.name = name
+        self.version = version
+
+
+class WorkerModel(Base):
+    __tablename__ = "workers"
+
+    name = Column(
+        String,
+        primary_key=True,
+        unique=True,
+        nullable=False,
+        default=lambda: f"worker-{uuid4().hex}",
+    )
+    session_token = Column(String, nullable=False, default=lambda: uuid4().hex)
+
+    runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
+    packages = relationship("WorkerPackageModel", back_populates="worker")
+    resources = relationship("WorkerResourcesModel", back_populates="worker", uselist=False)
+
+    def __init__(
+        self,
+        name: str,
+        runtime: WorkerRuntimeModel | None = None,
+        packages: list[WorkerPackageModel] | None = None,
+        resources: WorkerResourcesModel | None = None,
+    ):
+        self.name = name
+        self.runtime = runtime
+        self.packages = packages or []
+        self.resources = resources
 
 
 class WorkflowModel(Base):
@@ -124,12 +271,14 @@ class WorkflowModel(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)
     version = Column(Integer, nullable=False)
-    code = Column(PickleType(pickler=dill), nullable=False)
+    imports = Column(Base64Type(), nullable=True)
+    source = Column(Base64Type(), nullable=False)
 
-    def __init__(self, name: str, code: decorators.workflow, version: int = 1):
+    def __init__(self, name: str, version: int, imports: list[str], source: bytes):
         self.name = name
-        self.code = code
         self.version = version
+        self.imports = imports
+        self.source = source
 
 
 class WorkflowExecutionContextModel(Base):
@@ -144,6 +293,7 @@ class WorkflowExecutionContextModel(Base):
     name = Column(String, nullable=False)
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
+    state = Column(SqlEnum(ExecutionState), nullable=False)
 
     # Relationship to events
     events = relationship(
@@ -158,25 +308,28 @@ class WorkflowExecutionContextModel(Base):
         execution_id: str,
         name: str,
         input: Any,
-        events: list[ExecutionEventModel] = [],
+        events: list[ExecutionEventModel] | None = None,
         output: Any | None = None,
+        state: ExecutionState = ExecutionState.CREATED,
     ):
         self.execution_id = execution_id
         self.name = name
         self.input = input
-        self.events = events
+        self.events = events or []
         self.output = output
+        self.state = state
 
-    def to_plain(self) -> WorkflowExecutionContext:
-        return WorkflowExecutionContext(
-            self.name,
-            self.input,
-            self.execution_id,
-            [e.to_plain() for e in self.events],
+    def to_plain(self) -> ExecutionContext:
+        return ExecutionContext(
+            name=self.name,
+            input=self.input,
+            execution_id=self.execution_id,
+            events=[e.to_plain() for e in self.events],
+            state=self.state,
         )
 
     @classmethod
-    def from_plain(cls, obj: WorkflowExecutionContext) -> WorkflowExecutionContextModel:
+    def from_plain(cls, obj: ExecutionContext) -> WorkflowExecutionContextModel:
         return cls(
             execution_id=obj.execution_id,
             name=obj.name,
