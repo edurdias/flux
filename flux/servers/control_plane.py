@@ -20,6 +20,7 @@ from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.domain.execution_context import ExecutionContext
+from flux.errors import WorkflowNotFoundError
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json
 from flux.worker_registry import WorkerInfo
@@ -87,10 +88,30 @@ class ControlPlaneServer:
             raise HTTPException(status_code=403, detail="Invalid token")
         return worker
 
+    def _get_version(self) -> str:
+        import importlib.metadata
+
+        try:
+            version = importlib.metadata.version("flux-core")
+        except importlib.metadata.PackageNotFoundError:
+            version = "0.0.0"  # Default if package is not installed
+        return version
+
+    def _get_title(self) -> str:
+        import importlib.metadata
+
+        try:
+            metadata = importlib.metadata.metadata("flux-core")
+            # Use the description as title, or fall back to name
+            title = metadata.get("Summary") or metadata.get("Name", "Flux")
+            return f"{title} API"
+        except importlib.metadata.PackageNotFoundError:
+            return "Flux API"  # Default if package is not installed
+
     def _create_api(self) -> FastAPI:
         api = FastAPI(
-            title="Flux API",
-            version="1.0.0",
+            title="Flux",
+            version=self._get_version(),
             docs_url="/docs",
         )
 
@@ -116,33 +137,47 @@ class ControlPlaneServer:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
 
-        @api.post("/workflows/{workflow_name}/start")
-        async def workflows_start(
+        @api.get("/workflows")
+        async def workflows_all():
+            try:
+                catalog = WorkflowCatalog.create()
+                workflows = catalog.all()
+                return [{"name": w.name, "version": w.version} for w in workflows]
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error listing workflows: {str(e)}")
+
+        @api.get("/workflows/{workflow_name}")
+        async def workflows_get(workflow_name: str):
+            try:
+                catalog = WorkflowCatalog.create()
+                workflow = catalog.get(workflow_name)
+                return workflow.to_dict()
+            except WorkflowNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error retrieving workflow: {str(e)}")
+
+        @api.post("/workflows/{workflow_name}/run/{mode}")
+        async def workflows_run(
             workflow_name: str,
             input: Any = Body(...),
-            wait: bool = False,
-            detail: bool = False,
+            mode: str = "async",
+            detailed: bool = False,
         ):
-            """
-            Start a workflow execution.
-            This endpoint initiates a new workflow execution with the specified name and input data.
-            It creates a workflow execution context and returns a summary of the created execution.
-            Args:
-                workflow_name (str): The name of the workflow to execute.
-                input (Any): The input data for the workflow execution.
-                wait (bool): Whether to wait for the workflow execution to complete before returning.
-                detail (bool): Whether to return detailed information about the workflow execution context.
-            Returns:
-                dict: A summary of the workflow execution context.
-            Raises:
-                HTTPException: If there's an error scheduling the workflow.
-            """
             try:
+                if not workflow_name:
+                    raise HTTPException(status_code=400, detail="Workflow name is required.")
+
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
                 manager = ContextManager.create()
                 ctx = manager.save(ExecutionContext(workflow_name, input))
 
-                if wait:
-                    # Poll for workflow completion
+                if mode == "sync":
                     backoff_factor = 1.5
                     current_delay = 0.1
                     max_delay = 2.0
@@ -150,22 +185,54 @@ class ControlPlaneServer:
                     while not ctx.has_finished:
                         await asyncio.sleep(current_delay)
                         ctx = manager.get(ctx.execution_id)
-                        # Apply exponential backoff with a maximum delay
                         current_delay = min(current_delay * backoff_factor, max_delay)
 
+                if mode == "stream":
+
+                    async def check_for_new_executions():
+                        nonlocal ctx
+                        while not ctx.has_finished:
+                            backoff_factor = 1.5
+                            current_delay = 0.1
+                            max_delay = 2.0
+                            await asyncio.sleep(current_delay)
+                            new_ctx = manager.get(ctx.execution_id)
+
+                            if new_ctx.events and (
+                                not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                            ):
+                                ctx = new_ctx
+                                dto = ExecutionContextDTO.from_domain(ctx)
+                                yield {
+                                    "event": f"{ctx.name}.execution.{ctx.state.value.lower()}",
+                                    "data": to_json(dto.summary() if not detailed else dto),
+                                }
+                                current_delay = 0.1
+                            current_delay = min(current_delay * backoff_factor, max_delay)
+
+                    return EventSourceResponse(
+                        check_for_new_executions(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
                 dto = ExecutionContextDTO.from_domain(ctx)
-                return dto.summary() if not detail else dto
+                return dto.summary() if not detailed else dto
 
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
 
-        @api.get("/workflows/{workflow_name}/inspect/{execution_id}")
-        async def workflows_inspect(workflow_name: str, execution_id: str, detail: bool = False):
+        @api.get("/workflows/{workflow_name}/status/{execution_id}")
+        async def workflows_status(workflow_name: str, execution_id: str, detailed: bool = False):
             try:
                 manager = ContextManager.create()
                 context = manager.get(execution_id)
                 dto = ExecutionContextDTO.from_domain(context)
-                return dto.summary() if not detail else dto
+                return dto.summary() if not detailed else dto
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
 

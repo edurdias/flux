@@ -66,6 +66,23 @@ class WorkerServer:
             asyncio.run(self._start())
             self.echo("Worker shutting down...")
         except Exception:
+            import time
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    self.echo(f"Retrying worker startup (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(2**attempt)  # Exponential backoff
+                    asyncio.run(self._start())
+                    break
+                except Exception as retry_error:
+                    attempt += 1
+                    if attempt == max_retries - 1:
+                        self.echo(
+                            f"Failed to start worker after {max_retries} attempts: {retry_error}",
+                            err=True,
+                        )
+
             self.echo("Worker shutting down...")
 
     async def _start(self):
