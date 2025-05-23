@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from flux import ExecutionContext
-from flux import workflow
+from flux import ExecutionContext, workflow
 from flux.decorators import task
 from flux.tasks import pause
 from flux.tasks import sleep
