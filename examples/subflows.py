@@ -24,7 +24,7 @@ async def get_stars_workflow(ctx: ExecutionContext[str]):
         return repo_info["stargazers_count"]
     except Exception as e:
         # Handle any exceptions that might occur during API call or data processing
-        raise Exception(f"Failed to get stars for {ctx.input}: {str(e)}")
+        raise Exception(f"Failed to get stars for {ctx.input}: {str(e)}") from e
 
 
 @workflow

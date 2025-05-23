@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flux import task
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
+from flux import ExecutionContext
 
 
 async def fallback_for_bad_task(number: int, should_fail: bool = True):
