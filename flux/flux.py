@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from uuid import uuid4
 
 import click
+import httpx
 
 from flux.config import Configuration
 from flux.servers.control_plane import ControlPlaneServer
 from flux.servers.worker import WorkerServer
+from flux.utils import parse_value
+from flux.utils import to_json
 
 
 @click.group()
@@ -19,128 +24,228 @@ def workflow():
     pass
 
 
-# @workflow.command("list")
-# @click.option(
-#     "--format",
-#     "-f",
-#     type=click.Choice(["simple", "json"]),
-#     default="simple",
-#     help="Output format (simple or json)",
-# )
-# def list_workflows(format: str):
-#     """List all registered workflows."""
-#     try:
-#         workflows = WorkflowCatalog.create().all()
-
-#         if not workflows:
-#             click.echo("No workflows found.")
-#             return
-
-#         if format == "json":
-#             output = [{"name": w.name, "version": w.version} for w in workflows]
-#             click.echo(json.dumps(output, indent=2))
-#         else:
-#             for workflow in workflows:
-#                 click.echo(f"- {workflow.name} (version {workflow.version})")
-#     except Exception as ex:
-#         click.echo(f"Error listing workflows: {str(ex)}", err=True)
+def get_control_plane_url():
+    """Get the control plane URL from configuration."""
+    settings = Configuration.get().settings
+    return f"http://{settings.server_host}:{settings.server_port}"
 
 
-# @workflow.command("register")
-# @click.argument("filename")
-# def register_workflows(filename: str):
-#     """Register workflows from a file."""
+@workflow.command("list")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
+    "--control-plane-url",
+    "-cp-url",
+    default=None,
+    help="Control plane URL to connect to.",
+)
+def list_workflows(format: str, control_plane_url: str | None):
+    """List all registered workflows."""
+    try:
+        base_url = control_plane_url or get_control_plane_url()
 
-#     try:
-#         module = import_module_from_file(filename)
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/workflows")
+            response.raise_for_status()
+            workflows = response.json()
 
-#         if not hasattr(module, workflow_name):
-#             raise ValueError(f"Workflow '{workflow_name}' not found in file '{filename}'.")
+        if not workflows:
+            click.echo("No workflows found.")
+            return
 
-#         workflow = getattr(module, workflow_name)
-
-#         if not isinstance(workflow, decorators.workflow):
-#             raise ValueError(f"Object '{workflow_name}' is not a valid workflow.")
-
-#         WorkflowCatalog.create().save(workflow)
-
-#         click.echo(f"Successfully registered workflow '{workflow.name}'.")
-
-#     except Exception as ex:
-#         click.echo(f"Error registering workflow: {str(ex)}", err=True)
-
-
-# @workflow.command("show")
-# @click.argument("workflow_name")
-# @click.option("--version", "-v", type=int, help="Specific version to show")
-# def show_workflow(workflow_name: str, version: int | None):
-#     """Show the details of a registered workflow."""
-#     try:
-#         catalog = WorkflowCatalog.create()
-#         workflow = catalog.get(workflow_name, version)
-
-#         if not workflow:
-#             click.echo(f"Workflow '{workflow_name}' not found.", err=True)
-#             return
-
-#         click.echo(f"\nWorkflow: {workflow.name}")
-#         click.echo(f"Version: {workflow.version}")
-#         click.echo("\nCode:")
-#         click.echo("-" * 100)
-#         click.echo(inspect.getsource(workflow.code._func))
-
-#     except Exception as ex:
-#         click.echo(f"Error showing workflow: {str(ex)}", err=True)
+        if format == "json":
+            click.echo(json.dumps(workflows, indent=2))
+        else:
+            for workflow in workflows:
+                click.echo(f"- {workflow['name']} (version {workflow['version']})")
+    except Exception as ex:
+        click.echo(f"Error listing workflows: {str(ex)}", err=True)
 
 
-# @workflow.command("delete")
-# @click.argument("workflow_name")
-# @click.option("--version", "-v", type=int, help="Specific version to delete")
-# def delete_workflow(workflow_name: str, version: int | None):
-#     """Delete a registered workflow."""
-#     try:
-#         msg = (
-#             f"Are you sure you want to delete workflow '{workflow_name}'"
-#             f"{f' version {version}' if version else ''}"
-#         )
-#         if not click.confirm(msg):
-#             return
+@workflow.command("register")
+@click.argument("filename")
+@click.option(
+    "--control-plane-url",
+    "-cp-url",
+    default=None,
+    help="Control plane URL to connect to.",
+)
+def register_workflows(filename: str, control_plane_url: str | None):
+    """Register workflows from a file."""
+    try:
+        file_path = Path(filename)
+        if not file_path.exists():
+            raise ValueError(f"File '{filename}' not found.")
 
-#         catalog = WorkflowCatalog.create()
-#         if version:
-#             catalog.delete(workflow_name, version)
-#             click.echo(f"Deleted workflow '{workflow_name}' version {version}")
-#         else:
-#             catalog.delete(workflow_name)
-#             click.echo(f"Deleted all versions of workflow '{workflow_name}'")
+        base_url = control_plane_url or get_control_plane_url()
 
-#     except Exception as ex:
-#         click.echo(f"Error deleting workflow: {str(ex)}", err=True)
+        with httpx.Client(timeout=30.0) as client:
+            with open(file_path, "rb") as f:
+                files = {"file": (file_path.name, f, "text/x-python")}
+                response = client.post(f"{base_url}/workflows", files=files)
+                response.raise_for_status()
+                result = response.json()
+
+        click.echo(f"Successfully registered {len(result)} workflow(s) from '{filename}'.")
+        for workflow in result:
+            click.echo(f"  - {workflow['name']} (version {workflow['version']})")
+
+    except Exception as ex:
+        click.echo(f"Error registering workflow: {str(ex)}", err=True)
 
 
-# @workflow.command("run")
-# @click.argument("workflow_name")
-# @click.argument("input")
-# @click.option("--version", "-v", type=int, help="Specific version to run")
-# @click.option("--execution-id", "-e", help="Execution ID for existing executions")
-# @click.option("--inspect", "-i", is_flag=True, help="Show detailed execution information")
-# def run_workflow(
-#     workflow_name: str,
-#     input: Any,
-#     version: int | None,
-#     execution_id: str | None,
-#     inspect: bool,
-# ):
-#     """Run the specified workflow."""
-#     try:
-#         workflow = WorkflowCatalog.create().get(workflow_name, version).code
-#         context = workflow.run(parse_value(input), execution_id)
-#         output = context if inspect else context.summary()
+@workflow.command("show")
+@click.argument("workflow_name")
+@click.option(
+    "--control-plane-url",
+    "-cp-url",
+    default=None,
+    help="Control plane URL to connect to.",
+)
+def show_workflow(workflow_name: str, control_plane_url: str | None):
+    """Show the details of a registered workflow."""
+    try:
+        base_url = control_plane_url or get_control_plane_url()
 
-#         click.echo(to_json(output))
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/workflows/{workflow_name}")
+            response.raise_for_status()
+            workflow = response.json()
 
-#     except Exception as ex:
-#         click.echo(f"Error running workflow: {str(ex)}", err=True)
+        click.echo(f"\nWorkflow: {workflow['name']}")
+        click.echo(f"Version: {workflow['version']}")
+        if "description" in workflow:
+            click.echo(f"Description: {workflow['description']}")
+        click.echo("\nDetails:")
+        click.echo("-" * 50)
+        click.echo(to_json(workflow))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+        else:
+            click.echo(f"Error showing workflow: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing workflow: {str(ex)}", err=True)
+
+
+@workflow.command("run")
+@click.argument("workflow_name")
+@click.argument("input")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["sync", "async", "stream"]),
+    default="async",
+    help="Execution mode (sync, async, or stream)",
+)
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed execution information",
+)
+@click.option(
+    "--control-plane-url",
+    "-cp-url",
+    default=None,
+    help="Control plane URL to connect to.",
+)
+def run_workflow(
+    workflow_name: str,
+    input: str,
+    mode: str,
+    detailed: bool,
+    control_plane_url: str | None,
+):
+    """Run the specified workflow."""
+    try:
+        base_url = control_plane_url or get_control_plane_url()
+        parsed_input = parse_value(input)
+
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(
+                f"{base_url}/workflows/{workflow_name}/run/{mode}",
+                json=parsed_input,
+                params={"detailed": detailed},
+            )
+            response.raise_for_status()
+
+            if mode == "stream":
+                # Handle streaming response
+                click.echo("Streaming execution...")
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        if data.strip():
+                            try:
+                                event_data = json.loads(data)
+                                click.echo(to_json(event_data))
+                            except json.JSONDecodeError:
+                                click.echo(data)
+            else:
+                result = response.json()
+                click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+        else:
+            click.echo(f"Error running workflow: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error running workflow: {str(ex)}", err=True)
+
+
+@workflow.command("status")
+@click.argument("workflow_name")
+@click.argument("execution_id")
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed execution information",
+)
+@click.option(
+    "--control-plane-url",
+    "-cp-url",
+    default=None,
+    help="Control plane URL to connect to.",
+)
+def workflow_status(
+    workflow_name: str,
+    execution_id: str,
+    detailed: bool,
+    control_plane_url: str | None,
+):
+    """Check the status of a workflow execution."""
+    try:
+        base_url = control_plane_url or get_control_plane_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                f"{base_url}/workflows/{workflow_name}/status/{execution_id}",
+                params={"detailed": detailed},
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(
+                f"Execution '{execution_id}' not found for workflow '{workflow_name}'.",
+                err=True,
+            )
+        else:
+            click.echo(f"Error checking workflow status: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error checking workflow status: {str(ex)}", err=True)
 
 
 @cli.group()
