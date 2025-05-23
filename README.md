@@ -1,6 +1,8 @@
 # Flux
 
-Flux is a distributed workflow orchestration engine written in Python that enables building stateful and fault-tolerant workflows. It provides an intuitive programming model for creating complex, reliable distributed applications with built-in support for state management, error handling, and execution control.
+Flux is a distributed workflow orchestration engine written in Python that enables building stateful and fault-tolerant workflows. It provides an intuitive async programming model for creating complex, reliable distributed applications with built-in support for state management, error handling, and execution control.
+
+**Current Version**: 0.2.3
 
 ## Key Features
 
@@ -15,14 +17,19 @@ Flux is a distributed workflow orchestration engine written in Python that enabl
 - **Flexible Task Configuration**:
   ```python
   @task.with_options(
-      retry_max_attempts=3,        # Auto-retry failed tasks
-      retry_delay=1,              # Initial delay between retries
-      retry_backoff=2,            # Exponential backoff for retries
-      timeout=30,                 # Task execution timeout
-      fallback=fallback_func,     # Fallback handler for failures
-      rollback=rollback_func,     # Rollback handler for cleanup
-      secret_requests=['API_KEY'] # Secure secrets management
+      name="custom_task",             # Custom task name
+      retry_max_attempts=3,           # Auto-retry failed tasks
+      retry_delay=1,                  # Initial delay between retries
+      retry_backoff=2,                # Exponential backoff for retries
+      timeout=30,                     # Task execution timeout (seconds)
+      fallback=fallback_func,         # Fallback handler for failures
+      rollback=rollback_func,         # Rollback handler for cleanup
+      secret_requests=['API_KEY'],    # Secure secrets management
+      cache=True,                     # Enable task result caching
+      metadata=True                   # Enable task metadata access
   )
+  async def my_task():
+      pass
   ```
 
 ### Workflow Patterns
@@ -63,15 +70,15 @@ pip install flux-core
 Create a simple workflow that processes input:
 
 ```python
-from flux import task, workflow, WorkflowExecutionContext
+from flux import task, workflow, ExecutionContext
 
 @task
-def say_hello(name: str) -> str:
+async def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow
-def hello_world(ctx: WorkflowExecutionContext[str]):
-    return (yield say_hello(ctx.input))
+async def hello_world(ctx: ExecutionContext[str]):
+    return await say_hello(ctx.input)
 
 # Execute locally
 result = hello_world.run("World")
@@ -83,15 +90,27 @@ print(result.output)  # "Hello, World"
 Execute multiple tasks concurrently:
 
 ```python
-from flux import task, workflow
+from flux import task, workflow, ExecutionContext
 from flux.tasks import parallel
 
+@task
+async def say_hi(name: str):
+    return f"Hi, {name}"
+
+@task
+async def say_hello(name: str):
+    return f"Hello, {name}"
+
+@task
+async def say_hola(name: str):
+    return f"Hola, {name}"
+
 @workflow
-def parallel_workflow(ctx: WorkflowExecutionContext[str]):
-    results = yield parallel(
-        task1(ctx.input),
-        task2(ctx.input),
-        task3(ctx.input)
+async def parallel_workflow(ctx: ExecutionContext[str]):
+    results = await parallel(
+        say_hi(ctx.input),
+        say_hello(ctx.input),
+        say_hola(ctx.input)
     )
     return results
 ```
@@ -101,11 +120,24 @@ def parallel_workflow(ctx: WorkflowExecutionContext[str]):
 Chain tasks in a processing pipeline:
 
 ```python
+from flux import task, workflow, ExecutionContext
 from flux.tasks import pipeline
 
+@task
+async def multiply_by_two(x):
+    return x * 2
+
+@task
+async def add_three(x):
+    return x + 3
+
+@task
+async def square(x):
+    return x * x
+
 @workflow
-def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
-    result = yield pipeline(
+async def pipeline_workflow(ctx: ExecutionContext[int]):
+    result = await pipeline(
         multiply_by_two,
         add_three,
         square,
@@ -119,9 +151,13 @@ def pipeline_workflow(ctx: WorkflowExecutionContext[int]):
 Apply a task across multiple inputs:
 
 ```python
+@task
+async def process_item(item: str):
+    return item.upper()
+
 @workflow
-def map_workflow(ctx: WorkflowExecutionContext[list[str]]):
-    results = yield process_item.map(ctx.input)
+async def map_workflow(ctx: ExecutionContext[list[str]]):
+    results = await process_item.map(ctx.input)
     return results
 ```
 
@@ -134,9 +170,9 @@ def map_workflow(ctx: WorkflowExecutionContext[list[str]]):
 ctx = workflow.run(execution_id="previous_execution_id")
 
 # Check workflow state
-print(f"Finished: {ctx.finished}")
-print(f"Succeeded: {ctx.succeeded}")
-print(f"Failed: {ctx.failed}")
+print(f"Finished: {ctx.has_finished}")
+print(f"Succeeded: {ctx.has_succeeded}")
+print(f"Failed: {ctx.has_failed}")
 
 # Inspect workflow events
 for event in ctx.events:
@@ -153,7 +189,7 @@ for event in ctx.events:
     fallback=lambda: "fallback result",
     rollback=cleanup_function
 )
-def risky_task():
+async def risky_task():
     # Task implementation with comprehensive error handling
     pass
 ```
@@ -162,25 +198,149 @@ def risky_task():
 
 ```python
 @task.with_options(secret_requests=["API_KEY"])
-def secure_task(secrets: dict[str, Any] = {}):
+async def secure_task(secrets: dict[str, Any] = {}):
     api_key = secrets["API_KEY"]
     # Use API key securely
 ```
 
-## API Server
+### Task Caching
 
-Start the API server for HTTP-based workflow execution:
+Enable task result caching to avoid re-execution:
 
-```bash
-flux start myworkflows
+```python
+@task.with_options(cache=True)
+async def expensive_computation(input_data):
+    # Results will be cached based on input
+    return complex_calculation(input_data)
 ```
 
-Execute workflows via HTTP:
+### Task Metadata
+
+Access task metadata during execution:
+
+```python
+from flux.decorators import TaskMetadata
+
+@task.with_options(metadata=True)
+async def metadata_aware_task(data, metadata: TaskMetadata = {}):
+    print(f"Task ID: {metadata.task_id}")
+    print(f"Task Name: {metadata.task_name}")
+    return process_data(data)
+```
+
+### Built-in Tasks
+
+Flux provides several built-in tasks for common operations:
+
+```python
+from flux.tasks import now, sleep, uuid4, choice, randint, pause
+
+@workflow
+async def built_in_tasks_example(ctx: ExecutionContext):
+    # Time operations
+    start_time = await now()
+    await sleep(2.5)  # Sleep for 2.5 seconds
+
+    # Random operations
+    random_choice = await choice(['option1', 'option2', 'option3'])
+    random_number = await randint(1, 100)
+
+    # UUID generation
+    unique_id = await uuid4()
+
+    # Workflow pause points
+    await pause("wait_for_approval")
+
+    return {
+        'start_time': start_time,
+        'choice': random_choice,
+        'number': random_number,
+        'id': str(unique_id)
+    }
+```
+
+## Distributed Architecture
+
+Flux supports distributed execution through a control-plane and worker architecture:
+
+### Start Control Plane
+Start the control plane server to coordinate workflow execution:
+
 ```bash
-curl -X POST 'http://localhost:8000/workflow_name' \
+flux start control-plane
+```
+
+You can specify custom host and port:
+```bash
+flux start control-plane --host 0.0.0.0 --port 8080
+```
+
+### Start Workers
+Start worker nodes to execute tasks:
+
+```bash
+flux start worker
+```
+
+Workers automatically connect to the control plane and register themselves for task execution.
+
+### Execute Workflows via HTTP
+Once the control plane is running, you can execute workflows via HTTP. The API provides several endpoints for workflow management:
+
+#### Upload and Register Workflows
+```bash
+# Upload a Python file containing workflows
+curl -X POST 'http://localhost:8000/workflows' \
+     -F 'file=@my_workflows.py'
+```
+
+#### List All Workflows
+```bash
+curl -X GET 'http://localhost:8000/workflows'
+```
+
+#### Get Workflow Details
+```bash
+curl -X GET 'http://localhost:8000/workflows/workflow_name'
+```
+
+#### Execute Workflows
+Run workflows with different execution modes:
+
+**Synchronous execution** (wait for completion):
+```bash
+curl -X POST 'http://localhost:8000/workflows/workflow_name/run/sync' \
      -H 'Content-Type: application/json' \
      -d '"input_data"'
 ```
+
+**Asynchronous execution** (immediate response):
+```bash
+curl -X POST 'http://localhost:8000/workflows/workflow_name/run/async' \
+     -H 'Content-Type: application/json' \
+     -d '"input_data"'
+```
+
+**Streaming execution** (real-time updates):
+```bash
+curl -X POST 'http://localhost:8000/workflows/workflow_name/run/stream' \
+     -H 'Content-Type: application/json' \
+     -d '"input_data"'
+```
+
+#### Check Workflow Status
+```bash
+curl -X GET 'http://localhost:8000/workflows/workflow_name/status/execution_id'
+```
+
+For detailed execution information, add `?detailed=true`:
+```bash
+curl -X GET 'http://localhost:8000/workflows/workflow_name/status/execution_id?detailed=true'
+```
+
+#### API Documentation
+The control plane provides interactive API documentation at:
+- Swagger UI: `http://localhost:8000/docs`
 
 ## Development
 
@@ -197,11 +357,32 @@ poetry run pytest
 ```
 
 ### Code Quality
-The project uses several tools for code quality:
-- Ruff for linting and formatting
-- MyPy for type checking
-- Pytest for testing
-- Pre-commit hooks for code quality checks
+
+The project uses several tools for code quality and development:
+
+**Linting & Formatting:**
+- **Ruff** - Fast Python linter and formatter (configured with 100-char line length)
+- **Pylint** - Comprehensive code analysis
+- **Pyflakes** - Fast Python source checker
+- **Bandit** - Security vulnerability scanner
+- **Prospector** - Meta-tool that runs multiple analysis tools
+
+**Type Checking:**
+- **Pyright** - Static type checker for Python
+
+**Testing:**
+- **Pytest** - Testing framework with coverage support
+- **pytest-cov** - Coverage reporting
+- **pytest-mock** - Mocking utilities
+
+**Development Tools:**
+- **Pre-commit** - Git hooks for automated code quality checks
+- **Poethepoet** - Task runner for custom commands
+- **Radon** - Code complexity analysis
+
+**Documentation:**
+- **MkDocs** with Material theme - Documentation generation
+- **MkDocstrings** - Auto-generate API documentation
 
 ## License
 
@@ -220,4 +401,4 @@ Contributions are welcome! Please feel free to submit pull requests. For major c
 
 ## Documentation
 
-For a more details, please check our [documentation](https://edurdias.github.io/flux/).
+For more details, please check our [documentation](https://edurdias.github.io/flux/).
