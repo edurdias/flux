@@ -15,9 +15,9 @@ from httpx_sse import aconnect_sse
 from pydantic import BaseModel
 
 from flux import decorators
+from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
-from flux.domain.execution_context import ExecutionContext
 
 
 class WorkflowDefinition(BaseModel):

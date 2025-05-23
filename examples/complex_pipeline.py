@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from flux import ExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
-from flux.domain.execution_context import ExecutionContext
 from flux.tasks import parallel
 from flux.tasks import pipeline
 

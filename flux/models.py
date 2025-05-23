@@ -23,11 +23,11 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
 
+from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
-from flux.domain.execution_context import ExecutionContext
 
 
 class Base(DeclarativeBase):

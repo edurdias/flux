@@ -6,7 +6,7 @@ from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 
-from flux.domain.execution_context import ExecutionContext
+from flux import ExecutionContext
 from flux.utils import FluxEncoder
 from flux.utils import is_hashable
 from flux.utils import make_hashable

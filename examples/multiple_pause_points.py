@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import workflow
 from flux.decorators import task
-from flux.domain.execution_context import ExecutionContext
 from flux.tasks import pause
 
 

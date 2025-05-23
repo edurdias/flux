@@ -16,10 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette import EventSourceResponse
 
+from flux import ExecutionContext
 from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
-from flux.domain.execution_context import ExecutionContext
 from flux.errors import WorkflowNotFoundError
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json

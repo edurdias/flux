@@ -15,9 +15,9 @@ from typing import Literal
 from typing import TypeVar
 
 import flux.decorators as decorators
+from flux import ExecutionContext
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
-from flux.domain.execution_context import ExecutionContext
 from flux.errors import PauseRequested
 
 T = TypeVar("T", bound=Any)
