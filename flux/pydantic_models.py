@@ -57,7 +57,7 @@ class PydanticWorkflowExecutionContext(BaseModel):
             WorkflowExecutionContext: The converted execution context.
         """
         # Import here to avoid circular imports
-        from flux.domain.execution_context import ExecutionContext
+        from flux import ExecutionContext
         from flux.domain.events import ExecutionEvent
 
         # Convert the model events to ExecutionEvent objects

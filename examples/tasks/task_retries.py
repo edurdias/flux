@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
 
 counter = 1
 

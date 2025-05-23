@@ -135,7 +135,7 @@ class FluxEncoder(json.JSONEncoder):
         if isinstance(obj, datetime):
             return obj.isoformat()
 
-        from flux.domain.execution_context import ExecutionContext
+        from flux import ExecutionContext
 
         if isinstance(obj, ExecutionContext):
             return {

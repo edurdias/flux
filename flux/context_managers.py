@@ -5,8 +5,8 @@ from abc import abstractmethod
 
 from sqlalchemy.exc import IntegrityError
 
+from flux import ExecutionContext
 from flux.domain.events import ExecutionState
-from flux.domain.execution_context import ExecutionContext
 from flux.errors import ExecutionContextNotFoundError
 from flux.models import ExecutionEventModel
 from flux.models import SQLiteRepository

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from flux import ExecutionContext
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
 from flux.tasks import sleep
 
 

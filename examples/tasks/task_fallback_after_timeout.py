@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import time
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
 
 
 async def fallback_for_long_task(number):

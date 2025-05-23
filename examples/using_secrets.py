@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
 from flux.secret_managers import SecretManager
 
 SECRET_NAME = "example"

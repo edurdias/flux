@@ -7,11 +7,11 @@ from typing import Any
 from typing import Callable
 from typing import TypeVar
 
+from flux import ExecutionContext
 from flux.cache import CacheManager
 from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
-from flux.domain.execution_context import ExecutionContext
 from flux.errors import ExecutionError
 from flux.errors import ExecutionTimeoutError
 from flux.errors import PauseRequested

@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
+from flux import ExecutionContext
 from flux.decorators import task
 from flux.decorators import workflow
-from flux.domain.execution_context import ExecutionContext
 from flux.output_storage import InlineOutputStorage
 from flux.output_storage import OutputStorageReference
 

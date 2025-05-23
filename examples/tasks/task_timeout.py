@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from flux import ExecutionContext
 from flux import task
 from flux import workflow
-from flux.domain.execution_context import ExecutionContext
 
 
 @task.with_options(timeout=1)
