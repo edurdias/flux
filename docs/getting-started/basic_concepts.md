@@ -5,12 +5,12 @@
 A workflow in Flux is a Python function that orchestrates a series of tasks to achieve a specific goal. Workflows are defined using the `@workflow` decorator and provide a high-level way to organize and manage task execution.
 
 ```python
-from flux import workflow, WorkflowExecutionContext
+from flux import workflow, ExecutionContext
 from flux.tasks import pause
 
 # Basic workflow
 @workflow
-async def my_workflow(ctx: WorkflowExecutionContext[str]):
+async def my_workflow(ctx: ExecutionContext[str]):
     result = await some_task(ctx.input)
     return result
 
@@ -20,13 +20,13 @@ async def my_workflow(ctx: WorkflowExecutionContext[str]):
     secret_requests=["API_KEY"],         # Required secrets
     output_storage=custom_storage        # Custom output storage
 )
-async def configured_workflow(ctx: WorkflowExecutionContext):
+async def configured_workflow(ctx: ExecutionContext):
     result = await some_task()
     return result
 
 # Workflow with pause point
 @workflow
-async def approval_workflow(ctx: WorkflowExecutionContext):
+async def approval_workflow(ctx: ExecutionContext):
     data = await process_data(ctx.input)
     # Pause for manual approval
     await pause("manual_approval")
@@ -36,7 +36,7 @@ async def approval_workflow(ctx: WorkflowExecutionContext):
 
 Key characteristics of workflows:
 - Must be decorated with `@workflow` or `@workflow.with_options()`
-- Take a `WorkflowExecutionContext` as their first argument
+- Take an `ExecutionContext` as their first argument
 - Use `async/await` to execute tasks asynchronously
 - Can be run directly, via CLI, or through HTTP API
 - Maintain execution state between runs
@@ -83,19 +83,19 @@ Task features:
 
 ## Execution Context
 
-The `WorkflowExecutionContext` is a container that maintains the state and information about a workflow execution.
+The `ExecutionContext` is a container that maintains the state and information about a workflow execution.
 
 ```python
-from flux import WorkflowExecutionContext
+from flux import ExecutionContext
 
 @workflow
-async def example_workflow(ctx: WorkflowExecutionContext[str]):
+async def example_workflow(ctx: ExecutionContext[str]):
     # Access context properties
-    execution_id = ctx.execution_id  # Unique execution identifier
-    input_data = ctx.input          # Workflow input
-    is_finished = ctx.finished      # Execution status
-    has_succeeded = ctx.succeeded   # Success status
-    output_data = ctx.output       # Workflow output
+    execution_id = ctx.execution_id     # Unique execution identifier
+    input_data = ctx.input             # Workflow input
+    is_finished = ctx.has_finished     # Execution status
+    has_succeeded = ctx.has_succeeded  # Success status
+    output_data = ctx.output          # Workflow output
 ```
 
 Context properties:
@@ -103,10 +103,10 @@ Context properties:
 - `name`: Name of the workflow
 - `input`: Input data provided to the workflow
 - `events`: List of execution events
-- `finished`: Whether the workflow has completed
-- `succeeded`: Whether the workflow completed successfully
-- `failed`: Whether the workflow failed
-- `paused`: Whether the workflow is currently paused
+- `has_finished`: Whether the workflow has completed
+- `has_succeeded`: Whether the workflow completed successfully
+- `has_failed`: Whether the workflow failed
+- `is_paused`: Whether the workflow is currently paused
 - `output`: Final output of the workflow
 
 ## Events
@@ -114,7 +114,7 @@ Context properties:
 Events track the progress and state changes during workflow execution. Flux automatically generates events for various workflow and task operations.
 
 ```python
-from flux.events import ExecutionEventType
+from flux.domain.events import ExecutionEventType
 
 # Example of event types
 ExecutionEventType.WORKFLOW_STARTED    # Workflow begins execution

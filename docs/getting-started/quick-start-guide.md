@@ -5,14 +5,14 @@
 Let's start with a simple "Hello World" workflow:
 
 ```python
-from flux import task, workflow, WorkflowExecutionContext
+from flux import task, workflow, ExecutionContext
 
 @task
 async def say_hello(name: str):
     return f"Hello, {name}"
 
 @workflow
-async def hello_world(ctx: WorkflowExecutionContext[str]):
+async def hello_world(ctx: ExecutionContext[str]):
     if not ctx.input:
         raise TypeError("Input not provided")
     return await say_hello(ctx.input)
@@ -35,8 +35,8 @@ ctx = hello_world.run("World")
 print(ctx.output)  # Prints: Hello, World
 
 # Check execution status
-print(ctx.finished)   # True if workflow completed
-print(ctx.succeeded)  # True if workflow succeeded
+print(ctx.has_finished)   # True if workflow completed
+print(ctx.has_succeeded)  # True if workflow succeeded
 ```
 
 ### 2. Command Line Interface
