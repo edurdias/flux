@@ -5,7 +5,9 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Any
 
+from sqlalchemy import and_
 from sqlalchemy import desc
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from flux.errors import WorkflowNotFoundError
@@ -58,16 +60,34 @@ class WorkflowCatalog(ABC):
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def all(self) -> list[WorkflowInfo]:
         with self.session() as session:
-            models = session.query(WorkflowModel).order_by(
-                WorkflowModel.name,
-                desc(WorkflowModel.version),
+            # Create a subquery that gets the max version for each workflow name
+            subq = (
+                session.query(
+                    WorkflowModel.name.label("name"),
+                    func.max(WorkflowModel.version).label("max_version"),
+                )
+                .group_by(WorkflowModel.name)
+                .subquery()
+            )
+
+            # Join with the original table to get records with the latest version
+            models = (
+                session.query(WorkflowModel.name, WorkflowModel.version)
+                .join(
+                    subq,
+                    and_(
+                        WorkflowModel.name == subq.c.name,
+                        WorkflowModel.version == subq.c.max_version,
+                    ),
+                )
+                .order_by(WorkflowModel.name)
             )
 
             return [
                 WorkflowInfo(
                     model.name,
-                    model.imports,
-                    model.source,
+                    [],  # empty imports
+                    b"",  # empty source as bytes
                     model.version,
                 )
                 for model in models
