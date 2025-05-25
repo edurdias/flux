@@ -24,7 +24,7 @@ def workflow():
     pass
 
 
-def get_control_plane_url():
+def get_server_url():
     """Get the server URL from configuration."""
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
@@ -44,10 +44,10 @@ def get_control_plane_url():
     default=None,
     help="Server URL to connect to.",
 )
-def list_workflows(format: str, control_plane_url: str | None):
+def list_workflows(format: str, server_url: str | None):
     """List all registered workflows."""
     try:
-        base_url = control_plane_url or get_control_plane_url()
+        base_url = server_url or get_server_url()
 
         with httpx.Client(timeout=30.0) as client:
             response = client.get(f"{base_url}/workflows")
@@ -75,14 +75,14 @@ def list_workflows(format: str, control_plane_url: str | None):
     default=None,
     help="Server URL to connect to.",
 )
-def register_workflows(filename: str, control_plane_url: str | None):
+def register_workflows(filename: str, server_url: str | None):
     """Register workflows from a file."""
     try:
         file_path = Path(filename)
         if not file_path.exists():
             raise ValueError(f"File '{filename}' not found.")
 
-        base_url = control_plane_url or get_control_plane_url()
+        base_url = server_url or get_server_url()
 
         with httpx.Client(timeout=30.0) as client:
             with open(file_path, "rb") as f:
@@ -107,10 +107,10 @@ def register_workflows(filename: str, control_plane_url: str | None):
     default=None,
     help="Server URL to connect to.",
 )
-def show_workflow(workflow_name: str, control_plane_url: str | None):
+def show_workflow(workflow_name: str, server_url: str | None):
     """Show the details of a registered workflow."""
     try:
-        base_url = control_plane_url or get_control_plane_url()
+        base_url = server_url or get_server_url()
 
         with httpx.Client(timeout=30.0) as client:
             response = client.get(f"{base_url}/workflows/{workflow_name}")
@@ -161,11 +161,11 @@ def run_workflow(
     input: str,
     mode: str,
     detailed: bool,
-    control_plane_url: str | None,
+    server_url: str | None,
 ):
     """Run the specified workflow."""
     try:
-        base_url = control_plane_url or get_control_plane_url()
+        base_url = server_url or get_server_url()
         parsed_input = parse_value(input)
 
         with httpx.Client(timeout=60.0) as client:
@@ -220,11 +220,11 @@ def workflow_status(
     workflow_name: str,
     execution_id: str,
     detailed: bool,
-    control_plane_url: str | None,
+    server_url: str | None,
 ):
     """Check the status of a workflow execution."""
     try:
-        base_url = control_plane_url or get_control_plane_url()
+        base_url = server_url or get_server_url()
 
         with httpx.Client(timeout=30.0) as client:
             response = client.get(
