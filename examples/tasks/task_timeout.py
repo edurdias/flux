@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 
 from flux import ExecutionContext
-from flux import task
-from flux import workflow
+from flux.task import task
+from flux.workflow import workflow
 
 
 @task.with_options(timeout=1)

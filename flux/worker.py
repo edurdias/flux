@@ -13,10 +13,10 @@ import psutil
 from httpx_sse import aconnect_sse
 from pydantic import BaseModel
 
-from flux import decorators
 from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
+from flux.errors import WorkflowNotFoundError
 from flux.logging import get_logger
 
 logger = get_logger(__name__)
@@ -245,7 +245,7 @@ class Worker:
             workflow = module.__dict__[request.workflow.name]
             logger.debug(f"Found workflow function: {request.workflow.name}")
 
-            if isinstance(workflow, decorators.workflow):
+            if isinstance(workflow, workflow.workflow):
                 logger.debug(f"Executing workflow: {request.workflow.name}")
                 start_time = asyncio.get_event_loop().time()
                 ctx = await workflow(request.context)
@@ -255,6 +255,7 @@ class Worker:
                 logger.debug(f"Found {request.workflow.name} but it is not a workflow decorator")
         else:
             logger.warning(f"Workflow function {request.workflow.name} not found in module")
+            raise WorkflowNotFoundError(f"Workflow function {request.workflow.name} not found")
 
         return ctx
 

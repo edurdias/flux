@@ -173,3 +173,22 @@ class FluxEncoder(json.JSONEncoder):
             return obj.__dict__
 
         return str(obj)
+
+
+def get_func_args(func: Callable, args: tuple) -> dict:
+    arg_names = inspect.getfullargspec(func).args
+    arg_values: list[Any] = []
+
+    for arg in args:
+        if inspect.isclass(type(arg)) and type(arg).__name__ == "workflow":
+            arg_values.append(arg.name)
+        elif inspect.isclass(type(arg)) and isinstance(arg, Callable):  # type: ignore[arg-type]
+            arg_values.append(arg)
+        elif isinstance(arg, Callable):  # type: ignore[arg-type]
+            arg_values.append(arg.__name__)
+        elif isinstance(arg, list):
+            arg_values.append(tuple(arg))
+        else:
+            arg_values.append(arg)
+
+    return dict(zip(arg_names, arg_values))

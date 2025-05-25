@@ -50,6 +50,4 @@ def configure_logging():
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    root_logger.info(f"Flux logging initialized at level {settings.log_level}")
-
     return root_logger

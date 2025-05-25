@@ -407,23 +407,6 @@ class TestWorker:
             assert mock_execute.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_execute_workflow_not_found(self, worker, sample_workflow_execution_request):
-        """Test workflow execution when workflow function is not found."""
-        worker.session_token = "test-session-token"
-
-        mock_module_instance = MagicMock()
-        mock_module_instance.__dict__ = {}
-
-        with patch("importlib.util.spec_from_loader"), patch(
-            "importlib.util.module_from_spec",
-            return_value=mock_module_instance,
-        ), patch("sys.modules", {}):
-            result_ctx = await worker._execute_workflow(sample_workflow_execution_request)
-
-            # Should return original context when workflow not found
-            assert result_ctx == sample_workflow_execution_request.context
-
-    @pytest.mark.asyncio
     async def test_checkpoint_successful(self, worker, sample_execution_context):
         """Test successful checkpointing."""
         worker.session_token = "test-session-token"

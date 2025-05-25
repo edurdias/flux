@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
-from flux import task
-from flux import workflow
+from flux.task import task
+from flux.workflow import workflow
 
 
 @task
