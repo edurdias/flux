@@ -77,146 +77,6 @@ class WorkflowCatalog(ABC):
     def delete(self, name: str, version: int | None = None):  # pragma: no cover
         raise NotImplementedError()
 
-    @abstractmethod
-    def parse(self, source: bytes) -> list[WorkflowInfo]:  # pragma: no cover
-        raise NotImplementedError()
-
-    @staticmethod
-    def create() -> WorkflowCatalog:
-        return SQLiteWorkflowCatalog()
-
-
-class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
-    def all(self) -> list[WorkflowInfo]:
-        """
-        Get all workflows in the catalog (latest version of each).
-
-        Returns:
-            List of WorkflowInfo objects
-        """
-        with self.session() as session:
-            # Create a subquery that gets the max version for each workflow name
-            subq = (
-                session.query(
-                    WorkflowModel.name.label("name"),
-                    func.max(WorkflowModel.version).label("max_version"),
-                )
-                .group_by(WorkflowModel.name)
-                .subquery()
-            )
-
-            # Join with the original table to get complete records with the latest version
-            models = (
-                session.query(WorkflowModel)
-                .join(
-                    subq,
-                    and_(
-                        WorkflowModel.name == subq.c.name,
-                        WorkflowModel.version == subq.c.max_version,
-                    ),
-                )
-                .order_by(WorkflowModel.name)
-                .all()
-            )
-
-            workflows = []
-            for model in models:
-                # Convert requests dictionary to WorkflowRequests object if present
-                requests = None
-                if model.requests:
-                    requests = WorkflowRequests(
-                        cpu=model.requests.get("cpu"),
-                        memory=model.requests.get("memory"),
-                        gpu=model.requests.get("gpu"),
-                        disk=model.requests.get("disk"),
-                        packages=model.requests.get("packages"),
-                    )
-
-                workflows.append(
-                    WorkflowInfo(
-                        name=model.name,
-                        imports=model.imports,
-                        source=model.source,
-                        version=model.version,
-                        requests=requests,
-                    ),
-                )
-
-            return workflows
-
-    def get(self, name: str, version: int | None = None) -> WorkflowInfo:
-        """
-        Retrieve a workflow by name and optionally version.
-
-        Args:
-            name: Name of the workflow to retrieve
-            version: Optional specific version to retrieve (retrieves latest if not specified)
-
-        Returns:
-            WorkflowInfo object representing the workflow
-
-        Raises:
-            WorkflowNotFoundError: If no workflow with the given name/version is found
-        """
-        model = self._get(name, version)
-        if not model:
-            raise WorkflowNotFoundError(name)
-
-        # Convert requests dictionary to WorkflowRequests object if present
-        requests = None
-        if model.requests:
-            requests = WorkflowRequests(
-                cpu=model.requests.get("cpu"),
-                memory=model.requests.get("memory"),
-                gpu=model.requests.get("gpu"),
-                disk=model.requests.get("disk"),
-                packages=model.requests.get("packages"),
-            )
-
-        return WorkflowInfo(
-            name=model.name,
-            imports=model.imports,
-            source=model.source,
-            version=model.version,
-            requests=requests,
-        )
-
-    def save(self, workflows: list[WorkflowInfo]):
-        with self.session() as session:
-            try:
-                for workflow in workflows:
-                    existing_model = self._get(workflow.name)
-                    workflow.version = existing_model.version + 1 if existing_model else 1
-                    session.add(WorkflowModel(**workflow.to_dict()))
-                session.commit()
-                return workflows
-            except IntegrityError:  # pragma: no cover
-                session.rollback()
-                raise
-
-    def delete(self, name: str, version: int | None = None):  # pragma: no cover
-        with self.session() as session:
-            try:
-                query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
-
-                if version:
-                    query = query.filter(WorkflowModel.version == version)
-
-                query.delete()
-                session.commit()
-            except IntegrityError:  # pragma: no cover
-                session.rollback()
-                raise
-
-    def _get(self, name: str, version: int | None = None) -> WorkflowModel:
-        with self.session() as session:
-            query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
-
-            if version:
-                return query.filter(WorkflowModel.version == version).first()
-
-            return query.order_by(desc(WorkflowModel.version)).first()
-
     def parse(self, source: bytes) -> list[WorkflowInfo]:
         """
         Parse Python source code to extract workflows and their metadata.
@@ -372,3 +232,139 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
             return WorkflowRequests(cpu=cpu, memory=memory, gpu=gpu, disk=disk, packages=packages)
 
         return None
+
+    @staticmethod
+    def create() -> WorkflowCatalog:
+        return SQLiteWorkflowCatalog()
+
+
+class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
+    def all(self) -> list[WorkflowInfo]:
+        """
+        Get all workflows in the catalog (latest version of each).
+
+        Returns:
+            List of WorkflowInfo objects
+        """
+        with self.session() as session:
+            # Create a subquery that gets the max version for each workflow name
+            subq = (
+                session.query(
+                    WorkflowModel.name.label("name"),
+                    func.max(WorkflowModel.version).label("max_version"),
+                )
+                .group_by(WorkflowModel.name)
+                .subquery()
+            )
+
+            # Join with the original table to get complete records with the latest version
+            models = (
+                session.query(WorkflowModel)
+                .join(
+                    subq,
+                    and_(
+                        WorkflowModel.name == subq.c.name,
+                        WorkflowModel.version == subq.c.max_version,
+                    ),
+                )
+                .order_by(WorkflowModel.name)
+                .all()
+            )
+
+            workflows = []
+            for model in models:
+                # Convert requests dictionary to WorkflowRequests object if present
+                requests = None
+                if model.requests:
+                    requests = WorkflowRequests(
+                        cpu=model.requests.get("cpu"),
+                        memory=model.requests.get("memory"),
+                        gpu=model.requests.get("gpu"),
+                        disk=model.requests.get("disk"),
+                        packages=model.requests.get("packages"),
+                    )
+
+                workflows.append(
+                    WorkflowInfo(
+                        name=model.name,
+                        imports=model.imports,
+                        source=model.source,
+                        version=model.version,
+                        requests=requests,
+                    ),
+                )
+
+            return workflows
+
+    def get(self, name: str, version: int | None = None) -> WorkflowInfo:
+        """
+        Retrieve a workflow by name and optionally version.
+
+        Args:
+            name: Name of the workflow to retrieve
+            version: Optional specific version to retrieve (retrieves latest if not specified)
+
+        Returns:
+            WorkflowInfo object representing the workflow
+
+        Raises:
+            WorkflowNotFoundError: If no workflow with the given name/version is found
+        """
+        model = self._get(name, version)
+        if not model:
+            raise WorkflowNotFoundError(name)
+
+        # Convert requests dictionary to WorkflowRequests object if present
+        requests = None
+        if model.requests:
+            requests = WorkflowRequests(
+                cpu=model.requests.get("cpu"),
+                memory=model.requests.get("memory"),
+                gpu=model.requests.get("gpu"),
+                disk=model.requests.get("disk"),
+                packages=model.requests.get("packages"),
+            )
+
+        return WorkflowInfo(
+            name=model.name,
+            imports=model.imports,
+            source=model.source,
+            version=model.version,
+            requests=requests,
+        )
+
+    def save(self, workflows: list[WorkflowInfo]):
+        with self.session() as session:
+            try:
+                for workflow in workflows:
+                    existing_model = self._get(workflow.name)
+                    workflow.version = existing_model.version + 1 if existing_model else 1
+                    session.add(WorkflowModel(**workflow.to_dict()))
+                session.commit()
+                return workflows
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def delete(self, name: str, version: int | None = None):  # pragma: no cover
+        with self.session() as session:
+            try:
+                query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
+
+                if version:
+                    query = query.filter(WorkflowModel.version == version)
+
+                query.delete()
+                session.commit()
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def _get(self, name: str, version: int | None = None) -> WorkflowModel:
+        with self.session() as session:
+            query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
+
+            if version:
+                return query.filter(WorkflowModel.version == version).first()
+
+            return query.order_by(desc(WorkflowModel.version)).first()
