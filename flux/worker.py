@@ -82,7 +82,6 @@ class Worker:
                     asyncio.run(self._start())
                     break
                 except Exception as retry_error:
-                    attempt += 1
                     if attempt == max_retries - 1:
                         logger.error(
                             f"Failed to start worker after {max_retries} attempts: {retry_error}",
