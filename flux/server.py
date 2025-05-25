@@ -20,7 +20,7 @@ from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
-from flux.logging import get_logger
+from flux.utils import get_logger
 from flux.secret_managers import SecretManager
 from flux.servers.uvicorn_server import ControlPlaneUvicornServer
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -228,8 +228,15 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
+                workflow = WorkflowCatalog.create().get(workflow_name)
                 manager = ContextManager.create()
-                ctx = manager.save(ExecutionContext(workflow_name, input))
+                ctx = manager.save(
+                    ExecutionContext(
+                        workflow_id=workflow.id,
+                        workflow_name=workflow.name,
+                        input=input,
+                    ),
+                )
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
@@ -261,7 +268,7 @@ class Server:
                                 ctx = new_ctx
                                 dto = ExecutionContextDTO.from_domain(ctx)
                                 yield {
-                                    "event": f"{ctx.name}.execution.{ctx.state.value.lower()}",
+                                    "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
                                     "data": to_json(dto.summary() if not detailed else dto),
                                 }
                                 current_delay = 0.1
@@ -284,6 +291,9 @@ class Server:
                 )
                 return result
 
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
             except Exception as e:
                 logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
@@ -357,13 +367,13 @@ class Server:
                     context_manager = ContextManager.create()
                     while True:
                         try:
-                            ctx = context_manager.next_pending_execution(worker)
+                            ctx = context_manager.next_execution(worker)
                             if ctx:
-                                workflow = WorkflowCatalog.create().get(ctx.name)
+                                workflow = WorkflowCatalog.create().get(ctx.workflow_name)
                                 workflow.source = base64.b64encode(workflow.source).decode("utf-8")
 
                                 logger.debug(
-                                    f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.name})",
+                                    f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                 )
                                 yield {
                                     "event": "execution_scheduled",

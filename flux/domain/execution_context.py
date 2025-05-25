@@ -18,6 +18,7 @@ from flux.errors import ExecutionError
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
 from flux.worker_registry import WorkerInfo
+from flux.domain import ResourceRequest
 
 WorkflowInputType = TypeVar("WorkflowInputType")
 CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
@@ -26,19 +27,23 @@ CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
 class ExecutionContext(Generic[WorkflowInputType]):
     def __init__(
         self,
-        name: str,
+        workflow_id: str,
+        workflow_name: str,
         input: WorkflowInputType | None = None,
         execution_id: str | None = None,
         state: ExecutionState | None = None,
         events: list[ExecutionEvent] | None = None,
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
+        requests: ResourceRequest | None = None,
     ):
-        self._name = name
+        self._workflow_id = workflow_id
+        self._workflow_name = workflow_name
         self._input = input
         self._execution_id = execution_id or uuid4().hex
         self._events = events or []
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
+        self._requests = requests or None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -62,8 +67,12 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self._execution_id
 
     @property
-    def name(self) -> str:
-        return self._name
+    def workflow_id(self) -> str:
+        return self._workflow_id
+
+    @property
+    def workflow_name(self) -> str:
+        return self._workflow_name
 
     @property
     def input(self) -> WorkflowInputType:
@@ -177,7 +186,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_STARTED,
                 source_id=id,
-                name=self.name,
+                name=self.workflow_name,
                 value=self.input,
             ),
         )
@@ -189,7 +198,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_RESUMED,
                 source_id=id,
-                name=self.name,
+                name=self.workflow_name,
                 value=self.input,
             ),
         )
@@ -201,7 +210,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_PAUSED,
                 source_id=id,
-                name=self.name,
+                name=self.workflow_name,
                 value=name,
             ),
         )
@@ -213,7 +222,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_COMPLETED,
                 source_id=id,
-                name=self.name,
+                name=self.workflow_name,
                 value=output,
             ),
         )
@@ -225,7 +234,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_FAILED,
                 source_id=id,
-                name=self.name,
+                name=self.workflow_name,
                 value=output,
             ),
         )
@@ -250,7 +259,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
     @staticmethod
     def from_json(data: dict) -> ExecutionContext:
         return ExecutionContext(
-            name=data["name"],
+            workflow_id=data["workflow_id"],
+            workflow_name=data["workflow_name"],
             input=data["input"],
             execution_id=data["execution_id"],
             state=data["state"],

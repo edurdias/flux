@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 from flux import ExecutionContext
-from flux.decorators import task
-from flux.decorators import workflow
+from flux.task import task
+from flux.workflow import workflow
 from flux.tasks import parallel
 from flux.tasks import pipeline
 

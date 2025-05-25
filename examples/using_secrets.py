@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from flux import ExecutionContext
-from flux import task
-from flux import workflow
+from flux.task import task
+from flux.workflow import workflow
 from flux.secret_managers import SecretManager
 
 SECRET_NAME = "example"

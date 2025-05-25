@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from flux import ExecutionContext
-from flux import workflow
+from flux.workflow import workflow
 from flux.tasks import sleep
 
 

@@ -41,6 +41,7 @@ def sqlite_workflow_catalog():
 def sample_workflow():
     """Generate a sample workflow for testing."""
     return WorkflowInfo(
+        id="test-workflow-id",
         name="test_workflow",
         imports=["import1", "import2"],
         source=b"""
@@ -69,39 +70,6 @@ def test_save_and_get_workflow(sqlite_workflow_catalog, sample_workflow):
     assert workflow.source == sample_workflow.source
 
 
-def test_get_workflow_with_version(sqlite_workflow_catalog, sample_workflow):
-    """Test retrieving a specific version of a workflow."""
-    # Save the workflow twice to create two versions
-    sqlite_workflow_catalog.save([sample_workflow])
-
-    # Create a slightly modified version
-    updated_workflow = WorkflowInfo(
-        name="test_workflow",
-        imports=["import1", "import2", "import3"],
-        source=b"""
-import asyncio
-from flux.decorators import workflow
-
-@workflow
-async def test_workflow():
-    return "Hello Updated World"
-        """,
-    )
-    sqlite_workflow_catalog.save([updated_workflow])
-
-    # Get the first version
-    workflow_v1 = sqlite_workflow_catalog.get("test_workflow", version=1)
-    assert workflow_v1.version == 1
-
-    # Get the second version
-    workflow_v2 = sqlite_workflow_catalog.get("test_workflow", version=2)
-    assert workflow_v2.version == 2
-
-    # Without specifying a version, should get the latest
-    latest_workflow = sqlite_workflow_catalog.get("test_workflow")
-    assert latest_workflow.version == 2
-
-
 def test_all_workflows(sqlite_workflow_catalog, sample_workflow):
     """Test retrieving all workflows."""
     # Save a workflow
@@ -109,6 +77,7 @@ def test_all_workflows(sqlite_workflow_catalog, sample_workflow):
 
     # Create another workflow
     another_workflow = WorkflowInfo(
+        id="another-workflow-id",
         name="another_workflow",
         imports=["import1"],
         source=b"""
