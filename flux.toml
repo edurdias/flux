@@ -1,21 +1,19 @@
 [flux]
-debug = false                               # Enable debug mode for additional logging
-log_level = "INFO"                          # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-server_host = "localhost"                   # Host to bind the control plane server to.
-server_port = 8000                          # Port to bind the control plane server to.
-home = ".flux"                              # Home directory
-cache_path = ".cache"                       # Cache directory
-local_storage_path = ".storage"             # Base path for storing task outputs
-serializer = "pkl"                          # Default serializer (json or pkl)
-database_url = "sqlite:///.flux/flux.db"    # Database URL
-
-[flux.catalog]
-auto_register = true # Automatically register workflows in the catalog on startup
-
+debug = false                                                       # Enable debug mode for additional logging
+log_level = "INFO"                                                  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Log message format
+log_date_format = "%Y-%m-%d %H:%M:%S"                               # Date format in log messages
+server_host = "localhost"                                           # Host to bind the server to.
+server_port = 8000                                                  # Port to bind the server to.
+home = ".flux"                                                      # Home directory
+cache_path = ".cache"                                               # Cache directory
+local_storage_path = ".storage"                                     # Base path for storing task outputs
+serializer = "pkl"                                                  # Default serializer (json or pkl)
+database_url = "sqlite:///.flux/flux.db"                            # Database URL
 
 [flux.workers]
 bootstrap_token = "4298a036-a934-4add-8963-521294f06bf3"    # Token for bootstrapping workers
-control_plane_url = "http://localhost:8000"                 # Default control plane URL
+server_url = "http://localhost:8000"                        # Default server URL to connect to
 default_timeout = 30                                        # Default timeout for tasks in seconds
 retry_attempts = 0                                          # Default number of retry attempts for failed tasks
 retry_delay = 1                                             # Initial delay between retries in seconds

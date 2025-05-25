@@ -18,17 +18,6 @@ class BaseConfig(BaseModel):
         return self.model_dump()
 
 
-class CatalogConfig(BaseConfig):
-    auto_register: bool = Field(
-        default=False,
-        description="Automatically register workflows on startup",
-    )
-    options: dict[str, Any] = Field(
-        default={},
-        description="Additional options for the catalog",
-    )
-
-
 class WorkersConfig(BaseConfig):
     """Configuration for workflow executor."""
 
@@ -37,9 +26,9 @@ class WorkersConfig(BaseConfig):
         description="Token for bootstrapping workers",
     )
 
-    control_plane_url: str = Field(
+    server_url: str = Field(
         default="http://localhost:8000",
-        description="Default control plane URL",
+        description="Default server URL to connect to",
     )
     default_timeout: int = Field(default=0, description="Default task timeout in seconds")
     retry_attempts: int = Field(default=3, description="Default number of retry attempts")
@@ -67,8 +56,16 @@ class FluxConfig(BaseSettings):
 
     debug: bool = Field(default=False, description="Enable debug mode")
     log_level: str = Field(default="INFO", description="Logging level")
-    server_port: int = Field(default=8000, description="Port for the control plane server")
-    server_host: str = Field(default="localhost", description="Host for the control plane server")
+    log_format: str = Field(
+        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        description="Log message format",
+    )
+    log_date_format: str = Field(
+        default="%Y-%m-%d %H:%M:%S",
+        description="Date format in log messages",
+    )
+    server_port: int = Field(default=8000, description="Port for the server")
+    server_host: str = Field(default="localhost", description="Host for the server")
     home: str = Field(default=".flux", description="Home directory for Flux")
     cache_path: str = Field(default=".cache", description="Path for cache directory")
     local_storage_path: str = Field(default=".data", description="Path for local storage directory")
@@ -77,7 +74,6 @@ class FluxConfig(BaseSettings):
 
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
-    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
     @field_validator("serializer")
     def validate_serializer(cls, v: str) -> str:
