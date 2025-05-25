@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import base64
 from typing import Any
-from typing import Callable
 
 import uvicorn
 from fastapi import Body
@@ -21,10 +20,14 @@ from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
+from flux.logging import get_logger
+from flux.servers.uvicorn_server import ControlPlaneUvicornServer
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json
 from flux.worker_registry import WorkerInfo
 from flux.worker_registry import WorkerRegistry
+
+logger = get_logger(__name__)
 
 
 class WorkerRuntimeModel(BaseModel):
@@ -56,22 +59,42 @@ class WorkerRegistration(BaseModel):
     resources: WorkerResourcesModel
 
 
-class ControlPlaneServer:
+class Server:
     """
-    Control Plane for managing workflows and tasks.
+    Server for managing workflows and tasks.
     """
 
-    def __init__(self, host: str, port: int, echo: Callable):
+    def __init__(self, host: str, port: int):
         self.host = host
         self.port = port
-        self.echo = echo
 
     def start(self):
         """
-        Start the control plane server.
+        Start Flux server.
         """
-        self.echo(f"Starting control-plane server at {self.host}:{self.port}")
-        uvicorn.run(self._create_api(), host=self.host, port=self.port)
+        logger.info(f"Starting Flux server at {self.host}:{self.port}")
+        logger.debug(f"Server version: {self._get_version()}")
+
+        async def on_server_startup():
+            logger.info("Flux server started successfully")
+            logger.debug("Server is ready to accept connections")
+
+        try:
+            config = uvicorn.Config(
+                self._create_api(),
+                host=self.host,
+                port=self.port,
+                log_level="warning",
+                access_log=False,
+            )
+            server = ControlPlaneUvicornServer(config, on_server_startup)
+            server.run()
+        except Exception as e:
+            logger.error(f"Error starting Flux server: {str(e)}")
+            raise
+        finally:
+            logger.info("Flux server stopped")
+            logger.debug("Server shutdown complete")
 
     def _extract_token(self, authorization: str | None) -> str:
         if not authorization:
@@ -127,30 +150,41 @@ class ControlPlaneServer:
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
             source = await file.read()
-            self.echo(f"Received file: {file.filename} with size: {len(source)} bytes:")
+            logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
             try:
+                logger.debug(f"Processing workflow file: {file.filename}")
                 catalog = WorkflowCatalog.create()
                 workflows = catalog.parse(source)
-                return catalog.save(workflows)
+                result = catalog.save(workflows)
+                logger.debug(f"Saved workflows: {[w.name for w in workflows]}")
+                return result
             except SyntaxError as e:
+                logger.error(f"Syntax error while saving workflow: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
             except Exception as e:
+                logger.error(f"Error saving workflow: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
 
         @api.get("/workflows")
         async def workflows_all():
             try:
+                logger.debug("Fetching all workflows")
                 catalog = WorkflowCatalog.create()
                 workflows = catalog.all()
-                return [{"name": w.name, "version": w.version} for w in workflows]
+                result = [{"name": w.name, "version": w.version} for w in workflows]
+                logger.debug(f"Found {len(result)} workflows")
+                return result
             except Exception as e:
+                logger.error(f"Error listing workflows: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error listing workflows: {str(e)}")
 
         @api.get("/workflows/{workflow_name}")
         async def workflows_get(workflow_name: str):
             try:
+                logger.debug(f"Fetching workflow: {workflow_name}")
                 catalog = WorkflowCatalog.create()
                 workflow = catalog.get(workflow_name)
+                logger.debug(f"Found workflow: {workflow_name} (version: {workflow.version})")
                 return workflow.to_dict()
             except WorkflowNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e))
@@ -165,6 +199,11 @@ class ControlPlaneServer:
             detailed: bool = False,
         ):
             try:
+                logger.debug(
+                    f"Running workflow: {workflow_name} | Mode: {mode} | Detailed: {detailed}",
+                )
+                logger.debug(f"Input: {to_json(input)}")
+
                 if not workflow_name:
                     raise HTTPException(status_code=400, detail="Workflow name is required.")
 
@@ -176,6 +215,9 @@ class ControlPlaneServer:
 
                 manager = ContextManager.create()
                 ctx = manager.save(ExecutionContext(workflow_name, input))
+                logger.debug(
+                    f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                )
 
                 if mode == "sync":
                     backoff_factor = 1.5
@@ -221,18 +263,28 @@ class ControlPlaneServer:
                     )
 
                 dto = ExecutionContextDTO.from_domain(ctx)
-                return dto.summary() if not detailed else dto
+                result = dto.summary() if not detailed else dto
+                logger.debug(
+                    f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
+                )
+                return result
 
             except Exception as e:
+                logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
 
         @api.get("/workflows/{workflow_name}/status/{execution_id}")
         async def workflows_status(workflow_name: str, execution_id: str, detailed: bool = False):
             try:
+                logger.debug(
+                    f"Checking status for workflow: {workflow_name} | Execution ID: {execution_id}",
+                )
                 manager = ContextManager.create()
                 context = manager.get(execution_id)
                 dto = ExecutionContextDTO.from_domain(context)
-                return dto.summary() if not detailed else dto
+                result = dto.summary() if not detailed else dto
+                logger.debug(f"Status for {execution_id}: {context.state.value}")
+                return result
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
 
@@ -242,21 +294,31 @@ class ControlPlaneServer:
             authorization: str = Header(None),
         ):
             try:
+                logger.debug(f"Worker registration request: {registration.name}")
                 token = self._extract_token(authorization)
                 settings = Configuration.get().settings
                 if settings.workers.bootstrap_token != token:
+                    logger.warning(f"Invalid bootstrap token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,
                         detail="Invalid bootstrap token.",
                     )
 
                 registry = WorkerRegistry.create()
-                return registry.register(
+                result = registry.register(
                     registration.name,
                     registration.runtime,
                     registration.packages,
                     registration.resources,
                 )
+                logger.info(f"Worker registered successfully: {registration.name}")
+                logger.debug(
+                    f"Worker details: OS: {registration.runtime.os_name} {registration.runtime.os_version}, "
+                    f"Python: {registration.runtime.python_version}, "
+                    f"Resources: CPU: {registration.resources.cpu_total}, "
+                    f"Memory: {registration.resources.memory_total}",
+                )
+                return result
             except HTTPException:
                 raise
             except Exception as e:
@@ -268,7 +330,9 @@ class ControlPlaneServer:
         @api.get("/workers/{name}/connect")
         async def workers_connect(name: str, authorization: str = Header(None)):
             try:
+                logger.debug(f"Worker connection request: {name}")
                 worker = self._get_worker(name, authorization)
+                logger.info(f"Worker connected: {name}")
 
                 async def check_for_new_executions():
                     current_delay = 0.1
@@ -283,6 +347,9 @@ class ControlPlaneServer:
                                 workflow = WorkflowCatalog.create().get(ctx.name)
                                 workflow.source = base64.b64encode(workflow.source).decode("utf-8")
 
+                                logger.debug(
+                                    f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.name})",
+                                )
                                 yield {
                                     "event": "execution_scheduled",
                                     "data": to_json({"workflow": workflow, "context": ctx}),
@@ -298,6 +365,7 @@ class ControlPlaneServer:
                             await asyncio.sleep(current_delay)
                             current_delay = min(current_delay * backoff_factor, max_delay)
                         except Exception as e:
+                            logger.error(f"Error in worker connection stream for {name}: {str(e)}")
                             yield {
                                 "event": "error",
                                 "data": str(e),
@@ -318,11 +386,14 @@ class ControlPlaneServer:
         @api.post("/workers/{name}/claim/{execution_id}")
         async def workers_claim(name: str, execution_id: str, authorization: str = Header(None)):
             try:
+                logger.debug(f"Worker {name} claiming execution: {execution_id}")
                 worker = self._get_worker(name, authorization)
                 context_manager = ContextManager.create()
                 ctx = context_manager.claim(execution_id, worker)
+                logger.info(f"Execution {execution_id} claimed by worker {name}")
                 return ctx.summary()
             except Exception as e:
+                logger.error(f"Error claiming execution {execution_id} by worker {name}: {str(e)}")
                 raise HTTPException(status_code=404, detail=str(e))
 
         @api.post("/workers/{name}/checkpoint/{execution_id}")
@@ -333,19 +404,26 @@ class ControlPlaneServer:
             authorization: str = Header(None),
         ):
             try:
+                logger.debug(
+                    f"Checkpoint request from worker: {name} for execution: {execution_id}",
+                )
+                logger.debug(f"Execution state: {context.state}")
+
                 self._get_worker(name, authorization)
                 context_manager = ContextManager.create()
                 ctx = context_manager.get(execution_id)
                 if not ctx:
+                    logger.warning(f"Execution context not found: {execution_id}")
                     raise HTTPException(status_code=404, detail="Execution context not found.")
 
                 # Use Pydantic model for automatic datetime conversion
                 domain_ctx = context.to_domain()
 
                 ctx = context_manager.save(domain_ctx)
+                logger.debug(f"Checkpoint saved for {execution_id}, state: {ctx.state.value}")
                 return ctx.summary()
             except Exception as e:
-                self.echo(e, err=True)
+                logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
 
         return api
@@ -353,8 +431,4 @@ class ControlPlaneServer:
 
 if __name__ == "__main__":  # pragma: no cover
     settings = Configuration.get().settings
-    ControlPlaneServer(
-        settings.server_host,
-        settings.server_port,
-        print,
-    ).start()
+    Server(settings.server_host, settings.server_port).start()

@@ -8,7 +8,6 @@ import sys
 from collections.abc import Awaitable
 from typing import Callable
 
-import click
 import httpx
 import psutil
 from httpx_sse import aconnect_sse
@@ -18,6 +17,9 @@ from flux import decorators
 from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
+from flux.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class WorkflowDefinition(BaseModel):
@@ -51,56 +53,65 @@ class WorkflowExecutionRequest(BaseModel):
         )
 
 
-class WorkerServer:
-    def __init__(self, name: str, control_plane_url: str, echo: Callable):
+class Worker:
+    def __init__(self, name: str, server_url: str):
         self.name = name
-        self.echo = echo
         config = Configuration.get().settings.workers
         self.bootstrap_token = config.bootstrap_token
-        self.base_url = f"{control_plane_url or config.control_plane_url}/workers"
+        self.base_url = f"{server_url or config.server_url}/workers"
         self.client = httpx.AsyncClient(timeout=30.0)
 
     def start(self):
         try:
-            self.echo("Worker starting up...")
+            logger.info("Worker starting up...")
+            logger.debug(f"Worker name: {self.name}")
+            logger.debug(f"Server URL: {self.base_url}")
             asyncio.run(self._start())
-            self.echo("Worker shutting down...")
+            logger.info("Worker shutting down...")
         except Exception:
             import time
 
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    self.echo(f"Retrying worker startup (attempt {attempt + 1}/{max_retries})...")
+                    logger.warning(
+                        f"Retrying worker startup (attempt {attempt + 1}/{max_retries})...",
+                    )
+                    logger.debug(f"Using exponential backoff: {2**attempt}s")
                     time.sleep(2**attempt)  # Exponential backoff
                     asyncio.run(self._start())
                     break
                 except Exception as retry_error:
-                    attempt += 1
                     if attempt == max_retries - 1:
-                        self.echo(
+                        logger.error(
                             f"Failed to start worker after {max_retries} attempts: {retry_error}",
-                            err=True,
                         )
 
-            self.echo("Worker shutting down...")
+            logger.info("Worker shutting down...")
 
     async def _start(self):
         try:
-            await self._register_with_control_plane()
+            await self._register()
             await self._start_sse_connection()
         except KeyboardInterrupt:
             raise
         except Exception:
             raise
 
-    async def _register_with_control_plane(self):
+    async def _register(self):
         try:
-            self.echo(f"Registering worker '{self.name}' with control plane...   ", nl=False)
+            logger.info(f"Registering worker '{self.name}' with server...   ")
+            logger.debug(f"Registration endpoint: {self.base_url}/register")
 
             runtime = await self._get_runtime_info()
             resources = await self._get_resources_info()
             packages = await self._get_installed_packages()
+
+            logger.debug(f"Runtime info: {runtime}")
+            logger.debug(
+                f"Resource info: CPU: {resources['cpu_total']}, Memory: {resources['memory_total']}, Disk: {resources['disk_total']}",
+            )
+            logger.debug(f"Number of packages to register: {len(packages)}")
 
             registration = {
                 "name": self.name,
@@ -109,6 +120,7 @@ class WorkerServer:
                 "packages": packages,
             }
 
+            logger.debug("Sending registration request to server...")
             response = await self.client.post(
                 f"{self.base_url}/register",
                 json=registration,
@@ -117,61 +129,87 @@ class WorkerServer:
             response.raise_for_status()
             data = response.json()
             self.session_token = data["session_token"]
-            self.echo("OK")
+            logger.debug("Registration successful, received session token")
+            logger.info("OK")
         except Exception as e:
-            self.echo("ERROR", err=True)
-            self.echo(e, err=True)
+            logger.error("ERROR")
+            logger.exception(e)
             raise
 
     async def _start_sse_connection(self):
         """Connect to SSE endpoint and handle events asynchronously"""
-        self.echo("Establishing connection with control plane...   ", nl=False)
+        logger.info("Establishing connection with server...")
 
         base_url = f"{self.base_url}/{self.name}"
         headers = {"Authorization": f"Bearer {self.session_token}"}
 
+        logger.debug(f"SSE connection URL: {base_url}/connect")
+        logger.debug("Setting up HTTP client for long-running connection")
+
         try:
             async with httpx.AsyncClient(timeout=None) as client:
+                logger.debug("Initiating SSE connection...")
                 async with aconnect_sse(
                     client,
                     "GET",
                     f"{base_url}/connect",
                     headers=headers,
                 ) as es:
-                    self.echo("OK")
+                    logger.info("Connection established successfully")
+                    logger.debug("Starting event loop to receive events")
                     async for e in es.aiter_sse():
                         if e.event == "execution_scheduled":
+                            logger.debug("Received execution_scheduled event")
                             request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
 
-                            self.echo(
+                            logger.info(
                                 f"Execution Scheduled - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                             )
+                            logger.debug(f"Workflow input: {request.context.input}")
 
+                            logger.debug(f"Claiming execution: {request.context.execution_id}")
                             response = await self.client.post(
                                 f"{base_url}/claim/{request.context.execution_id}",
                                 headers=headers,
                             )
                             response.raise_for_status()
+                            claim_data = response.json()
+                            logger.debug(f"Claim response: {claim_data}")
 
-                            self.echo(
+                            logger.info(
                                 f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                             )
 
+                            logger.debug(f"Starting workflow execution: {request.workflow.name}")
                             ctx = await self._execute_workflow(request)
-                            self.echo(
-                                f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                                err=ctx.has_failed,
+                            logger.debug(
+                                f"Workflow execution completed with state: {ctx.state.value}",
                             )
 
+                            if ctx.has_failed:
+                                logger.error(
+                                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                                )
+                                logger.debug(
+                                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
+                                )
+                            else:
+                                logger.info(
+                                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                                )
+                                logger.debug(f"Execution output: {ctx.output}")
+
                         if e.event == "keep-alive":
-                            self.echo("Event received: Keep-alive")
+                            logger.debug("Event received: Keep-alive")
 
                         if e.event == "error":
-                            self.echo("Event received: Error", err=True)
-                            self.echo(e.data, err=True)
+                            logger.error("Event received: Error")
+                            logger.error(e.data)
+                            logger.debug(f"Error event details: {e.data}")
 
         except Exception as e:
-            self.echo(e, err=True)
+            logger.error(f"Error in SSE connection: {str(e)}")
+            logger.debug(f"Connection error details: {type(e).__name__}: {str(e)}")
             raise
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
@@ -183,18 +221,40 @@ class WorkerServer:
         Returns:
             ExecutionContext: The execution context after workflow execution
         """
+        logger.debug(
+            f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
+        )
+
+        # Decode the source code
         source_code = base64.b64decode(request.workflow.source).decode("utf-8")
+        logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
+
+        # Create a dynamic module for the workflow
         module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+        logger.debug(f"Creating module: {module_name}")
         module_spec = importlib.util.spec_from_loader(module_name, loader=None)
         module = importlib.util.module_from_spec(module_spec)  # type: ignore
         sys.modules[module_name] = module
+
+        # Execute the workflow code in the module context
+        logger.debug("Executing workflow source code")
         exec(source_code, module.__dict__)
 
         ctx = request.context
         if request.workflow.name in module.__dict__:
             workflow = module.__dict__[request.workflow.name]
+            logger.debug(f"Found workflow function: {request.workflow.name}")
+
             if isinstance(workflow, decorators.workflow):
+                logger.debug(f"Executing workflow: {request.workflow.name}")
+                start_time = asyncio.get_event_loop().time()
                 ctx = await workflow(request.context)
+                execution_time = asyncio.get_event_loop().time() - start_time
+                logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
+            else:
+                logger.debug(f"Found {request.workflow.name} but it is not a workflow decorator")
+        else:
+            logger.warning(f"Workflow function {request.workflow.name} not found in module")
 
         return ctx
 
@@ -202,56 +262,98 @@ class WorkerServer:
         base_url = f"{self.base_url}/{self.name}"
         headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
-            self.echo(f"Checkpointing workflow '{ctx.name}'...   ", nl=False)
+            logger.info(f"Checkpointing execution '{ctx.name}' ({ctx.execution_id})...")
+            logger.debug(f"Checkpoint URL: {base_url}/checkpoint/{ctx.execution_id}")
+            logger.debug(f"Checkpoint state: {ctx.state.value}")
+            logger.debug(f"Number of events: {len(ctx.events)}")
+
+            # Convert to dict and prepare for sending
+            ctx_dict = ctx.to_dict()
+            logger.debug(f"Sending checkpoint data ({len(str(ctx_dict))} bytes)")
+
             response = await self.client.post(
                 f"{base_url}/checkpoint/{ctx.execution_id}",
-                json=ctx.to_dict(),
+                json=ctx_dict,
                 headers=headers,
             )
             response.raise_for_status()
-            self.echo("OK")
+            response_data = response.json()
+
+            logger.debug(f"Checkpoint response: {response.status_code}")
+            logger.debug(f"Response data: {response_data}")
+            logger.info(
+                f"Checkpoint for execution '{ctx.name}' ({ctx.execution_id}) completed successfully",
+            )
         except Exception as e:
-            self.echo(e, err=True)
+            logger.error(f"Error during checkpoint: {str(e)}")
+            logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")
             raise
 
     async def _get_runtime_info(self):
-        return {
+        logger.debug("Gathering runtime information")
+        runtime_info = {
             "os_name": platform.system(),
             "os_version": platform.release(),
             "python_version": platform.python_version(),
         }
+        logger.debug(f"Runtime info: {runtime_info}")
+        return runtime_info
 
     async def _get_resources_info(self):
+        logger.debug("Gathering system resource information")
+
         # Get CPU information
+        logger.debug("Getting CPU information")
         cpu_total = psutil.cpu_count(logical=True)
         cpu_percent = psutil.cpu_percent(interval=0.5)
         cpu_available = cpu_total * (100 - cpu_percent) / 100
+        logger.debug(f"CPU: total={cpu_total}, usage={cpu_percent}%, available={cpu_available:.2f}")
 
         # Get memory information
+        logger.debug("Getting memory information")
         memory = psutil.virtual_memory()
         memory_total = memory.total
         memory_available = memory.available
+        logger.debug(
+            f"Memory: total={memory_total}, available={memory_available}, percent={memory.percent}%",
+        )
 
         # Get disk information
+        logger.debug("Getting disk information")
         disk = psutil.disk_usage("/")
         disk_total = disk.total
         disk_free = disk.free
+        logger.debug(f"Disk: total={disk_total}, free={disk_free}, percent={disk.percent}%")
 
-        return {
+        # Get GPU information
+        logger.debug("Getting GPU information")
+        gpus = await self._get_gpu_info()
+
+        resources = {
             "cpu_total": cpu_total,
             "cpu_available": cpu_available,
             "memory_total": memory_total,
             "memory_available": memory_available,
             "disk_total": disk_total,
             "disk_free": disk_free,
-            "gpus": await self._get_gpu_info(),
+            "gpus": gpus,
         }
 
+        logger.debug(f"Collected resource information: {len(gpus)} GPUs found")
+        return resources
+
     async def _get_gpu_info(self):
+        logger.debug("Collecting GPU information")
         import GPUtil
 
         gpus = []
-        for gpu in GPUtil.getGPUs():
+        gpu_devices = GPUtil.getGPUs()
+        logger.debug(f"Found {len(gpu_devices)} GPU devices")
+
+        for i, gpu in enumerate(gpu_devices):
+            logger.debug(
+                f"GPU {i + 1}: {gpu.name}, Memory: {gpu.memoryTotal}MB, Free: {gpu.memoryFree}MB",
+            )
             gpus.append(
                 {
                     "name": gpu.name,
@@ -262,21 +364,31 @@ class WorkerServer:
         return gpus
 
     async def _get_installed_packages(self):
+        logger.debug("Collecting installed packages information")
         import pkg_resources  # type: ignore[import]
 
         # TODO: use poetry package groups to load a specific set of packages that are available in the worker environment for execution
         packages = []
         for dist in pkg_resources.working_set:
             packages.append({"name": dist.project_name, "version": dist.version})
+
+        logger.debug(f"Collected information for {len(packages)} installed packages")
         return packages
 
 
 if __name__ == "__main__":  # pragma: no cover
     from uuid import uuid4
+    from flux.logging import configure_logging
 
+    configure_logging()
     settings = Configuration.get().settings
-    WorkerServer(
-        name=f"worker-{uuid4().hex[-6:]}",
-        control_plane_url=settings.workers.control_plane_url,
-        echo=click.echo,
-    ).start()
+    worker_name = f"worker-{uuid4().hex[-6:]}"
+    server_url = settings.workers.server_url
+
+    logger.debug(f"Starting worker with name: {worker_name}")
+    logger.debug(f"Server URL: {server_url}")
+    logger.debug(
+        f"Bootstrap token configured: {'Yes' if settings.workers.bootstrap_token else 'No'}",
+    )
+
+    Worker(name=worker_name, server_url=server_url).start()

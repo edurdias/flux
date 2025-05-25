@@ -1,4 +1,5 @@
 """Tests for the configuration system."""
+
 from __future__ import annotations
 
 import os
@@ -10,7 +11,6 @@ import pytest
 from pydantic import ValidationError
 
 from flux.config import BaseConfig
-from flux.config import CatalogConfig
 from flux.config import Configuration
 from flux.config import EncryptionConfig
 from flux.config import FluxConfig
@@ -32,25 +32,11 @@ def test_base_config_to_dict():
     assert config_dict["number"] == 42
 
 
-def test_catalog_config_defaults():
-    """Test default values for CatalogConfig."""
-    config = CatalogConfig()
-    assert config.auto_register is False
-    assert config.options == {}
-
-
-def test_catalog_config_custom_values():
-    """Test custom values for CatalogConfig."""
-    config = CatalogConfig(auto_register=True, options={"source": "examples"})
-    assert config.auto_register is True
-    assert config.options == {"source": "examples"}
-
-
 def test_executor_config_defaults():
     """Test default values for ExecutorConfig."""
     config = WorkersConfig()
     assert config.bootstrap_token is not None
-    assert config.control_plane_url == "http://localhost:8000"
+    assert config.server_url == "http://localhost:8000"
     assert config.default_timeout == 0
     assert config.retry_attempts == 3
     assert config.retry_delay == 1
@@ -61,7 +47,7 @@ def test_executor_config_custom_values():
     """Test custom values for ExecutorConfig."""
     config = WorkersConfig(
         bootstrap_token="custom-token",
-        control_plane_url="http://local:8000",
+        server_url="http://local:8000",
         default_timeout=30,
         retry_attempts=5,
         retry_delay=2,
@@ -69,7 +55,7 @@ def test_executor_config_custom_values():
     )
 
     assert config.bootstrap_token == "custom-token"
-    assert config.control_plane_url == "http://local:8000"
+    assert config.server_url == "http://local:8000"
     assert config.default_timeout == 30
     assert config.retry_attempts == 5
     assert config.retry_delay == 2
@@ -102,7 +88,6 @@ def test_flux_config_defaults():
     assert config.database_url == "sqlite:///.flux/flux.db"
     assert isinstance(config.workers, WorkersConfig)
     assert isinstance(config.security, EncryptionConfig)
-    assert isinstance(config.catalog, CatalogConfig)
 
 
 def test_flux_config_custom_values():
@@ -119,7 +104,6 @@ def test_flux_config_custom_values():
         database_url="postgresql://user:pass@localhost/flux",
         workers={"max_workers": 10, "default_timeout": 30},
         security={"encryption_key": "test-key"},
-        catalog={"auto_register": True},
     )
 
     assert config.debug is True
@@ -133,7 +117,6 @@ def test_flux_config_custom_values():
     assert config.database_url == "postgresql://user:pass@localhost/flux"
     assert config.workers.default_timeout == 30
     assert config.security.encryption_key == "test-key"
-    assert config.catalog.auto_register is True
 
 
 def test_flux_config_env_vars():
@@ -144,14 +127,12 @@ def test_flux_config_env_vars():
             "FLUX_DEBUG": "true",
             "FLUX_LOG_LEVEL": "DEBUG",
             "FLUX_SERVER_PORT": "9000",
-            "FLUX_CATALOG__AUTO_REGISTER": "true",
         },
     ):
         config = FluxConfig()
         assert config.debug is True
         assert config.log_level == "DEBUG"
         assert config.server_port == 9000
-        assert config.catalog.auto_register is True
 
 
 def test_flux_config_serializer_validation():
