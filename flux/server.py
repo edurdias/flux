@@ -452,7 +452,7 @@ class Server:
                     # Use the new all() method to get all secret names
                     secret_names = secret_manager.all()
                     logger.info(f"Admin API: Successfully retrieved {len(secret_names)} secrets")
-                    return secret_manager.all()
+                    return secret_names
                 except Exception as ex:
                     logger.error(f"Error listing secrets: {str(ex)}")
                     raise HTTPException(status_code=500, detail=f"Error listing secrets: {str(ex)}")
