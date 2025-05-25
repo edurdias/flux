@@ -36,16 +36,16 @@ def workflow_catalog():
 
 
 def test_parse_workflow_with_direct_requests(workflow_catalog):
-    """Test parsing a workflow with direct WorkflowRequests constructor."""
+    """Test parsing a workflow with direct ResourceRequest constructor."""
     source = b"""
 import asyncio
 from flux import ExecutionContext
 from flux.workflow import workflow
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain import ResourceRequest
 
 @workflow.with_options(
     name="cpu_intensive_workflow",
-    requests=WorkflowRequests(cpu=4, memory="8Gi")
+    requests=ResourceRequest(cpu=4, memory="8Gi")
 )
 async def cpu_intensive_workflow(ctx: ExecutionContext):
     return "Workflow with CPU and memory requirements"
@@ -64,16 +64,16 @@ async def cpu_intensive_workflow(ctx: ExecutionContext):
 
 
 def test_parse_workflow_with_factory_methods(workflow_catalog):
-    """Test parsing a workflow with WorkflowRequests factory methods."""
+    """Test parsing a workflow with ResourceRequest factory methods."""
     source = b"""
 import asyncio
 from flux import ExecutionContext
 from flux.workflow import workflow
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain import ResourceRequest
 
 @workflow.with_options(
     name="gpu_workflow",
-    requests=WorkflowRequests.with_gpu(2)
+    requests=ResourceRequest.with_gpu(2)
 )
 async def gpu_workflow(ctx: ExecutionContext):
     return "Workflow with GPU requirements"
@@ -97,11 +97,11 @@ def test_parse_workflow_with_package_requirements(workflow_catalog):
 import asyncio
 from flux import ExecutionContext
 from flux.workflow import workflow
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain import ResourceRequest
 
 @workflow.with_options(
     name="ml_workflow",
-    requests=WorkflowRequests.with_packages(["tensorflow>=2.0.0", "numpy>=1.20.0", "pandas"])
+    requests=ResourceRequest.with_packages(["tensorflow>=2.0.0", "numpy>=1.20.0", "pandas"])
 )
 async def ml_workflow(ctx: ExecutionContext):
     return "Workflow with package requirements"
@@ -125,11 +125,11 @@ def test_parse_workflow_with_combined_requirements(workflow_catalog):
 import asyncio
 from flux import ExecutionContext
 from flux.workflow import workflow
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain import ResourceRequest
 
 @workflow.with_options(
     name="combined_workflow",
-    requests=WorkflowRequests(
+    requests=ResourceRequest(
         cpu=8,
         memory="16Gi",
         gpu=1,
@@ -159,18 +159,18 @@ def test_parse_multiple_workflows_with_different_requirements(workflow_catalog):
 import asyncio
 from flux import ExecutionContext
 from flux.workflow import workflow
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain import ResourceRequest
 
 @workflow.with_options(
     name="data_workflow",
-    requests=WorkflowRequests(memory="4Gi", packages=["pandas", "numpy"])
+    requests=ResourceRequest(memory="4Gi", packages=["pandas", "numpy"])
 )
 async def data_workflow(ctx: ExecutionContext):
     return "Data processing workflow"
 
 @workflow.with_options(
     name="training_workflow",
-    requests=WorkflowRequests.with_gpu(1)
+    requests=ResourceRequest.with_gpu(1)
 )
 async def training_workflow(ctx: ExecutionContext):
     return "Model training workflow"

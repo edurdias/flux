@@ -194,10 +194,8 @@ class WorkflowCatalog(ABC):
                 return None
             return [elt.value for elt in node.elts if isinstance(elt, ast.Constant)]
 
-        # Handle direct WorkflowRequests instantiation
         if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == "WorkflowRequests":
-                # Extract parameters from constructor
+            if isinstance(node.func, ast.Name) and node.func.id == ResourceRequest.__name__:
                 for kw in node.keywords:
                     if kw.arg == "cpu":
                         cpu = get_constant_value(kw.value)
@@ -210,20 +208,17 @@ class WorkflowCatalog(ABC):
                     elif kw.arg == "packages":
                         packages = get_constant_list(kw.value)
 
-            # Handle factory methods like WorkflowRequests.with_packages
             elif (
                 isinstance(node.func, ast.Attribute)
                 and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "WorkflowRequests"
+                and node.func.value.id == ResourceRequest.__name__
                 and node.args  # Ensure there are arguments
             ):
                 method = node.func.attr
 
                 # Handle each factory method
                 if method.startswith("with_"):
-                    # Get the resource type from the method name (with_packages -> packages)
                     resource_type = method[5:]  # Remove 'with_' prefix
-
                     if resource_type == "packages":
                         packages = get_constant_list(node.args[0])
                     elif resource_type == "cpu" and node.args:
