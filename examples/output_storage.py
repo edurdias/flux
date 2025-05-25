@@ -3,8 +3,8 @@ from __future__ import annotations
 import pandas as pd
 
 from flux import ExecutionContext
-from flux.decorators import task
-from flux.decorators import workflow
+from flux.task import task
+from flux.workflow import workflow
 from flux.output_storage import LocalFileStorage
 
 

@@ -14,47 +14,49 @@ from typing import Callable
 from typing import Literal
 from typing import TypeVar
 
-import flux.decorators as decorators
 from flux import ExecutionContext
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.errors import PauseRequested
+import flux
+
+from flux.task import TaskMetadata
 
 T = TypeVar("T", bound=Any)
 
 
-@decorators.task
+@flux.task
 async def now() -> datetime:
     return datetime.now()
 
 
-@decorators.task
+@flux.task
 async def uuid4() -> uuid.UUID:
     return uuid.uuid4()
 
 
-@decorators.task
+@flux.task
 async def choice(options: list[Any]) -> int:
     return random.choice(options)
 
 
-@decorators.task
+@flux.task
 async def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 
 
-@decorators.task
+@flux.task
 async def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
 
 
-@decorators.task
+@flux.task
 async def parallel(*functions: Coroutine[Any, Any, Any]) -> list[Any]:
     tasks: list[asyncio.Task] = [asyncio.create_task(f) for f in functions]
     return await asyncio.gather(*tasks)
 
 
-@decorators.task
+@flux.task
 async def sleep(duration: float | timedelta):
     """
     Pauses the execution of the workflow for a given duration.
@@ -70,12 +72,12 @@ async def sleep(duration: float | timedelta):
     await asyncio.sleep(duration)
 
 
-@decorators.task.with_options(name="call_workflow_{workflow}")
+@flux.task.with_options(name="call_workflow_{workflow}")
 async def call(workflow: str, *args):
     raise NotImplementedError("Call workflow is not implemented yet.")
 
 
-@decorators.task
+@flux.task
 async def pipeline(*tasks: Callable, input: Any):
     result = input
     for task in tasks:
@@ -83,8 +85,8 @@ async def pipeline(*tasks: Callable, input: Any):
     return result
 
 
-@decorators.task.with_options(metadata=True)
-async def pause(name: str, metadata: decorators.TaskMetadata):
+@flux.task.with_options(metadata=True)
+async def pause(name: str, metadata: TaskMetadata):
     ctx = await ExecutionContext.get()
 
     if ctx.has_resumed:
@@ -182,7 +184,7 @@ class Graph:
 
         return self
 
-    @decorators.task.with_options(name="graph_{self._name}")
+    @flux.task.with_options(name="graph_{self._name}")
     async def __call__(self, input: Any | None = None):
         self.validate()
         await self.__execute_node(Graph.START.name, input)

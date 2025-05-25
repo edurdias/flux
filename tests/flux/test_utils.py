@@ -43,7 +43,7 @@ def test_flux_encoder():
         "datetime": datetime(2023, 1, 1),
         "timedelta": timedelta(seconds=60),
         "uuid": uuid.uuid4(),
-        "context": ExecutionContext("test", {"input": "test"}, "123", []),
+        "context": ExecutionContext("test_id", "test_name", {"input": "test"}, "123", []),
         "exception": ValueError("test error"),
         "callable": lambda x: x,
     }
@@ -55,7 +55,8 @@ def test_flux_encoder():
     assert "2023-01-01" in decoded["datetime"]
     assert decoded["timedelta"] == 60.0
     assert isinstance(decoded["uuid"], str)
-    assert decoded["context"]["name"] == "test"
+    assert decoded["context"]["workflow_id"] == "test_id"
+    assert decoded["context"]["workflow_name"] == "test_name"
     assert decoded["exception"]["type"] == "ValueError"
     assert isinstance(decoded["callable"], str)
 

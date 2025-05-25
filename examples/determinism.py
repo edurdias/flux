@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
-from flux import workflow
+from flux.workflow import workflow
 from flux.tasks import now
 from flux.tasks import randint
 from flux.tasks import randrange

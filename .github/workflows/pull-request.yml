@@ -48,7 +48,10 @@ jobs:
         echo "==============================="
 
         # Compare versions using sort -V (version sort)
-        if ! printf '%s\n' "$TARGET_VERSION" "$PR_VERSION" | sort -V -C; then
+        if [ "$TARGET_VERSION" = "$PR_VERSION" ]; then
+          echo "Error: Version in PR ($PR_VERSION) must be higher than version in target branch ($TARGET_VERSION)"
+          exit 1
+        elif ! printf '%s\n%s\n' "$TARGET_VERSION" "$PR_VERSION" | sort -V -C; then
           echo "Error: Version in PR ($PR_VERSION) must be higher than version in target branch ($TARGET_VERSION)"
           exit 1
         else

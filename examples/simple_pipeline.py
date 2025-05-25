@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from flux import ExecutionContext, task, workflow
+from flux import ExecutionContext
+from flux.task import task
 from flux.tasks import pipeline
+from flux.workflow import workflow
 
 
 @task
