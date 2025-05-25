@@ -25,7 +25,7 @@ def workflow():
 
 
 def get_control_plane_url():
-    """Get the control plane URL from configuration."""
+    """Get the server URL from configuration."""
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
 
@@ -39,10 +39,10 @@ def get_control_plane_url():
     help="Output format (simple or json)",
 )
 @click.option(
-    "--control-plane-url",
+    "--server-url",
     "-cp-url",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
 def list_workflows(format: str, control_plane_url: str | None):
     """List all registered workflows."""
@@ -70,10 +70,10 @@ def list_workflows(format: str, control_plane_url: str | None):
 @workflow.command("register")
 @click.argument("filename")
 @click.option(
-    "--control-plane-url",
+    "--server-url",
     "-cp-url",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
 def register_workflows(filename: str, control_plane_url: str | None):
     """Register workflows from a file."""
@@ -102,10 +102,10 @@ def register_workflows(filename: str, control_plane_url: str | None):
 @workflow.command("show")
 @click.argument("workflow_name")
 @click.option(
-    "--control-plane-url",
+    "--server-url",
     "-cp-url",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
 def show_workflow(workflow_name: str, control_plane_url: str | None):
     """Show the details of a registered workflow."""
@@ -151,10 +151,10 @@ def show_workflow(workflow_name: str, control_plane_url: str | None):
     help="Show detailed execution information",
 )
 @click.option(
-    "--control-plane-url",
+    "--server-url",
     "-cp-url",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
 def run_workflow(
     workflow_name: str,
@@ -211,10 +211,10 @@ def run_workflow(
     help="Show detailed execution information",
 )
 @click.option(
-    "--control-plane-url",
+    "--server-url",
     "-cp-url",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
 def workflow_status(
     workflow_name: str,

@@ -65,7 +65,7 @@ class Worker:
         try:
             logger.info("Worker starting up...")
             logger.debug(f"Worker name: {self.name}")
-            logger.debug(f"Control plane URL: {self.base_url}")
+            logger.debug(f"Server URL: {self.base_url}")
             asyncio.run(self._start())
             logger.info("Worker shutting down...")
         except Exception:
@@ -134,7 +134,7 @@ class Worker:
             logger.info("OK")
         except Exception as e:
             logger.error("ERROR")
-            logger.error(e)
+            logger.exception(e)
             raise
 
     async def _start_sse_connection(self):

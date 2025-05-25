@@ -61,7 +61,7 @@ class WorkerRegistration(BaseModel):
 
 class Server:
     """
-    Control Plane for managing workflows and tasks.
+    Server for managing workflows and tasks.
     """
 
     def __init__(self, host: str, port: int):

@@ -261,18 +261,18 @@ async def built_in_tasks_example(ctx: ExecutionContext):
 
 ## Distributed Architecture
 
-Flux supports distributed execution through a control-plane and worker architecture:
+Flux supports distributed execution through a server and worker architecture:
 
-### Start Control Plane
-Start the control plane server to coordinate workflow execution:
+### Start Server
+Start the server to coordinate workflow execution:
 
 ```bash
-flux start control-plane
+flux start server
 ```
 
 You can specify custom host and port:
 ```bash
-flux start control-plane --host 0.0.0.0 --port 8080
+flux start server --host 0.0.0.0 --port 8080
 ```
 
 ### Start Workers
@@ -282,10 +282,10 @@ Start worker nodes to execute tasks:
 flux start worker
 ```
 
-Workers automatically connect to the control plane and register themselves for task execution.
+Workers automatically connect to the server and register themselves for task execution.
 
 ### Execute Workflows via HTTP
-Once the control plane is running, you can execute workflows via HTTP. The API provides several endpoints for workflow management:
+Once the server is running, you can execute workflows via HTTP. The API provides several endpoints for workflow management:
 
 #### Upload and Register Workflows
 ```bash
@@ -339,7 +339,7 @@ curl -X GET 'http://localhost:8000/workflows/workflow_name/status/execution_id?d
 ```
 
 #### API Documentation
-The control plane provides interactive API documentation at:
+The server provides interactive API documentation at:
 - Swagger UI: `http://localhost:8000/docs`
 
 ## Development
