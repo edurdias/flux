@@ -12,6 +12,7 @@ from flux.server import Server
 from flux.worker import Worker
 from flux.utils import parse_value
 from flux.utils import to_json
+from flux.secret_managers import SecretManager
 
 
 @click.group()
@@ -283,6 +284,83 @@ def worker(name: str | None, server_url: str | None = None):
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
     Worker(name, server_url).start()
+
+
+@cli.group()
+def secrets():
+    """Manage Flux secrets for secure task execution."""
+    pass
+
+
+@secrets.command("list")
+def list_secrets():
+    """List all available secrets (shows only secret names, not values)."""
+    try:
+        secret_manager = SecretManager.current()
+        secrets_list = secret_manager.all()
+
+        if not secrets_list:
+            click.echo("No secrets found.")
+            return
+
+        click.echo("Available secrets:")
+        for secret_name in secrets_list:
+            click.echo(f"  - {secret_name}")
+    except Exception as ex:
+        click.echo(f"Error listing secrets: {str(ex)}", err=True)
+
+
+@secrets.command("set")
+@click.argument("name")
+@click.argument("value")
+def set_secret(name: str, value: str):
+    """Set a secret value with given name and value.
+
+    This command will create a new secret or update an existing one.
+    """
+    try:
+        secret_manager = SecretManager.current()
+        secret_manager.save(name, value)
+        click.echo(f"Secret '{name}' has been set successfully.")
+    except Exception as ex:
+        click.echo(f"Error setting secret: {str(ex)}", err=True)
+
+
+@secrets.command("get")
+@click.argument("name")
+def get_secret(name: str):
+    """Get a secret value by name.
+
+    Warning: This will display the secret value in the terminal.
+    Only use this command for testing or in secure environments.
+    """
+    try:
+        if not click.confirm(f"Are you sure you want to display the secret '{name}'?"):
+            click.echo("Operation cancelled.")
+            return
+
+        secret_manager = SecretManager.current()
+        result = secret_manager.get([name])
+        click.echo(f"Secret '{name}': {result[name]}")
+    except ValueError as ex:
+        click.echo(f"Secret not found: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error getting secret: {str(ex)}", err=True)
+
+
+@secrets.command("remove")
+@click.argument("name")
+def remove_secret(name: str):
+    """Remove a secret by name.
+
+    This permanently deletes the secret from the database.
+    """
+    try:
+        secret_manager = SecretManager.current()
+        secret_manager.remove(name)
+        click.echo(f"Secret '{name}' has been removed successfully.")
+    except Exception as ex:
+        click.echo(f"Error removing secret: {str(ex)}", err=True)
 
 
 if __name__ == "__main__":  # pragma: no cover

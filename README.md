@@ -203,6 +203,44 @@ async def secure_task(secrets: dict[str, Any] = {}):
     # Use API key securely
 ```
 
+Flux provides both a command-line interface and HTTP API endpoints for managing secrets:
+
+#### Managing Secrets via CLI
+
+```bash
+# List all secrets (shows only names, not values)
+flux secrets list
+
+# Set a secret
+flux secrets set API_KEY "your-api-key-value"
+
+# Get a secret value (use cautiously)
+flux secrets get API_KEY
+
+# Remove a secret
+flux secrets remove API_KEY
+```
+
+#### Managing Secrets via API
+
+When running the Flux server, you can also manage secrets using the HTTP API:
+
+```bash
+# List all secrets (shows only names, not values)
+curl -X GET 'http://localhost:8000/admin/secrets'
+
+# Set or update a secret
+curl -X POST 'http://localhost:8000/admin/secrets' \
+     -H 'Content-Type: application/json' \
+     -d '{"name": "API_KEY", "value": "your-api-key-value"}'
+
+# Get a secret value
+curl -X GET 'http://localhost:8000/admin/secrets/API_KEY'
+
+# Delete a secret
+curl -X DELETE 'http://localhost:8000/admin/secrets/API_KEY'
+```
+
 ### Task Caching
 
 Enable task result caching to avoid re-execution:
