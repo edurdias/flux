@@ -18,6 +18,7 @@ from flux.errors import ExecutionError
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
 from flux.worker_registry import WorkerInfo
+from flux.domain import WorkflowRequests
 
 WorkflowInputType = TypeVar("WorkflowInputType")
 CURRENT_CONTEXT: ContextVar = ContextVar("current_context", default=None)
@@ -32,6 +33,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         state: ExecutionState | None = None,
         events: list[ExecutionEvent] | None = None,
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
+        requests: WorkflowRequests | None = None,
     ):
         self._name = name
         self._input = input
@@ -39,6 +41,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._events = events or []
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
+        self._requests = requests or None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -149,6 +152,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
             return finished[0].value
         return None
 
+    @property
+    def requests(self) -> WorkflowRequests | None:
+        return self._requests
+
     def schedule(self, worker: WorkerInfo) -> Self:
         self._state = ExecutionState.SCHEDULED
         self.events.append(
@@ -236,6 +243,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
     def set_checkpoint(self, checkpoint: Callable[[ExecutionContext], Awaitable]) -> Self:
         self._checkpoint = checkpoint
+        return self
+
+    def set_requests(self, requests: WorkflowRequests | None) -> Self:
+        self._requests = requests
         return self
 
     def summary(self):

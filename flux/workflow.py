@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Import ExecutionContext directly to avoid circular imports
+from flux.domain.workflow_requests import WorkflowRequests
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import PauseRequested
@@ -20,6 +21,7 @@ class workflow:
         name: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
+        requests: WorkflowRequests | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -28,6 +30,7 @@ class workflow:
             name (str | None, optional): The name of the workflow. Defaults to None.
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
+            requests (WorkflowRequests | None, optional): The requests minimum resources, runtime and packages for the workflow. Defaults to None.
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
@@ -39,6 +42,7 @@ class workflow:
                 name=name,
                 secret_requests=secret_requests,
                 output_storage=output_storage,
+                requests=requests,
             )
 
         return wrapper
@@ -49,12 +53,30 @@ class workflow:
         name: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
+        requests: WorkflowRequests | None = None,
     ):
         self._func = func
-        self.name = name if name else func.__name__
-        self.secret_requests = secret_requests
-        self.output_storage = output_storage
+        self._name = name if name else func.__name__
+        self._secret_requests = secret_requests
+        self._output_storage = output_storage
+        self._requests = requests
         wraps(func)(self)
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def secret_requests(self) -> list[str]:
+        return self._secret_requests
+
+    @property
+    def output_storage(self) -> OutputStorage | None:
+        return self._output_storage
+
+    @property
+    def requests(self) -> WorkflowRequests | None:
+        return self._requests
 
     async def __call__(self, ctx: ExecutionContext, *args) -> Any:
         if ctx.has_finished:
@@ -91,9 +113,7 @@ class workflow:
         if "execution_id" in kwargs:
             ctx = ContextManager.create().get(kwargs["execution_id"])
         else:
-            ctx = ExecutionContext(
-                self.name,
-                input=args[0] if len(args) > 0 else None,
-            )
+            ctx = ExecutionContext(self.name, input=args[0] if len(args) > 0 else None)
         ctx.set_checkpoint(save)
+        ctx.set_requests(self.requests)
         return asyncio.run(self(ctx))
