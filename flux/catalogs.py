@@ -13,22 +13,51 @@ from sqlalchemy.exc import IntegrityError
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
+from flux.domain.workflow_requests import WorkflowRequests
 
 
 class WorkflowInfo:
-    def __init__(self, name: str, imports: list[str], source: bytes, version: int = 1):
+    def __init__(
+        self,
+        name: str,
+        imports: list[str],
+        source: bytes,
+        version: int = 1,
+        requests: WorkflowRequests | None = None,
+    ):
         self.name = name
         self.imports = imports
         self.source = source
         self.version = version
+        self.requests = requests
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        """
+        Convert WorkflowInfo to a dictionary representation.
+
+        Returns:
+            Dictionary with workflow information
+        """
+        result = {
             "name": self.name,
             "version": self.version,
             "imports": self.imports,
             "source": self.source,
+            "requests": {},
         }
+
+        # Convert WorkflowRequests to dict if present
+        if self.requests:
+            requests_dict = {}
+            # Only include non-None attributes
+            for attr in ["cpu", "memory", "gpu", "disk", "packages"]:
+                value = getattr(self.requests, attr, None)
+                if value is not None:
+                    requests_dict[attr] = value
+
+            result["requests"] = requests_dict
+
+        return result
 
 
 class WorkflowCatalog(ABC):
@@ -59,6 +88,12 @@ class WorkflowCatalog(ABC):
 
 class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
     def all(self) -> list[WorkflowInfo]:
+        """
+        Get all workflows in the catalog (latest version of each).
+
+        Returns:
+            List of WorkflowInfo objects
+        """
         with self.session() as session:
             # Create a subquery that gets the max version for each workflow name
             subq = (
@@ -70,9 +105,9 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
                 .subquery()
             )
 
-            # Join with the original table to get records with the latest version
+            # Join with the original table to get complete records with the latest version
             models = (
-                session.query(WorkflowModel.name, WorkflowModel.version)
+                session.query(WorkflowModel)
                 .join(
                     subq,
                     and_(
@@ -81,23 +116,70 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
                     ),
                 )
                 .order_by(WorkflowModel.name)
+                .all()
             )
 
-            return [
-                WorkflowInfo(
-                    model.name,
-                    [],  # empty imports
-                    b"",  # empty source as bytes
-                    model.version,
+            workflows = []
+            for model in models:
+                # Convert requests dictionary to WorkflowRequests object if present
+                requests = None
+                if model.requests:
+                    requests = WorkflowRequests(
+                        cpu=model.requests.get("cpu"),
+                        memory=model.requests.get("memory"),
+                        gpu=model.requests.get("gpu"),
+                        disk=model.requests.get("disk"),
+                        packages=model.requests.get("packages"),
+                    )
+
+                workflows.append(
+                    WorkflowInfo(
+                        name=model.name,
+                        imports=model.imports,
+                        source=model.source,
+                        version=model.version,
+                        requests=requests,
+                    ),
                 )
-                for model in models
-            ]
+
+            return workflows
 
     def get(self, name: str, version: int | None = None) -> WorkflowInfo:
+        """
+        Retrieve a workflow by name and optionally version.
+
+        Args:
+            name: Name of the workflow to retrieve
+            version: Optional specific version to retrieve (retrieves latest if not specified)
+
+        Returns:
+            WorkflowInfo object representing the workflow
+
+        Raises:
+            WorkflowNotFoundError: If no workflow with the given name/version is found
+        """
         model = self._get(name, version)
         if not model:
             raise WorkflowNotFoundError(name)
-        return WorkflowInfo(model.name, model.imports, model.source, model.version)
+
+        # Convert requests dictionary to WorkflowRequests object if present
+        requests = None
+        if model.requests:
+            requests = WorkflowRequests(
+                cpu=model.requests.get("cpu"),
+                memory=model.requests.get("memory"),
+                gpu=model.requests.get("gpu"),
+                disk=model.requests.get("disk"),
+                packages=model.requests.get("packages"),
+            )
+
+        return WorkflowInfo(
+            name=model.name,
+            imports=model.imports,
+            source=model.source,
+            version=model.version,
+            requests=requests,
+        )
 
     def save(self, workflows: list[WorkflowInfo]):
         with self.session() as session:
@@ -135,51 +217,158 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
 
             return query.order_by(desc(WorkflowModel.version)).first()
 
-    def parse(self, source: bytes):
+    def parse(self, source: bytes) -> list[WorkflowInfo]:
+        """
+        Parse Python source code to extract workflows and their metadata.
+
+        Args:
+            source: Python source code as bytes
+
+        Returns:
+            A list of WorkflowInfo objects representing the parsed workflows
+
+        Raises:
+            SyntaxError: If the source code has invalid syntax or no workflows are found
+        """
         try:
             tree = ast.parse(source)
 
-            workflow_names = []
+            # Results container
+            workflow_infos = []
             imports: list[str] = []
 
-            # Extract imports
+            # Single pass to extract both imports and workflow functions
             for node in ast.walk(tree):
+                # Extract imports
                 if isinstance(node, ast.Import):
                     imports.extend(name.name for name in node.names)
-
                 elif isinstance(node, ast.ImportFrom):
                     module_prefix = f"{node.module}." if node.module else ""
                     imports.extend(f"{module_prefix}{name.name}" for name in node.names)
 
+                # Extract workflow functions
                 elif isinstance(node, ast.AsyncFunctionDef):
+                    workflow_name = None
+                    workflow_requests = None
+
                     for decorator in node.decorator_list:
+                        # Simple @workflow decorator
                         if (
                             isinstance(decorator, ast.Name)
                             and getattr(decorator, "id", None) == "workflow"
                         ):
-                            workflow_names.append(node.name)
+                            workflow_name = node.name
                             break
 
-            if not workflow_names:
+                        # @workflow.with_options decorator
+                        elif (
+                            isinstance(decorator, ast.Call)
+                            and isinstance(decorator.func, ast.Attribute)
+                            and isinstance(decorator.func.value, ast.Name)
+                            and decorator.func.value.id == "workflow"
+                            and decorator.func.attr == "with_options"
+                        ):
+                            # Extract workflow name and requests from decorator args
+                            for kw in decorator.keywords:
+                                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                                    workflow_name = kw.value.value
+                                elif kw.arg == "requests":
+                                    workflow_requests = self._extract_workflow_requests(kw.value)
+
+                            if not workflow_name:
+                                workflow_name = node.name
+
+                            break
+
+                    if workflow_name:
+                        workflow_infos.append(
+                            WorkflowInfo(
+                                name=workflow_name,
+                                imports=imports,
+                                source=source,
+                                requests=workflow_requests,
+                            ),
+                        )
+
+            if not workflow_infos:
                 raise SyntaxError("No workflow found in the provided code.")
 
-            return [WorkflowInfo(name, imports, source) for name in workflow_names]
+            return workflow_infos
+
         except SyntaxError as e:
             raise SyntaxError(f"Invalid syntax: {e.msg}")
+        except Exception as e:
+            raise SyntaxError(f"Error parsing source code: {str(e)}")
 
-    # def _auto_register_workflows(self, options: dict[str, Any]):
-    #     module = (
-    #         import_module(options["module"])
-    #         if "module" in options
-    #         else import_module_from_file(options["path"])
-    #         if "path" in options
-    #         else None
-    #     )
+    def _extract_workflow_requests(self, node: ast.AST) -> WorkflowRequests | None:
+        """
+        Extract workflow requests from an AST node.
 
-    #     if not module:
-    #         return
+        Args:
+            node: AST node representing a WorkflowRequests expression
 
-    #     for name in dir(module):
-    #         workflow = getattr(module, name)
-    #         if isinstance(workflow, decorators.workflow):
-    #             self.save(workflow)
+        Returns:
+            WorkflowRequests object if successfully extracted, None otherwise
+        """
+        cpu = None
+        memory = None
+        gpu = None
+        disk = None
+        packages = None
+
+        # Helper to safely extract constant value
+        def get_constant_value(node: ast.AST) -> Any:
+            return node.value if isinstance(node, ast.Constant) else None
+
+        # Helper to extract list of constant values
+        def get_constant_list(node: ast.AST) -> list[str] | None:
+            if not isinstance(node, ast.List):
+                return None
+            return [elt.value for elt in node.elts if isinstance(elt, ast.Constant)]
+
+        # Handle direct WorkflowRequests instantiation
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "WorkflowRequests":
+                # Extract parameters from constructor
+                for kw in node.keywords:
+                    if kw.arg == "cpu":
+                        cpu = get_constant_value(kw.value)
+                    elif kw.arg == "memory":
+                        memory = get_constant_value(kw.value)
+                    elif kw.arg == "gpu":
+                        gpu = get_constant_value(kw.value)
+                    elif kw.arg == "disk":
+                        disk = get_constant_value(kw.value)
+                    elif kw.arg == "packages":
+                        packages = get_constant_list(kw.value)
+
+            # Handle factory methods like WorkflowRequests.with_packages
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "WorkflowRequests"
+                and node.args  # Ensure there are arguments
+            ):
+                method = node.func.attr
+
+                # Handle each factory method
+                if method.startswith("with_"):
+                    # Get the resource type from the method name (with_packages -> packages)
+                    resource_type = method[5:]  # Remove 'with_' prefix
+
+                    if resource_type == "packages":
+                        packages = get_constant_list(node.args[0])
+                    elif resource_type == "cpu" and node.args:
+                        cpu = get_constant_value(node.args[0])
+                    elif resource_type == "memory" and node.args:
+                        memory = get_constant_value(node.args[0])
+                    elif resource_type == "gpu" and node.args:
+                        gpu = get_constant_value(node.args[0])
+                    elif resource_type == "disk" and node.args:
+                        disk = get_constant_value(node.args[0])
+
+        # Create and return a WorkflowRequests object with the extracted values
+        if any(param is not None for param in [cpu, memory, gpu, disk, packages]):
+            return WorkflowRequests(cpu=cpu, memory=memory, gpu=gpu, disk=disk, packages=packages)
+
+        return None

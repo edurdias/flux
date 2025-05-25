@@ -28,6 +28,7 @@ from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
+from flux.domain.workflow_requests import WorkflowRequests
 
 
 class Base(DeclarativeBase):
@@ -273,12 +274,21 @@ class WorkflowModel(Base):
     version = Column(Integer, nullable=False)
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
+    requests = Column(Base64Type(), nullable=True)
 
-    def __init__(self, name: str, version: int, imports: list[str], source: bytes):
+    def __init__(
+        self,
+        name: str,
+        version: int,
+        imports: list[str],
+        source: bytes,
+        requests: WorkflowRequests | None = None,
+    ):
         self.name = name
         self.version = version
         self.imports = imports
         self.source = source
+        self.requests = requests
 
 
 class WorkflowExecutionContextModel(Base):
