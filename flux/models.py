@@ -290,12 +290,14 @@ class WorkflowModel(Base):
 
     def __init__(
         self,
+        id: str,
         name: str,
         version: int,
         imports: list[str],
         source: bytes,
         requests: ResourceRequest | None = None,
     ):
+        self.id = id
         self.name = name
         self.version = version
         self.imports = imports

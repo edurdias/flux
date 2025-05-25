@@ -5,6 +5,7 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Any
 
+
 from sqlalchemy import and_
 from sqlalchemy import desc
 from sqlalchemy import func
@@ -14,6 +15,9 @@ from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
 from flux.domain.resource_request import ResourceRequest
+from flux.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class WorkflowInfo:
@@ -340,9 +344,12 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
         )
 
     def save(self, workflows: list[WorkflowInfo]):
+        from uuid import uuid4
+
         with self.session() as session:
             try:
                 for workflow in workflows:
+                    workflow.id = uuid4().hex
                     existing_model = self._get(workflow.name)
                     workflow.version = existing_model.version + 1 if existing_model else 1
                     session.add(WorkflowModel(**workflow.to_dict()))
@@ -360,7 +367,13 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
                 if version:
                     query = query.filter(WorkflowModel.version == version)
 
-                query.delete()
+                models = query.all()
+                logger.debug(
+                    f"Deleting {len(models)} workflows with name '{name}' and version '{version}'",
+                )
+                for model in models:
+                    session.delete(model)
+
                 session.commit()
             except IntegrityError:  # pragma: no cover
                 session.rollback()

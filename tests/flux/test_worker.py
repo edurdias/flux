@@ -49,13 +49,19 @@ async def test_workflow(ctx):
 """
     encoded_source = base64.b64encode(workflow_source.encode()).decode()
 
-    return WorkflowDefinition(name="test_workflow", version=1, source=encoded_source)
+    return WorkflowDefinition(
+        id="test-workflow-id",
+        name="test_workflow",
+        version=1,
+        source=encoded_source,
+    )
 
 
 @pytest.fixture
 def sample_execution_context():
     """Create a sample execution context for testing."""
     return ExecutionContext(
+        workflow_id="test-workflow-id",
         workflow_name="test_workflow",
         input={"test": "input"},
         execution_id="test-execution-id",
@@ -80,11 +86,13 @@ class TestWorkflowDefinition:
     def test_workflow_definition_creation(self):
         """Test creating a WorkflowDefinition."""
         definition = WorkflowDefinition(
+            id="test-id",
             name="test_workflow",
             version=1,
             source="dGVzdCBzb3VyY2U=",  # base64 encoded "test source"
         )
 
+        assert definition.id == "test-id"
         assert definition.name == "test_workflow"
         assert definition.version == 1
         assert definition.source == "dGVzdCBzb3VyY2U="
@@ -112,9 +120,15 @@ class TestWorkflowExecutionRequest:
         checkpoint_func = AsyncMock()
 
         data = {
-            "workflow": {"name": "test_workflow", "version": 1, "source": "dGVzdA=="},
-            "context": {
+            "workflow": {
+                "id": "test-id",
                 "name": "test_workflow",
+                "version": 1,
+                "source": "dGVzdA==",
+            },
+            "context": {
+                "workflow_id": "test-id",
+                "workflow_name": "test_workflow",
                 "input": {"key": "value"},
                 "execution_id": "test-id",
                 "state": "running",
@@ -135,6 +149,7 @@ class TestWorkflowExecutionRequest:
 
             assert request.workflow.name == "test_workflow"
             assert request.workflow.version == 1
+            assert request.context.workflow_id == "test-id"
             assert request.context.workflow_name == "test_workflow"
             assert request.context.input == {"key": "value"}
             assert request.context.execution_id == "test-id"
@@ -201,15 +216,18 @@ class TestWorker:
     @pytest.mark.asyncio
     async def test_start_async_calls_register_and_sse(self, worker):
         """Test _start() calls both registration and SSE connection."""
-        with patch.object(
-            worker,
-            "_register",
-            new_callable=AsyncMock,
-        ) as mock_register, patch.object(
-            worker,
-            "_start_sse_connection",
-            new_callable=AsyncMock,
-        ) as mock_sse:
+        with (
+            patch.object(
+                worker,
+                "_register",
+                new_callable=AsyncMock,
+            ) as mock_register,
+            patch.object(
+                worker,
+                "_start_sse_connection",
+                new_callable=AsyncMock,
+            ) as mock_sse,
+        ):
             await worker._start()
 
             mock_register.assert_called_once()
@@ -231,19 +249,24 @@ class TestWorker:
         mock_response.json.return_value = {"session_token": "test-session-token"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post, patch.object(
-            worker,
-            "_get_runtime_info",
-            new_callable=AsyncMock,
-        ) as mock_runtime, patch.object(
-            worker,
-            "_get_resources_info",
-            new_callable=AsyncMock,
-        ) as mock_resources, patch.object(
-            worker,
-            "_get_installed_packages",
-            new_callable=AsyncMock,
-        ) as mock_packages:
+        with (
+            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
+            patch.object(
+                worker,
+                "_get_runtime_info",
+                new_callable=AsyncMock,
+            ) as mock_runtime,
+            patch.object(
+                worker,
+                "_get_resources_info",
+                new_callable=AsyncMock,
+            ) as mock_resources,
+            patch.object(
+                worker,
+                "_get_installed_packages",
+                new_callable=AsyncMock,
+            ) as mock_packages,
+        ):
             mock_post.return_value = mock_response
             mock_runtime.return_value = {"os_name": "Linux"}
             mock_resources.return_value = {
@@ -275,14 +298,19 @@ class TestWorker:
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = Exception("Registration failed")
 
-        with patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post, patch.object(
-            worker,
-            "_get_runtime_info",
-            new_callable=AsyncMock,
-        ), patch.object(worker, "_get_resources_info", new_callable=AsyncMock), patch.object(
-            worker,
-            "_get_installed_packages",
-            new_callable=AsyncMock,
+        with (
+            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
+            patch.object(
+                worker,
+                "_get_runtime_info",
+                new_callable=AsyncMock,
+            ),
+            patch.object(worker, "_get_resources_info", new_callable=AsyncMock),
+            patch.object(
+                worker,
+                "_get_installed_packages",
+                new_callable=AsyncMock,
+            ),
         ):
             mock_post.return_value = mock_response
 
@@ -415,10 +443,13 @@ class TestWorker:
         mock_response.json.return_value = {"status": "success"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post, patch.object(
-            sample_execution_context,
-            "to_dict",
-        ) as mock_to_dict:
+        with (
+            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
+            patch.object(
+                sample_execution_context,
+                "to_dict",
+            ) as mock_to_dict,
+        ):
             mock_post.return_value = mock_response
             mock_to_dict.return_value = {"test": "data"}
 
@@ -434,9 +465,12 @@ class TestWorker:
         """Test checkpoint failure."""
         worker.session_token = "test-session-token"
 
-        with patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post, patch.object(
-            sample_execution_context,
-            "to_dict",
+        with (
+            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
+            patch.object(
+                sample_execution_context,
+                "to_dict",
+            ),
         ):
             mock_post.side_effect = Exception("Checkpoint failed")
 
@@ -453,11 +487,14 @@ class TestWorker:
         worker.session_token = "test-session-token"
 
         # Skip the real SSE connection code completely
-        with patch.object(
-            worker,
-            "_start_sse_connection",
-            new_callable=AsyncMock,
-        ) as mock_sse, patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post:
+        with (
+            patch.object(
+                worker,
+                "_start_sse_connection",
+                new_callable=AsyncMock,
+            ) as mock_sse,
+            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
+        ):
             # Just make it return and then check if our mock was called
             mock_post.return_value = AsyncMock()
             mock_post.return_value.json.return_value = {"status": "success"}
