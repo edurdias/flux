@@ -8,8 +8,8 @@ import click
 import httpx
 
 from flux.config import Configuration
-from flux.servers.control_plane import ControlPlaneServer
-from flux.servers.worker import WorkerServer
+from flux.server import Server
+from flux.worker import Worker
 from flux.utils import parse_value
 from flux.utils import to_json
 
@@ -254,35 +254,35 @@ def start():
 
 
 @start.command()
-@click.option("--host", "-h", default=None, help="Host to bind the control plane server to.")
+@click.option("--host", "-h", default=None, help="Host to bind the server to.")
 @click.option(
     "--port",
     "-p",
     default=None,
     type=int,
-    help="Port to bind the control plane server to.",
+    help="Port to bind the server to.",
 )
-def control_plane(host: str | None = None, port: int | None = None):
-    """Start the control-plane server."""
+def server(host: str | None = None, port: int | None = None):
+    """Start the Flux server."""
     settings = Configuration.get().settings
     host = host or settings.server_host
     port = port or settings.server_port
-    ControlPlaneServer(host, port, click.echo).start()
+    Server(host, port).start()
 
 
 @start.command()
 @click.argument("name", type=str, required=False)
 @click.option(
-    "--control-plane-url",
-    "-cp-url",
+    "--server-url",
+    "-surl",
     default=None,
-    help="Control plane URL to connect to.",
+    help="Server URL to connect to.",
 )
-def worker(name: str | None, control_plane_url: str | None = None):
+def worker(name: str | None, server_url: str | None = None):
     name = name or f"worker-{uuid4().hex[-6:]}"
     settings = Configuration.get().settings.workers
-    control_plane_url = control_plane_url or settings.control_plane_url
-    WorkerServer(name, control_plane_url, click.echo).start()
+    server_url = server_url or settings.server_url
+    Worker(name, server_url).start()
 
 
 if __name__ == "__main__":  # pragma: no cover
