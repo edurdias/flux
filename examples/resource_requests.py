@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-import time
 import numpy as np
 import pandas as pd
 
@@ -39,7 +39,7 @@ async def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """Preprocess the dataset (normalize, handle missing values, etc.)."""
     print("Preprocessing data...")
     # Simulate CPU-intensive preprocessing
-    time.sleep(1)
+    await asyncio.sleep(1)
     # Normalize numerical features
     for col in df.select_dtypes(include=[np.number]).columns:
         if col != "target":
@@ -66,7 +66,7 @@ async def train_model(train_df: pd.DataFrame) -> dict:
     """Train a simple model on the dataset."""
     print("Training model (simulating GPU usage)...")
     # Simulate GPU-intensive model training
-    time.sleep(3)
+    await asyncio.sleep(3)
     return {
         "model_type": "simple_classifier",
         "accuracy": 0.85 + np.random.random() * 0.1,
@@ -80,7 +80,7 @@ async def evaluate_model(model: dict, test_df: pd.DataFrame) -> dict:
     """Evaluate the trained model on test data."""
     print("Evaluating model...")
     # Simulate model evaluation
-    time.sleep(1)
+    await asyncio.sleep(1)
     return {
         **model,
         "test_accuracy": model["accuracy"] - 0.05 + np.random.random() * 0.1,
@@ -94,7 +94,7 @@ async def generate_visualizations(df: pd.DataFrame, model_results: dict) -> dict
     """Generate visualizations of the data and model results."""
     print("Generating visualizations...")
     # Simulate visualization generation
-    time.sleep(2)
+    await asyncio.sleep(2)
     return {
         "plots_generated": 5,
         "data_summary": {
