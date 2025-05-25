@@ -21,6 +21,7 @@ from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
 from flux.logging import get_logger
+from flux.secret_managers import SecretManager
 from flux.servers.uvicorn_server import ControlPlaneUvicornServer
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json
@@ -57,6 +58,20 @@ class WorkerRegistration(BaseModel):
     runtime: WorkerRuntimeModel
     packages: list[dict[str, str]]
     resources: WorkerResourcesModel
+
+
+class SecretRequest(BaseModel):
+    """Model for secret creation/update requests"""
+
+    name: str
+    value: Any
+
+
+class SecretResponse(BaseModel):
+    """Model for secret responses"""
+
+    name: str
+    value: Any | None = None
 
 
 class Server:
@@ -425,6 +440,100 @@ class Server:
             except Exception as e:
                 logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
+
+        # Admin API - Secrets Management
+        @api.get("/admin/secrets")
+        async def admin_list_secrets():
+            try:
+                logger.info("Admin API: Listing all secrets")
+                # List all secrets (names only for security)
+                secret_manager = SecretManager.current()
+                try:
+                    # Use the new all() method to get all secret names
+                    secret_names = secret_manager.all()
+                    logger.info(f"Admin API: Successfully retrieved {len(secret_names)} secrets")
+                    return secret_manager.all()
+                except Exception as ex:
+                    logger.error(f"Error listing secrets: {str(ex)}")
+                    raise HTTPException(status_code=500, detail=f"Error listing secrets: {str(ex)}")
+            except HTTPException:
+                raise
+            except Exception as ex:
+                logger.error(f"Error listing secrets: {str(ex)}")
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.get("/admin/secrets/{name}")
+        async def admin_get_secret(name: str):
+            try:
+                logger.info(f"Admin API: Getting secret '{name}'")
+
+                # Get secret value
+                secret_manager = SecretManager.current()
+                try:
+                    result = secret_manager.get([name])
+                    logger.info(f"Admin API: Successfully retrieved secret '{name}'")
+                    return SecretResponse(name=name, value=result[name])
+                except ValueError:
+                    logger.warning(f"Admin API: Secret not found: '{name}'")
+                    raise HTTPException(status_code=404, detail=f"Secret not found: {name}")
+                except Exception as ex:
+                    logger.error(f"Admin API: Error retrieving secret '{name}': {str(ex)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Error retrieving secret: {str(ex)}",
+                    )
+            except HTTPException:
+                raise
+            except Exception as ex:
+                logger.error(f"Admin API: Error in admin_get_secret for '{name}': {str(ex)}")
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/secrets")
+        async def admin_create_or_update_secret(
+            secret: SecretRequest = Body(...),
+        ):
+            try:
+                logger.info(f"Admin API: Creating/updating secret '{secret.name}'")
+
+                # Save secret
+                secret_manager = SecretManager.current()
+                try:
+                    secret_manager.save(secret.name, secret.value)
+                    logger.info(f"Admin API: Successfully saved secret '{secret.name}'")
+                    return {
+                        "status": "success",
+                        "message": f"Secret '{secret.name}' saved successfully",
+                    }
+                except Exception as ex:
+                    logger.error(f"Admin API: Error saving secret '{secret.name}': {str(ex)}")
+                    raise HTTPException(status_code=500, detail=f"Error saving secret: {str(ex)}")
+            except HTTPException:
+                raise
+            except Exception as ex:
+                logger.error(
+                    f"Admin API: Error in admin_create_or_update_secret for '{secret.name}': {str(ex)}",
+                )
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.delete("/admin/secrets/{name}")
+        async def admin_delete_secret(name: str):
+            try:
+                logger.info(f"Admin API: Deleting secret '{name}'")
+
+                # Remove secret
+                secret_manager = SecretManager.current()
+                try:
+                    secret_manager.remove(name)
+                    logger.info(f"Admin API: Successfully deleted secret '{name}'")
+                    return {"status": "success", "message": f"Secret '{name}' deleted successfully"}
+                except Exception as ex:
+                    logger.error(f"Admin API: Error deleting secret '{name}': {str(ex)}")
+                    raise HTTPException(status_code=500, detail=f"Error deleting secret: {str(ex)}")
+            except HTTPException:
+                raise
+            except Exception as ex:
+                logger.error(f"Admin API: Error in admin_delete_secret for '{name}': {str(ex)}")
+                raise HTTPException(status_code=500, detail=str(ex))
 
         return api
 
