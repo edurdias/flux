@@ -119,5 +119,4 @@ class workflow:
                 input=args[0] if len(args) > 0 else None,
             )
         ctx.set_checkpoint(save)
-        ctx.set_requests(self.requests)
         return asyncio.run(self(ctx))

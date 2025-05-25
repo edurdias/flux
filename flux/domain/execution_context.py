@@ -158,10 +158,6 @@ class ExecutionContext(Generic[WorkflowInputType]):
             return finished[0].value
         return None
 
-    @property
-    def requests(self) -> ResourceRequest | None:
-        return self._requests
-
     def schedule(self, worker: WorkerInfo) -> Self:
         self._state = ExecutionState.SCHEDULED
         self.events.append(
@@ -249,10 +245,6 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
     def set_checkpoint(self, checkpoint: Callable[[ExecutionContext], Awaitable]) -> Self:
         self._checkpoint = checkpoint
-        return self
-
-    def set_requests(self, requests: ResourceRequest | None) -> Self:
-        self._requests = requests
         return self
 
     def summary(self):

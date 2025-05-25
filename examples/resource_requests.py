@@ -118,11 +118,6 @@ async def generate_visualizations(df: pd.DataFrame, model_results: dict) -> dict
 async def data_processing_workflow(ctx: ExecutionContext[dict[str, str]]):
     """Process data with specific CPU and memory requirements."""
 
-    if ctx.requests:
-        print(
-            f"Resource requests: CPU={ctx.requests.cpu}, Memory={ctx.requests.memory}",
-        )
-
     df = await load_dataset(ctx.input["data_path"])
     processed_df = await preprocess_data(df)
     train_df, test_df = await split_train_test(processed_df)
@@ -144,8 +139,6 @@ async def data_processing_workflow(ctx: ExecutionContext[dict[str, str]]):
 )
 async def model_training_workflow(ctx: ExecutionContext[dict]):
     """Train ML model with GPU requirements."""
-    if ctx.requests:
-        print(f"Resource requests: GPU={ctx.requests.gpu}")
     train_df = ctx.input["train_data"]
     test_df = ctx.input["test_data"]
 
@@ -163,8 +156,6 @@ async def model_training_workflow(ctx: ExecutionContext[dict]):
 )
 async def visualization_workflow(ctx: ExecutionContext[dict]):
     """Generate visualizations with specific package requirements."""
-    if ctx.requests:
-        print(f"Resource requests: {ctx.requests.packages}")
     df = pd.concat([ctx.input["train_data"], ctx.input["test_data"]])
     model_results = ctx.input["model_results"]
 
