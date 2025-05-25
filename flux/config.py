@@ -64,8 +64,8 @@ class FluxConfig(BaseSettings):
         default="%Y-%m-%d %H:%M:%S",
         description="Date format in log messages",
     )
-    server_port: int = Field(default=8000, description="Port for the control plane server")
-    server_host: str = Field(default="localhost", description="Host for the control plane server")
+    server_port: int = Field(default=8000, description="Port for the server")
+    server_host: str = Field(default="localhost", description="Host for the server")
     home: str = Field(default=".flux", description="Home directory for Flux")
     cache_path: str = Field(default=".cache", description="Path for cache directory")
     local_storage_path: str = Field(default=".data", description="Path for local storage directory")
