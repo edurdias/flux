@@ -2,7 +2,8 @@
 # ruff: noqa: E402
 from __future__ import annotations
 
-from flux.logging import configure_logging, get_logger
+from flux.utils import get_logger
+from flux.utils import configure_logging
 
 configure_logging()
 

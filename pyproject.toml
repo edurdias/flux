@@ -49,7 +49,7 @@ ipykernel = "^6.29.5"
 poethepoet = "^0.34.0"
 
 [tool.poetry.scripts]
-flux = "flux.flux:cli"
+flux = "flux.cli:cli"
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]

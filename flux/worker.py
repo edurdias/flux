@@ -17,12 +17,14 @@ from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
 from flux.errors import WorkflowNotFoundError
-from flux.logging import get_logger
+from flux.utils import get_logger
+from flux import workflow
 
 logger = get_logger(__name__)
 
 
 class WorkflowDefinition(BaseModel):
+    id: str
     name: str
     version: int
     source: str
@@ -43,7 +45,8 @@ class WorkflowExecutionRequest(BaseModel):
         return WorkflowExecutionRequest(
             workflow=WorkflowDefinition(**data["workflow"]),
             context=ExecutionContext(
-                name=data["context"]["name"],
+                workflow_id=data["context"]["workflow_id"],
+                workflow_name=data["context"]["workflow_name"],
                 input=data["context"]["input"],
                 execution_id=data["context"]["execution_id"],
                 state=data["context"]["state"],
@@ -242,13 +245,13 @@ class Worker:
 
         ctx = request.context
         if request.workflow.name in module.__dict__:
-            workflow = module.__dict__[request.workflow.name]
+            wfunc = module.__dict__[request.workflow.name]
             logger.debug(f"Found workflow function: {request.workflow.name}")
 
-            if isinstance(workflow, workflow.workflow):
+            if isinstance(wfunc, workflow):
                 logger.debug(f"Executing workflow: {request.workflow.name}")
                 start_time = asyncio.get_event_loop().time()
-                ctx = await workflow(request.context)
+                ctx = await wfunc(request.context)
                 execution_time = asyncio.get_event_loop().time() - start_time
                 logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
             else:
@@ -263,7 +266,7 @@ class Worker:
         base_url = f"{self.base_url}/{self.name}"
         headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
-            logger.info(f"Checkpointing execution '{ctx.name}' ({ctx.execution_id})...")
+            logger.info(f"Checkpointing execution '{ctx.workflow_name}' ({ctx.execution_id})...")
             logger.debug(f"Checkpoint URL: {base_url}/checkpoint/{ctx.execution_id}")
             logger.debug(f"Checkpoint state: {ctx.state.value}")
             logger.debug(f"Number of events: {len(ctx.events)}")
@@ -283,7 +286,7 @@ class Worker:
             logger.debug(f"Checkpoint response: {response.status_code}")
             logger.debug(f"Response data: {response_data}")
             logger.info(
-                f"Checkpoint for execution '{ctx.name}' ({ctx.execution_id}) completed successfully",
+                f"Checkpoint for execution '{ctx.workflow_name}' ({ctx.execution_id}) completed successfully",
             )
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
@@ -379,7 +382,7 @@ class Worker:
 
 if __name__ == "__main__":  # pragma: no cover
     from uuid import uuid4
-    from flux.logging import configure_logging
+    from flux.utils import configure_logging
 
     configure_logging()
     settings = Configuration.get().settings

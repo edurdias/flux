@@ -56,7 +56,7 @@ async def test_workflow(ctx):
 def sample_execution_context():
     """Create a sample execution context for testing."""
     return ExecutionContext(
-        name="test_workflow",
+        workflow_name="test_workflow",
         input={"test": "input"},
         execution_id="test-execution-id",
         state=ExecutionState.RUNNING,
@@ -135,7 +135,7 @@ class TestWorkflowExecutionRequest:
 
             assert request.workflow.name == "test_workflow"
             assert request.workflow.version == 1
-            assert request.context.name == "test_workflow"
+            assert request.context.workflow_name == "test_workflow"
             assert request.context.input == {"key": "value"}
             assert request.context.execution_id == "test-id"
             assert len(request.context.events) == 1

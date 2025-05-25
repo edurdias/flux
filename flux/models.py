@@ -19,6 +19,7 @@ from sqlalchemy import Integer
 from sqlalchemy import PickleType
 from sqlalchemy import String
 from sqlalchemy import TypeDecorator
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
@@ -28,7 +29,7 @@ from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain.resource_request import ResourceRequest
 
 
 class Base(DeclarativeBase):
@@ -269,12 +270,23 @@ class WorkerModel(Base):
 class WorkflowModel(Base):
     __tablename__ = "workflows"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     name = Column(String, nullable=False)
     version = Column(Integer, nullable=False)
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
     requests = Column(Base64Type(), nullable=True)
+
+    # Add a uniqueness constraint on name and version
+    __table_args__ = (UniqueConstraint("name", "version", name="uix_workflow_name_version"),)
+
+    # Relationship to executions
+    executions = relationship(
+        "ExecutionContextModel",
+        back_populates="workflow",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
 
     def __init__(
         self,
@@ -282,7 +294,7 @@ class WorkflowModel(Base):
         version: int,
         imports: list[str],
         source: bytes,
-        requests: WorkflowRequests | None = None,
+        requests: ResourceRequest | None = None,
     ):
         self.name = name
         self.version = version
@@ -291,8 +303,8 @@ class WorkflowModel(Base):
         self.requests = requests
 
 
-class WorkflowExecutionContextModel(Base):
-    __tablename__ = "workflow_executions"
+class ExecutionContextModel(Base):
+    __tablename__ = "executions"
 
     execution_id = Column(
         String,
@@ -300,7 +312,8 @@ class WorkflowExecutionContextModel(Base):
         unique=True,
         nullable=False,
     )
-    name = Column(String, nullable=False)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
+    workflow_name = Column(String, nullable=False)
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
@@ -313,17 +326,22 @@ class WorkflowExecutionContextModel(Base):
         order_by="ExecutionEventModel.id",
     )
 
+    # Relationship to workflow
+    workflow = relationship("WorkflowModel", back_populates="executions")
+
     def __init__(
         self,
         execution_id: str,
-        name: str,
+        workflow_id: str,
+        workflow_name: str,
         input: Any,
         events: list[ExecutionEventModel] | None = None,
         output: Any | None = None,
         state: ExecutionState = ExecutionState.CREATED,
     ):
         self.execution_id = execution_id
-        self.name = name
+        self.workflow_id = workflow_id
+        self.workflow_name = workflow_name
         self.input = input
         self.events = events or []
         self.output = output
@@ -331,7 +349,8 @@ class WorkflowExecutionContextModel(Base):
 
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(
-            name=self.name,
+            workflow_id=self.workflow_id,
+            workflow_name=self.workflow_name,
             input=self.input,
             execution_id=self.execution_id,
             events=[e.to_plain() for e in self.events],
@@ -339,22 +358,24 @@ class WorkflowExecutionContextModel(Base):
         )
 
     @classmethod
-    def from_plain(cls, obj: ExecutionContext) -> WorkflowExecutionContextModel:
+    def from_plain(cls, obj: ExecutionContext) -> ExecutionContextModel:
         return cls(
             execution_id=obj.execution_id,
-            name=obj.name,
+            workflow_id=obj.workflow_id,
+            workflow_name=obj.workflow_name,
             input=obj.input,
             output=obj.output,
             events=[ExecutionEventModel.from_plain(obj.execution_id, e) for e in obj.events],
+            state=obj.state,
         )
 
 
 class ExecutionEventModel(Base):
-    __tablename__ = "workflow_execution_events"
+    __tablename__ = "execution_events"
 
     execution_id = Column(
         String,
-        ForeignKey("workflow_executions.execution_id"),
+        ForeignKey("executions.execution_id"),
         nullable=False,
     )
 
@@ -366,7 +387,7 @@ class ExecutionEventModel(Base):
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
     execution = relationship(
-        "WorkflowExecutionContextModel",
+        "ExecutionContextModel",
         back_populates="events",
     )
 

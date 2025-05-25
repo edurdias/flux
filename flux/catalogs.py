@@ -13,18 +13,20 @@ from sqlalchemy.exc import IntegrityError
 from flux.errors import WorkflowNotFoundError
 from flux.models import SQLiteRepository
 from flux.models import WorkflowModel
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain.resource_request import ResourceRequest
 
 
 class WorkflowInfo:
     def __init__(
         self,
+        id: str,
         name: str,
         imports: list[str],
         source: bytes,
         version: int = 1,
-        requests: WorkflowRequests | None = None,
+        requests: ResourceRequest | None = None,
     ):
+        self.id = id
         self.name = name
         self.imports = imports
         self.source = source
@@ -39,6 +41,7 @@ class WorkflowInfo:
             Dictionary with workflow information
         """
         result = {
+            "id": self.id,
             "name": self.name,
             "version": self.version,
             "imports": self.imports,
@@ -143,6 +146,7 @@ class WorkflowCatalog(ABC):
                     if workflow_name:
                         workflow_infos.append(
                             WorkflowInfo(
+                                id=workflow_name,
                                 name=workflow_name,
                                 imports=imports,
                                 source=source,
@@ -160,7 +164,7 @@ class WorkflowCatalog(ABC):
         except Exception as e:
             raise SyntaxError(f"Error parsing source code: {str(e)}")
 
-    def _extract_workflow_requests(self, node: ast.AST) -> WorkflowRequests | None:
+    def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """
         Extract workflow requests from an AST node.
 
@@ -229,7 +233,7 @@ class WorkflowCatalog(ABC):
 
         # Create and return a WorkflowRequests object with the extracted values
         if any(param is not None for param in [cpu, memory, gpu, disk, packages]):
-            return WorkflowRequests(cpu=cpu, memory=memory, gpu=gpu, disk=disk, packages=packages)
+            return ResourceRequest(cpu=cpu, memory=memory, gpu=gpu, disk=disk, packages=packages)
 
         return None
 
@@ -276,7 +280,7 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
                 # Convert requests dictionary to WorkflowRequests object if present
                 requests = None
                 if model.requests:
-                    requests = WorkflowRequests(
+                    requests = ResourceRequest(
                         cpu=model.requests.get("cpu"),
                         memory=model.requests.get("memory"),
                         gpu=model.requests.get("gpu"),
@@ -286,6 +290,7 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
 
                 workflows.append(
                     WorkflowInfo(
+                        id=model.id,
                         name=model.name,
                         imports=model.imports,
                         source=model.source,
@@ -317,7 +322,7 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
         # Convert requests dictionary to WorkflowRequests object if present
         requests = None
         if model.requests:
-            requests = WorkflowRequests(
+            requests = ResourceRequest(
                 cpu=model.requests.get("cpu"),
                 memory=model.requests.get("memory"),
                 gpu=model.requests.get("gpu"),
@@ -326,6 +331,7 @@ class SQLiteWorkflowCatalog(WorkflowCatalog, SQLiteRepository):
             )
 
         return WorkflowInfo(
+            id=model.id,
             name=model.name,
             imports=model.imports,
             source=model.source,

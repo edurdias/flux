@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from flux import ExecutionContext
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain.resource_request import ResourceRequest
 from flux.task import task
 from flux.utils import to_json
 from flux.workflow import workflow
@@ -109,7 +109,7 @@ async def generate_visualizations(df: pd.DataFrame, model_results: dict) -> dict
 # Data processing workflow with CPU and memory requirements
 @workflow.with_options(
     name="data_processing_workflow",
-    requests=WorkflowRequests(
+    requests=ResourceRequest(
         cpu=4,
         memory="8Gi",
         packages=["pandas>=1.3.0", "numpy"],
@@ -140,7 +140,7 @@ async def data_processing_workflow(ctx: ExecutionContext[dict[str, str]]):
 # Model training workflow with GPU requirements
 @workflow.with_options(
     name="model_training_workflow",
-    requests=WorkflowRequests.with_gpu(1),
+    requests=ResourceRequest.with_gpu(1),
 )
 async def model_training_workflow(ctx: ExecutionContext[dict]):
     """Train ML model with GPU requirements."""
@@ -157,7 +157,7 @@ async def model_training_workflow(ctx: ExecutionContext[dict]):
 # Visualization workflow with specific package requirements
 @workflow.with_options(
     name="visualization_workflow",
-    requests=WorkflowRequests.with_packages(
+    requests=ResourceRequest.with_packages(
         ["matplotlib>=3.5.0", "seaborn>=0.11.0"],
     ),
 )

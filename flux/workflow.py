@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # Import ExecutionContext directly to avoid circular imports
-from flux.domain.workflow_requests import WorkflowRequests
+from flux.domain.resource_request import ResourceRequest
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
 from flux.errors import PauseRequested
@@ -21,7 +21,7 @@ class workflow:
         name: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
-        requests: WorkflowRequests | None = None,
+        requests: ResourceRequest | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -53,7 +53,7 @@ class workflow:
         name: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
-        requests: WorkflowRequests | None = None,
+        requests: ResourceRequest | None = None,
     ):
         self._func = func
         self._name = name if name else func.__name__
@@ -75,14 +75,14 @@ class workflow:
         return self._output_storage
 
     @property
-    def requests(self) -> WorkflowRequests | None:
+    def requests(self) -> ResourceRequest | None:
         return self._requests
 
     async def __call__(self, ctx: ExecutionContext, *args) -> Any:
         if ctx.has_finished:
             return ctx
 
-        self.id = f"{ctx.name}_{ctx.execution_id}"
+        self.id = f"{ctx.workflow_name}_{ctx.execution_id}"
 
         if ctx.is_paused:
             ctx.resume(self.id)
@@ -113,7 +113,11 @@ class workflow:
         if "execution_id" in kwargs:
             ctx = ContextManager.create().get(kwargs["execution_id"])
         else:
-            ctx = ExecutionContext(self.name, input=args[0] if len(args) > 0 else None)
+            ctx = ExecutionContext(
+                workflow_id=self.name,
+                workflow_name=self.name,
+                input=args[0] if len(args) > 0 else None,
+            )
         ctx.set_checkpoint(save)
         ctx.set_requests(self.requests)
         return asyncio.run(self(ctx))

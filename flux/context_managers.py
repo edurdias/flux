@@ -10,7 +10,7 @@ from flux.domain.events import ExecutionState
 from flux.errors import ExecutionContextNotFoundError
 from flux.models import ExecutionEventModel
 from flux.models import SQLiteRepository
-from flux.models import WorkflowExecutionContextModel
+from flux.models import ExecutionContextModel
 from flux.worker_registry import WorkerInfo
 
 
@@ -24,7 +24,7 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def next_pending_execution(
+    def next_execution(
         self,
         worker: WorkerInfo,
     ) -> ExecutionContext | None:  # pragma: no cover
@@ -45,7 +45,7 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
 
     def get(self, execution_id: str | None) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(WorkflowExecutionContextModel, execution_id)
+            model = session.get(ExecutionContextModel, execution_id)
             if model:
                 return model.to_plain()
             raise ExecutionContextNotFoundError(execution_id)
@@ -54,7 +54,7 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
         with self.session() as session:
             try:
                 model = session.get(
-                    WorkflowExecutionContextModel,
+                    ExecutionContextModel,
                     ctx.execution_id,
                 )
                 if model:
@@ -62,36 +62,52 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                     model.state = ctx.state
                     model.events.extend(self._get_additional_events(ctx, model))
                 else:
-                    session.add(WorkflowExecutionContextModel.from_plain(ctx))
+                    session.add(ExecutionContextModel.from_plain(ctx))
                 session.commit()
                 return self.get(ctx.execution_id)
             except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
 
-    def next_pending_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
+    def next_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
-            model = (
-                session.query(WorkflowExecutionContextModel)
+            # Find any context that's in CREATED state
+            query = (
+                session.query(ExecutionContextModel)
                 .filter(
-                    WorkflowExecutionContextModel.state == ExecutionState.CREATED,
+                    ExecutionContextModel.state == ExecutionState.CREATED,
                 )
                 .with_for_update(skip_locked=True)
-                .first()
             )
 
-            if model:
+            # Try to get a context that matches the worker's resources first
+            matching_model = None
+            for model in query.all():
                 ctx = model.to_plain()
+
+                # If there are resource requests, check if the worker can fulfill them
+                if ctx.requests:
+                    if ctx.requests.matches_worker(worker.resources, worker.packages):
+                        matching_model = model
+                        break
+                else:
+                    # If no resource requests, any worker will do
+                    matching_model = model
+                    break
+
+            if matching_model:
+                ctx = matching_model.to_plain()
                 ctx.schedule(worker)
-                model.state = ctx.state
-                model.events.extend(self._get_additional_events(ctx, model))
+                matching_model.state = ctx.state
+                matching_model.events.extend(self._get_additional_events(ctx, matching_model))
                 session.commit()
                 return ctx
+
             return None
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(WorkflowExecutionContextModel, execution_id)
+            model = session.get(ExecutionContextModel, execution_id)
             if model:
                 ctx = model.to_plain()
                 ctx.claim(worker)
@@ -104,7 +120,7 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
     def _get_additional_events(
         self,
         ctx: ExecutionContext,
-        model: WorkflowExecutionContextModel,
+        model: ExecutionContextModel,
     ):
         existing_events = [(e.event_id, e.type) for e in model.events]
         return [
