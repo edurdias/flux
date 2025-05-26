@@ -251,20 +251,22 @@ class Worker:
             if isinstance(wfunc, workflow):
                 logger.debug(f"Executing workflow: {request.workflow.name}")
                 start_time = asyncio.get_event_loop().time()
-                
+
                 # Execute workflow with cancellation support
                 try:
                     ctx = await wfunc(request.context)
                     execution_time = asyncio.get_event_loop().time() - start_time
                     logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
                 except CancellationRequested as e:
-                    logger.info(f"Execution canceled: {request.workflow.name} ({request.context.execution_id})")
-                    # Mark as canceled if not already 
+                    logger.info(
+                        f"Execution canceled: {request.workflow.name} ({request.context.execution_id})",
+                    )
+                    # Mark as canceled if not already
                     if not request.context.has_canceled:
                         request.context.cancel("worker", str(e))
                         await request.context.checkpoint()
                     ctx = request.context
-                
+
             else:
                 logger.debug(f"Found {request.workflow.name} but it is not a workflow decorator")
         else:

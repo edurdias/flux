@@ -461,16 +461,23 @@ class Server:
                     # Get the existing execution context
                     context = manager.get(execution_id)
                 except Exception as e:
-                    logger.error(f"Error retrieving execution {execution_id} for cancellation: {str(e)}")
-                    raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+                    logger.error(
+                        f"Error retrieving execution {execution_id} for cancellation: {str(e)}",
+                    )
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution not found: {execution_id}",
+                    )
 
                 # Don't allow cancellation of already terminal executions
                 if context.has_finished:
-                    logger.warning(f"Cannot cancel execution {execution_id} as it is already in terminal state: {context.state.value}")
+                    logger.warning(
+                        f"Cannot cancel execution {execution_id} as it is already in terminal state: {context.state.value}",
+                    )
                     return {
                         "execution_id": execution_id,
                         "state": context.state.value,
-                        "message": "Execution already finished"
+                        "message": "Execution already finished",
                     }
 
                 # Mark as canceled
@@ -486,7 +493,7 @@ class Server:
                 return {
                     "execution_id": execution_id,
                     "state": context.state.value,
-                    "message": "Execution canceled successfully"
+                    "message": "Execution canceled successfully",
                 }
             except HTTPException:
                 raise

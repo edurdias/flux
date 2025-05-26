@@ -3,7 +3,13 @@ from __future__ import annotations
 from flux import ExecutionContext
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
-from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError, CancellationRequested
+from flux.errors import (
+    ExecutionError,
+    ExecutionTimeoutError,
+    PauseRequested,
+    RetryError,
+    CancellationRequested,
+)
 from flux.output_storage import OutputStorage
 from flux.secret_managers import SecretManager
 from flux.utils import get_func_args, make_hashable, maybe_awaitable
@@ -130,13 +136,12 @@ class task:
         try:
             # Check for cancellation before executing the task
             await ctx.check_cancellation()
-            
+
             output = None
             if self.cache:
                 output = CacheManager.get(task_id)
 
             if not output:
-                
                 if self.secret_requests:
                     secrets = SecretManager.current().get(self.secret_requests)
                     kwargs = {**kwargs, "secrets": secrets}
@@ -211,7 +216,7 @@ class task:
             )
             await ctx.checkpoint()
             raise ex
-            
+
         if isinstance(ex, CancellationRequested):
             # Don't handle cancellation at task level, let it propagate up
             raise ex

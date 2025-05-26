@@ -58,10 +58,10 @@ async def long_running_task():
     for i in range(100):
         # Periodically check for cancellation
         await ctx.check_cancellation()
-        
+
         # Do some work
         result = await process_item(i)
-        
+
         # Sleep before next iteration
         await asyncio.sleep(1)
 ```

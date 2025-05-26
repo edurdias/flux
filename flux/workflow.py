@@ -93,7 +93,7 @@ class workflow:
         try:
             # Check if the workflow has been canceled before execution
             await ctx.check_cancellation()
-            
+
             output = await maybe_awaitable(self._func(ctx))
             output_value = (
                 self.output_storage.store(self.id, output) if self.output_storage else output

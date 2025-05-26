@@ -29,15 +29,12 @@ async def cancellable_workflow(ctx: ExecutionContext):
     """A workflow that can be canceled either before or during execution"""
     # First run a quick task
     result = await quick_task("cancellation demo")
-    
+
     # Then run a long task that might be canceled
     long_result = await long_running_task(10)
-    
+
     # Combine results
-    return {
-        "quick_result": result,
-        "long_result": long_result
-    }
+    return {"quick_result": result, "long_result": long_result}
 
 
 if __name__ == "__main__":  # pragma: no cover
