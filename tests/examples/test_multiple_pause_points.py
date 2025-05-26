@@ -28,7 +28,7 @@ def test_second_pause():
     # Should still be paused (at second point)
     assert ctx.is_paused, "The workflow should be paused at the second checkpoint."
     assert not ctx.has_finished, "The workflow should not be finished while paused."
-
+    
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     # Filter out duplicate events by value (keeping only unique pause points)

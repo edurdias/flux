@@ -84,6 +84,18 @@ class PauseRequested(ExecutionError):
         return self._name
 
 
+class CancelationRequested(ExecutionError):
+    def __init__(self, reason: str = "Execution canceled"):
+        super().__init__(
+            message=reason,
+        )
+        self._reason = reason
+
+    @property
+    def reason(self) -> str:
+        return self._reason
+
+
 class WorkflowCatalogError(ExecutionError):
     def __init__(self, message: str):
         super().__init__(message=message)

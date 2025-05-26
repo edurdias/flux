@@ -4,7 +4,7 @@ from __future__ import annotations
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
-from flux.errors import PauseRequested
+from flux.errors import PauseRequested, CancelationRequested
 from flux.output_storage import OutputStorage
 from flux.utils import maybe_awaitable
 
@@ -91,13 +91,19 @@ class workflow:
 
         token = ExecutionContext.set(ctx)
         try:
+            # Check if the workflow has been canceled before execution
+            await ctx.check_cancellation()
+            
             output = await maybe_awaitable(self._func(ctx))
             output_value = (
                 self.output_storage.store(self.id, output) if self.output_storage else output
             )
             ctx.complete(self.id, output_value)
         except PauseRequested as ex:
+            # Handle pause by marking the context as paused
             ctx.pause(self.id, ex.name)
+        except CancelationRequested as ex:
+            ctx.cancel(self.id, ex.reason)
         except Exception as ex:
             ctx.fail(self.id, ex)
         finally:

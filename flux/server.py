@@ -451,6 +451,49 @@ class Server:
                 logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
 
+        @api.post("/executions/{execution_id}/cancel")
+        async def executions_cancel(execution_id: str):
+            try:
+                logger.info(f"Cancellation requested for execution ID: {execution_id}")
+                manager = ContextManager.create()
+
+                try:
+                    # Get the existing execution context
+                    context = manager.get(execution_id)
+                except Exception as e:
+                    logger.error(f"Error retrieving execution {execution_id} for cancellation: {str(e)}")
+                    raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+
+                # Don't allow cancellation of already terminal executions
+                if context.has_finished:
+                    logger.warning(f"Cannot cancel execution {execution_id} as it is already in terminal state: {context.state.value}")
+                    return {
+                        "execution_id": execution_id,
+                        "state": context.state.value,
+                        "message": "Execution already finished"
+                    }
+
+                # Mark as canceled
+                context.cancel(id="api", reason="Canceled via API request")
+
+                # Set cancellation flag for in-flight execution
+                context.set_cancellation()
+
+                # Persist the change
+                manager.save(context)
+
+                logger.info(f"Execution {execution_id} successfully canceled")
+                return {
+                    "execution_id": execution_id,
+                    "state": context.state.value,
+                    "message": "Execution canceled successfully"
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error canceling execution {execution_id}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error canceling execution: {str(e)}")
+
         # Admin API - Secrets Management
         @api.get("/admin/secrets")
         async def admin_list_secrets():

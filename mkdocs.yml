@@ -82,6 +82,7 @@ nav:
       - Tasks: core-concepts/tasks.md
       - Error Handling: core-concepts/error-handling.md
       - Execution Model: core-concepts/execution-model.md
+      - Workflow Cancellation: core-concepts/workflow-cancellation.md
   - Advanced Features:
       - Task Patterns: advanced-features/task-patterns.md
       - Workflow Controls: advanced-features/workflow-controls.md

@@ -88,8 +88,27 @@ async def pipeline(*tasks: Callable, input: Any):
 @flux.task.with_options(metadata=True)
 async def pause(name: str, metadata: TaskMetadata):
     ctx = await ExecutionContext.get()
-
+    
+    # Keep track of the current pause point in the context
+    last_pause_event = None
+    pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
+    if pause_events:
+        last_pause_event = pause_events[-1]  # Get the most recent pause point
+    
+    # Check if we have a TASK_RESUMED event with this name (indicating we've passed this point)
+    task_resumed = False
+    for e in ctx.events:
+        if e.type == ExecutionEventType.TASK_RESUMED and e.value == name:
+            task_resumed = True
+            break
+    
+    # If we've already passed this specific pause point, continue
+    if task_resumed:
+        return name
+    
+    # If we're resuming after a previous pause
     if ctx.has_resumed:
+        # Record that we've resumed from this pause point
         ctx.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.TASK_RESUMED,
@@ -98,7 +117,18 @@ async def pause(name: str, metadata: TaskMetadata):
                 value=name,
             ),
         )
-        return name
+        
+        # The workflow is already paused at a different point, 
+        # and we're resuming. So this pause point is now the current one.
+        if last_pause_event and last_pause_event.value != name:
+            # Pause at this new point with a new name
+            raise PauseRequested(name=name)
+        
+        # Otherwise if this is the pause point we're resuming from, continue
+        if last_pause_event and last_pause_event.value == name:
+            return name
+    
+    # First execution or we haven't reached this pause point yet, so pause here
     raise PauseRequested(name=name)
 
 

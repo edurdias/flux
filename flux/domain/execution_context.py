@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable
 from contextvars import ContextVar
@@ -14,7 +15,7 @@ from uuid import uuid4
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
-from flux.errors import ExecutionError
+from flux.errors import ExecutionError, CancelationRequested
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
 from flux.worker_registry import WorkerInfo
@@ -44,6 +45,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None
+        self._cancel_event = asyncio.Event()
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -91,6 +93,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return len(self.events) > 0 and self.events[-1].type in (
             ExecutionEventType.WORKFLOW_COMPLETED,
             ExecutionEventType.WORKFLOW_FAILED,
+            ExecutionEventType.WORKFLOW_CANCELED,
         )
 
     @property
@@ -120,22 +123,30 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return False
 
     @property
-    def has_resumed(self) -> bool:
+    def has_canceled(self) -> bool:
         """
-        Checks if the workflow is currently in a resumed state.
+        Check if the execution has been canceled.
 
         Returns:
-            bool: True if the last event is a workflow resume event, False otherwise.
+            bool: True if the execution was canceled, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_RESUMED:
-                return True
-        return False
+        return self.has_finished and any(
+            [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_CANCELED],
+        )
 
     @property
     def has_started(self) -> bool:
         return any(e.type == ExecutionEventType.WORKFLOW_STARTED for e in self.events)
+
+    @property
+    def has_resumed(self) -> bool:
+        """
+        Check if the execution has been resumed.
+
+        Returns:
+            bool: True if there's a WORKFLOW_RESUMED event in the events list, False otherwise.
+        """
+        return any(e.type == ExecutionEventType.WORKFLOW_RESUMED for e in self.events)
 
     @property
     def is_scheduled(self) -> bool:
@@ -240,6 +251,28 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
+    def cancel(self, id: str, reason: str = "Operation canceled") -> Self:
+        """
+        Mark the execution as canceled.
+
+        Args:
+            id (str): The ID of the entity that triggered the cancellation.
+            reason (str, optional): The reason for cancellation. Defaults to "Operation canceled".
+
+        Returns:
+            Self: The execution context instance.
+        """
+        self._state = ExecutionState.CANCELED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_CANCELED,
+                source_id=id,
+                name=self.workflow_name,
+                value=reason,
+            ),
+        )
+        return self
+
     async def checkpoint(self) -> Awaitable:
         return await maybe_awaitable(self._checkpoint(self))
 
@@ -266,3 +299,37 @@ class ExecutionContext(Generic[WorkflowInputType]):
             state=data["state"],
             events=[ExecutionEvent(**event) for event in data["events"]],
         )
+
+    @property
+    def _requests(self) -> ResourceRequest | None:
+        return self.__requests
+
+    @_requests.setter
+    def _requests(self, value: ResourceRequest | None):
+        self.__requests = value
+
+    @property
+    def cancel_event(self) -> asyncio.Event:
+        """
+        Get the cancellation event for this execution context.
+
+        Returns:
+            asyncio.Event: The cancellation event.
+        """
+        return self._cancel_event
+
+    async def check_cancellation(self) -> None:
+        """
+        Check if this execution has been canceled.
+
+        Raises:
+            CancelationRequested: If the execution has been canceled.
+        """
+        if self._cancel_event.is_set():
+            raise CancelationRequested()
+
+    def set_cancellation(self) -> None:
+        """
+        Signal that this execution should be canceled.
+        """
+        self._cancel_event.set()

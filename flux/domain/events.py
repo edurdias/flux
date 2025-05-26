@@ -15,6 +15,7 @@ class ExecutionState(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     PAUSED = "PAUSED"
+    CANCELED = "CANCELED"
 
 
 class ExecutionEventType(str, Enum):
@@ -25,6 +26,7 @@ class ExecutionEventType(str, Enum):
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
     WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
     WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
+    WORKFLOW_CANCELED = "WORKFLOW_CANCELED"
 
     TASK_STARTED = "TASK_STARTED"
     TASK_COMPLETED = "TASK_COMPLETED"
