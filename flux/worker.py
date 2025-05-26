@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
-from flux.errors import WorkflowNotFoundError, CancelationRequested
+from flux.errors import WorkflowNotFoundError, CancellationRequested
 from flux.utils import get_logger
 from flux import workflow
 
@@ -257,7 +257,7 @@ class Worker:
                     ctx = await wfunc(request.context)
                     execution_time = asyncio.get_event_loop().time() - start_time
                     logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
-                except CancelationRequested as e:
+                except CancellationRequested as e:
                     logger.info(f"Execution canceled: {request.workflow.name} ({request.context.execution_id})")
                     # Mark as canceled if not already 
                     if not request.context.has_canceled:

@@ -4,7 +4,7 @@ from __future__ import annotations
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
-from flux.errors import PauseRequested, CancelationRequested
+from flux.errors import PauseRequested, CancellationRequested
 from flux.output_storage import OutputStorage
 from flux.utils import maybe_awaitable
 
@@ -102,7 +102,7 @@ class workflow:
         except PauseRequested as ex:
             # Handle pause by marking the context as paused
             ctx.pause(self.id, ex.name)
-        except CancelationRequested as ex:
+        except CancellationRequested as ex:
             ctx.cancel(self.id, ex.reason)
         except Exception as ex:
             ctx.fail(self.id, ex)

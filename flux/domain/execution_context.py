@@ -15,7 +15,7 @@ from uuid import uuid4
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
-from flux.errors import ExecutionError, CancelationRequested
+from flux.errors import ExecutionError, CancellationRequested
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
 from flux.worker_registry import WorkerInfo
@@ -326,7 +326,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             CancelationRequested: If the execution has been canceled.
         """
         if self._cancel_event.is_set():
-            raise CancelationRequested()
+            raise CancellationRequested()
 
     def set_cancellation(self) -> None:
         """

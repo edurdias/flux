@@ -84,7 +84,7 @@ class PauseRequested(ExecutionError):
         return self._name
 
 
-class CancelationRequested(ExecutionError):
+class CancellationRequested(ExecutionError):
     def __init__(self, reason: str = "Execution canceled"):
         super().__init__(
             message=reason,
