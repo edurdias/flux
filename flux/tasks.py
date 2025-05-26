@@ -15,9 +15,10 @@ from typing import Literal
 from typing import TypeVar
 
 from flux import ExecutionContext
+from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
-from flux.errors import PauseRequested
+from flux.errors import ExecutionError, PauseRequested
 import flux
 
 from flux.task import TaskMetadata
@@ -73,8 +74,86 @@ async def sleep(duration: float | timedelta):
 
 
 @flux.task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: str, *args):
-    raise NotImplementedError("Call workflow is not implemented yet.")
+async def call(workflow, *args):
+    """Call a workflow directly or via the HTTP API in sync mode.
+
+    Args:
+        workflow: The workflow to call, can be either:
+            - A workflow object: Will be called directly
+            - A string: Will be called via the HTTP API
+
+    Raises:
+        WorkflowNotFoundError: If the workflow does not exist (when using string name)
+        ExecutionError: If the workflow execution fails
+
+    Returns:
+        Any: The output of the workflow execution
+    """
+    from flux.errors import WorkflowNotFoundError
+    from flux.domain.execution_context import ExecutionContext
+
+    # If workflow is a string, call it via HTTP API
+    if isinstance(workflow, str):
+        import httpx
+        from flux.config import Configuration
+
+        settings = Configuration.get().settings
+        server_url = settings.workers.server_url
+
+        try:
+            url = f"{server_url}/workflows/{workflow}/run/sync?detailed=true"
+            payload = args[0] if len(args) == 1 else args
+            # Make a synchronous HTTP request to execute the workflow
+            with httpx.Client(timeout=settings.workers.default_timeout) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+
+                ctx: ExecutionContext = ExecutionContext(**response.json())
+
+                if ctx.has_succeeded:
+                    return ctx.output
+
+                if ctx.has_failed:
+                    raise ExecutionError(ctx.output)
+
+                # TODO: add support for paused workflows
+
+        except httpx.HTTPStatusError as ex:
+            if ex.response.status_code == 404:
+                raise WorkflowNotFoundError(name=workflow)
+            raise ExecutionError(ex) from ex
+        except Exception as ex:
+            raise ExecutionError(ex) from ex
+
+    # If workflow is a workflow object, call it directly
+    else:
+        try:
+            # Create a new execution context for the subworkflow
+            input_data = args[0] if len(args) == 1 else args
+
+            async def save(ctx: ExecutionContext):
+                return ContextManager.create().save(ctx)
+
+            ctx = ExecutionContext(
+                workflow_id=workflow.name,
+                workflow_name=workflow.name,
+                input=input_data,
+                checkpoint=save,
+            )
+
+            # Execute the workflow with the new context
+            result = await workflow(ctx)
+
+            if result.has_succeeded:
+                return result.output
+
+            if result.has_failed:
+                raise ExecutionError(result.output)
+
+            # TODO: add support for paused workflows
+
+        except Exception as ex:
+            raise ExecutionError(ex) from ex
 
 
 @flux.task
