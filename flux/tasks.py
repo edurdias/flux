@@ -135,6 +135,10 @@ async def call(workflow: flux.workflow | str, *args):
                 raise ExecutionError(ctx.output)
 
             # TODO: add support for paused workflows
+            if ctx.is_paused:
+                raise ExecutionError(
+                    message=f"Workflow execution {ctx.workflow_name} was paused, but is not supported for nested calls.",
+                )
 
     except httpx.ConnectError as ex:
         raise ExecutionError(

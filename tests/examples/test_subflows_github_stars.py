@@ -1,4 +1,5 @@
 from __future__ import annotations
+import copy
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -49,7 +50,7 @@ def mock_httpx_client():
         repo = json  # The repo name is passed as the JSON payload
 
         # Create a copy of the mock data with the repository-specific information
-        response_data = mock_data.copy()
+        response_data = copy.deepcopy(mock_data)
         response_data["input"] = repo
 
         # Set the star count based on the repository
