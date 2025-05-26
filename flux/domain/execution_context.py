@@ -35,6 +35,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         events: list[ExecutionEvent] | None = None,
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
         requests: ResourceRequest | None = None,
+        current_worker: str | None = None,
     ):
         self._workflow_id = workflow_id
         self._workflow_name = workflow_name
@@ -44,6 +45,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None
+        self._current_worker = current_worker or ""
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -75,6 +77,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self._workflow_name
 
     @property
+    def current_worker(self) -> str:
+        return self._current_worker
+
+    @property
     def input(self) -> WorkflowInputType:
         return self._input  # type: ignore [return-value]
 
@@ -91,6 +97,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return len(self.events) > 0 and self.events[-1].type in (
             ExecutionEventType.WORKFLOW_COMPLETED,
             ExecutionEventType.WORKFLOW_FAILED,
+            ExecutionEventType.WORKFLOW_CANCELLED,
         )
 
     @property
@@ -116,6 +123,48 @@ class ExecutionContext(Generic[WorkflowInputType]):
         if self.events:
             last_event = self.events[-1]
             if last_event.type == ExecutionEventType.WORKFLOW_PAUSED:
+                return True
+        return False
+
+    @property
+    def is_cancelled(self) -> bool:
+        """
+        Check if the execution is currently cancelled.
+
+        Returns:
+            bool: True if the last event is a workflow cancelled event, False otherwise.
+        """
+        if self.events:
+            last_event = self.events[-1]
+            if last_event.type == ExecutionEventType.WORKFLOW_CANCELLED:
+                return True
+        return False
+
+    @property
+    def is_cancelling(self) -> bool:
+        """
+        Check if the execution is currently in the process of being cancelled.
+
+        Returns:
+            bool: True if the last event is a workflow cancelling event, False otherwise.
+        """
+        if self.events:
+            last_event = self.events[-1]
+            if last_event.type == ExecutionEventType.WORKFLOW_CANCELLING:
+                return True
+        return False
+
+    @property
+    def is_claimed(self) -> bool:
+        """
+        Check if the execution is currently claimed by a worker.
+
+        Returns:
+            bool: True if the last event is a workflow claimed event, False otherwise.
+        """
+        if self.events:
+            last_event = self.events[-1]
+            if last_event.type == ExecutionEventType.WORKFLOW_CLAIMED:
                 return True
         return False
 
@@ -170,6 +219,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def claim(self, worker: WorkerInfo) -> Self:
+        self._current_worker = worker.name
         self._state = ExecutionState.CLAIMED
         self.events.append(
             ExecutionEvent(
@@ -240,6 +290,31 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
+    def start_cancel(self) -> Self:
+        self._state = ExecutionState.CANCELLING
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_CANCELLING,
+                source_id=self._current_worker,
+                name=self.workflow_name,
+            ),
+        )
+        return self
+
+    def cancel(self) -> Self:
+        if not self.is_cancelling:
+            self.start_cancel()
+
+        self._state = ExecutionState.CANCELLED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_CANCELLED,
+                source_id=self._current_worker,
+                name=self.workflow_name,
+            ),
+        )
+        return self
+
     async def checkpoint(self) -> Awaitable:
         return await maybe_awaitable(self._checkpoint(self))
 
@@ -257,7 +332,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return json.dumps(self, indent=4, cls=FluxEncoder)
 
     @staticmethod
-    def from_json(data: dict) -> ExecutionContext:
+    def from_json(
+        data: dict,
+        checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
+    ) -> ExecutionContext:
         return ExecutionContext(
             workflow_id=data["workflow_id"],
             workflow_name=data["workflow_name"],
@@ -265,4 +343,5 @@ class ExecutionContext(Generic[WorkflowInputType]):
             execution_id=data["execution_id"],
             state=data["state"],
             events=[ExecutionEvent(**event) for event in data["events"]],
+            checkpoint=checkpoint,
         )
