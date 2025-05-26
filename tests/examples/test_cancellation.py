@@ -8,7 +8,6 @@ from examples.cancellation import cancellable_workflow
 from flux.domain.events import ExecutionEventType, ExecutionState
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
-from flux.errors import CancelationRequested
 
 
 def test_has_canceled_property():
