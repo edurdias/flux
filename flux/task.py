@@ -97,9 +97,7 @@ class task:
         task_args = get_func_args(self._func, args)
         full_name = self.name.format(**task_args)
 
-        task_id = (
-            f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(kwargs))))}"
-        )
+        task_id = f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
 
         ctx = await ExecutionContext.get()
 
