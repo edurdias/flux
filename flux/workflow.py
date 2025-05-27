@@ -98,12 +98,14 @@ class workflow:
             ctx.complete(self.id, output_value)
         except PauseRequested as ex:
             ctx.pause(self.id, ex.name)
+        except asyncio.CancelledError:
+            ctx.cancel()
+            raise
         except Exception as ex:
             ctx.fail(self.id, ex)
         finally:
+            await ctx.checkpoint()
             ExecutionContext.reset(token)
-
-        await ctx.checkpoint()
         return ctx
 
     def run(self, *args, **kwargs) -> ExecutionContext:

@@ -33,6 +33,13 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def next_cancellation(
+        self,
+        worker: WorkerInfo,
+    ) -> ExecutionContext | None:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         raise NotImplementedError()
 
@@ -88,6 +95,22 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
 
             return None
 
+    def next_cancellation(self, worker: WorkerInfo) -> ExecutionContext | None:
+        with self.session() as session:
+            query = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.CANCELLING,
+                    ExecutionContextModel.worker_name == worker.name,
+                )
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+            model = query.first()
+            if model:
+                return model.to_plain()
+            return None
+
     def _next_execution_without_requests(self, session):
         no_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
@@ -128,6 +151,7 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 ctx = model.to_plain()
                 ctx.claim(worker)
                 model.state = ctx.state
+                model.worker_name = ctx.current_worker
                 model.events.extend(self._get_additional_events(ctx, model))
                 session.commit()
                 return ctx

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from typing import Any
+from uuid import uuid4
 
 import uvicorn
 from fastapi import Body
@@ -19,7 +20,7 @@ from flux import ExecutionContext
 from flux.catalogs import WorkflowCatalog
 from flux.config import Configuration
 from flux.context_managers import ContextManager
-from flux.errors import WorkflowNotFoundError
+from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.secret_managers import SecretManager
 from flux.servers.uvicorn_server import ControlPlaneUvicornServer
@@ -162,6 +163,9 @@ class Server:
             allow_headers=["*"],
         )
 
+        backoff_factor = 1.5
+        max_delay = 2.0
+
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
             source = await file.read()
@@ -242,10 +246,7 @@ class Server:
                 )
 
                 if mode == "sync":
-                    backoff_factor = 1.5
                     current_delay = 0.1
-                    max_delay = 2.0
-
                     while not ctx.has_finished:
                         await asyncio.sleep(current_delay)
                         ctx = manager.get(ctx.execution_id)
@@ -256,9 +257,7 @@ class Server:
                     async def check_for_new_executions():
                         nonlocal ctx
                         while not ctx.has_finished:
-                            backoff_factor = 1.5
                             current_delay = 0.1
-                            max_delay = 2.0
                             await asyncio.sleep(current_delay)
                             new_ctx = manager.get(ctx.execution_id)
 
@@ -312,6 +311,71 @@ class Server:
                 return result
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
+
+        @api.get("/workflows/{workflow_name}/cancel/{execution_id}")
+        async def workflows_cancel(
+            workflow_name: str,
+            execution_id: str,
+            mode: str = "async",
+            detailed: bool = False,
+        ):
+            try:
+                logger.debug(
+                    f"Cancelling workflow: {workflow_name} | Execution ID: {execution_id} | Mode: {mode}",
+                )
+
+                if not workflow_name:
+                    raise HTTPException(status_code=400, detail="Workflow name is required.")
+
+                if not execution_id:
+                    raise HTTPException(status_code=400, detail="Execution ID is required.")
+
+                if mode and mode not in ["sync", "async"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async'.",
+                    )
+
+                manager = ContextManager.create()
+                ctx = manager.get(execution_id)
+                if not ctx:
+                    raise HTTPException(status_code=404, detail="Execution context not found.")
+
+                if ctx.has_finished:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot cancel a finished execution.",
+                    )
+
+                ctx.start_cancel()
+                manager.save(ctx)
+
+                if mode == "sync":
+                    current_delay = 0.1
+                    while not ctx.has_finished:
+                        logger.debug(
+                            f"Waiting for cancellation of {execution_id}, current state: {ctx.state.value}",
+                        )
+                        await asyncio.sleep(current_delay)
+                        ctx = manager.get(ctx.execution_id)
+                        current_delay = min(current_delay * backoff_factor, max_delay)
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                result = dto.summary() if not detailed else dto
+                logger.info(f"Workflow {workflow_name} execution {execution_id} is {dto.state}.")
+                return result
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except WorkerNotFoundError as e:
+                logger.error(f"Worker not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException as he:
+                logger.error(f"HTTP error while cancelling workflow {workflow_name}: {str(he)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error cancelling workflow {workflow_name}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error cancelling workflow: {str(e)}")
 
         @api.post("/workers/register")
         async def workers_register(
@@ -376,17 +440,33 @@ class Server:
                                     f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                 )
                                 yield {
+                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
                                     "event": "execution_scheduled",
                                     "data": to_json({"workflow": workflow, "context": ctx}),
                                 }
+                                logger.debug(
+                                    f"Execution {ctx.execution_id} scheduled for worker {name}",
+                                )
+                                current_delay = 1
+
+                            ctx = context_manager.next_cancellation(worker)
+                            if ctx:
+                                logger.debug(
+                                    f"Sending cancellation to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                )
+
+                                yield {
+                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
+                                    "event": "execution_cancelled",
+                                    "data": to_json({"context": ctx}),
+                                }
+
+                                logger.debug(
+                                    f"Cancellation {ctx.execution_id} sent to worker {name}",
+                                )
 
                                 current_delay = 1
-                                continue
-                            # else:
-                            #     yield {
-                            #         "event": "keep-alive",
-                            #         "data": "",
-                            #     }
+
                             await asyncio.sleep(current_delay)
                             current_delay = min(current_delay * backoff_factor, max_delay)
                         except Exception as e:

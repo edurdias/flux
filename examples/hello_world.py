@@ -6,7 +6,7 @@ from flux.workflow import workflow
 
 
 @task
-def say_hello(name: str):
+async def say_hello(name: str):
     return f"Hello, {name}"
 
 
