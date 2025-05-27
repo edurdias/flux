@@ -62,7 +62,8 @@ class Worker:
         config = Configuration.get().settings.workers
         self.bootstrap_token = config.bootstrap_token
         self.base_url = f"{server_url or config.server_url}/workers"
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=config.default_timeout)
+        self._running_workflows: dict[str, asyncio.Task] = {}
 
     def start(self):
         try:
@@ -160,60 +161,104 @@ class Worker:
                 ) as es:
                     logger.info("Connection established successfully")
                     logger.debug("Starting event loop to receive events")
-                    async for e in es.aiter_sse():
-                        if e.event == "execution_scheduled":
-                            logger.debug("Received execution_scheduled event")
-                            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
-
-                            logger.info(
-                                f"Execution Scheduled - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                            )
-                            logger.debug(f"Workflow input: {request.context.input}")
-
-                            logger.debug(f"Claiming execution: {request.context.execution_id}")
-                            response = await self.client.post(
-                                f"{base_url}/claim/{request.context.execution_id}",
-                                headers=headers,
-                            )
-                            response.raise_for_status()
-                            claim_data = response.json()
-                            logger.debug(f"Claim response: {claim_data}")
-
-                            logger.info(
-                                f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    async for evt in es.aiter_sse():
+                        if evt.event == "execution_scheduled":
+                            # Create task to handle execution scheduled event without blocking the connection
+                            asyncio.create_task(
+                                self._handle_execution_scheduled(base_url, headers, evt),
+                                name=f"handle_execution_scheduled_{evt.id}",
                             )
 
-                            logger.debug(f"Starting workflow execution: {request.workflow.name}")
-                            ctx = await self._execute_workflow(request)
-                            logger.debug(
-                                f"Workflow execution completed with state: {ctx.state.value}",
+                        if evt.event == "execution_cancelled":
+                            # Create task to handle execution cancelled event without blocking the connection
+                            asyncio.create_task(
+                                self._handle_execution_cancelled(evt),
+                                name=f"handle_execution_cancelled_{evt.id}",
                             )
 
-                            if ctx.has_failed:
-                                logger.error(
-                                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                                )
-                                logger.debug(
-                                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
-                                )
-                            else:
-                                logger.info(
-                                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                                )
-                                logger.debug(f"Execution output: {ctx.output}")
-
-                        if e.event == "keep-alive":
+                        if evt.event == "keep-alive":
                             logger.debug("Event received: Keep-alive")
 
-                        if e.event == "error":
+                        if evt.event == "error":
                             logger.error("Event received: Error")
-                            logger.error(e.data)
-                            logger.debug(f"Error event details: {e.data}")
+                            logger.error(evt.data)
+                            logger.debug(f"Error event details: {evt.data}")
 
-        except Exception as e:
-            logger.error(f"Error in SSE connection: {str(e)}")
-            logger.debug(f"Connection error details: {type(e).__name__}: {str(e)}")
+        except Exception as evt:
+            logger.error(f"Error in SSE connection: {str(evt)}")
+            logger.debug(f"Connection error details: {type(evt).__name__}: {str(evt)}")
             raise
+
+    async def _handle_execution_cancelled(self, e):
+        """Handle execution cancelled event asynchronously.
+
+        This method is called as a separate task and should handle its own exceptions.
+        """
+        try:
+            logger.debug("Received execution_cancelled event")
+            data = e.json()
+            context = ExecutionContext.from_json(data["context"], self._checkpoint)
+            logger.info(f"Cancelling Execution - {context.workflow_name} - {context.execution_id}")
+            if task := self._running_workflows.get(context.execution_id):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info(f"Execution {context.execution_id} cancelled successfully")
+                finally:
+                    self._running_workflows.pop(context.execution_id, None)
+        except Exception as ex:
+            logger.error(f"Error handling execution_cancelled event: {str(ex)}")
+            logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+
+    async def _handle_execution_scheduled(self, base_url, headers, e):
+        """Handle execution scheduled event asynchronously.
+
+        This method is called as a separate task and should handle its own exceptions.
+        """
+        try:
+            logger.debug("Received execution_scheduled event")
+            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
+
+            logger.info(
+                f"Execution Scheduled - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+            )
+            logger.debug(f"Workflow input: {request.context.input}")
+
+            logger.debug(f"Claiming execution: {request.context.execution_id}")
+            response = await self.client.post(
+                f"{base_url}/claim/{request.context.execution_id}",
+                headers=headers,
+            )
+            response.raise_for_status()
+            claim_data = response.json()
+            logger.debug(f"Claim response: {claim_data}")
+
+            logger.info(
+                f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+            )
+
+            logger.debug(f"Starting workflow execution: {request.workflow.name}")
+            ctx = await self._execute_workflow(request)
+            logger.debug(
+                f"Workflow execution completed with state: {ctx.state.value}",
+            )
+
+            if ctx.has_failed:
+                logger.error(
+                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+                logger.debug(
+                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
+                )
+            else:
+                logger.info(
+                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+                logger.debug(f"Execution output: {ctx.output}")
+        except Exception as ex:
+            logger.error(f"Error handling execution_scheduled event: {str(ex)}")
+            logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         """Execute a workflow from a workflow execution request.
@@ -250,8 +295,17 @@ class Worker:
 
             if isinstance(wfunc, workflow):
                 logger.debug(f"Executing workflow: {request.workflow.name}")
+                task = asyncio.create_task(wfunc(request.context))
+                logger.debug(f"Added async task for workflow execution: {request.workflow.name}")
+                self._running_workflows[ctx.execution_id] = task
                 start_time = asyncio.get_event_loop().time()
-                ctx = await wfunc(request.context)
+                logger.debug(f"Workflow execution started: {request.workflow.name}")
+                try:
+                    ctx = await task
+                finally:
+                    self._running_workflows.pop(request.context.execution_id, None)
+                    logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
+
                 execution_time = asyncio.get_event_loop().time() - start_time
                 logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
             else:

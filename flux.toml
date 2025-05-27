@@ -1,6 +1,5 @@
 [flux]
-debug = false                                                       # Enable debug mode for additional logging
-log_level = "INFO"                                                  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+log_level = "DEBUG"                                                 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Log message format
 log_date_format = "%Y-%m-%d %H:%M:%S"                               # Date format in log messages
 server_host = "localhost"                                           # Host to bind the server to.

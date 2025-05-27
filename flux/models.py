@@ -254,6 +254,13 @@ class WorkerModel(Base):
     packages = relationship("WorkerPackageModel", back_populates="worker")
     resources = relationship("WorkerResourcesModel", back_populates="worker", uselist=False)
 
+    executions = relationship(
+        "ExecutionContextModel",
+        back_populates="worker",
+        cascade="all, delete-orphan",
+        lazy="dynamic",
+    )
+
     def __init__(
         self,
         name: str,
@@ -319,6 +326,7 @@ class ExecutionContextModel(Base):
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -330,6 +338,7 @@ class ExecutionContextModel(Base):
 
     # Relationship to workflow
     workflow = relationship("WorkflowModel", back_populates="executions")
+    worker = relationship("WorkerModel", back_populates="executions")
 
     def __init__(
         self,
@@ -340,6 +349,7 @@ class ExecutionContextModel(Base):
         events: list[ExecutionEventModel] | None = None,
         output: Any | None = None,
         state: ExecutionState = ExecutionState.CREATED,
+        worker_name: str | None = None,
     ):
         self.execution_id = execution_id
         self.workflow_id = workflow_id
@@ -348,6 +358,7 @@ class ExecutionContextModel(Base):
         self.events = events or []
         self.output = output
         self.state = state
+        self.worker_name = worker_name
 
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(
@@ -357,6 +368,7 @@ class ExecutionContextModel(Base):
             execution_id=self.execution_id,
             events=[e.to_plain() for e in self.events],
             state=self.state,
+            current_worker=self.worker_name,
         )
 
     @classmethod
@@ -369,6 +381,7 @@ class ExecutionContextModel(Base):
             output=obj.output,
             events=[ExecutionEventModel.from_plain(obj.execution_id, e) for e in obj.events],
             state=obj.state,
+            worker_name=obj.current_worker,
         )
 
 
