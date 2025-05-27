@@ -303,7 +303,7 @@ class Worker:
                 try:
                     ctx = await task
                 finally:
-                    self._running_workflows.pop(ctx.execution_id, None)
+                    self._running_workflows.pop(request.context.execution_id, None)
                     logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
 
                 execution_time = asyncio.get_event_loop().time() - start_time
