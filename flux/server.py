@@ -312,7 +312,7 @@ class Server:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
 
-        @api.get("/workflows/{workflow_name}/cancel/{execution_id}/{mode}")
+        @api.get("/workflows/{workflow_name}/cancel/{execution_id}")
         async def workflows_cancel(
             workflow_name: str,
             execution_id: str,
@@ -330,7 +330,7 @@ class Server:
                 if not execution_id:
                     raise HTTPException(status_code=400, detail="Execution ID is required.")
 
-                if mode not in ["sync", "async"]:
+                if mode and mode not in ["sync", "async"]:
                     raise HTTPException(
                         status_code=400,
                         detail="Invalid mode. Use 'sync', 'async'.",
