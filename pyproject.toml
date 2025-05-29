@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.3.0"
+version = "0.4.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -27,6 +27,7 @@ sse-starlette = "^2.3.5"
 psutil = "^7.0.0"
 gputil = "^1.4.0"
 types-setuptools = "^80.7.0.20250516"
+fastmcp = "^2.5.1"
 
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
