@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import tomli
@@ -34,6 +34,23 @@ class WorkersConfig(BaseConfig):
     retry_attempts: int = Field(default=3, description="Default number of retry attempts")
     retry_delay: int = Field(default=1, description="Default delay between retries in seconds")
     retry_backoff: int = Field(default=2, description="Default backoff multiplier for retries")
+
+
+class MCPConfig(BaseConfig):
+    """Configuration for MCP server."""
+
+    name: str = Field(default="flux-workflows", description="Name for the MCP server")
+
+    host: str = Field(default="localhost", description="Host to bind the MCP server to")
+    port: int = Field(default=8080, description="Port for the MCP server")
+    server_url: str = Field(
+        default="http://localhost:8000",
+        description="Default server URL to connect to",
+    )
+    transport: Literal["stdio", "streamable-http", "sse"] = Field(
+        default="sse",
+        description="Transport protocol for MCP (stdio, streamable-http, sse)",
+    )
 
 
 class EncryptionConfig(BaseConfig):
@@ -74,6 +91,7 @@ class FluxConfig(BaseSettings):
 
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
     @field_validator("serializer")
     def validate_serializer(cls, v: str) -> str:

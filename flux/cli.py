@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 
@@ -285,6 +286,31 @@ def worker(name: str | None, server_url: str | None = None):
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
     Worker(name, server_url).start()
+
+
+@start.command()
+@click.option("--host", "-h", default=None, help="Host to bind the MCP server to.")
+@click.option("--port", "-p", default=None, type=int, help="Port to bind the MCP server to.")
+@click.option("--name", "-n", default=None, help="Name for the MCP server.")
+@click.option("--server-url", "-surl", default=None, help="Server URL to connect to.")
+@click.option(
+    "--transport",
+    "-t",
+    type=click.Choice(["stdio", "streamable-http", "sse"]),
+    default="streamable-http",
+    help="Transport protocol for MCP (stdio, streamable-http, sse)",
+)
+def mcp(
+    name: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    server_url: str | None = None,
+    transport: Literal["stdio", "streamable-http", "sse"] | None = None,
+):
+    """Start the Flux MCP server that exposes API endpoints as tools."""
+    from flux.mcp_server import MCPServer
+
+    MCPServer(name, host, port, server_url, transport).start()
 
 
 @cli.group()

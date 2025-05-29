@@ -4,7 +4,7 @@ import uvicorn
 from typing import Callable
 
 
-class ControlPlaneUvicornServer(uvicorn.Server):
+class UvicornServer(uvicorn.Server):
     def __init__(self, config: uvicorn.Config, on_startup: Callable):
         super().__init__(config)
         self.on_startup = on_startup

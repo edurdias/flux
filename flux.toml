@@ -1,5 +1,5 @@
 [flux]
-log_level = "DEBUG"                                                 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+log_level = "INFO"                                                 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Log message format
 log_date_format = "%Y-%m-%d %H:%M:%S"                               # Date format in log messages
 server_host = "localhost"                                           # Host to bind the server to.
@@ -20,3 +20,10 @@ retry_backoff = 2                                           # Multiplier for sub
 
 [flux.security]
 encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P
+
+[flux.mcp]
+name = "flux-workflows"                 # Name for the MCP server
+host = "localhost"                      # Host to bind the MCP server to
+port = 8080                             # Port for the MCP server
+server_url = "http://localhost:8000"    # Default server URL to connect to
+transport = "streamable-http"           # Transport protocol for MCP ("stdio", "streamable-http", "sse")

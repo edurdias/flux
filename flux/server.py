@@ -23,7 +23,7 @@ from flux.context_managers import ContextManager
 from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.secret_managers import SecretManager
-from flux.servers.uvicorn_server import ControlPlaneUvicornServer
+from flux.servers.uvicorn_server import UvicornServer
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json
 from flux.worker_registry import WorkerInfo
@@ -103,7 +103,7 @@ class Server:
                 log_level="warning",
                 access_log=False,
             )
-            server = ControlPlaneUvicornServer(config, on_server_startup)
+            server = UvicornServer(config, on_server_startup)
             server.run()
         except Exception as e:
             logger.error(f"Error starting Flux server: {str(e)}")
@@ -268,7 +268,7 @@ class Server:
                                 dto = ExecutionContextDTO.from_domain(ctx)
                                 yield {
                                     "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                    "data": to_json(dto.summary() if not detailed else dto),
+                                    "data": to_json(dto if detailed else dto.summary()),
                                 }
                                 current_delay = 0.1
                             current_delay = min(current_delay * backoff_factor, max_delay)
