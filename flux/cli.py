@@ -296,7 +296,8 @@ def worker(name: str | None, server_url: str | None = None):
 @click.option(
     "--transport",
     "-t",
-    default=None,
+    type=click.Choice(["stdio", "streamable-http", "sse"]),
+    default="streamable-http",
     help="Transport protocol for MCP (stdio, streamable-http, sse)",
 )
 def mcp(
