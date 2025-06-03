@@ -224,9 +224,11 @@ flux workflow run WORKFLOW_NAME INPUT [OPTIONS]
 
 ### Execution Modes
 
-**Synchronous (`sync`)**: Waits for workflow completion and returns final result
-**Asynchronous (`async`)**: Starts workflow and returns execution ID immediately
-**Streaming (`stream`)**: Real-time streaming of execution events and progress
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Synchronous (`sync`)** | Blocks until workflow completes and returns the final result | Short-running workflows or scripts that need the result immediately |
+| **Asynchronous (`async`)** | Starts the workflow and immediately returns the execution ID | Long-running workflows where you don't want to wait for completion |
+| **Streaming (`stream`)** | Starts the workflow and streams real-time execution events as they occur | Monitoring long-running workflows where you want to see progress updates |
 
 ### Examples
 

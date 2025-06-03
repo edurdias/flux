@@ -218,9 +218,9 @@ flux start mcp [OPTIONS]
 
 | Protocol | Description | Use Case |
 |----------|-------------|----------|
-| `stdio` | Standard input/output | Direct process communication |
-| `streamable-http` | HTTP with streaming | Web-based integrations |
-| `sse` | Server-Sent Events | Real-time web applications |
+| `stdio` | Standard input/output communication | Integration with AI assistants or tools that use stdin/stdout pipes |
+| `streamable-http` | HTTP protocol with streaming capabilities | Web services and API integrations requiring HTTP protocol |
+| `sse` | Server-Sent Events for real-time updates | Real-time web applications and dashboards requiring live updates |
 
 ### Examples
 
