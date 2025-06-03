@@ -17,7 +17,7 @@ async def process_data():
     return "Data processed"
 
 @workflow
-async def pause_workflow(ctx: WorkflowExecutionContext):
+async def pause_workflow(ctx: ExecutionContext):
     result = await process_data()
 
     # Pause workflow execution until resumed
@@ -38,7 +38,7 @@ Workflows can contain multiple pause points, giving you fine-grained control ove
 
 ```python
 @workflow
-async def multi_stage_workflow(ctx: WorkflowExecutionContext):
+async def multi_stage_workflow(ctx: ExecutionContext):
     # Stage 1
     data = await prepare_data()
     await pause("verify_data")
@@ -96,12 +96,12 @@ Break down complex workflows into manageable, reusable components using subworkf
 from flux import call
 
 @workflow
-async def sub_workflow(ctx: WorkflowExecutionContext[str]):
+async def sub_workflow(ctx: ExecutionContext[str]):
     result = await some_task(ctx.input)
     return result
 
 @workflow
-async def main_workflow(ctx: WorkflowExecutionContext[str]):
+async def main_workflow(ctx: ExecutionContext[str]):
     # Call subworkflow
     result = await call(sub_workflow, ctx.input)
     return result
@@ -110,12 +110,12 @@ async def main_workflow(ctx: WorkflowExecutionContext[str]):
 ### Parallel Subworkflows
 ```python
 @workflow
-async def get_stars_workflow(ctx: WorkflowExecutionContext[str]):
+async def get_stars_workflow(ctx: ExecutionContext[str]):
     repo_info = await get_repo_info(ctx.input)
     return repo_info["stargazers_count"]
 
 @workflow
-async def parallel_subflows(ctx: WorkflowExecutionContext[list[str]]):
+async def parallel_subflows(ctx: ExecutionContext[list[str]]):
     if not ctx.input:
         raise TypeError("Repository list cannot be empty")
 
@@ -135,7 +135,7 @@ async def parallel_subflows(ctx: WorkflowExecutionContext[list[str]]):
 ### Subworkflow Composition
 ```python
 @workflow
-async def process_workflow(ctx: WorkflowExecutionContext):
+async def process_workflow(ctx: ExecutionContext):
     # Sequential subworkflow execution
     data = await call(fetch_data_workflow)
     processed = await call(transform_workflow, data)

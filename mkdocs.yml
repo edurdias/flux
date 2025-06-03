@@ -77,6 +77,11 @@ nav:
       - Installation: getting-started/installation.md
       - Basic Concepts: getting-started/basic_concepts.md
       - Quick Start: getting-started/quick-start-guide.md
+  - CLI Reference:
+      - Overview: cli/index.md
+      - Workflow Commands: cli/workflow.md
+      - Service Commands: cli/start.md
+      - Secrets Commands: cli/secrets.md
   - Core Concepts:
       - Workflows Management: core-concepts/workflow-management.md
       - Tasks: core-concepts/tasks.md
@@ -85,16 +90,17 @@ nav:
   - Advanced Features:
       - Task Patterns: advanced-features/task-patterns.md
       - Workflow Controls: advanced-features/workflow-controls.md
-    # - Output Storage: advanced-features/output-storage.md
-    # - Secrets Management: advanced-features/secrets-management.md
-  # - Examples:
-  #   - Basic Examples: examples/basic.md
-  #   - Complex Workflows: examples/complex.md
-  #   - Error Handling: examples/error-handling.md
-  #   - Parallel Processing: examples/parallel.md
-  # - API Reference:
-  #   - Workflow: api/workflow.md
-  #   - Task: api/task.md
-  #   - Context: api/context.md
-  #   - Events: api/events.md
-  # - Contributing: contributing.md
+      - Cancellation: advanced-features/cancellation.md
+      - Output Storage: advanced-features/output-storage.md
+      - Secrets Management: advanced-features/secrets-management.md
+  - Examples:
+      - Basic Examples: examples/basic.md
+      - Complex Workflows: examples/complex.md
+      - Error Handling: examples/error-handling.md
+      - Parallel Processing: examples/parallel.md
+  - API Reference:
+      - Workflow: api/workflow.md
+      - Task: api/task.md
+      - Context: api/context.md
+      - Events: api/events.md
+  - Contributing: contributing.md

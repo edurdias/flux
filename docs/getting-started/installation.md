@@ -60,14 +60,14 @@ This will install additional development dependencies for testing and code quali
 Check that Flux is properly installed by creating a simple test workflow:
 
 ```python
-from flux import task, workflow, WorkflowExecutionContext
+from flux import task, workflow, ExecutionContext
 
 @task
 async def say_hello(name: str):
     return f"Hello, {name}"
 
 @workflow
-async def hello_world(ctx: WorkflowExecutionContext[str]):
+async def hello_world(ctx: ExecutionContext[str]):
     return await say_hello(ctx.input)
 ```
 

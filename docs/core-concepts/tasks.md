@@ -86,7 +86,7 @@ Flux provides several ways to compose tasks:
 from flux.tasks import parallel
 
 @workflow
-async def parallel_workflow(ctx: WorkflowExecutionContext):
+async def parallel_workflow(ctx: ExecutionContext):
     results = await parallel(
         task1(),
         task2(),
@@ -100,7 +100,7 @@ async def parallel_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import pipeline
 
 @workflow
-async def pipeline_workflow(ctx: WorkflowExecutionContext):
+async def pipeline_workflow(ctx: ExecutionContext):
     result = await pipeline(
         task1,
         task2,
@@ -117,7 +117,7 @@ async def process_item(item: str):
     return item.upper()
 
 @workflow
-async def mapping_workflow(ctx: WorkflowExecutionContext):
+async def mapping_workflow(ctx: ExecutionContext):
     items = ["a", "b", "c"]
     results = await process_item.map(items)
     return results
@@ -186,7 +186,7 @@ Flux provides several built-in tasks for common operations:
 from flux.tasks import now, sleep
 
 @workflow
-async def timing_workflow(ctx: WorkflowExecutionContext):
+async def timing_workflow(ctx: ExecutionContext):
     start_time = await now()           # Get current time
     await sleep(timedelta(seconds=5))   # Sleep for duration
     end_time = await now()
@@ -198,7 +198,7 @@ async def timing_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import choice, randint, randrange
 
 @workflow
-async def random_workflow(ctx: WorkflowExecutionContext):
+async def random_workflow(ctx: ExecutionContext):
     chosen = await choice(["a", "b", "c"])    # Random choice
     number = await randint(1, 10)             # Random integer
     range_num = await randrange(0, 10, 2)     # Random range
@@ -209,7 +209,7 @@ async def random_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import uuid4
 
 @workflow
-async def id_workflow(ctx: WorkflowExecutionContext):
+async def id_workflow(ctx: ExecutionContext):
     new_id = await uuid4()  # Generate UUID
 ```
 
@@ -218,7 +218,7 @@ async def id_workflow(ctx: WorkflowExecutionContext):
 from flux.tasks import pause
 
 @workflow
-async def approval_workflow(ctx: WorkflowExecutionContext):
+async def approval_workflow(ctx: ExecutionContext):
     # Process something
     result = await process_data()
 
@@ -227,6 +227,48 @@ async def approval_workflow(ctx: WorkflowExecutionContext):
 
     # This code will only execute after the workflow is resumed
     return f"Approved: {result}"
+```
+
+### Parallel Task Execution
+```python
+from flux.tasks import parallel
+
+@workflow
+async def parallel_workflow(ctx: ExecutionContext):
+    # Execute multiple tasks concurrently
+    results = await parallel(
+        lambda: fetch_data_1(),
+        lambda: fetch_data_2(),
+        lambda: fetch_data_3()
+    )
+    return results
+```
+
+### Pipeline Processing
+```python
+from flux.tasks import pipeline
+
+@workflow
+async def pipeline_workflow(ctx: ExecutionContext):
+    # Process data through a series of tasks
+    result = await pipeline(
+        transform_data,
+        validate_data,
+        save_data,
+        input=ctx.input
+    )
+    return result
+```
+
+### Workflow Calls
+```python
+from flux.tasks import call
+
+@workflow
+async def calling_workflow(ctx: ExecutionContext):
+    # Call another workflow directly
+    result = await call(other_workflow, ctx.input)
+    return result
 ```
 
 ### Graph-based Task Composition
@@ -245,7 +287,7 @@ def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow
-async def graph_workflow(ctx: WorkflowExecutionContext[str]):
+async def graph_workflow(ctx: ExecutionContext[str]):
     # Create a graph named "hello_world"
     hello = (
         Graph("hello_world")

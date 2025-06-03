@@ -6,10 +6,10 @@ Local execution runs workflows directly in your Python application.
 
 ### Direct Python Execution
 ```python
-from flux import workflow, WorkflowExecutionContext
+from flux import workflow, ExecutionContext
 
 @workflow
-async def my_workflow(ctx: WorkflowExecutionContext[str]):
+async def my_workflow(ctx: ExecutionContext[str]):
     result = await some_task(ctx.input)
     return result
 

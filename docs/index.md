@@ -30,6 +30,29 @@
    - [First Workflow](getting-started/quick-start-guide.md#first-workflow)
    - [Running Workflows](getting-started/quick-start-guide.md#running-workflows)
 
+## CLI Reference
+### [Command Overview](cli/index.md)
+   - [Installation & Setup](cli/index.md#installation)
+   - [Basic Usage](cli/index.md#basic-usage)
+   - [Configuration](cli/index.md#configuration)
+
+### [Workflow Commands](cli/workflow.md)
+   - [List Workflows](cli/workflow.md#flux-workflow-list)
+   - [Register Workflows](cli/workflow.md#flux-workflow-register)
+   - [Run Workflows](cli/workflow.md#flux-workflow-run)
+   - [Check Status](cli/workflow.md#flux-workflow-status)
+
+### [Service Commands](cli/start.md)
+   - [Start Server](cli/start.md#flux-start-server)
+   - [Start Worker](cli/start.md#flux-start-worker)
+   - [Start MCP Server](cli/start.md#flux-start-mcp)
+
+### [Secrets Management](cli/secrets.md)
+   - [List Secrets](cli/secrets.md#flux-secrets-list)
+   - [Set Secrets](cli/secrets.md#flux-secrets-set)
+   - [Retrieve Secrets](cli/secrets.md#flux-secrets-get)
+   - [Remove Secrets](cli/secrets.md#flux-secrets-remove)
+
 ## Core Concepts
 ### [Workflow Management](core-concepts/workflow-management.md)
    - [Creating Workflows](core-concepts/workflow-management.md#creating-workflows)
@@ -57,7 +80,6 @@
    - [Fallback Strategies](core-concepts/error-handling.md#fallback-strategy)
    - [Rollback Operations](core-concepts/error-handling.md#rollback-operations)
    - [Timeout Handling](core-concepts/error-handling.md#timeout-handling)
-   - [Task Caching](core-concepts/error-handling.md#task-caching)
 
 ## Advanced Features
 ### [Task Patterns](advanced-features/task-patterns.md)
@@ -72,8 +94,14 @@
    - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
    - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
 
+### [Workflow Cancellation](advanced-features/cancellation.md)
+   - [Overview](advanced-features/cancellation.md#overview)
+   - [Cancellation States](advanced-features/cancellation.md#cancellation-states)
+   - [API and CLI Usage](advanced-features/cancellation.md#how-to-use)
+   - [Implementation Details](advanced-features/cancellation.md#implementation-details)
+
 ## Appendix
-- [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
-- [API Reference](https://github.com/flux-framework/flux/tree/main/flux)
-- [Version History](https://github.com/flux-framework/flux/releases)
-- [Contributing Guidelines](https://github.com/flux-framework/flux/blob/main/CONTRIBUTING.md)
+- [Examples in the Repository](https://github.com/edurdias/flux/tree/main/examples)
+- [API Reference](https://github.com/edurdias/flux/tree/main/flux)
+- [Version History](https://github.com/edurdias/flux/releases)
+- [Contributing Guidelines](https://github.com/edurdias/flux/blob/main/CONTRIBUTING.md)

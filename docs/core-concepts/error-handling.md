@@ -86,7 +86,7 @@ async def task_with_full_error_handling():
 ### Try-Except Pattern
 ```python
 @workflow
-async def error_handling_workflow(ctx: WorkflowExecutionContext):
+async def error_handling_workflow(ctx: ExecutionContext):
     try:
         result = await risky_task()
         return result
@@ -108,7 +108,7 @@ async def long_running_task():
     await asyncio.sleep(35)
 
 @workflow
-async def timeout_workflow(ctx: WorkflowExecutionContext):
+async def timeout_workflow(ctx: ExecutionContext):
     try:
         result = await long_running_task()
         return result
@@ -136,7 +136,7 @@ ctx = await my_workflow.run(execution_id=ctx.execution_id)
 Monitor error-related events to track failure patterns:
 
 ```python
-async def analyze_errors(ctx: WorkflowExecutionContext):
+async def analyze_errors(ctx: ExecutionContext):
     error_events = [
         event for event in ctx.events
         if event.type in [
@@ -161,7 +161,7 @@ async def resilient_task():
     pass
 
 @workflow
-async def resilient_workflow(ctx: WorkflowExecutionContext):
+async def resilient_workflow(ctx: ExecutionContext):
     try:
         # Task has its own error handling
         result = await resilient_task()
@@ -199,7 +199,7 @@ async def safe_task():
 ### 4. Handle Partial Failures
 ```python
 @workflow
-async def partial_failure_workflow(ctx: WorkflowExecutionContext):
+async def partial_failure_workflow(ctx: ExecutionContext):
     results = []
     for item in ctx.input:
         try:
