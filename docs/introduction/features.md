@@ -240,21 +240,15 @@ result = resume_workflow(execution_id)
 Monitor and log all workflow and task events for debugging and auditing.
 
 ```python
-from flux import workflow, EventListener
+from flux import workflow
+import logging
 
-class WorkflowAuditor(EventListener):
-    def on_workflow_started(self, event):
-        log.info(f"Workflow {event.workflow_name} started")
+def log_event(event):
+    logging.info(f"Event: {event}")
 
-    def on_task_completed(self, event):
-        log.info(f"Task {event.task_name} completed in {event.duration}s")
-
-    def on_workflow_failed(self, event):
-        alert.send(f"Workflow {event.workflow_name} failed: {event.error}")
-
-@workflow(listeners=[WorkflowAuditor()])
+@workflow
 def monitored_workflow():
-    # All events automatically tracked
+    # Add logging or hooks as needed
     return process_data()
 ```
 
@@ -264,7 +258,7 @@ def monitored_workflow():
 Pause workflows at defined points and resume when ready, enabling human-in-the-loop processes.
 
 ```python
-from flux import workflow, task, pause_point
+from flux import workflow, task, pause
 
 @workflow
 def approval_workflow(document: dict):
@@ -272,11 +266,7 @@ def approval_workflow(document: dict):
     processed = process_document(document)
 
     # Pause for human approval
-    approval = pause_point(
-        "document_review",
-        data={"document": processed},
-        timeout=86400  # 24 hours
-    )
+    await pause("document_review")
 
     if approval.get("approved"):
         return finalize_document(processed)
@@ -287,14 +277,13 @@ def approval_workflow(document: dict):
 ### State Inspection
 Examine workflow state at any point during execution for debugging and monitoring.
 
-```python
-from flux import get_workflow_state, list_active_workflows
+```markdown
+# Example (CLI):
+# List active workflows
+flux workflow list
 
-# Inspect running workflows
-active_workflows = list_active_workflows()
-for workflow_id in active_workflows:
-    state = get_workflow_state(workflow_id)
-    print(f"Workflow {workflow_id}: {state.current_task} ({state.progress}%)")
+# Get workflow status
+flux workflow status WORKFLOW_NAME EXECUTION_ID --detailed
 ```
 
 ### Subworkflow Support

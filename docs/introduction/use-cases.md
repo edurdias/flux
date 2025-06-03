@@ -195,6 +195,8 @@ Respond to external events with sophisticated workflow orchestration.
 
 **Example: User Onboarding Automation**
 ```python
+from flux import workflow, task, pause
+
 @workflow
 def user_onboarding_workflow(user_registration: dict):
     # Create user account
@@ -204,11 +206,7 @@ def user_onboarding_workflow(user_registration: dict):
     welcome_email = send_welcome_email(user)
 
     # Pause for email verification (up to 24 hours)
-    verification = pause_point(
-        "email_verification",
-        data={"user_id": user["id"]},
-        timeout=86400
-    )
+    verification = await pause("email_verification")
 
     if verification.get("verified"):
         # User verified - continue onboarding
@@ -347,14 +345,10 @@ def invoice_processing_workflow(document_path: str):
         }
     else:
         # Requires human review
-        review_request = pause_point(
-            "human_review",
-            data={
-                "invoice": validated_invoice,
-                "issues": [k for k, v in validated_invoice["validation"].items() if not v]
-            },
-            timeout=604800  # 7 days
-        )
+        review_request = await pause("human_review", data={
+            "invoice": validated_invoice,
+            "issues": [k for k, v in validated_invoice["validation"].items() if not v]
+        }, timeout=604800)  # 7 days
 
         if review_request.get("approved"):
             # Human approved - process payment
@@ -436,22 +430,14 @@ def expense_approval_workflow(expense_report: dict):
             return {"status": "rejected", "level": "cfo", "reason": cfo_approval.get("reason")}
 
 def request_manager_approval(expense_report: dict) -> dict:
-    return pause_point(
-        "manager_approval",
-        data={"expense_report": expense_report, "approver_role": "manager"},
-        timeout=259200  # 3 days
-    )
+    return await pause("manager_approval", data={"expense_report": expense_report, "approver_role": "manager"}, timeout=259200)  # 3 days
 
 def request_director_approval(expense_report: dict, previous_approval: dict) -> dict:
-    return pause_point(
-        "director_approval",
-        data={
-            "expense_report": expense_report,
-            "previous_approval": previous_approval,
-            "approver_role": "director"
-        },
-        timeout=432000  # 5 days
-    )
+    return await pause("director_approval", data={
+        "expense_report": expense_report,
+        "previous_approval": previous_approval,
+        "approver_role": "director"
+    }, timeout=432000)  # 5 days
 ```
 
 ## Machine Learning Operations (MLOps)
@@ -612,14 +598,10 @@ def model_deployment_pipeline(model_deployment_request: dict):
         )
 
         # Monitor performance for 15 minutes
-        monitoring_result = pause_point(
-            f"monitor_phase_{phase_percentage}",
-            data={
-                "deployment": production_deployment,
-                "traffic_percentage": phase_percentage
-            },
-            timeout=900  # 15 minutes
-        )
+        monitoring_result = await pause("monitoring_check", data={
+            "deployment": production_deployment,
+            "traffic_percentage": phase_percentage
+        }, timeout=900)  # 15 minutes
 
         # Check if monitoring detected issues
         if monitoring_result.get("issues_detected"):
@@ -812,14 +794,10 @@ def patient_admission_workflow(patient_data: dict):
     team_assignment = assign_medical_team(patient_record)
 
     # Initial medical assessment
-    initial_assessment = pause_point(
-        "initial_assessment",
-        data={
-            "patient": patient_record,
-            "assigned_team": team_assignment
-        },
-        timeout=7200  # 2 hours
-    )
+    initial_assessment = await pause("initial_assessment", data={
+        "patient": patient_record,
+        "assigned_team": team_assignment
+    }, timeout=7200)  # 2 hours
 
     # Create treatment plan based on assessment
     treatment_plan = create_treatment_plan(
@@ -907,16 +885,12 @@ def credit_risk_assessment_workflow(loan_application: dict):
 
     else:
         # Requires manual underwriter review
-        underwriter_review = pause_point(
-            "underwriter_review",
-            data={
-                "application": loan_application,
-                "risk_assessment": overall_risk,
-                "detailed_assessments": risk_assessments,
-                "recommendation": decision_matrix["recommendation"]
-            },
-            timeout=172800  # 48 hours
-        )
+        underwriter_review = await pause("underwriter_review", data={
+            "application": loan_application,
+            "risk_assessment": overall_risk,
+            "detailed_assessments": risk_assessments,
+            "recommendation": decision_matrix["recommendation"]
+        }, timeout=172800)  # 48 hours
 
         if underwriter_review.get("approved"):
             approval_result = approve_loan_with_conditions(
