@@ -2,6 +2,8 @@
 
 The `flux start` command group provides commands to start various Flux services including the main server, workers, and Model Context Protocol (MCP) servers.
 
+> 🚀 **Quick Start:** Follow our [Your First Workflow Tutorial](../tutorials/your-first-workflow.md) to learn how to start services and run workflows end-to-end.
+
 ## Command Overview
 
 | Command | Description |
@@ -470,7 +472,20 @@ tail -f ~/.flux/logs/worker.log
 
 ## See Also
 
-- [Installation Guide](../getting-started/installation.md) - Setting up Flux
-- [Configuration](../core-concepts/workflow-management.md) - Configuring services
-- [Workflow Commands](workflow.md) - Managing workflows
-- [Advanced Features](../advanced-features/workflow-controls.md) - Advanced configurations
+### Getting Started
+- **[Installation Guide](../getting-started/installation.md)** - Setting up Flux
+- **[Quick Start Guide](../getting-started/quick-start-guide.md)** - First steps with Flux
+- **[Your First Workflow Tutorial](../tutorials/your-first-workflow.md)** - Complete tutorial with service startup
+
+### Core Concepts
+- **[Execution Model](../core-concepts/execution-model.md)** - How Flux services work together
+- **[Basic Concepts](../getting-started/basic_concepts.md)** - Understanding workflows and tasks
+
+### Related Commands
+- **[Workflow Commands](workflow.md)** - Managing workflows after services are started
+- **[Secrets Management](secrets.md)** - Managing secrets for secure workflows
+
+### Production & Troubleshooting
+- **[Best Practices](../tutorials/best-practices.md)** - Production deployment guidelines
+- **[Troubleshooting Guide](../tutorials/troubleshooting.md)** - Common service startup issues
+- **[FAQ](../tutorials/faq.md)** - Frequently asked questions about services

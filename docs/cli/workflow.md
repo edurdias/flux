@@ -2,6 +2,8 @@
 
 The `flux workflow` command group provides comprehensive workflow management capabilities including listing, registering, running, and monitoring workflows.
 
+> 💡 **New to workflows?** Start with our [Your First Workflow Tutorial](../tutorials/your-first-workflow.md) to learn the basics before using these commands.
+
 ## Command Overview
 
 | Command | Description |
@@ -445,7 +447,21 @@ Common error scenarios and solutions:
 
 ## See Also
 
-- [Getting Started Guide](../getting-started/quick-start-guide.md) - Basic workflow concepts
-- [Core Concepts: Workflows](../core-concepts/workflow-management.md) - Workflow design patterns
-- [API Reference: Workflow](../api/workflow.md) - Programmatic workflow API
-- [Examples](../examples/basic.md) - Workflow examples and templates
+### Learning Resources
+- **[Your First Workflow Tutorial](../tutorials/your-first-workflow.md)** - Step-by-step guide to creating workflows
+- **[Working with Tasks Tutorial](../tutorials/working-with-tasks.md)** - Learn task composition patterns
+- **[Parallel Processing Tutorial](../tutorials/parallel-processing.md)** - Optimize workflow performance
+
+### Core Concepts
+- **[Basic Concepts: Workflows](../getting-started/basic_concepts.md)** - Understanding workflow fundamentals
+- **[Core Concepts: Workflow Management](../core-concepts/workflow-management.md)** - Advanced workflow patterns
+- **[Execution Model](../core-concepts/execution-model.md)** - How workflows execute
+
+### Related CLI Commands
+- **[Service Commands](start.md)** - Start Flux server and workers
+- **[Secrets Management](secrets.md)** - Manage workflow secrets
+
+### Reference
+- **[Getting Started Guide](../getting-started/quick-start-guide.md)** - Quick start with workflows
+- **[Troubleshooting Guide](../tutorials/troubleshooting.md)** - Common workflow issues
+- **[Best Practices](../tutorials/best-practices.md)** - Production workflow guidelines

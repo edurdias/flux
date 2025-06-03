@@ -2,6 +2,8 @@
 
 The `flux secrets` command group provides secure management of sensitive data like API keys, passwords, and configuration values that workflows need during execution.
 
+> 🔐 **Security Note:** Learn about [security best practices](../tutorials/best-practices.md#security-considerations) for managing secrets in production workflows.
+
 ## Command Overview
 
 | Command | Description |
@@ -540,7 +542,20 @@ chmod 600 ~/.flux/secrets.db
 
 ## See Also
 
-- [Core Concepts: Error Handling](../core-concepts/error-handling.md) - Handling secret-related errors
-- [Advanced Features: Secrets Management](../advanced-features/secrets-management.md) - Advanced secret patterns
-- [API Reference: Secret Manager](../api/context.md) - Programmatic secret access
-- [Examples: Error Handling](../examples/error-handling.md) - Examples with secret management
+### Learning Resources
+- **[Working with Tasks Tutorial](../tutorials/working-with-tasks.md)** - Learn how to use secrets in tasks
+- **[Best Practices](../tutorials/best-practices.md#security-considerations)** - Security best practices for secrets
+- **[FAQ](../tutorials/faq.md#security-and-secrets)** - Common questions about secrets
+
+### Core Concepts
+- **[Basic Concepts](../getting-started/basic_concepts.md#secrets)** - Understanding secrets in workflows
+- **[Error Handling](../core-concepts/error-handling.md)** - Handling secret-related errors
+- **[Execution Context](../core-concepts/execution-model.md#execution-context)** - How secrets are passed to tasks
+
+### Related Commands
+- **[Workflow Commands](workflow.md)** - Running workflows that use secrets
+- **[Service Commands](start.md)** - Starting services that secure secrets
+
+### Examples
+- **[Your First Workflow Tutorial](../tutorials/your-first-workflow.md)** - Basic workflow without secrets
+- **[Troubleshooting Guide](../tutorials/troubleshooting.md#secrets-troubleshooting)** - Common secret issues

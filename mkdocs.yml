@@ -77,6 +77,13 @@ nav:
       - Installation: getting-started/installation.md
       - Basic Concepts: getting-started/basic_concepts.md
       - Quick Start: getting-started/quick-start-guide.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Your First Workflow: tutorials/your-first-workflow.md
+      - Working with Tasks: tutorials/working-with-tasks.md
+      - Parallel Processing: tutorials/parallel-processing.md
+      - Troubleshooting: tutorials/troubleshooting.md
+      - FAQ: tutorials/faq.md
   - CLI Reference:
       - Overview: cli/index.md
       - Workflow Commands: cli/workflow.md

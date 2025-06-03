@@ -30,6 +30,23 @@
    - [First Workflow](getting-started/quick-start-guide.md#first-workflow)
    - [Running Workflows](getting-started/quick-start-guide.md#running-workflows)
 
+## Tutorials
+### [Tutorial Overview](tutorials/index.md)
+   - [Learning Path](tutorials/index.md#learning-path)
+   - [Prerequisites](tutorials/index.md#tutorial-prerequisites)
+   - [Quick Reference Guides](tutorials/index.md#quick-reference-guides)
+
+### [Beginner Tutorials](tutorials/index.md#beginner-tutorials)
+   - [Your First Workflow](tutorials/your-first-workflow.md) - Create and run a simple workflow
+   - [Working with Tasks](tutorials/working-with-tasks.md) - Learn task composition and reusability
+
+### [Intermediate Tutorials](tutorials/index.md#intermediate-tutorials)
+   - [Parallel Processing](tutorials/parallel-processing.md) - Speed up workflows with parallel execution
+
+### [Quick Reference](tutorials/index.md#quick-reference-guides)
+   - [Troubleshooting Guide](tutorials/troubleshooting.md) - Solutions to common problems
+   - [FAQ](tutorials/faq.md) - Frequently asked questions and answers
+
 ## CLI Reference
 ### [Command Overview](cli/index.md)
    - [Installation & Setup](cli/index.md#installation)
