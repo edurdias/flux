@@ -1,124 +1,276 @@
 # Flux Documentation
 
-> Flux documentation is AI generated. If you find any issues, please let us know.
+> A distributed workflow orchestration engine for building stateful and fault-tolerant workflows
 
-## Introduction
-### [Overview of Flux](introduction/overview.md)
-### [Key Features](introduction/features.md)
-  - [High-Performance Task Execution](introduction/features.md#high-performance-task-execution)
-  - [Fault-Tolerance](introduction/features.md#fault-tolerance)
-  - [Durable Execution](introduction/features.md#durable-execution)
-  - [Workflow Controls](introduction/features.md#workflow-controls)
-  - [API Integration](introduction/features.md#api-integration)
-  - [Security](introduction/features.md#security)
-  - [Development Features](introduction/features.md#development-features)
-### [Use Cases](introduction/use-cases.md)
+## 1. Introduction
+- **[Welcome](introduction/welcome.md)** - What is Flux, vision, and why use it
+- **[Key Features](introduction/features.md)** - Core capabilities overview
+- **[Architecture Overview](introduction/architecture.md)** - High-level system design
+<!-- - **[Comparison](introduction/comparison.md)** - How Flux differs from similar tools -->
 
-## Getting Started
-### [Installation](getting-started/installation.md)
-   - [Requirements](getting-started/installation.md#requirements)
-   - [Installation Guide](getting-started/installation.md#installation-guide)
-   - [Quick Setup](getting-started/installation.md#quick-setup)
+## 2. Getting Started
 
-### [Basic Concepts](getting-started/basic_concepts.md)
-   - [Workflows](getting-started/basic_concepts.md#workflows)
-   - [Tasks](getting-started/basic_concepts.md#tasks)
-   - [Execution Context](getting-started/basic_concepts.md#execution-context)
-   - [Events](getting-started/basic_concepts.md#events)
+### Quick Start
+- **[Installation](getting-started/installation.md)** - Setup and prerequisites
+- **[Your First Workflow](getting-started/first-workflow.md)** - Simple hello world example
+- **[Basic Concepts](getting-started/basic-concepts.md)** - Tasks, workflows, and execution context
 
-### [Quick Start Guide](getting-started/quick-start-guide.md)
-   - [First Workflow](getting-started/quick-start-guide.md#first-workflow)
-   - [Running Workflows](getting-started/quick-start-guide.md#running-workflows)
+### Core Concepts
+- **[Tasks](getting-started/tasks.md)** - Definition, decoration, and configuration
+- **[Workflows](getting-started/workflows.md)** - Creating and structuring workflows
+- **[Execution Context](getting-started/execution-context.md)** - State management and data flow
+- **[Task Options](getting-started/task-options.md)** - Retry, timeout, fallback, and rollback
+- **[Built-in Tasks](getting-started/built-in-tasks.md)** - Overview of provided utilities
 
-## Tutorials
-### [Tutorial Overview](tutorials/index.md)
-   - [Learning Path](tutorials/index.md#learning-path)
-   - [Prerequisites](tutorials/index.md#tutorial-prerequisites)
-   - [Quick Reference Guides](tutorials/index.md#quick-reference-guides)
+### First Steps Tutorial
+- **[Simple Workflow](getting-started/tutorials/simple-workflow.md)** - Building your first meaningful workflow
+- **[Adding Error Handling](getting-started/tutorials/error-handling.md)** - Retry and fallback mechanisms
+- **[Parallel Execution](getting-started/tutorials/parallel-execution.md)** - Using parallel tasks
+- **[Pipeline Processing](getting-started/tutorials/pipeline-processing.md)** - Sequential task chains
 
-### [Beginner Tutorials](tutorials/index.md#beginner-tutorials)
-   - [Your First Workflow](tutorials/your-first-workflow.md) - Create and run a simple workflow
-   - [Working with Tasks](tutorials/working-with-tasks.md) - Learn task composition and reusability
+## 3. User Guide
 
-### [Intermediate Tutorials](tutorials/index.md#intermediate-tutorials)
-   - [Parallel Processing](tutorials/parallel-processing.md) - Speed up workflows with parallel execution
+### Building Workflows
+- **[Task Definition and Decoration](user-guide/task-definition.md)**
+  - Basic task creation
+  - Task options and configuration
+  - Input/output handling
+  - Type safety and hints
+- **[Workflow Patterns](user-guide/workflow-patterns.md)**
+  - Sequential workflows
+  - Parallel execution
+  - Conditional workflows
+  - Dynamic workflows
+  - Subworkflows and composition
+- **[Data Flow and State Management](user-guide/data-flow.md)**
+  - Execution context usage
+  - State persistence
+  - Data passing between tasks
+  - Memory management
 
-### [Quick Reference](tutorials/index.md#quick-reference-guides)
-   - [Troubleshooting Guide](tutorials/troubleshooting.md) - Solutions to common problems
-   - [FAQ](tutorials/faq.md) - Frequently asked questions and answers
+### Advanced Features
+- **[Task Configuration](user-guide/task-configuration.md)**
+  - Retry policies and backoff
+  - Timeout management
+  - Fallback and rollback handlers
+  - Caching strategies
+- **[Workflow Control](user-guide/workflow-control.md)**
+  - Pause and resume
+  - Deterministic replay
+  - State inspection
+  - Event handling
+- **[Task Mapping and Iteration](user-guide/task-mapping.md)**
+  - Map operations
+  - Batch processing
+  - Dynamic task creation
 
-## CLI Reference
-### [Command Overview](cli/index.md)
-   - [Installation & Setup](cli/index.md#installation)
-   - [Basic Usage](cli/index.md#basic-usage)
-   - [Configuration](cli/index.md#configuration)
+### Error Handling and Resilience
+- **[Error Management](user-guide/error-management.md)**
+  - Exception handling patterns
+  - Retry strategies
+  - Fallback mechanisms
+  - Rollback procedures
+- **[Fault Tolerance](user-guide/fault-tolerance.md)**
+  - State persistence
+  - Recovery patterns
+  - Graceful degradation
 
-### [Workflow Commands](cli/workflow.md)
-   - [List Workflows](cli/workflow.md#flux-workflow-list)
-   - [Register Workflows](cli/workflow.md#flux-workflow-register)
-   - [Run Workflows](cli/workflow.md#flux-workflow-run)
-   - [Check Status](cli/workflow.md#flux-workflow-status)
+### Security and Secrets
+- **[Secrets Management](user-guide/secrets-management.md)**
+  - CLI secrets operations
+  - HTTP API for secrets
+  - Task-level secret requests
+  - Best practices
+- **[Security Considerations](user-guide/security.md)**
+  - Access control
+  - Secure execution
+  - Network security
 
-### [Service Commands](cli/start.md)
-   - [Start Server](cli/start.md#flux-start-server)
-   - [Start Worker](cli/start.md#flux-start-worker)
-   - [Start MCP Server](cli/start.md#flux-start-mcp)
+## 4. Deployment
 
-### [Secrets Management](cli/secrets.md)
-   - [List Secrets](cli/secrets.md#flux-secrets-list)
-   - [Set Secrets](cli/secrets.md#flux-secrets-set)
-   - [Retrieve Secrets](cli/secrets.md#flux-secrets-get)
-   - [Remove Secrets](cli/secrets.md#flux-secrets-remove)
+### Local Development
+- **[Local Execution](deployment/local-execution.md)** - Running workflows on your machine
+- **[Development Workflow](deployment/development-workflow.md)** - Best practices for development
+- **[Testing and Debugging](deployment/testing-debugging.md)** - Testing strategies and tools
 
-## Core Concepts
-### [Workflow Management](core-concepts/workflow-management.md)
-   - [Creating Workflows](core-concepts/workflow-management.md#creating-workflows)
-   - [Workflow Lifecycle](core-concepts/workflow-management.md#workflow-lifecycle)
-   - [Workflow States](core-concepts/workflow-management.md#workflow-states)
+### Distributed Deployment
+- **[Server Architecture](deployment/server-architecture.md)** - Understanding the server/worker model
+- **[Server Setup](deployment/server-setup.md)** - Starting and configuring the Flux server
+- **[Worker Management](deployment/worker-management.md)** - Deploying and scaling workers
+- **[Network Configuration](deployment/network-configuration.md)** - Host, port, and connectivity setup
 
-### [Task System](core-concepts/tasks.md)
-   - [Task Creation](core-concepts/tasks.md#task-creation)
-   - [Task Options](core-concepts/tasks.md#task-options)
-   - [Task Composition](core-concepts/tasks.md#task-composition)
-   - [Error Handling](core-concepts/tasks.md#error-handling)
-   - [Built-in Tasks](core-concepts/tasks.md#built-in-tasks)
+### Production Deployment
+- **[Deployment Strategies](deployment/deployment-strategies.md)** - Best practices for production
+- **[Scaling and Performance](deployment/scaling-performance.md)** - Optimizing for high throughput
+- **[Monitoring and Observability](deployment/monitoring-observability.md)** - Tracking workflow execution
+- **[High Availability](deployment/high-availability.md)** - Redundancy and failover strategies
 
-### [Execution Model](core-concepts/execution-model.md)
-   - [Local Execution](core-concepts/execution-model.md#local-execution)
-   - [API-based Execution](core-concepts/execution-model.md#api-based-execution)
-   - [Execution Context](core-concepts/execution-model.md#execution-context)
-   - [Paused Workflows](core-concepts/execution-model.md#paused-workflows)
-   - [State Management](core-concepts/execution-model.md#state-management)
-   - [Event System](core-concepts/execution-model.md#event-system)
+## 5. API Reference
 
-### [Error Handling & Recovery](core-concepts/error-handling.md)
-   - [Task-Level Error Handling](core-concepts/error-handling.md#task-level-error-handling)
-   - [Retry Mechanisms](core-concepts/error-handling.md#retry-mechanism)
-   - [Fallback Strategies](core-concepts/error-handling.md#fallback-strategy)
-   - [Rollback Operations](core-concepts/error-handling.md#rollback-operations)
-   - [Timeout Handling](core-concepts/error-handling.md#timeout-handling)
+### HTTP API
+- **[Workflow Management](api-reference/http-api/workflow-management.md)**
+  - Upload workflows
+  - List and inspect workflows
+  - Workflow metadata
+- **[Execution Control](api-reference/http-api/execution-control.md)**
+  - Synchronous execution
+  - Asynchronous execution
+  - Streaming execution
+- **[Status and Monitoring](api-reference/http-api/status-monitoring.md)**
+  - Execution status
+  - Detailed run information
+  - Event streaming
+- **[Administration](api-reference/http-api/administration.md)**
+  - Secrets management
+  - Server configuration
+  - Health checks
 
-## Advanced Features
-### [Task Patterns](advanced-features/task-patterns.md)
-   - [Parallel Execution](advanced-features/task-patterns.md#parallel-execution)
-   - [Pipeline Processing](advanced-features/task-patterns.md#pipeline-processing)
-   - [Task Mapping](advanced-features/task-patterns.md#task-mapping)
-   - [Graph](advanced-features/task-patterns.md#graph)
-   - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
+### CLI Reference
+- **[Command Overview](api-reference/cli/overview.md)**
+  - Installation & setup
+  - Basic usage
+  - Configuration
+- **[Service Commands](api-reference/cli/service-commands.md)**
+  - Start server (`flux start server`)
+  - Start worker (`flux start worker`)
+  - Start MCP server (`flux start mcp`)
+- **[Workflow Commands](api-reference/cli/workflow-commands.md)**
+  - List workflows (`flux workflow list`)
+  - Register workflows (`flux workflow register`)
+  - Run workflows (`flux workflow run`)
+  - Check status (`flux workflow status`)
+- **[Secrets Management](api-reference/cli/secrets-commands.md)**
+  - List secrets (`flux secrets list`)
+  - Set secrets (`flux secrets set`)
+  - Retrieve secrets (`flux secrets get`)
+  - Remove secrets (`flux secrets remove`)
 
-### [Workflow Controls](advanced-features/workflow-controls.md)
-   - [Workflow Pause Points](advanced-features/workflow-controls.md#workflow-pause-points)
-   - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
-   - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
+### Python API
+- **[Core Decorators](api-reference/python-api/core-decorators.md)**
+  - `@task` decorator and options
+  - `@workflow` decorator
+  - Task configuration methods
+- **[Built-in Tasks](api-reference/python-api/built-in-tasks.md)**
+  - Time operations (`now`, `sleep`)
+  - Random operations (`choice`, `randint`, `randrange`)
+  - Utilities (`uuid4`, `pause`)
+  - Orchestration (`parallel`, `pipeline`, `call`)
+- **[Execution Context](api-reference/python-api/execution-context.md)**
+  - Context properties and methods
+  - State inspection
+  - Event access
+- **[Workflow Execution](api-reference/python-api/workflow-execution.md)**
+  - Local execution methods
+  - Remote execution
+  - Execution options
 
-### [Workflow Cancellation](advanced-features/cancellation.md)
-   - [Overview](advanced-features/cancellation.md#overview)
-   - [Cancellation States](advanced-features/cancellation.md#cancellation-states)
-   - [API and CLI Usage](advanced-features/cancellation.md#how-to-use)
-   - [Implementation Details](advanced-features/cancellation.md#implementation-details)
+## 6. Tutorials
 
-## Appendix
-- [Examples in the Repository](https://github.com/edurdias/flux/tree/main/examples)
-- [API Reference](https://github.com/edurdias/flux/tree/main/flux)
-- [Version History](https://github.com/edurdias/flux/releases)
-- [Contributing Guidelines](https://github.com/edurdias/flux/blob/main/CONTRIBUTING.md)
+### Beginner Tutorials
+- **[Building Your First Data Pipeline](tutorials/beginner/first-data-pipeline.md)** - End-to-end example
+- **[Adding Resilience to Workflows](tutorials/beginner/adding-resilience.md)** - Error handling tutorial
+- **[Working with External APIs](tutorials/beginner/external-apis.md)** - Integration patterns
+- **[Scheduling and Automation](tutorials/beginner/scheduling-automation.md)** - Time-based execution
+
+### Intermediate Tutorials
+- **[Multi-Step Data Processing](tutorials/intermediate/multi-step-processing.md)** - Complex pipeline example
+- **[Distributed Computing Patterns](tutorials/intermediate/distributed-patterns.md)** - Leveraging multiple workers
+- **[State Management in Long-Running Workflows](tutorials/intermediate/state-management.md)** - Persistence patterns
+- **[Building Reusable Workflow Components](tutorials/intermediate/reusable-components.md)** - Modular design
+
+### Advanced Tutorials
+- **[Custom Task Types and Extensions](tutorials/advanced/custom-task-types.md)** - Extending Flux functionality
+- **[Performance Optimization](tutorials/advanced/performance-optimization.md)** - Tuning for high throughput
+- **[Integration with External Systems](tutorials/advanced/external-systems.md)** - Database, message queues, etc.
+- **[Building Workflow Libraries](tutorials/advanced/workflow-libraries.md)** - Creating reusable components
+
+## 7. Integrations
+
+### Data Sources and Sinks
+- **[Databases](integrations/databases.md)** - SQL and NoSQL integration patterns
+- **[File Systems](integrations/file-systems.md)** - Local and cloud storage
+- **[Message Queues](integrations/message-queues.md)** - Async communication patterns
+- **[APIs and Web Services](integrations/apis-web-services.md)** - HTTP integration
+
+### Agent Protocols
+- **[Model Context Protocol (MCP)](integrations/protocols/mcp.md)** - LLM integration and context sharing
+- **[Agent Communication Protocol (ACP)](integrations/protocols/acp.md)** - Agent-to-agent communication
+- **[Custom Protocol Adapters](integrations/protocols/custom-adapters.md)** - Building protocol bridges
+
+### Development Tools
+- **[IDE Integration](integrations/development-tools/ide-integration.md)** - VS Code, PyCharm setup
+- **[Testing Frameworks](integrations/development-tools/testing-frameworks.md)** - Unit and integration testing
+- **[CI/CD Integration](integrations/development-tools/cicd-integration.md)** - Automated deployment
+- **[Monitoring Tools](integrations/development-tools/monitoring-tools.md)** - Observability stack integration
+
+### Cloud Platforms
+- **[AWS Deployment](integrations/cloud-platforms/aws.md)** - ECS, Lambda, and other services
+- **[Google Cloud](integrations/cloud-platforms/gcp.md)** - GCP deployment patterns
+- **[Azure](integrations/cloud-platforms/azure.md)** - Azure-specific configuration
+- **[Kubernetes](integrations/cloud-platforms/kubernetes.md)** - Container orchestration
+
+## 8. Performance and Optimization
+
+### Performance Tuning
+- **[Task Optimization](performance/task-optimization.md)** - Efficient task design
+- **[Workflow Design Patterns](performance/workflow-design-patterns.md)** - Scalable workflow architecture
+- **[Resource Management](performance/resource-management.md)** - CPU, memory, and I/O optimization
+- **[Caching Strategies](performance/caching-strategies.md)** - Avoiding redundant computation
+
+### Monitoring and Observability
+- **[Metrics and Logging](performance/metrics-logging.md)** - Built-in observability features
+- **[Performance Monitoring](performance/performance-monitoring.md)** - Tracking execution performance
+- **[Alerting and Notifications](performance/alerting-notifications.md)** - Setting up alerts
+- **[Troubleshooting](performance/troubleshooting.md)** - Common issues and solutions
+
+## 9. Contributing
+
+### Development Setup
+- **[Environment Setup](contributing/environment-setup.md)** - Local development environment
+- **[Code Organization](contributing/code-organization.md)** - Project structure understanding
+- **[Development Tools](contributing/development-tools.md)** - Linting, testing, and quality tools
+
+### Contributing Guidelines
+- **[Code Standards](contributing/code-standards.md)** - Style guide and best practices
+- **[Testing Requirements](contributing/testing-requirements.md)** - Test coverage and standards
+- **[Documentation Standards](contributing/documentation-standards.md)** - Contributing to documentation
+- **[Pull Request Process](contributing/pull-request-process.md)** - How to contribute code
+
+### Community
+- **[Getting Help](contributing/getting-help.md)** - Support channels and resources
+- **[Community Guidelines](contributing/community-guidelines.md)** - Code of conduct
+- **[Roadmap](contributing/roadmap.md)** - Future development plans
+- **[License](contributing/license.md)** - Apache 2.0 license details
+
+## 10. Reference
+
+### Configuration Reference
+- **[Server Configuration](reference/configuration/server-configuration.md)** - All server configuration options
+- **[Worker Configuration](reference/configuration/worker-configuration.md)** - Worker-specific settings
+- **[Environment Variables](reference/configuration/environment-variables.md)** - Configuration via environment
+- **[Configuration Files](reference/configuration/configuration-files.md)** - YAML/JSON configuration formats
+
+### Troubleshooting
+- **[Common Issues](reference/troubleshooting/common-issues.md)** - FAQ and common problems
+- **[Error Messages](reference/troubleshooting/error-messages.md)** - Understanding error codes
+- **[Debugging Guide](reference/troubleshooting/debugging-guide.md)** - Debugging techniques
+- **[Performance Issues](reference/troubleshooting/performance-issues.md)** - Performance troubleshooting
+
+### Release Management
+- **[Version History](reference/releases/version-history.md)** - Complete changelog
+- **[Upgrade Guides](reference/releases/upgrade-guides.md)** - Step-by-step upgrade process
+- **[Migration Tools](reference/releases/migration-tools.md)** - Automated migration utilities
+- **[Breaking Changes](reference/releases/breaking-changes.md)** - Version compatibility matrix
+- **[Deprecation Notices](reference/releases/deprecation-notices.md)** - Planned feature removals
+
+### Support Resources
+- **[Community Support](reference/support/community-support.md)** - Forums, Discord, Stack Overflow
+- **[Commercial Support](reference/support/commercial-support.md)** - Enterprise support options
+- **[Professional Services](reference/support/professional-services.md)** - Consulting and training
+- **[Service Level Agreements](reference/support/sla.md)** - Support tiers and response times
+
+### Appendices
+- **[Glossary](reference/appendices/glossary.md)** - Terms and definitions
+- **[Examples Repository](reference/appendices/examples.md)** - Links to complete examples
+- **[License](reference/appendices/license.md)** - Full license text
+- **[Acknowledgments](reference/appendices/acknowledgments.md)** - Contributors and attributions
