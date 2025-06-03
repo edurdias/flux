@@ -10,7 +10,7 @@ Before diving into specific issues, run through this checklist:
 
 - [ ] **Flux Server Running**: `flux start server` in one terminal
 - [ ] **Worker Running**: `flux start worker` in another terminal
-- [ ] **Python Environment**: Correct Python version (3.8+) and packages installed
+- [ ] **Python Environment**: Correct Python version (3.12+) and packages installed
 - [ ] **Network Connectivity**: Server and worker can communicate
 - [ ] **File Permissions**: Workflow files are readable
 - [ ] **Syntax Errors**: Python files have no syntax errors
@@ -28,7 +28,7 @@ flux: command not found
 
 1. **Flux not installed**
    ```bash
-   pip install flux-workflow
+   pip install flux-core
    ```
    - See: [Installation Guide](../getting-started/installation.md) for detailed setup
 
@@ -571,8 +571,9 @@ When reporting issues, include:
 
 2. **Flux configuration**
    ```bash
-   flux --version
-   flux workflow list
+   # Check Flux installation
+   which flux
+   flux --help
    ```
 
 3. **Error logs**

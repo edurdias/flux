@@ -111,7 +111,7 @@ Flux is ideal for scenarios where you need:
 ### 1. **Quick Start** (5 minutes)
 Install Flux and run your first workflow locally:
 ```bash
-pip install flux-workflow
+pip install flux-core
 flux start server  # Start in one terminal
 flux start worker  # Start in another terminal
 ```

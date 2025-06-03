@@ -15,7 +15,7 @@ The Flux CLI provides a comprehensive command-line interface for managing workfl
 The Flux CLI is automatically available when you install Flux:
 
 ```bash
-pip install flux-workflow
+pip install flux-core
 ```
 
 ## Basic Usage

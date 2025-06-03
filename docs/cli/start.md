@@ -371,8 +371,8 @@ sudo systemctl start flux-server
 
 **Using Docker:**
 ```dockerfile
-FROM python:3.11
-RUN pip install flux-workflow
+FROM python:3.12
+RUN pip install flux-core
 EXPOSE 8000
 CMD ["flux", "start", "server", "--host", "0.0.0.0"]
 ```
@@ -382,13 +382,13 @@ CMD ["flux", "start", "server", "--host", "0.0.0.0"]
 version: '3.8'
 services:
   flux-server:
-    image: flux-workflow
+    image: flux-core
     ports:
       - "8000:8000"
     command: flux start server --host 0.0.0.0
 
   flux-worker:
-    image: flux-workflow
+    image: flux-core
     depends_on:
       - flux-server
     command: flux start worker --server-url http://flux-server:8000

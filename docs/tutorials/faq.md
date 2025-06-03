@@ -60,7 +60,7 @@ Use Flux when you need to coordinate multiple tasks into workflows, not just exe
 **Q**: What are the minimum system requirements for Flux?
 
 **A**:
-- **Python**: 3.8 or higher
+- **Python**: 3.12 or higher
 - **RAM**: 512MB minimum (2GB+ recommended for production)
 - **CPU**: Any modern processor
 - **OS**: Linux, macOS, or Windows
