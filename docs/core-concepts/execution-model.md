@@ -22,14 +22,20 @@ print(ctx.succeeded)
 ```
 
 ### Command Line Execution
-The `flux` CLI provides workflow execution through the command line:
+The `flux` CLI provides workflow execution through workflow registration and execution:
 
 ```bash
-# Basic execution
-flux exec workflow_file.py workflow_name "input_data"
+# First, start the server
+flux start server
+
+# Register workflows from a file
+flux workflow register workflow_file.py
+
+# Execute the workflow
+flux workflow run workflow_name "input_data"
 
 # Example with hello_world workflow
-flux exec hello_world.py hello_world "World"
+flux workflow run hello_world "World"
 ```
 
 ## API-based Execution
@@ -39,21 +45,33 @@ Flux provides a built-in HTTP API server for remote workflow execution.
 ### Starting the API Server
 ```bash
 # Start the server
-flux start examples
+flux start server
 
 # Server runs on localhost:8000 by default
+```
+
+### Registering Workflows
+```bash
+# Register workflows from a file
+curl -X POST 'http://localhost:8000/workflows' \
+     -F 'file=@workflow_file.py'
 ```
 
 ### Making API Requests
 
 ```bash
-# Execute a workflow
-curl --location 'localhost:8000/hello_world' \
+# Execute a workflow (async mode)
+curl -X POST 'http://localhost:8000/workflows/hello_world/run/async' \
      --header 'Content-Type: application/json' \
      --data '"World"'
 
-# Get execution details
-curl --location 'localhost:8000/inspect/[execution_id]'
+# Execute a workflow (sync mode)
+curl -X POST 'http://localhost:8000/workflows/hello_world/run/sync' \
+     --header 'Content-Type: application/json' \
+     --data '"World"'
+
+# Get execution status
+curl -X GET 'http://localhost:8000/workflows/hello_world/status/[execution_id]'
 ```
 
 Available endpoints:

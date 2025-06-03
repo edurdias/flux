@@ -31,7 +31,7 @@ flux workflow list [OPTIONS]
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
 | `--format` | `-f` | choice | `simple` | Output format: `simple` or `json` |
-| `--server-url` | `-cp-url` | string | auto | Server URL to connect to |
+| `--server-url` | `-surl` | string | auto | Server URL to connect to |
 
 ### Examples
 
@@ -95,7 +95,7 @@ flux workflow register FILENAME [OPTIONS]
 
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
-| `--server-url` | `-cp-url` | string | auto | Server URL to connect to |
+| `--server-url` | `-surl` | string | auto | Server URL to connect to |
 
 ### Examples
 
@@ -155,7 +155,7 @@ flux workflow show WORKFLOW_NAME [OPTIONS]
 
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
-| `--server-url` | `-cp-url` | string | auto | Server URL to connect to |
+| `--server-url` | `-surl` | string | auto | Server URL to connect to |
 
 ### Examples
 
@@ -220,7 +220,7 @@ flux workflow run WORKFLOW_NAME INPUT [OPTIONS]
 |--------|-------|------|---------|-------------|
 | `--mode` | `-m` | choice | `async` | Execution mode: `sync`, `async`, or `stream` |
 | `--detailed` | `-d` | flag | False | Show detailed execution information |
-| `--server-url` | `-cp-url` | string | auto | Server URL to connect to |
+| `--server-url` | `-surl` | string | auto | Server URL to connect to |
 
 ### Execution Modes
 
@@ -325,7 +325,7 @@ flux workflow status WORKFLOW_NAME EXECUTION_ID [OPTIONS]
 | Option | Short | Type | Default | Description |
 |--------|-------|------|---------|-------------|
 | `--detailed` | `-d` | flag | False | Show detailed execution information including task history |
-| `--server-url` | `-cp-url` | string | auto | Server URL to connect to |
+| `--server-url` | `-surl` | string | auto | Server URL to connect to |
 
 ### Examples
 

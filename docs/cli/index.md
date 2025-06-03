@@ -30,7 +30,7 @@ flux <command_group> <command> [options] [arguments]
 
 Most commands that interact with the Flux server support these common options:
 
-- `--server-url`, `-cp-url`: Override the default server URL
+- `--server-url`, `-surl`: Override the default server URL
 - `--help`: Show command-specific help information
 
 ### Getting Help

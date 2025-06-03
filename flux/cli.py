@@ -43,7 +43,7 @@ def get_server_url():
 )
 @click.option(
     "--server-url",
-    "-cp-url",
+    "-surl",
     default=None,
     help="Server URL to connect to.",
 )
@@ -74,7 +74,7 @@ def list_workflows(format: str, server_url: str | None):
 @click.argument("filename")
 @click.option(
     "--server-url",
-    "-cp-url",
+    "-surl",
     default=None,
     help="Server URL to connect to.",
 )
@@ -106,7 +106,7 @@ def register_workflows(filename: str, server_url: str | None):
 @click.argument("workflow_name")
 @click.option(
     "--server-url",
-    "-cp-url",
+    "-surl",
     default=None,
     help="Server URL to connect to.",
 )
@@ -155,7 +155,7 @@ def show_workflow(workflow_name: str, server_url: str | None):
 )
 @click.option(
     "--server-url",
-    "-cp-url",
+    "-surl",
     default=None,
     help="Server URL to connect to.",
 )
@@ -215,7 +215,7 @@ def run_workflow(
 )
 @click.option(
     "--server-url",
-    "-cp-url",
+    "-surl",
     default=None,
     help="Server URL to connect to.",
 )

@@ -80,11 +80,14 @@ ctx = hello_world.run("World")
 print(ctx.output)
 
 # Command Line
-flux exec hello_world.py hello_world "World"
+flux start server  # Start the server
+flux workflow register hello_world.py  # Register workflow
+flux workflow run hello_world "World"  # Execute workflow
 
 # HTTP API
-flux start examples
-curl --location 'localhost:8000/hello_world' \
+flux start server  # Start the server
+curl -X POST 'http://localhost:8000/workflows' -F 'file=@hello_world.py'  # Register
+curl -X POST 'http://localhost:8000/workflows/hello_world/run/async' \
      --header 'Content-Type: application/json' \
      --data '"World"'
 ```

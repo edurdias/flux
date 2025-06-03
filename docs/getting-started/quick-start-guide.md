@@ -41,17 +41,27 @@ print(ctx.has_succeeded)  # True if workflow succeeded
 
 ### 2. Command Line Interface
 ```bash
+# First, start the server
+flux start server
+
+# Register the workflow
+flux workflow register hello_world.py
+
 # Execute workflow using the CLI
-flux exec hello_world.py hello_world "World"
+flux workflow run hello_world "World"
 ```
 
 ### 3. HTTP API
 ```bash
 # Start the API server
-flux start examples
+flux start server
+
+# Register workflows from your file
+curl -X POST http://localhost:8000/workflows \
+     -F "file=@hello_world.py"
 
 # Execute workflow via HTTP
-curl --location 'localhost:8000/hello_world' \
+curl --location 'http://localhost:8000/workflows/hello_world/run/async' \
      --header 'Content-Type: application/json' \
      --data '"World"'
 ```
