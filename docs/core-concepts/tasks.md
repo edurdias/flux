@@ -40,7 +40,7 @@ async def complex_task(data: str, secrets: dict = {}):
     retry_delay=1,          # Wait 1 second initially
     retry_backoff=2         # Double delay after each retry
 )
-def retrying_task():
+async def retrying_task():
     # Task will retry with delays: 1s, 2s, 4s
     pass
 ```
@@ -48,31 +48,31 @@ def retrying_task():
 ### Timeout Configuration
 ```python
 @task.with_options(timeout=30)
-def timed_task():
+async def timed_task():
     # Task will fail if it exceeds 30 seconds
     pass
 ```
 
 ### Fallback Configuration
 ```python
-def fallback_handler(input_data):
+async def fallback_handler(input_data):
     # Handle task failure
     return "fallback result"
 
 @task.with_options(fallback=fallback_handler)
-def task_with_fallback(input_data):
+async def task_with_fallback(input_data):
     # If this fails, fallback_handler is called
     pass
 ```
 
 ### Rollback Configuration
 ```python
-def rollback_handler(input_data):
+async def rollback_handler(input_data):
     # Clean up after task failure
     pass
 
 @task.with_options(rollback=rollback_handler)
-def task_with_rollback(input_data):
+async def task_with_rollback(input_data):
     # If this fails, rollback_handler is called
     pass
 ```
@@ -134,7 +134,7 @@ Tasks support multiple error handling strategies that can be combined:
     retry_delay=1,
     retry_backoff=2
 )
-def retrying_task():
+async def retrying_task():
     if random.random() < 0.5:
         raise ValueError("Task failed")
     return "success"
@@ -142,26 +142,26 @@ def retrying_task():
 
 ### Fallback Strategy
 ```python
-def fallback_handler():
+async def fallback_handler():
     return "fallback result"
 
 @task.with_options(
     fallback=fallback_handler,
     retry_max_attempts=3
 )
-def task_with_fallback():
+async def task_with_fallback():
     # Retries first, then fallback if all retries fail
     pass
 ```
 
 ### Rollback Operations
 ```python
-def rollback_handler():
+async def rollback_handler():
     # Clean up resources
     pass
 
 @task.with_options(rollback=rollback_handler)
-def task_with_rollback():
+async def task_with_rollback():
     # Rollback is called if task fails
     pass
 ```
@@ -172,7 +172,7 @@ def task_with_rollback():
     timeout=30,
     fallback=fallback_handler
 )
-def timed_task():
+async def timed_task():
     # Fails if exceeds 30 seconds, then calls fallback
     pass
 ```
@@ -279,11 +279,11 @@ The Graph task allows you to create complex task dependencies using a directed a
 from flux.tasks import Graph
 
 @task
-def get_name(input: str) -> str:
+async def get_name(input: str) -> str:
     return input
 
 @task
-def say_hello(name: str) -> str:
+async def say_hello(name: str) -> str:
     return f"Hello, {name}"
 
 @workflow

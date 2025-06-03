@@ -26,7 +26,7 @@ async def configured_workflow(ctx: ExecutionContext):
 
 # Workflow with pause point
 @workflow
-async def approval_workflow(ctx: ExecutionContext):
+async def approval_workflow(ctx: ExecutionContext[dict]):
     data = await process_data(ctx.input)
     # Pause for manual approval
     await pause("manual_approval")
@@ -57,17 +57,17 @@ async def simple_task(data: str):
 # Configured task
 @task.with_options(
     name="custom_task",                  # Custom task name
-    retry_max_attempts=3,                 # Maximum retry attempts
+    retry_max_attempts=3,                # Maximum retry attempts
     retry_delay=1,                       # Initial delay between retries
     retry_backoff=2,                     # Backoff multiplier for retries
     timeout=30,                          # Task timeout in seconds
-    fallback=fallback_function,          # Fallback function for failures
-    rollback=rollback_function,          # Rollback function for failures
+    fallback=async_fallback_function,    # Fallback function for failures
+    rollback=async_rollback_function,    # Rollback function for failures
     secret_requests=["API_KEY"],         # Required secrets
     output_storage=custom_storage        # Custom output storage
 )
-async def complex_task(data: str):
-    return process_data(data)
+async def complex_task(data: str, secrets: dict = {}):
+    return await process_data(data, secrets.get("API_KEY"))
 ```
 
 Task features:

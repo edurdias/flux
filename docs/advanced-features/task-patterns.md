@@ -90,6 +90,7 @@ async def process_item(item: str):
 @workflow
 async def mapping_workflow(ctx: ExecutionContext[list[str]]):
     # Process multiple items in parallel
+    # ctx.input should be a list or iterable
     results = await process_item.map(ctx.input)
     return results
 ```

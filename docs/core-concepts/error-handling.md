@@ -44,20 +44,20 @@ async def task_with_fallback(input_data):
     # If all retries fail, fallback_handler is called
     if not validate(input_data):
         raise ValueError("Invalid data")
-    return process(input_data)
+    return await process(input_data)
 ```
 
 ### Rollback Operations
 ```python
 async def rollback_handler(input_data):
     # Clean up any partial changes
-    cleanup_resources()
+    await cleanup_resources()
 
 @task.with_options(rollback=rollback_handler)
 async def task_with_rollback(input_data):
     # If task fails, rollback_handler is called
     # before propagating the error
-    result = complex_operation(input_data)
+    result = await complex_operation(input_data)
     if not verify(result):
         raise ValueError("Verification failed")
     return result
@@ -88,7 +88,7 @@ async def task_with_full_error_handling():
 @workflow
 async def error_handling_workflow(ctx: ExecutionContext):
     try:
-        result = await risky_task()
+        result = await risky_task(ctx.input)
         return result
     except ExecutionError as e:
         # Handle execution-specific errors

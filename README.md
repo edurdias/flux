@@ -155,6 +155,7 @@ async def process_item(item: str):
 
 @workflow
 async def map_workflow(ctx: ExecutionContext[list[str]]):
+    # ctx.input should be a list of strings
     results = await process_item.map(ctx.input)
     return results
 ```
@@ -290,9 +291,9 @@ async def built_in_tasks_example(ctx: ExecutionContext):
 
     # Parallel execution
     results = await parallel(
-        lambda: process_task_1(),
-        lambda: process_task_2(),
-        lambda: process_task_3()
+        process_task_1(data),
+        process_task_2(data),
+        process_task_3(data)
     )
 
     # Pipeline processing

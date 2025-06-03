@@ -53,12 +53,12 @@ Create a new file called `my_first_workflow.py`:
 
 ```python
 # my_first_workflow.py
-from flux import workflow, task
+from flux import workflow, task, ExecutionContext
 from datetime import datetime
 import json
 
 @task
-def fetch_sample_data(source: str) -> dict:
+async def fetch_sample_data(source: str) -> dict:
     """Simulate fetching data from a source."""
     print(f"Fetching data from {source}...")
 
@@ -78,7 +78,7 @@ def fetch_sample_data(source: str) -> dict:
     return sample_data
 
 @task
-def process_customer_data(data: dict) -> dict:
+async def process_customer_data(data: dict) -> dict:
     """Process and enrich customer data."""
     print("Processing customer data...")
 
@@ -115,7 +115,7 @@ def process_customer_data(data: dict) -> dict:
     return processed_data
 
 @task
-def generate_summary_report(processed_data: dict) -> dict:
+async def generate_summary_report(processed_data: dict) -> dict:
     """Generate a summary report from processed data."""
     print("Generating summary report...")
 
@@ -160,18 +160,19 @@ def generate_summary_report(processed_data: dict) -> dict:
     return report
 
 @workflow
-def customer_analysis_pipeline(data_source: str = "sample_db"):
+async def customer_analysis_pipeline(ctx: ExecutionContext[str]):
     """A complete customer analysis workflow."""
+    data_source = ctx.input if ctx.input else "sample_db"
     print(f"Starting customer analysis pipeline for source: {data_source}")
 
     # Step 1: Fetch the data
-    raw_data = fetch_sample_data(data_source)
+    raw_data = await fetch_sample_data(data_source)
 
     # Step 2: Process the data
-    processed_data = process_customer_data(raw_data)
+    processed_data = await process_customer_data(raw_data)
 
     # Step 3: Generate report
-    final_report = generate_summary_report(processed_data)
+    final_report = await generate_summary_report(processed_data)
 
     print("Customer analysis pipeline completed!")
     return final_report
