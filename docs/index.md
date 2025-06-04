@@ -19,7 +19,6 @@
 - **[Tasks](getting-started/tasks.md)** - Definition, decoration, and configuration
 - **[Workflows](getting-started/workflows.md)** - Creating and structuring workflows
 - **[Execution Context](getting-started/execution-context.md)** - State management and data flow
-- **[Task Options](getting-started/task-options.md)** - Retry, timeout, fallback, and rollback
 - **[Built-in Tasks](getting-started/built-in-tasks.md)** - Overview of provided utilities
 
 ### First Steps Tutorial

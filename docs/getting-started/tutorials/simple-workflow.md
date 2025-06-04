@@ -288,6 +288,35 @@ async def validate_file(file_path: str):
 
 ### 2. **Graceful Error Handling with Fallbacks**
 Instead of using try/catch blocks, each task has its own fallback function that provides sensible defaults:
+
+```python
+async def validation_fallback(file_path: str) -> Dict[str, Any]:
+    """Fallback for file validation failures."""
+    return {
+        "file_path": file_path,
+        "total_rows": 0,
+        "columns": [],
+        "validation_time": datetime.now().isoformat(),
+        "status": "validation_failed"
+    }
+
+async def save_fallback(users: List[Dict[str, Any]], report: Dict[str, Any], output_dir: str = "data/processed") -> Dict[str, str]:
+    """Fallback for save failures - log error instead."""
+    Path("data/errors").mkdir(parents=True, exist_ok=True)
+    error_file = f"data/errors/save_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    error_log = {
+        "error": "Failed to save results",
+        "timestamp": datetime.now().isoformat(),
+        "user_count": len(users)
+    }
+
+    with open(error_file, 'w') as f:
+        json.dump(error_log, f, indent=2)
+
+    return {"status": "save_failed", "error_file": error_file}
+```
+
 - **`validation_fallback`**: Returns empty data structure when file validation fails
 - **`processing_fallback`**: Returns empty list when data processing fails
 - **`reporting_fallback`**: Returns zero-filled report when report generation fails
@@ -295,6 +324,22 @@ Instead of using try/catch blocks, each task has its own fallback function that 
 
 ### 3. **Automatic Error Recovery**
 Flux automatically handles the error recovery flow:
+
+```python
+# When a task fails, Flux automatically:
+# 1. First: Try the task normally
+await validate_file(file_path)  # Initial attempt
+
+# 2. If it fails: Retry up to the specified number of times
+# (retry=3 means up to 3 additional attempts)
+
+# 3. If retries fail: Call the fallback function automatically
+validation_result = await validation_fallback(file_path)
+
+# 4. Continue: Workflow continues with fallback result
+cleaned_users = await load_and_clean_data(validation_result)
+```
+
 1. **First**: Try the task normally
 2. **If it fails**: Retry up to the specified number of times
 3. **If retries fail**: Call the fallback function automatically
@@ -302,6 +347,28 @@ Flux automatically handles the error recovery flow:
 
 ### 4. **Clean Workflow Logic**
 The main workflow is now much cleaner without try/catch blocks:
+
+```python
+@workflow
+async def process_user_data(ctx: ExecutionContext[str]) -> Dict[str, Any]:
+    """Main workflow for processing user data files."""
+    file_path = ctx.input
+
+    # Clean, linear flow - no try/catch needed!
+    validation_result = await validate_file(file_path)  # Handles errors with fallback
+    cleaned_users = await load_and_clean_data(validation_result)  # Handles errors with fallback
+    enriched_users = await enrich_user_data(cleaned_users)
+    report = await generate_report(enriched_users)  # Handles errors with fallback
+    save_result = await save_results(enriched_users, report)  # Handles errors with fallback
+
+    return {
+        "status": "completed",
+        "processed_users": len(enriched_users),
+        "files_created": save_result,
+        "summary": report
+    }
+```
+
 - Each task handles its own errors through fallbacks
 - Workflow focuses on the happy path
 - Error handling is declarative, not imperative
