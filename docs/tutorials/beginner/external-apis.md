@@ -28,13 +28,13 @@ First, create a new directory and install required packages:
 ```bash
 mkdir flux-api-tutorial
 cd flux-api-tutorial
-pip install flux-engine requests
+pip install flux-core requests
 ```
 
 Create a `requirements.txt` file:
 
 ```txt
-flux-engine>=0.1.0
+flux-core>=0.1.0
 requests>=2.31.0
 pandas>=2.0.0
 ```
@@ -46,7 +46,7 @@ Let's start with a simple task that fetches data from a public API:
 ```python
 # api_workflow.py
 import requests
-from flux import task, workflow
+from flux import task, workflow, ExecutionContext
 from typing import Dict, List, Any
 import time
 import logging
@@ -56,7 +56,7 @@ import logging
     retry_delay=1.0,
     timeout=30.0
 )
-def fetch_user_data(user_id: int) -> Dict[str, Any]:
+async def fetch_user_data(user_id: int) -> Dict[str, Any]:
     """Fetch user data from JSONPlaceholder API."""
     url = f"https://jsonplaceholder.typicode.com/users/{user_id}"
 
@@ -69,7 +69,7 @@ def fetch_user_data(user_id: int) -> Dict[str, Any]:
         raise
 
 @task
-def extract_user_info(user_data: Dict[str, Any]) -> Dict[str, Any]:
+async def extract_user_info(user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract relevant user information."""
     return {
         'id': user_data['id'],
@@ -81,10 +81,11 @@ def extract_user_info(user_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @workflow
-def process_single_user(user_id: int):
+async def process_single_user(ctx: ExecutionContext[int]):
     """Process a single user's data."""
-    raw_data = fetch_user_data(user_id)
-    processed_data = extract_user_info(raw_data)
+    user_id = ctx.input
+    raw_data = await fetch_user_data(user_id)
+    processed_data = await extract_user_info(raw_data)
     return processed_data
 ```
 
@@ -99,7 +100,7 @@ from flux.tasks import parallel
     retry_count=2,
     retry_delay=0.5
 )
-def fetch_user_posts(user_id: int) -> List[Dict[str, Any]]:
+async def fetch_user_posts(user_id: int) -> List[Dict[str, Any]]:
     """Fetch posts for a specific user."""
     url = f"https://jsonplaceholder.typicode.com/posts?userId={user_id}"
 
@@ -108,7 +109,7 @@ def fetch_user_posts(user_id: int) -> List[Dict[str, Any]]:
     return response.json()
 
 @task
-def enrich_user_with_posts(user_data: Dict[str, Any], posts: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def enrich_user_with_posts(user_data: Dict[str, Any], posts: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Combine user data with their posts."""
     return {
         **user_data,
@@ -118,18 +119,16 @@ def enrich_user_with_posts(user_data: Dict[str, Any], posts: List[Dict[str, Any]
     }
 
 @workflow
-def process_user_with_posts(user_id: int):
+async def process_user_with_posts(ctx: ExecutionContext[int]):
     """Process user data and their posts in parallel."""
-    # Fetch user data and posts concurrently
-    user_task = fetch_user_data(user_id)
-    posts_task = fetch_user_posts(user_id)
+    user_id = ctx.input
 
-    # Wait for both to complete
-    user_data = extract_user_info(user_task)
-    posts_data = posts_task
+    # Fetch user data and posts concurrently
+    user_data = await extract_user_info(await fetch_user_data(user_id))
+    posts_data = await fetch_user_posts(user_id)
 
     # Combine the results
-    enriched_data = enrich_user_with_posts(user_data, posts_data)
+    enriched_data = await enrich_user_with_posts(user_data, posts_data)
     return enriched_data
 ```
 
@@ -173,7 +172,7 @@ api_rate_limiter = RateLimiter(max_calls=100, time_window=60)
     retry_delay=2.0,
     timeout=30.0
 )
-def fetch_github_user(username: str) -> Dict[str, Any]:
+async def fetch_github_user(username: str) -> Dict[str, Any]:
     """Fetch user data from GitHub API with authentication and rate limiting."""
     api_rate_limiter.wait_if_needed()
 
@@ -204,7 +203,7 @@ def fetch_github_user(username: str) -> Dict[str, Any]:
         raise
 
 @task
-def process_github_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
+async def process_github_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
     """Process GitHub user data."""
     return {
         'username': user_data['login'],
@@ -219,8 +218,10 @@ def process_github_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @workflow
-def analyze_github_users(usernames: List[str]):
+async def analyze_github_users(ctx: ExecutionContext[List[str]]):
     """Analyze multiple GitHub users."""
+    usernames = ctx.input
+
     # Process users in parallel with rate limiting
     user_tasks = []
     for username in usernames:
@@ -229,7 +230,7 @@ def analyze_github_users(usernames: List[str]):
         user_tasks.append(processed_task)
 
     # Execute all tasks in parallel
-    results = parallel(*user_tasks)
+    results = await parallel(*user_tasks)
     return results
 ```
 
@@ -243,23 +244,23 @@ Implement comprehensive error handling with fallback strategies:
     retry_delay=1.0,
     fallback=lambda username: {'username': username, 'status': 'unavailable', 'source': 'fallback'}
 )
-def fetch_user_with_fallback(username: str) -> Dict[str, Any]:
+async def fetch_user_with_fallback(username: str) -> Dict[str, Any]:
     """Fetch user data with fallback to cached data."""
     try:
         # Try primary API
-        return fetch_github_user(username)
+        return await fetch_github_user(username)
     except Exception as e:
         logging.warning(f"Primary API failed for {username}: {e}")
 
         # Try fallback API or cache
         try:
-            return fetch_from_cache(username)
+            return await fetch_from_cache(username)
         except Exception as cache_error:
             logging.error(f"Cache also failed for {username}: {cache_error}")
             raise e  # Re-raise original error
 
 @task
-def fetch_from_cache(username: str) -> Dict[str, Any]:
+async def fetch_from_cache(username: str) -> Dict[str, Any]:
     """Fetch user data from local cache."""
     cache_file = f"cache/{username}.json"
 
@@ -273,7 +274,7 @@ def fetch_from_cache(username: str) -> Dict[str, Any]:
     raise FileNotFoundError(f"No cached data for {username}")
 
 @task
-def cache_user_data(username: str, user_data: Dict[str, Any]):
+async def cache_user_data(username: str, user_data: Dict[str, Any]):
     """Cache user data for future use."""
     os.makedirs('cache', exist_ok=True)
     cache_file = f"cache/{username}.json"
@@ -286,20 +287,21 @@ def cache_user_data(username: str, user_data: Dict[str, Any]):
         json.dump(user_data, f, indent=2)
 
 @workflow
-def robust_user_analysis(usernames: List[str]):
+async def robust_user_analysis(ctx: ExecutionContext[List[str]]):
     """Analyze users with robust error handling and caching."""
+    usernames = ctx.input
     results = []
 
     for username in usernames:
         # Fetch user data with fallback
-        user_data = fetch_user_with_fallback(username)
+        user_data = await fetch_user_with_fallback(username)
 
         # Process the data
-        processed_data = process_github_user(user_data)
+        processed_data = await process_github_user(user_data)
 
         # Cache successful results
         if user_data.get('source') != 'fallback':
-            cache_user_data(username, processed_data)
+            await cache_user_data(username, processed_data)
 
         results.append(processed_data)
 
@@ -328,7 +330,7 @@ class UserProfile:
     activity_score: float = 0.0
 
 @task
-def validate_and_transform_user(user_data: Dict[str, Any]) -> UserProfile:
+async def validate_and_transform_user(user_data: Dict[str, Any]) -> UserProfile:
     """Validate and transform user data into structured format."""
     # Validate required fields
     required_fields = ['username', 'public_repos', 'followers', 'following', 'created_at']
@@ -355,7 +357,7 @@ def validate_and_transform_user(user_data: Dict[str, Any]) -> UserProfile:
     )
 
 @task
-def generate_user_report(users: List[UserProfile]) -> Dict[str, Any]:
+async def generate_user_report(users: List[UserProfile]) -> Dict[str, Any]:
     """Generate summary report from user profiles."""
     if not users:
         return {'error': 'No users to analyze'}
@@ -382,22 +384,24 @@ def generate_user_report(users: List[UserProfile]) -> Dict[str, Any]:
     }
 
 @workflow
-def complete_user_analysis(usernames: List[str]):
+async def complete_user_analysis(ctx: ExecutionContext[List[str]]):
     """Complete user analysis workflow with validation and reporting."""
+    usernames = ctx.input
+
     # Fetch and process users
-    raw_users = robust_user_analysis(usernames)
+    raw_users = await robust_user_analysis.call(usernames)
 
     # Validate and transform each user
     validated_users = []
     for user_data in raw_users:
         try:
-            validated_user = validate_and_transform_user(user_data)
+            validated_user = await validate_and_transform_user(user_data)
             validated_users.append(validated_user)
         except ValueError as e:
             logging.error(f"Validation failed for user {user_data.get('username', 'unknown')}: {e}")
 
     # Generate report
-    report = generate_user_report(validated_users)
+    report = await generate_user_report(validated_users)
 
     return {
         'users': [user.__dict__ for user in validated_users],
@@ -442,14 +446,14 @@ class TestAPIWorkflow:
         assert result['website'] == 'https://johndoe.com'
 
     @patch('api_workflow.requests.get')
-    def test_fetch_user_data_success(self, mock_get):
+    async def test_fetch_user_data_success(self, mock_get):
         """Test successful user data fetch."""
         mock_response = Mock()
         mock_response.json.return_value = {'id': 1, 'name': 'Test User'}
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
-        result = fetch_user_data(1)
+        result = await fetch_user_data(1)
 
         assert result == {'id': 1, 'name': 'Test User'}
         mock_get.assert_called_once_with(
@@ -458,14 +462,14 @@ class TestAPIWorkflow:
         )
 
     @patch('api_workflow.requests.get')
-    def test_fetch_user_data_failure(self, mock_get):
+    async def test_fetch_user_data_failure(self, mock_get):
         """Test failed user data fetch."""
         mock_get.side_effect = Exception("Network error")
 
         with pytest.raises(Exception):
-            fetch_user_data(1)
+            await fetch_user_data(1)
 
-    def test_validate_and_transform_user_success(self):
+    async def test_validate_and_transform_user_success(self):
         """Test successful user validation and transformation."""
         user_data = {
             'username': 'testuser',
@@ -479,14 +483,14 @@ class TestAPIWorkflow:
             'blog': 'https://testblog.com'
         }
 
-        result = validate_and_transform_user(user_data)
+        result = await validate_and_transform_user(user_data)
 
         assert isinstance(result, UserProfile)
         assert result.username == 'testuser'
         assert result.public_repos == 10
         assert result.activity_score == 7.0  # (10*2 + 50) / 10
 
-    def test_validate_and_transform_user_missing_field(self):
+    async def test_validate_and_transform_user_missing_field(self):
         """Test user validation with missing required field."""
         user_data = {
             'username': 'testuser',
@@ -494,9 +498,9 @@ class TestAPIWorkflow:
         }
 
         with pytest.raises(ValueError, match="Missing required field"):
-            validate_and_transform_user(user_data)
+            await validate_and_transform_user(user_data)
 
-def test_integration():
+async def test_integration():
     """Integration test with real API (if GITHUB_TOKEN is available)."""
     import os
 
@@ -504,13 +508,13 @@ def test_integration():
         pytest.skip("GITHUB_TOKEN not available")
 
     # Test with a well-known GitHub user
-    user_data = fetch_github_user('octocat')
+    user_data = await fetch_github_user('octocat')
     assert user_data['login'] == 'octocat'
 
-    processed = process_github_user(user_data)
+    processed = await process_github_user(user_data)
     assert processed['username'] == 'octocat'
 
-    validated = validate_and_transform_user(processed)
+    validated = await validate_and_transform_user(processed)
     assert isinstance(validated, UserProfile)
     assert validated.username == 'octocat'
 ```
@@ -531,7 +535,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def main():
+async def main():
     # Set GitHub token if available
     github_token = os.environ.get('GITHUB_TOKEN')
     if not github_token:
@@ -544,27 +548,27 @@ def main():
 
     try:
         # Execute the workflow
-        result = complete_user_analysis(usernames)
+        result = await complete_user_analysis.run(usernames)
 
         # Display results
         print("\n=== Analysis Complete ===")
-        print(f"Processed {len(result['users'])} users")
-        print(f"Total repositories: {result['report']['summary']['total_repositories']}")
-        print(f"Total followers: {result['report']['summary']['total_followers']}")
-        print(f"Average activity score: {result['report']['summary']['average_activity_score']}")
+        print(f"Processed {len(result.output['users'])} users")
+        print(f"Total repositories: {result.output['report']['summary']['total_repositories']}")
+        print(f"Total followers: {result.output['report']['summary']['total_followers']}")
+        print(f"Average activity score: {result.output['report']['summary']['average_activity_score']}")
 
         print("\nTop users by repositories:")
-        for user in result['report']['top_by_repositories']:
+        for user in result.output['report']['top_by_repositories']:
             print(f"  {user['username']}: {user['repos']} repos")
 
         print("\nTop users by followers:")
-        for user in result['report']['top_by_followers']:
+        for user in result.output['report']['top_by_followers']:
             print(f"  {user['username']}: {user['followers']} followers")
 
         # Save results to file
         import json
         with open('user_analysis_results.json', 'w') as f:
-            json.dump(result, f, indent=2)
+            json.dump(result.output, f, indent=2)
 
         print(f"\nDetailed results saved to user_analysis_results.json")
 
@@ -573,7 +577,8 @@ def main():
         raise
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
 ```
 
 ## Step 9: Environment Setup

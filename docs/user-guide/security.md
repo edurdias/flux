@@ -497,7 +497,7 @@ class SecureNetworkClient:
 
             # Add security headers
             secure_headers = {
-                "User-Agent": "Flux-Workflow/1.0",
+                "User-Agent": "Flux-Core/1.0",
                 "X-Content-Type-Options": "nosniff",
                 "X-Frame-Options": "DENY",
                 **(headers or {})

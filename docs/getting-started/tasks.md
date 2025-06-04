@@ -48,7 +48,7 @@ async def fetch_user_data(user_id: int) -> Optional[Dict[str, str]]:
     return {"id": str(user_id), "name": "John Doe"}
 
 @task
-def validate_input(data: Dict[str, str]) -> List[str]:
+async def validate_input(data: Dict[str, str]) -> List[str]:
     """Validate input data and return list of errors."""
     errors = []
     if not data.get("name"):

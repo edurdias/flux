@@ -22,15 +22,15 @@ Read content from a file.
 from flux.tasks import file_read
 
 @workflow
-def process_file_workflow():
+async def process_file_workflow(context: ExecutionContext):
     # Read text file
-    content = file_read("data/input.txt")
+    content = await file_read("data/input.txt")
 
     # Read JSON file
-    json_data = file_read("config/settings.json", format="json")
+    json_data = await file_read("config/settings.json", format="json")
 
     # Read CSV file
-    csv_data = file_read("data/users.csv", format="csv")
+    csv_data = await file_read("data/users.csv", format="csv")
 
     return {"content": content, "config": json_data, "users": csv_data}
 ```
@@ -49,15 +49,16 @@ Write content to a file.
 from flux.tasks import file_write
 
 @workflow
-def save_results_workflow(results: dict):
+async def save_results_workflow(context: ExecutionContext[dict]):
+    results = context.input
     # Write JSON data
-    file_write("output/results.json", results, format="json")
+    await file_write("output/results.json", results, format="json")
 
     # Write CSV data
-    file_write("output/data.csv", results["records"], format="csv")
+    await file_write("output/data.csv", results["records"], format="csv")
 
     # Write text with custom encoding
-    file_write("output/report.txt", results["summary"], encoding="utf-8")
+    await file_write("output/report.txt", results["summary"], encoding="utf-8")
 
     return "Files saved successfully"
 ```
@@ -77,23 +78,24 @@ Transform data using common operations.
 from flux.tasks import data_transform
 
 @workflow
-def transform_data_workflow(raw_data: list):
+async def transform_data_workflow(context: ExecutionContext[list]):
+    raw_data = context.input
     # Filter data
-    filtered = data_transform(
+    filtered = await data_transform(
         raw_data,
         operation="filter",
         condition=lambda x: x["status"] == "active"
     )
 
     # Map/transform data
-    transformed = data_transform(
+    transformed = await data_transform(
         filtered,
         operation="map",
         transform=lambda x: {**x, "processed": True}
     )
 
     # Group data
-    grouped = data_transform(
+    grouped = await data_transform(
         transformed,
         operation="group_by",
         key="category"
@@ -117,7 +119,8 @@ Validate data against schemas or rules.
 from flux.tasks import data_validate
 
 @workflow
-def validate_workflow(user_data: dict):
+async def validate_workflow(context: ExecutionContext[dict]):
+    user_data = context.input
     # Schema validation
     schema = {
         "type": "object",
@@ -129,7 +132,7 @@ def validate_workflow(user_data: dict):
         "required": ["name", "email"]
     }
 
-    validation_result = data_validate(
+    validation_result = await data_validate(
         user_data,
         schema=schema,
         schema_type="json_schema"
@@ -154,16 +157,16 @@ Make HTTP requests to external APIs.
 from flux.tasks import http_request
 
 @workflow
-def api_integration_workflow():
+async def api_integration_workflow(context: ExecutionContext):
     # GET request
-    users = http_request(
+    users = await http_request(
         method="GET",
         url="https://api.example.com/users",
         headers={"Authorization": "Bearer token"}
     )
 
     # POST request with data
-    new_user = http_request(
+    new_user = await http_request(
         method="POST",
         url="https://api.example.com/users",
         json={"name": "John Doe", "email": "john@example.com"},
@@ -171,7 +174,7 @@ def api_integration_workflow():
     )
 
     # Request with retry logic
-    reliable_request = http_request(
+    reliable_request = await http_request(
         method="GET",
         url="https://unreliable-api.com/data",
         retries=3,
@@ -201,16 +204,17 @@ Send webhook notifications.
 from flux.tasks import webhook_send
 
 @workflow
-def notification_workflow(event_data: dict):
+async def notification_workflow(context: ExecutionContext[dict]):
+    event_data = context.input
     # Send webhook with payload
-    response = webhook_send(
+    response = await webhook_send(
         url="https://hooks.example.com/webhook",
         payload=event_data,
         headers={"X-API-Key": "secret-key"}
     )
 
     # Send webhook with custom format
-    slack_notification = webhook_send(
+    slack_notification = await webhook_send(
         url="https://hooks.slack.com/services/...",
         payload={
             "text": f"Workflow completed: {event_data['workflow_name']}",
@@ -238,19 +242,19 @@ Execute shell commands.
 from flux.tasks import shell_command
 
 @workflow
-def system_workflow():
+async def system_workflow(context: ExecutionContext):
     # Simple command
-    result = shell_command("ls -la /tmp")
+    result = await shell_command("ls -la /tmp")
 
     # Command with input
-    grep_result = shell_command(
+    grep_result = await shell_command(
         "grep -n 'error'",
         input="line 1: info\nline 2: error\nline 3: warning",
         shell=True
     )
 
     # Command with environment variables
-    env_result = shell_command(
+    env_result = await shell_command(
         "echo $CUSTOM_VAR",
         env={"CUSTOM_VAR": "hello world"},
         shell=True
@@ -280,16 +284,16 @@ Perform file system operations.
 from flux.tasks import file_operations
 
 @workflow
-def file_management_workflow():
+async def file_management_workflow(context: ExecutionContext):
     # Copy files
-    file_operations(
+    await file_operations(
         operation="copy",
         source="/path/to/source.txt",
         destination="/path/to/dest.txt"
     )
 
     # Create directory
-    file_operations(
+    await file_operations(
         operation="mkdir",
         path="/path/to/new/directory",
         parents=True
@@ -329,15 +333,15 @@ Add delays to workflow execution.
 from flux.tasks import delay
 
 @workflow
-def timed_workflow():
+async def timed_workflow(context: ExecutionContext):
     # Fixed delay
-    delay(seconds=10)
+    await delay(seconds=10)
 
     # Delay until specific time
-    delay(until="2024-01-01T12:00:00Z")
+    await delay(until="2024-01-01T12:00:00Z")
 
     # Delay with jitter for distributed systems
-    delay(seconds=30, jitter=5)  # 25-35 seconds
+    await delay(seconds=30, jitter=5)  # 25-35 seconds
 
     return "Workflow completed after delays"
 ```
@@ -355,8 +359,12 @@ Execute tasks based on conditions.
 from flux.tasks import conditional_branch
 
 @workflow
-def branching_workflow(user_type: str, data: dict):
-    result = conditional_branch(
+async def branching_workflow(context: ExecutionContext[dict]):
+    workflow_input = context.input
+    user_type = workflow_input["user_type"]
+    data = workflow_input["data"]
+
+    result = await conditional_branch(
         condition=user_type == "premium",
         if_true=lambda: process_premium_user(data),
         if_false=lambda: process_regular_user(data)
@@ -378,16 +386,17 @@ Iterate over collections with parallel or sequential execution.
 from flux.tasks import for_each
 
 @workflow
-def batch_processing_workflow(items: list):
+async def batch_processing_workflow(context: ExecutionContext[list]):
+    items = context.input
     # Sequential processing
-    results = for_each(
+    results = await for_each(
         items=items,
         task=process_item,
         parallel=False
     )
 
     # Parallel processing with limit
-    parallel_results = for_each(
+    parallel_results = await for_each(
         items=items,
         task=process_item,
         parallel=True,

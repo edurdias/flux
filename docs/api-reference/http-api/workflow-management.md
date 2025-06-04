@@ -1,24 +1,30 @@
 # Workflow Management API
 
-The Flux HTTP API provides comprehensive endpoints for managing workflows, including uploading, listing, inspecting, and managing workflow metadata. All endpoints are accessible via REST API calls and return JSON responses.
+The Flux HTTP API provides comprehensive endpoints for managing workflows and their execution, including uploading workflow files, listing available workflows, retrieving workflow details, executing workflows, and monitoring execution status. All endpoints are accessible via REST API calls and return JSON responses.
 
 ## Base URL
 
 All API endpoints are relative to your Flux server's base URL:
 ```
-http://localhost:8080/api/v1
+http://localhost:8000
 ```
 
 ## Authentication
 
-Currently, Flux uses basic authentication. Include your credentials in the Authorization header:
+Flux uses Bearer token authentication for workers and admin operations. Include your token in the Authorization header:
 ```
-Authorization: Basic <base64-encoded-credentials>
+Authorization: Bearer <your-token>
 ```
+
+Note: Some endpoints require specific authentication depending on the operation:
+
+- Worker operations require worker session tokens
+- Admin operations may require additional permissions
+- Public endpoints (like listing workflows) may not require authentication
 
 ## Upload Workflow
 
-Upload a new workflow to the Flux server for execution.
+Upload a new workflow file to the Flux server for execution.
 
 ### Endpoint
 ```
@@ -26,31 +32,39 @@ POST /workflows
 ```
 
 ### Request Body
-```json
-{
-  "name": "my_workflow",
-  "file_content": "from flux import task, workflow\n\n@task\nasync def hello():\n    return 'Hello'\n\n@workflow\nasync def my_workflow(ctx):\n    return await hello()"
-}
-```
+This endpoint expects a file upload, not JSON. Use multipart/form-data to upload a Python workflow file.
 
 ### Response
 ```json
 {
   "status": "success",
-  "workflow_name": "my_workflow",
-  "message": "Workflow uploaded successfully"
+  "workflows": [
+    {
+      "name": "my_workflow",
+      "version": 1
+    }
+  ]
 }
 ```
 
 ### Example
 ```bash
-curl -X POST http://localhost:8080/api/v1/workflows \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Basic <credentials>" \
-  -d '{
-    "name": "data_pipeline",
-    "file_content": "..."
-  }'
+curl -X POST http://localhost:8000/workflows \
+  -F "file=@my_workflow.py"
+```
+
+Example workflow file (`my_workflow.py`):
+```python
+from flux import task, workflow
+
+@task
+async def hello():
+    return 'Hello, World!'
+
+@workflow
+async def my_workflow(ctx):
+    result = await hello()
+    return result
 ```
 
 ## List Workflows
@@ -64,28 +78,21 @@ GET /workflows
 
 ### Response
 ```json
-{
-  "workflows": [
-    {
-      "name": "data_pipeline",
-      "uploaded_at": "2024-01-15T10:30:00Z",
-      "file_size": 2048,
-      "status": "active"
-    },
-    {
-      "name": "user_onboarding",
-      "uploaded_at": "2024-01-14T16:45:00Z",
-      "file_size": 1536,
-      "status": "active"
-    }
-  ]
-}
+[
+  {
+    "name": "data_pipeline",
+    "version": 1
+  },
+  {
+    "name": "user_onboarding",
+    "version": 2
+  }
+]
 ```
 
 ### Example
 ```bash
-curl -X GET http://localhost:8080/api/v1/workflows \
-  -H "Authorization: Basic <credentials>"
+curl -X GET http://localhost:8000/workflows
 ```
 
 ## Get Workflow Details
@@ -103,136 +110,169 @@ GET /workflows/{workflow_name}
 ### Response
 ```json
 {
+  "id": "workflow-uuid-here",
   "name": "data_pipeline",
-  "uploaded_at": "2024-01-15T10:30:00Z",
-  "file_size": 2048,
-  "status": "active",
-  "description": "Pipeline for processing customer data",
-  "tasks": [
-    {
-      "name": "validate_data",
-      "type": "task",
-      "dependencies": []
-    },
-    {
-      "name": "transform_data",
-      "type": "task",
-      "dependencies": ["validate_data"]
-    }
-  ],
-  "configuration": {
-    "retries": 3,
-    "timeout": 300
+  "version": 1,
+  "imports": ["flux", "pandas", "requests"],
+  "source": "ZnJvbSBmbHV4IGltcG9ydC4uLg==",
+  "requests": {
+    "cpu": "2.0",
+    "memory": "4GB",
+    "packages": ["pandas", "requests"]
   }
 }
 ```
 
 ### Example
 ```bash
-curl -X GET http://localhost:8080/api/v1/workflows/data_pipeline \
-  -H "Authorization: Basic <credentials>"
+curl -X GET http://localhost:8000/workflows/data_pipeline
 ```
 
-## Update Workflow
+## Execute Workflow
 
-Update an existing workflow with new code or configuration.
+Execute a workflow with input data in different modes.
 
 ### Endpoint
 ```
-PUT /workflows/{workflow_name}
+POST /workflows/{workflow_name}/run/{mode}
 ```
+
+### Parameters
+- `workflow_name` (string): Name of the workflow to execute
+- `mode` (string): Execution mode - `async`, `sync`, or `stream`
+
+### Query Parameters
+- `detailed` (boolean): Return detailed execution information (default: false)
 
 ### Request Body
 ```json
 {
-  "file_content": "from flux import task, workflow\n\n@task\nasync def improved_hello():\n    return 'Hello, improved!'\n\n@workflow\nasync def my_workflow(ctx):\n    return await improved_hello()"
+  "input_data": "any valid JSON data",
+  "parameters": {
+    "key": "value"
+  }
 }
 ```
 
 ### Response
+
+#### Async Mode
 ```json
 {
-  "status": "success",
-  "workflow_name": "my_workflow",
-  "message": "Workflow updated successfully",
-  "version": 2
+  "execution_id": "exec-uuid-here",
+  "workflow_name": "data_pipeline",
+  "state": "scheduled",
+  "created_at": "2024-01-15T10:30:00Z"
 }
 ```
 
-### Example
+#### Sync Mode
+```json
+{
+  "execution_id": "exec-uuid-here",
+  "workflow_name": "data_pipeline",
+  "state": "completed",
+  "output": {
+    "result": "workflow output data"
+  },
+  "created_at": "2024-01-15T10:30:00Z",
+  "completed_at": "2024-01-15T10:31:15Z"
+}
+```
+
+#### Stream Mode
+Returns Server-Sent Events (text/event-stream) with real-time execution updates.
+
+### Examples
 ```bash
-curl -X PUT http://localhost:8080/api/v1/workflows/data_pipeline \
+# Execute asynchronously
+curl -X POST http://localhost:8000/workflows/data_pipeline/run/async \
   -H "Content-Type: application/json" \
-  -H "Authorization: Basic <credentials>" \
-  -d '{
-    "file_content": "..."
-  }'
+  -d '{"input": "test data"}'
+
+# Execute synchronously (waits for completion)
+curl -X POST http://localhost:8000/workflows/data_pipeline/run/sync \
+  -H "Content-Type: application/json" \
+  -d '{"input": "test data"}'
+
+# Execute with streaming updates
+curl -X POST http://localhost:8000/workflows/data_pipeline/run/stream \
+  -H "Content-Type: application/json" \
+  -d '{"input": "test data"}'
 ```
 
-## Delete Workflow
+## Get Execution Status
 
-Remove a workflow from the server.
+Check the status of a running or completed workflow execution.
 
 ### Endpoint
 ```
-DELETE /workflows/{workflow_name}
+GET /workflows/{workflow_name}/status/{execution_id}
 ```
+
+### Parameters
+- `workflow_name` (string): Name of the workflow
+- `execution_id` (string): ID of the execution to check
+
+### Query Parameters
+- `detailed` (boolean): Return detailed execution information (default: false)
 
 ### Response
 ```json
 {
-  "status": "success",
-  "message": "Workflow deleted successfully"
+  "execution_id": "exec-uuid-here",
+  "workflow_name": "data_pipeline",
+  "state": "running",
+  "progress": {
+    "current_task": "validate_data",
+    "completed_tasks": 2,
+    "total_tasks": 5
+  },
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T10:30:45Z"
 }
 ```
 
 ### Example
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/workflows/old_pipeline \
-  -H "Authorization: Basic <credentials>"
+curl -X GET http://localhost:8000/workflows/data_pipeline/status/exec-uuid-here
 ```
 
-## Workflow Validation
+## Cancel Execution
 
-Validate workflow syntax and dependencies before uploading.
+Cancel a running workflow execution.
 
 ### Endpoint
 ```
-POST /workflows/validate
+GET /workflows/{workflow_name}/cancel/{execution_id}
 ```
 
-### Request Body
-```json
-{
-  "file_content": "from flux import task, workflow\n\n@task\nasync def hello():\n    return 'Hello'\n\n@workflow\nasync def my_workflow(ctx):\n    return await hello()"
-}
-```
+### Parameters
+- `workflow_name` (string): Name of the workflow
+- `execution_id` (string): ID of the execution to cancel
+
+### Query Parameters
+- `mode` (string): Cancellation mode - `async` or `sync` (default: async)
+- `detailed` (boolean): Return detailed execution information (default: false)
 
 ### Response
 ```json
 {
-  "valid": true,
-  "errors": [],
-  "warnings": [
-    "Task 'hello' has no type hints"
-  ],
-  "tasks_found": 1,
-  "workflows_found": 1
+  "execution_id": "exec-uuid-here",
+  "workflow_name": "data_pipeline",
+  "state": "cancelled",
+  "message": "Execution cancelled successfully",
+  "cancelled_at": "2024-01-15T10:32:00Z"
 }
 ```
 
-### Error Response
-```json
-{
-  "valid": false,
-  "errors": [
-    "SyntaxError: invalid syntax on line 5",
-    "Undefined task 'missing_task' referenced in workflow"
-  ],
-  "warnings": [],
-  "tasks_found": 0,
-  "workflows_found": 0
-}
+### Example
+```bash
+# Cancel asynchronously
+curl -X GET http://localhost:8000/workflows/data_pipeline/cancel/exec-uuid-here
+
+# Cancel synchronously (wait for cancellation to complete)
+curl -X GET http://localhost:8000/workflows/data_pipeline/cancel/exec-uuid-here?mode=sync
 ```
 
 ## Error Handling
@@ -241,41 +281,58 @@ All endpoints return appropriate HTTP status codes and error messages:
 
 ### Status Codes
 - `200` - Success
-- `400` - Bad Request (invalid input)
-- `401` - Unauthorized (authentication failed)
-- `404` - Not Found (workflow doesn't exist)
-- `409` - Conflict (workflow already exists)
+- `400` - Bad Request (invalid input, invalid execution mode, etc.)
+- `404` - Not Found (workflow or execution doesn't exist)
 - `500` - Internal Server Error
 
 ### Error Response Format
 ```json
 {
-  "status": "error",
-  "error_code": "WORKFLOW_NOT_FOUND",
-  "message": "Workflow 'nonexistent_workflow' not found",
-  "details": {
-    "workflow_name": "nonexistent_workflow",
-    "available_workflows": ["data_pipeline", "user_onboarding"]
-  }
+  "detail": "Workflow 'nonexistent_workflow' not found"
+}
+```
+
+### Common Errors
+
+#### Workflow Not Found
+```json
+{
+  "detail": "Workflow 'missing_workflow' not found"
+}
+```
+
+#### Invalid Execution Mode
+```json
+{
+  "detail": "Invalid mode. Use 'sync', 'async', or 'stream'."
+}
+```
+
+#### Execution Not Found
+```json
+{
+  "detail": "Execution context not found."
+}
+```
+
+#### Cannot Cancel Finished Execution
+```json
+{
+  "detail": "Cannot cancel a finished execution."
 }
 ```
 
 ## Rate Limiting
 
 The API implements rate limiting to prevent abuse:
-- **Workflow uploads**: 10 requests per minute
-- **List operations**: 100 requests per minute
-- **Detail operations**: 200 requests per minute
+- **Workflow uploads**: Limited by server configuration
+- **Execution requests**: Limited by server capacity
+- **Status checks**: Generally unrestricted for monitoring
 
-Rate limit headers are included in responses:
-```
-X-RateLimit-Limit: 10
-X-RateLimit-Remaining: 7
-X-RateLimit-Reset: 1642248600
-```
+Rate limit information may be included in response headers when limits are applied.
 
 ## Next Steps
 
-- Learn about [Execution Control](execution-control.md) to run your uploaded workflows
-- Explore [Status and Monitoring](status-monitoring.md) for tracking workflow execution
-- Check out [Administration](administration.md) for server management features
+- Learn about [Execution Control](execution-control.md) for advanced execution patterns
+- Explore [Status and Monitoring](status-monitoring.md) for tracking workflow execution in detail
+- Check out [Administration](administration.md) for server management and secrets

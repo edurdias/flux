@@ -1,5 +1,5 @@
-site_name: Flux Documentation
-site_description: Distributed workflow orchestration engine to build stateful and fault-tolerant workflows
+site_name: Flux
+site_description: Flux is a Python-based workflow orchestration system that enables you to build complex, reliable applications by breaking them down into manageable tasks and workflows. Whether you're processing data pipelines, orchestrating microservices, automating business processes, or building machine learning workflows, Flux provides the tools and infrastructure you need to create robust, scalable solutions.
 repo_url: https://github.com/edurdias/flux
 repo_name: edurdias/flux
 
@@ -8,6 +8,8 @@ theme:
   features:
     - navigation.instant
     - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.expand
     - navigation.indexes
@@ -19,18 +21,19 @@ theme:
     - content.code.copy
   language: en
   palette:
-    - scheme: slate
-      primary: teal
-      accent: cyan
+    - scheme: default
+      primary: deep-purple
+      accent: amber
       toggle:
         icon: material/brightness-4
-        name: Light Mode
-    - scheme: default
-      primary: teal
-      accent: cyan
+        name: Dark mode
+    - scheme: slate
+      primary: deep-purple
+      accent: amber
       toggle:
         icon: material/brightness-7
-        name: Dark Mode
+        name: Light mode
+
   icon:
     repo: fontawesome/brands/github
 
@@ -50,7 +53,11 @@ markdown_extensions:
       generic: true
   - footnotes
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.mark
   - attr_list
   - toc:
@@ -69,45 +76,74 @@ plugins:
 
 nav:
   - Home: index.md
-  - Introduction:
-      - Overview: introduction/overview.md
-      - Key Features: introduction/features.md
-      - Use Cases: introduction/use-cases.md
   - Getting Started:
+      - Welcome: introduction/welcome.md
       - Installation: getting-started/installation.md
-      - Basic Concepts: getting-started/basic_concepts.md
-      - Quick Start: getting-started/quick-start-guide.md
-  - Tutorials:
-      - Overview: tutorials/index.md
-      - Your First Workflow: tutorials/your-first-workflow.md
-      - Working with Tasks: tutorials/working-with-tasks.md
-      - Parallel Processing: tutorials/parallel-processing.md
-      - Troubleshooting: tutorials/troubleshooting.md
-      - FAQ: tutorials/faq.md
-  - CLI Reference:
-      - Overview: cli/index.md
-      - Workflow Commands: cli/workflow.md
-      - Service Commands: cli/start.md
-      - Secrets Commands: cli/secrets.md
-  - Core Concepts:
-      - Workflows Management: core-concepts/workflow-management.md
-      - Tasks: core-concepts/tasks.md
-      - Error Handling: core-concepts/error-handling.md
-      - Execution Model: core-concepts/execution-model.md
-  - Advanced Features:
-      - Task Patterns: advanced-features/task-patterns.md
-      - Workflow Controls: advanced-features/workflow-controls.md
-      - Cancellation: advanced-features/cancellation.md
-      - Output Storage: advanced-features/output-storage.md
-      - Secrets Management: advanced-features/secrets-management.md
-  - Examples:
-      - Basic Examples: examples/basic.md
-      - Complex Workflows: examples/complex.md
-      - Error Handling: examples/error-handling.md
-      - Parallel Processing: examples/parallel.md
-  - API Reference:
-      - Workflow: api/workflow.md
-      - Task: api/task.md
-      - Context: api/context.md
-      - Events: api/events.md
-  - Contributing: contributing.md
+      - Your First Workflow: getting-started/first-workflow.md
+      - Quick Start Tutorial:
+          - Simple Workflow: getting-started/tutorials/simple-workflow.md
+          - Adding Error Handling: getting-started/tutorials/error-handling.md
+          - Parallel Execution: getting-started/tutorials/parallel-execution.md
+          - Pipeline Processing: getting-started/tutorials/pipeline-processing.md
+  - Concepts:
+      - Key Features: introduction/features.md
+      - Architecture Overview: introduction/architecture.md
+      - Core Concepts:
+          - Tasks: getting-started/tasks.md
+          - Workflows: getting-started/workflows.md
+          - Execution Context: getting-started/execution-context.md
+          - Built-in Tasks: getting-started/built-in-tasks.md
+  # - User Guide:
+  #     - Building Workflows:
+  #         - Task Definition and Decoration: user-guide/task-definition.md
+  #         - Workflow Patterns: user-guide/workflow-patterns.md
+  #         - Data Flow and State Management: user-guide/data-flow.md
+  #     - Advanced Features:
+  #         - Task Configuration: user-guide/task-configuration.md
+  #         - Workflow Control: user-guide/workflow-control.md
+  #         - Task Mapping and Iteration: user-guide/task-mapping.md
+  #     - Error Handling and Resilience:
+  #         - Error Management: user-guide/error-management.md
+  #         - Fault Tolerance: user-guide/fault-tolerance.md
+  #     - Security and Secrets:
+  #         - Secrets Management: user-guide/secrets-management.md
+  # - Deployment:
+  #     - Local Development:
+  #         - Local Execution: deployment/local-execution.md
+  #         - Development Workflow: deployment/development-workflow.md
+  #         - Testing and Debugging: deployment/testing-debugging.md
+  #     - Distributed Deployment:
+  #         - Server Architecture: deployment/server-architecture.md
+  #         - Server Setup: deployment/server-setup.md
+  #         - Worker Management: deployment/worker-management.md
+  # - API Reference:
+  #     - HTTP API:
+  #         - Workflow Management: api-reference/http-api/workflow-management.md
+  #         - Execution Control: api-reference/http-api/execution-control.md
+  #         - Status and Monitoring: api-reference/http-api/status-monitoring.md
+  #         - Administration: api-reference/http-api/administration.md
+  #     - CLI Reference:
+  #         - Command Overview: api-reference/cli/overview.md
+  #         - Service Commands: api-reference/cli/service-commands.md
+  #         - Workflow Commands: api-reference/cli/workflow-commands.md
+  #         - Secrets Management: api-reference/cli/secrets-commands.md
+  #     - Python API:
+  #         - Core Decorators: api-reference/python-api/core-decorators.md
+  #         - Built-in Tasks: api-reference/python-api/built-in-tasks.md
+  #         - Execution Context: api-reference/python-api/execution-context.md
+  #         - Workflow Execution: api-reference/python-api/workflow-execution.md
+  # - Tutorials:
+  #     - Beginner Tutorials:
+  #         - Building Your First Data Pipeline: tutorials/beginner/first-data-pipeline.md
+  #         # - Adding Resilience to Workflows: tutorials/beginner/adding-resilience.md
+  #         - Working with External APIs: tutorials/beginner/external-apis.md
+  #     - Intermediate Tutorials:
+  #         - Multi-Step Data Processing: tutorials/intermediate/multi-step-processing.md
+  #         - Distributed Computing Patterns: tutorials/intermediate/distributed-patterns.md
+  #         - State Management in Long-Running Workflows: tutorials/intermediate/state-management.md
+  #         - Building Reusable Workflow Components: tutorials/intermediate/reusable-components.md
+  #     - Advanced Tutorials:
+  #         - Custom Task Types and Extensions: tutorials/advanced/custom-task-types.md
+  #         - Performance Optimization: tutorials/advanced/performance-optimization.md
+  #         - Integration with External Systems: tutorials/advanced/external-systems.md
+  #         - Building Workflow Libraries: tutorials/advanced/workflow-libraries.md

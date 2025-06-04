@@ -45,8 +45,10 @@ async def async_task(data: str):
 
 # Synchronous task (will be wrapped in async)
 @task
-def sync_task(data: str):
-    time.sleep(1)  # Uses blocking calls
+async def sync_task(data: str):
+    # For CPU-bound operations, use asyncio.to_thread or similar
+    import asyncio
+    result = await asyncio.to_thread(time.sleep, 1)  # Non-blocking equivalent
     return data.lower()
 ```
 

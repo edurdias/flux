@@ -28,13 +28,13 @@ Create your project structure:
 ```bash
 mkdir flux-scheduler-tutorial
 cd flux-scheduler-tutorial
-pip install flux-engine schedule pytz
+pip install flux-core schedule pytz
 ```
 
 Create `requirements.txt`:
 
 ```txt
-flux-engine>=0.1.0
+flux-core>=0.1.0
 schedule>=1.2.0
 pytz>=2023.3
 pandas>=2.0.0

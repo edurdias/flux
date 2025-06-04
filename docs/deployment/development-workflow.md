@@ -49,7 +49,7 @@ source flux-env/bin/activate  # Linux/macOS
 flux-env\Scripts\activate     # Windows
 
 # Install Flux and dependencies
-pip install flux-workflow
+pip install flux-core
 pip install -r requirements.txt
 ```
 
@@ -59,7 +59,7 @@ Include development tools in your `requirements-dev.txt`:
 
 ```txt
 # requirements-dev.txt
-flux-workflow
+flux-core
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.0.0

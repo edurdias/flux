@@ -18,7 +18,7 @@ The ExecutionContext is the primary interface for interacting with the Flux runt
 from flux import workflow, task, ExecutionContext
 
 @task
-def example_task(data: str, context: ExecutionContext) -> str:
+async def example_task(data: str, context: ExecutionContext) -> str:
     # Log task start
     context.log_info(f"Processing data: {data}")
 
@@ -35,8 +35,9 @@ def example_task(data: str, context: ExecutionContext) -> str:
     return result
 
 @workflow
-def example_workflow(input_data: str, context: ExecutionContext):
-    result = example_task(input_data, context)
+async def example_workflow(context: ExecutionContext[str]):
+    input_data = context.input
+    result = await example_task(input_data, context)
 
     # Access stored state
     start_time = context.get("processing_start")
@@ -53,7 +54,7 @@ Store a value in the execution context.
 
 ```python
 @task
-def state_example(context: ExecutionContext):
+async def state_example(context: ExecutionContext):
     # Store simple values
     context.set("counter", 42)
     context.set("user_name", "Alice")
@@ -77,7 +78,7 @@ Retrieve a value from the execution context.
 
 ```python
 @task
-def retrieve_example(context: ExecutionContext):
+async def retrieve_example(context: ExecutionContext):
     # Get stored values
     counter = context.get("counter")  # Returns 42
     user_name = context.get("user_name")  # Returns "Alice"
@@ -109,10 +110,10 @@ Check if a key exists in the execution context.
 
 ```python
 @task
-def check_example(context: ExecutionContext):
+async def check_example(context: ExecutionContext):
     if context.has("user_authenticated"):
         # User is authenticated, proceed
-        return process_user_data(context)
+        return await process_user_data(context)
     else:
         # Redirect to authentication
         return {"error": "Authentication required"}
@@ -129,7 +130,7 @@ Remove a key from the execution context.
 
 ```python
 @task
-def cleanup_example(context: ExecutionContext):
+async def cleanup_example(context: ExecutionContext):
     # Clean up temporary data
     context.delete("temp_files")
     context.delete("processing_cache")
@@ -148,7 +149,7 @@ Update multiple values at once.
 
 ```python
 @task
-def batch_update_example(context: ExecutionContext):
+async def batch_update_example(context: ExecutionContext):
     # Update multiple values
     context.update({
         "status": "processing",
@@ -167,7 +168,7 @@ Get all stored values as a dictionary.
 
 ```python
 @task
-def debug_example(context: ExecutionContext):
+async def debug_example(context: ExecutionContext):
     # Get all context data for debugging
     all_data = context.get_all()
     context.log_debug(f"Context data: {all_data}")
@@ -185,7 +186,7 @@ Write a log message with specified level.
 
 ```python
 @task
-def logging_example(context: ExecutionContext):
+async def logging_example(context: ExecutionContext):
     # Basic logging
     context.log("info", "Task started")
     context.log("warning", "Deprecated API used")
@@ -209,7 +210,7 @@ Write a debug-level log message.
 
 ```python
 @task
-def debug_logging_example(context: ExecutionContext):
+async def debug_logging_example(context: ExecutionContext):
     context.log_debug("Starting data validation")
     context.log_debug("Processing item", item_id=42, size=1024)
 ```
@@ -220,7 +221,7 @@ Write an info-level log message.
 
 ```python
 @task
-def info_logging_example(context: ExecutionContext):
+async def info_logging_example(context: ExecutionContext):
     context.log_info("Task completed successfully")
     context.log_info("Processed items", count=100, duration="5.2s")
 ```
@@ -231,7 +232,7 @@ Write a warning-level log message.
 
 ```python
 @task
-def warning_logging_example(context: ExecutionContext):
+async def warning_logging_example(context: ExecutionContext):
     context.log_warning("API rate limit approaching")
     context.log_warning("Deprecated feature used", feature="old_api_v1")
 ```
@@ -242,9 +243,9 @@ Write an error-level log message.
 
 ```python
 @task
-def error_logging_example(context: ExecutionContext):
+async def error_logging_example(context: ExecutionContext):
     try:
-        risky_operation()
+        await risky_operation()
     except Exception as e:
         context.log_error("Operation failed",
                          error=str(e),
@@ -258,7 +259,7 @@ Write a critical-level log message.
 
 ```python
 @task
-def critical_logging_example(context: ExecutionContext):
+async def critical_logging_example(context: ExecutionContext):
     context.log_critical("System failure detected",
                         component="database",
                         action="shutdown_initiated")
@@ -272,18 +273,14 @@ Create a parallel execution context manager.
 
 ```python
 @task
-def parallel_example(items: list, context: ExecutionContext):
-    results = []
+async def parallel_example(context: ExecutionContext[list]):
+    items = context.input
+    # Process items in parallel using new async pattern
+    results = await parallel([
+        process_item(item) for item in items
+    ])
 
-    # Process items in parallel
-    with context.parallel(max_workers=4) as parallel:
-        for item in items:
-            future = parallel.submit(process_item, item)
-            results.append(future)
-
-    # Collect results
-    final_results = [future.result() for future in results]
-    return final_results
+    return results
 ```
 
 **Parameters:**
@@ -295,24 +292,14 @@ Submit a function for parallel execution (used within parallel context).
 
 ```python
 @task
-def parallel_processing_example(data_chunks: list, context: ExecutionContext):
-    with context.parallel(max_workers=8) as parallel:
-        # Submit multiple tasks
-        futures = []
-        for chunk in data_chunks:
-            future = parallel.submit(process_chunk, chunk, context)
-            futures.append(future)
+async def parallel_processing_example(context: ExecutionContext[list]):
+    data_chunks = context.input
+    # Submit multiple tasks using modern async pattern
+    results = await parallel([
+        process_chunk(chunk, context) for chunk in data_chunks
+    ])
 
-        # Wait for completion and collect results
-        results = []
-        for future in futures:
-            try:
-                result = future.result(timeout=300)  # 5 minute timeout
-                results.append(result)
-            except Exception as e:
-                context.log_error(f"Chunk processing failed: {e}")
-                results.append(None)
-
+    # Filter out any None results from failed chunks
     return [r for r in results if r is not None]
 ```
 
@@ -324,12 +311,12 @@ Get the unique execution identifier.
 
 ```python
 @task
-def tracking_example(context: ExecutionContext):
+async def tracking_example(context: ExecutionContext):
     exec_id = context.execution_id
     context.log_info(f"Execution ID: {exec_id}")
 
     # Use in external API calls for tracking
-    api_response = call_external_api(correlation_id=exec_id)
+    api_response = await call_external_api(correlation_id=exec_id)
     return api_response
 ```
 
@@ -341,15 +328,15 @@ Get the name of the current workflow.
 
 ```python
 @task
-def workflow_info_example(context: ExecutionContext):
+async def workflow_info_example(context: ExecutionContext):
     workflow = context.workflow_name
     context.log_info(f"Running workflow: {workflow}")
 
     # Workflow-specific logic
     if workflow == "data_pipeline":
-        return process_data_pipeline()
+        return await process_data_pipeline()
     elif workflow == "notification_service":
-        return process_notifications()
+        return await process_notifications()
 ```
 
 **Returns:** `str` - Workflow name
@@ -360,13 +347,13 @@ Get the name of the current task.
 
 ```python
 @task
-def task_info_example(context: ExecutionContext):
+async def task_info_example(context: ExecutionContext):
     task = context.task_name
     context.log_info(f"Executing task: {task}")
 
     # Task-specific configuration
-    config = load_task_config(task)
-    return process_with_config(config)
+    config = await load_task_config(task)
+    return await process_with_config(config)
 ```
 
 **Returns:** `str` - Current task name
@@ -377,7 +364,7 @@ Get the workflow start timestamp.
 
 ```python
 @task
-def timing_example(context: ExecutionContext):
+async def timing_example(context: ExecutionContext):
     start_time = context.started_at
     current_time = context.now()
 
@@ -395,7 +382,7 @@ Get the current timestamp.
 
 ```python
 @task
-def timestamp_example(context: ExecutionContext):
+async def timestamp_example(context: ExecutionContext):
     current_time = context.now()
 
     # Store timestamps

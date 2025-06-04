@@ -16,12 +16,12 @@ The `@task` decorator is the primary way to define workflow tasks in Flux.
 from flux import task
 
 @task
-def hello_world(name: str) -> str:
+async def hello_world(name: str) -> str:
     """A simple task that greets someone."""
     return f"Hello, {name}!"
 
 # Usage in workflow
-result = hello_world("Alice")
+result = await hello_world("Alice")
 print(result)  # "Hello, Alice!"
 ```
 
@@ -34,7 +34,7 @@ print(result)  # "Hello, Alice!"
 
 ```python
 @task(name="custom_greeting")
-def hello_world(name: str) -> str:
+async def hello_world(name: str) -> str:
     return f"Hello, {name}!"
 ```
 
@@ -45,7 +45,7 @@ def hello_world(name: str) -> str:
 
 ```python
 @task(description="Greets a person by name")
-def hello_world(name: str) -> str:
+async def hello_world(name: str) -> str:
     return f"Hello, {name}!"
 ```
 
@@ -204,21 +204,21 @@ The `@workflow` decorator defines a workflow composed of multiple tasks.
 ### Basic Usage
 
 ```python
-from flux import workflow, task
+from flux import workflow, task, ExecutionContext
 
 @task
-def step_one() -> str:
+async def step_one() -> str:
     return "Step 1 complete"
 
 @task
-def step_two(input_data: str) -> str:
+async def step_two(input_data: str) -> str:
     return f"{input_data} -> Step 2 complete"
 
 @workflow
-def simple_workflow():
+async def simple_workflow(context: ExecutionContext):
     """A simple two-step workflow."""
-    result1 = step_one()
-    result2 = step_two(result1)
+    result1 = await step_one()
+    result2 = await step_two(result1)
     return result2
 ```
 
@@ -231,7 +231,7 @@ def simple_workflow():
 
 ```python
 @workflow(name="data_pipeline_v2")
-def my_workflow():
+async def my_workflow(context: ExecutionContext):
     pass
 ```
 
@@ -242,7 +242,7 @@ def my_workflow():
 
 ```python
 @workflow(description="Processes daily sales data")
-def sales_pipeline():
+async def sales_pipeline(context: ExecutionContext):
     pass
 ```
 
@@ -356,17 +356,15 @@ The `@parallel` decorator enables parallel execution of tasks.
 from flux import parallel, task
 
 @task
-def process_chunk(chunk_id: int, data: list) -> dict:
+async def process_chunk(chunk_id: int, data: list) -> dict:
     # Process data chunk
     return {"chunk": chunk_id, "count": len(data)}
 
-@parallel(max_workers=4)
-def process_data_parallel(data_chunks: list) -> list:
+async def process_data_parallel(data_chunks: list) -> list:
     """Process multiple data chunks in parallel."""
-    results = []
-    for i, chunk in enumerate(data_chunks):
-        result = process_chunk(i, chunk)
-        results.append(result)
+    results = await parallel([
+        process_chunk(i, chunk) for i, chunk in enumerate(data_chunks)
+    ])
     return results
 ```
 
@@ -378,9 +376,12 @@ def process_data_parallel(data_chunks: list) -> list:
 **Description**: Maximum number of parallel workers
 
 ```python
-@parallel(max_workers=8)
-def heavy_parallel_work():
-    pass
+async def heavy_parallel_work(data_items: list):
+    results = await parallel(
+        [process_item(item) for item in data_items],
+        max_workers=8
+    )
+    return results
 ```
 
 #### executor_type
@@ -469,17 +470,17 @@ from flux import conditional, task
 
 @task
 @conditional(lambda ctx: ctx.get("environment") == "production")
-def production_only_task():
+async def production_only_task():
     """Only runs in production environment."""
     return "Production task executed"
 
 @workflow
-def environment_aware_workflow(context: ExecutionContext):
+async def environment_aware_workflow(context: ExecutionContext):
     # Set environment context
     context.set("environment", "production")
 
     # This task will only run if condition is met
-    result = production_only_task()
+    result = await production_only_task()
     return result
 ```
 
@@ -495,7 +496,7 @@ def should_run_backup(context):
 
 @task
 @conditional(should_run_backup)
-def weekly_backup():
+async def weekly_backup():
     return "Backup completed"
 ```
 

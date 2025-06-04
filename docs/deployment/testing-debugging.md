@@ -432,9 +432,10 @@ DEBUG_CONFIG = {
 
 # Usage in workflows
 @workflow
-def debuggable_workflow(data: dict, context: ExecutionContext):
+async def debuggable_workflow(context: ExecutionContext[dict]):
     """Workflow with debugging capabilities."""
 
+    data = context.input
     if context.environment.get("DEBUG_MODE"):
         context.log_debug("Starting debuggable workflow", extra={"input_data": data})
 
@@ -442,12 +443,12 @@ def debuggable_workflow(data: dict, context: ExecutionContext):
         context.set_debug_mode(True)
 
     # Step 1
-    step1_result = debug_step_1(data, context)
+    step1_result = await debug_step_1(data, context)
     if context.debug_mode:
         context.capture_state("after_step1", step1_result)
 
     # Step 2
-    step2_result = debug_step_2(step1_result, context)
+    step2_result = await debug_step_2(step1_result, context)
     if context.debug_mode:
         context.capture_state("after_step2", step2_result)
 
@@ -531,7 +532,7 @@ LOGGING_CONFIG = {
 
 # Distributed tracing integration
 @task
-def traced_task(data: dict, context: ExecutionContext):
+async def traced_task(data: dict, context: ExecutionContext):
     """Task with distributed tracing."""
     from flux.tracing import trace_span
 
@@ -539,7 +540,7 @@ def traced_task(data: dict, context: ExecutionContext):
         span.set_attribute("input_size", len(str(data)))
 
         # Your task logic here
-        result = process_data(data)
+        result = await process_data(data)
 
         span.set_attribute("output_size", len(str(result)))
         span.set_status("OK")
