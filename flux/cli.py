@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 
@@ -154,6 +154,18 @@ def show_workflow(workflow_name: str, server_url: str | None):
     help="Show detailed execution information",
 )
 @click.option(
+    "--execution-id",
+    "-e",
+    default=None,
+    help="Execution ID to resume (for paused workflows)",
+)
+@click.option(
+    "--resume-payload",
+    "-rp",
+    default=None,
+    help="Payload to pass when resuming a paused workflow (JSON string)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -164,6 +176,8 @@ def run_workflow(
     input: str,
     mode: str,
     detailed: bool,
+    execution_id: str | None,
+    resume_payload: str | None,
     server_url: str | None,
 ):
     """Run the specified workflow."""
@@ -171,11 +185,27 @@ def run_workflow(
         base_url = server_url or get_server_url()
         parsed_input = parse_value(input)
 
+        # Parse resume payload if provided
+        parsed_resume_payload = None
+        if resume_payload:
+            try:
+                parsed_resume_payload = parse_value(resume_payload)
+            except Exception:
+                click.echo(f"Error parsing resume payload: {resume_payload}", err=True)
+                return
+
+        # Build request parameters
+        params: dict[str, Any] = {"detailed": detailed}
+        if execution_id:
+            params.update({"execution_id": execution_id})
+        if parsed_resume_payload is not None:
+            params.update({"resume_payload": parsed_resume_payload})
+
         with httpx.Client(timeout=60.0) as client:
             response = client.post(
                 f"{base_url}/workflows/{workflow_name}/run/{mode}",
                 json=parsed_input,
-                params={"detailed": detailed},
+                params=params,
             )
             response.raise_for_status()
 

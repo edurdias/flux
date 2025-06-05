@@ -216,6 +216,8 @@ class Server:
             input: Any = Body(...),
             mode: str = "async",
             detailed: bool = False,
+            execution_id: str | None = None,
+            resume_payload: Any = None,
         ):
             try:
                 logger.debug(
@@ -234,16 +236,32 @@ class Server:
 
                 workflow = WorkflowCatalog.create().get(workflow_name)
                 manager = ContextManager.create()
-                ctx = manager.save(
-                    ExecutionContext(
-                        workflow_id=workflow.id,
-                        workflow_name=workflow.name,
-                        input=input,
-                    ),
-                )
-                logger.debug(
-                    f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
-                )
+
+                if execution_id:
+                    # Resume existing execution
+                    ctx = manager.get(execution_id)
+                    if not ctx.is_paused:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Execution {execution_id} is not in a paused state.",
+                        )
+                    logger.debug(
+                        f"Resuming execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                    )
+                    if resume_payload is not None:
+                        logger.debug(f"Resume payload provided: {to_json(resume_payload)}")
+                else:
+                    # Create new execution
+                    ctx = manager.save(
+                        ExecutionContext(
+                            workflow_id=workflow.id,
+                            workflow_name=workflow.name,
+                            input=input,
+                        ),
+                    )
+                    logger.debug(
+                        f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                    )
 
                 if mode == "sync":
                     current_delay = 0.1

@@ -173,7 +173,8 @@ async def pause(name: str, metadata: TaskMetadata):
                 value=name,
             ),
         )
-        return name
+        # Return the resume payload if available, otherwise return the pause name
+        return ctx.resume_payload if ctx.resume_payload is not None else name
     raise PauseRequested(name=name)
 
 

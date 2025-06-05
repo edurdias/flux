@@ -183,16 +183,6 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return False
 
     @property
-    def has_started(self) -> bool:
-        return any(e.type == ExecutionEventType.WORKFLOW_STARTED for e in self.events)
-
-    @property
-    def is_scheduled(self) -> bool:
-        return self.state == ExecutionState.SCHEDULED and any(
-            e.type == ExecutionEventType.WORKFLOW_SCHEDULED for e in self.events
-        )
-
-    @property
     def output(self) -> Any:
         finished = [
             e
@@ -206,6 +196,24 @@ class ExecutionContext(Generic[WorkflowInputType]):
         if len(finished) > 0:
             return finished[0].value
         return None
+
+    @property
+    def resume_payload(self) -> Any:
+        """Get the payload from the most recent WORKFLOW_RESUMED event."""
+        resumed_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMED]
+        if resumed_events:
+            return resumed_events[-1].value  # Get the most recent resume event
+        return None
+
+    @property
+    def has_started(self) -> bool:
+        """
+        Check if the execution has started.
+
+        Returns:
+            bool: True if there's a WORKFLOW_STARTED event, False otherwise.
+        """
+        return any(e.type == ExecutionEventType.WORKFLOW_STARTED for e in self.events)
 
     def schedule(self, worker: WorkerInfo) -> Self:
         self._state = ExecutionState.SCHEDULED
@@ -242,14 +250,14 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
-    def resume(self, id: str) -> Self:
+    def resume(self, id: str, payload: Any = None) -> Self:
         self._state = ExecutionState.RUNNING
         self.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_RESUMED,
                 source_id=id,
                 name=self.workflow_name,
-                value=self.input,
+                value=payload,
             ),
         )
         return self

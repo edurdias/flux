@@ -78,14 +78,14 @@ class workflow:
     def requests(self) -> ResourceRequest | None:
         return self._requests
 
-    async def __call__(self, ctx: ExecutionContext, *args) -> Any:
+    async def __call__(self, ctx: ExecutionContext, resume_payload: Any = None) -> Any:
         if ctx.has_finished:
             return ctx
 
         self.id = f"{ctx.workflow_name}_{ctx.execution_id}"
 
         if ctx.is_paused:
-            ctx.resume(self.id)
+            ctx.resume(self.id, resume_payload)
         elif not ctx.has_started:
             ctx.start(self.id)
 
@@ -112,8 +112,14 @@ class workflow:
         async def save(ctx: ExecutionContext):
             return ContextManager.create().save(ctx)
 
+        resume_payload = kwargs.pop("resume_payload", None)
+
         if "execution_id" in kwargs:
             ctx = ContextManager.create().get(kwargs["execution_id"])
+            # Store the resume payload for this execution if provided
+            if resume_payload is not None and ctx.is_paused:
+                # The payload will be used when the workflow resumes
+                pass
         else:
             ctx = ExecutionContext(
                 workflow_id=self.name,
@@ -121,4 +127,4 @@ class workflow:
                 input=args[0] if len(args) > 0 else None,
             )
         ctx.set_checkpoint(save)
-        return asyncio.run(self(ctx))
+        return asyncio.run(self(ctx, resume_payload))
