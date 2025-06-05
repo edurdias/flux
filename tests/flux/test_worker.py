@@ -400,10 +400,10 @@ class TestWorker:
     async def test_get_installed_packages(self, worker):
         """Test getting installed packages information."""
         mock_dist = MagicMock()
-        mock_dist.project_name = "pytest"
+        mock_dist.metadata = {"Name": "pytest"}
         mock_dist.version = "8.0.0"
 
-        with patch("pkg_resources.working_set", [mock_dist]):
+        with patch("importlib.metadata.distributions", return_value=[mock_dist]):
             packages = await worker._get_installed_packages()
 
             assert len(packages) == 1

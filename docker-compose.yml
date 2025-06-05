@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  flux-server:
+    build: .
+    container_name: flux-server
+    environment:
+      - FLUX_MODE=server
+      - FLUX_HOST=0.0.0.0
+      - FLUX_PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./flux.toml:/app/flux.toml
+      - flux-data:/app/.flux
+    networks:
+      - flux-network
+
+  flux-worker-1:
+    build: .
+    container_name: flux-worker-1
+    environment:
+      - FLUX_MODE=worker
+      - FLUX_WORKER_NAME=worker-1
+      - FLUX_SERVER_URL=http://flux-server:8000
+    depends_on:
+      - flux-server
+    volumes:
+      - ./flux.toml:/app/flux.toml
+    networks:
+      - flux-network
+
+  flux-worker-2:
+    build: .
+    container_name: flux-worker-2
+    environment:
+      - FLUX_MODE=worker
+      - FLUX_WORKER_NAME=worker-2
+      - FLUX_SERVER_URL=http://flux-server:8000
+    depends_on:
+      - flux-server
+    volumes:
+      - ./flux.toml:/app/flux.toml
+    networks:
+      - flux-network
+
+  flux-mcp:
+    build: .
+    container_name: flux-mcp
+    environment:
+      - FLUX_MODE=mcp
+      - FLUX_MCP_NAME=flux-workflows
+      - FLUX_MCP_HOST=0.0.0.0
+      - FLUX_MCP_PORT=8080
+      - FLUX_MCP_TRANSPORT=streamable-http
+      - FLUX_SERVER_URL=http://flux-server:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      - flux-server
+    volumes:
+      - ./flux.toml:/app/flux.toml
+    networks:
+      - flux-network
+
+volumes:
+  flux-data:
+
+networks:
+  flux-network:
+    driver: bridge
