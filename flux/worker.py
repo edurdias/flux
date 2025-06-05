@@ -428,7 +428,9 @@ class Worker:
         # TODO: use poetry package groups to load a specific set of packages that are available in the worker environment for execution
         packages = []
         for dist in importlib.metadata.distributions():
-            packages.append({"name": dist.metadata["Name"], "version": dist.version})
+            name = dist.metadata.get("Name")
+            if name:  # Only include packages with a valid name
+                packages.append({"name": name, "version": dist.version})
 
         logger.debug(f"Collected information for {len(packages)} installed packages")
         return packages
