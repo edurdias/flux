@@ -423,12 +423,14 @@ class Worker:
 
     async def _get_installed_packages(self):
         logger.debug("Collecting installed packages information")
-        import pkg_resources  # type: ignore[import]
+        import importlib.metadata
 
         # TODO: use poetry package groups to load a specific set of packages that are available in the worker environment for execution
         packages = []
-        for dist in pkg_resources.working_set:
-            packages.append({"name": dist.project_name, "version": dist.version})
+        for dist in importlib.metadata.distributions():
+            name = dist.metadata.get("Name")
+            if name:  # Only include packages with a valid name
+                packages.append({"name": name, "version": dist.version})
 
         logger.debug(f"Collected information for {len(packages)} installed packages")
         return packages
