@@ -164,16 +164,17 @@ async def pipeline(*tasks: Callable, input: Any):
 async def pause(name: str, metadata: TaskMetadata):
     ctx = await ExecutionContext.get()
 
-    if ctx.has_resumed:
+    if ctx.is_resuming:
+        input = ctx.resume()
         ctx.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.TASK_RESUMED,
                 source_id=metadata.task_id,
                 name=metadata.task_name,
-                value=name,
+                value={"name": name, "input": input},
             ),
         )
-        return name
+        return input
     raise PauseRequested(name=name)
 
 

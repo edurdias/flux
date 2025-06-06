@@ -84,9 +84,10 @@ class workflow:
 
         self.id = f"{ctx.workflow_name}_{ctx.execution_id}"
 
-        if ctx.is_paused:
-            ctx.resume(self.id)
-        elif not ctx.has_started:
+        if ctx.is_paused and not ctx.is_resuming:
+            ctx.start_resuming()
+
+        if not ctx.has_started:
             ctx.start(self.id)
 
         token = ExecutionContext.set(ctx)

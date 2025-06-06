@@ -120,11 +120,17 @@ class ExecutionContext(Generic[WorkflowInputType]):
         Returns:
             bool: True if the last execution event is a WORKFLOW_PAUSED event, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_PAUSED:
-                return True
-        return False
+        return self._is_last_event(ExecutionEventType.WORKFLOW_PAUSED)
+
+    @property
+    def is_resuming(self) -> bool:
+        """
+        Check if the execution is currently resuming.
+
+        Returns:
+            bool: True if the last event is a workflow resuming event, False otherwise.
+        """
+        return self._is_last_event(ExecutionEventType.WORKFLOW_RESUMING)
 
     @property
     def is_cancelled(self) -> bool:
@@ -134,11 +140,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         Returns:
             bool: True if the last event is a workflow cancelled event, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_CANCELLED:
-                return True
-        return False
+        return self._is_last_event(ExecutionEventType.WORKFLOW_CANCELLED)
 
     @property
     def is_cancelling(self) -> bool:
@@ -148,11 +150,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         Returns:
             bool: True if the last event is a workflow cancelling event, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_CANCELLING:
-                return True
-        return False
+        return self._is_last_event(ExecutionEventType.WORKFLOW_CANCELLING)
 
     @property
     def is_claimed(self) -> bool:
@@ -162,11 +160,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         Returns:
             bool: True if the last event is a workflow claimed event, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_CLAIMED:
-                return True
-        return False
+        return self._is_last_event(ExecutionEventType.WORKFLOW_CLAIMED)
 
     @property
     def has_resumed(self) -> bool:
@@ -176,11 +170,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         Returns:
             bool: True if the last event is a workflow resume event, False otherwise.
         """
-        if self.events:
-            last_event = self.events[-1]
-            if last_event.type == ExecutionEventType.WORKFLOW_RESUMED:
-                return True
-        return False
+        return self._is_last_event(ExecutionEventType.WORKFLOW_RESUMED)
 
     @property
     def has_started(self) -> bool:
@@ -242,17 +232,34 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
-    def resume(self, id: str) -> Self:
+    def start_resuming(self, input: Any | None = None) -> Self:
+        self._state = ExecutionState.RESUMING
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUMING,
+                source_id=self._current_worker,
+                name=self.workflow_name,
+                value=input,
+            ),
+        )
+        return self
+
+    def resume(self) -> Any:
+        if not self.is_resuming:
+            self.start_resuming()
+
+        event = next(e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMING)
+
         self._state = ExecutionState.RUNNING
         self.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_RESUMED,
-                source_id=id,
+                source_id=self._current_worker,
                 name=self.workflow_name,
-                value=self.input,
+                value=event.value,
             ),
         )
-        return self
+        return event.value
 
     def pause(self, id: str, name: str) -> Self:
         self._state = ExecutionState.PAUSED
@@ -345,3 +352,17 @@ class ExecutionContext(Generic[WorkflowInputType]):
             events=[ExecutionEvent(**event) for event in data["events"]],
             checkpoint=checkpoint,
         )
+
+    def _is_last_event(self, event_type: ExecutionEventType) -> bool:
+        """
+        Check if the last event in the context matches the given event type.
+
+        Args:
+            event_type (ExecutionEventType): The event type to check against.
+
+        Returns:
+            bool: True if the last event matches the given type, False otherwise.
+        """
+        if not self.events:
+            return False
+        return self.events[-1].type == event_type
