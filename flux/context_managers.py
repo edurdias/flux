@@ -4,6 +4,7 @@ from abc import ABC
 from abc import abstractmethod
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from flux import ExecutionContext
 from flux.domain import ExecutionState
@@ -34,6 +35,13 @@ class ContextManager(ABC):
 
     @abstractmethod
     def next_cancellation(
+        self,
+        worker: WorkerInfo,
+    ) -> ExecutionContext | None:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def next_resume(
         self,
         worker: WorkerInfo,
     ) -> ExecutionContext | None:  # pragma: no cover
@@ -111,12 +119,34 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 return model.to_plain()
             return None
 
-    def _next_execution_without_requests(self, session):
+    def next_resume(self, worker: WorkerInfo) -> ExecutionContext | None:
+        with self.session() as session:
+            model, workflow = self._next_execution_with_requests(
+                worker,
+                session,
+                ExecutionState.RESUMING,
+            )
+
+            if not model or not workflow:
+                model, workflow = self._next_execution_without_requests(
+                    session,
+                    ExecutionState.RESUMING,
+                )
+
+            if model:
+                return model.to_plain()
+            return None
+
+    def _next_execution_without_requests(
+        self,
+        session: Session,
+        state: ExecutionState = ExecutionState.CREATED,
+    ):
         no_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
             .join(WorkflowModel)
             .filter(
-                ExecutionContextModel.state == ExecutionState.CREATED,
+                ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_(None),
             )
             .with_for_update(skip_locked=True)
@@ -127,12 +157,17 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
             return result
         return None, None
 
-    def _next_execution_with_requests(self, worker, session):
+    def _next_execution_with_requests(
+        self,
+        worker,
+        session: Session,
+        state: ExecutionState = ExecutionState.CREATED,
+    ):
         with_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
             .join(WorkflowModel)
             .filter(
-                ExecutionContextModel.state == ExecutionState.CREATED,
+                ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_not(None),
             )
             .with_for_update(skip_locked=True)

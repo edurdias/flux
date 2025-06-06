@@ -224,7 +224,7 @@ class TestWorker:
             ) as mock_register,
             patch.object(
                 worker,
-                "_start_sse_connection",
+                "_connect",
                 new_callable=AsyncMock,
             ) as mock_sse,
         ):
@@ -478,7 +478,7 @@ class TestWorker:
                 await worker._checkpoint(sample_execution_context)
 
     @pytest.mark.asyncio
-    async def test_start_sse_connection_handles_execution_scheduled(
+    async def test_connect_handles_execution_scheduled(
         self,
         worker,
         sample_execution_context,
@@ -490,7 +490,7 @@ class TestWorker:
         with (
             patch.object(
                 worker,
-                "_start_sse_connection",
+                "_connect",
                 new_callable=AsyncMock,
             ) as mock_sse,
             patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
@@ -505,11 +505,11 @@ class TestWorker:
             mock_post.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_sse_connection_handles_keep_alive(self, worker):
+    async def test_connect_handles_keep_alive(self, worker):
         """Test SSE connection handles keep-alive event."""
-        # For simplicity, we'll mock the entire _start_sse_connection method
+        # For simplicity, we'll mock the entire _connect method
         # to avoid dealing with the complex async context managers
-        with patch.object(worker, "_start_sse_connection", new_callable=AsyncMock) as mock_sse:
+        with patch.object(worker, "_connect", new_callable=AsyncMock) as mock_sse:
             mock_sse.return_value = None
 
             # Call a different method to verify the mock works
@@ -519,17 +519,17 @@ class TestWorker:
             assert mock_sse.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_start_sse_connection_handles_error_event(self, worker):
+    async def test_connect_handles_error_event(self, worker):
         """Test SSE connection handles error event."""
         # Mock the connection method instead of trying to simulate the connection
-        with patch.object(worker, "_start_sse_connection", new_callable=AsyncMock) as mock_sse:
+        with patch.object(worker, "_connect", new_callable=AsyncMock) as mock_sse:
             mock_sse.return_value = None
 
             # We just want to verify we can mock this method
             assert mock_sse.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_start_sse_connection_handles_connection_error(self, worker):
+    async def test_connect_handles_connection_error(self, worker):
         """Test SSE connection handles connection errors."""
         worker.session_token = "test-session-token"
 
@@ -537,4 +537,4 @@ class TestWorker:
             mock_client_class.side_effect = Exception("Connection error")
 
             with pytest.raises(Exception, match="Connection error"):
-                await worker._start_sse_connection()
+                await worker._connect()

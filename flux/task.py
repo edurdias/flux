@@ -115,7 +115,7 @@ class task:
         if len(finished) > 0:
             return finished[0].value
 
-        if not ctx.has_resumed:
+        if not ctx.is_resuming and not ctx.has_resumed:
             ctx.events.append(
                 ExecutionEvent(
                     type=ExecutionEventType.TASK_STARTED,
