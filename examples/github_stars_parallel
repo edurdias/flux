@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import httpx
+
+from flux import ExecutionContext
+from flux.task import task
+from flux.tasks import parallel
+from flux.workflow import workflow
+
+
+@task
+async def get_stars(repo: str):
+    url = f"https://api.github.com/repos/{repo}"
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json()["stargazers_count"]
+
+
+@workflow
+async def github_stars_parallel(ctx: ExecutionContext[list[str]]):
+    if not ctx.input:
+        raise TypeError("The list of repositories cannot be empty.")
+
+    repos = ctx.input
+
+    # Create all tasks and execute them in parallel
+    star_tasks = [get_stars(repo) for repo in repos]
+    star_counts = await parallel(*star_tasks)
+
+    # Create the result dictionary mapping repo names to star counts
+    stars = dict(zip(repos, star_counts))
+    return stars
+
+
+if __name__ == "__main__":  # pragma: no cover
+    repositories = [
+        "python/cpython",
+        "microsoft/vscode",
+        "localsend/localsend",
+        "srush/GPU-Puzzles",
+        "hyperknot/openfreemap",
+    ]
+    ctx = github_stars.run(repositories)
+    print(ctx.to_json())

@@ -233,22 +233,29 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def start_resuming(self, input: Any | None = None) -> Self:
-        self._state = ExecutionState.RESUMING
-        self.events.append(
-            ExecutionEvent(
-                type=ExecutionEventType.WORKFLOW_RESUMING,
-                source_id=self._current_worker,
-                name=self.workflow_name,
-                value=input,
-            ),
-        )
+        if self.is_paused:
+            self._state = ExecutionState.RESUMING
+            self.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.WORKFLOW_RESUMING,
+                    source_id=self._current_worker,
+                    name=self.workflow_name,
+                    value=input,
+                ),
+            )
         return self
 
     def resume(self) -> Any:
-        if not self.is_resuming:
+        if self.is_paused:
             self.start_resuming()
 
-        event = next(e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMING)
+        resuming_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMING]
+        event = next(reversed(resuming_events), None)
+
+        if not event:
+            raise ExecutionError(
+                message="Cannot resume workflow: no resuming event found.",
+            )
 
         self._state = ExecutionState.RUNNING
         self.events.append(

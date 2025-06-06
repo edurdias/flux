@@ -208,6 +208,112 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
+        async def resume_workflow_async(
+            workflow_name: str,
+            execution_id: str,
+            input_data: str,
+            detailed: bool = False,
+        ) -> dict[str, any]:
+            """Resume a paused workflow asynchronously with input data.
+
+            Args:
+                workflow_name: Name of the workflow to resume
+                execution_id: ID of the paused execution to resume
+                input_data: JSON string of input data to provide during resume
+                detailed: Whether to return detailed execution information
+            """
+            try:
+                # Parse input data
+                try:
+                    parsed_input = json.loads(input_data) if input_data else None
+                except json.JSONDecodeError:
+                    # If not valid JSON, treat as string
+                    parsed_input = input_data
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{self.server_url}/workflows/{workflow_name}/resume/{execution_id}/async",
+                        json=parsed_input,
+                        params={"detailed": detailed},
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    context = ExecutionContext.from_dict(result)
+
+                    logger.info(
+                        f"Started async resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                    )
+                    return context if detailed else context.summary()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    error_msg = (
+                        f"Workflow '{workflow_name}' or execution '{execution_id}' not found"
+                    )
+                elif e.response.status_code == 400:
+                    error_msg = f"Cannot resume execution: {e.response.text}"
+                else:
+                    error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            except Exception as e:
+                error_msg = f"Error resuming workflow: {str(e)}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+
+        @self.mcp.tool()
+        async def resume_workflow_sync(
+            workflow_name: str,
+            execution_id: str,
+            input_data: str,
+            detailed: bool = False,
+        ) -> dict[str, any]:
+            """Resume a paused workflow synchronously and wait for completion.
+
+            Args:
+                workflow_name: Name of the workflow to resume
+                execution_id: ID of the paused execution to resume
+                input_data: JSON string of input data to provide during resume
+                detailed: Whether to return detailed execution information
+            """
+            try:
+                # Parse input data
+                try:
+                    parsed_input = json.loads(input_data) if input_data else None
+                except json.JSONDecodeError:
+                    # If not valid JSON, treat as string
+                    parsed_input = input_data
+
+                async with httpx.AsyncClient(timeout=300.0) as client:  # Longer timeout for sync
+                    response = await client.post(
+                        f"{self.server_url}/workflows/{workflow_name}/resume/{execution_id}/sync",
+                        json=parsed_input,
+                        params={"detailed": detailed},
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    context = ExecutionContext.from_dict(result)
+
+                    logger.info(
+                        f"Completed sync resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                    )
+                    return context if detailed else context.summary()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    error_msg = (
+                        f"Workflow '{workflow_name}' or execution '{execution_id}' not found"
+                    )
+                elif e.response.status_code == 400:
+                    error_msg = f"Cannot resume execution: {e.response.text}"
+                else:
+                    error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            except Exception as e:
+                error_msg = f"Error resuming workflow: {str(e)}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+
+        @self.mcp.tool()
         async def upload_workflow(file_content: str) -> dict[str, any]:
             """Upload and register a new workflow file.
 

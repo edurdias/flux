@@ -213,7 +213,7 @@ class Server:
         @api.post("/workflows/{workflow_name}/run/{mode}")
         async def workflows_run(
             workflow_name: str,
-            input: Any = Body(...),
+            input: Any = Body(None),
             mode: str = "async",
             detailed: bool = False,
         ):
@@ -301,7 +301,7 @@ class Server:
         async def workflows_resume(
             workflow_name: str,
             execution_id: str,
-            input: Any = Body(...),
+            input: Any = Body(None),
             mode: str = "async",
             detailed: bool = False,
         ):
@@ -561,6 +561,8 @@ class Server:
 
                             ctx = context_manager.next_resume(worker)
                             if ctx:
+                                workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                workflow.source = base64.b64encode(workflow.source).decode("utf-8")
                                 logger.debug(
                                     f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                 )
@@ -568,7 +570,7 @@ class Server:
                                 yield {
                                     "id": f"{ctx.execution_id}_{uuid4().hex}",
                                     "event": "execution_resumed",
-                                    "data": to_json({"context": ctx}),
+                                    "data": to_json({"workflow": workflow, "context": ctx}),
                                 }
 
                                 logger.debug(

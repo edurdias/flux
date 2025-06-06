@@ -86,6 +86,7 @@ class workflow:
 
         if ctx.is_paused and not ctx.is_resuming:
             ctx.start_resuming()
+            await ctx.checkpoint()
 
         if not ctx.has_started:
             ctx.start(self.id)
@@ -110,16 +111,35 @@ class workflow:
         return ctx
 
     def run(self, *args, **kwargs) -> ExecutionContext:
-        async def save(ctx: ExecutionContext):
-            return ContextManager.create().save(ctx)
-
         if "execution_id" in kwargs:
-            ctx = ContextManager.create().get(kwargs["execution_id"])
-        else:
-            ctx = ExecutionContext(
-                workflow_id=self.name,
-                workflow_name=self.name,
-                input=args[0] if len(args) > 0 else None,
-            )
-        ctx.set_checkpoint(save)
+            return self.resume(kwargs["execution_id"])
+
+        ctx: ExecutionContext = ExecutionContext(
+            workflow_id=self.name,
+            workflow_name=self.name,
+            input=args[0] if len(args) > 0 else None,
+        )
+
+        ctx.set_checkpoint(self._save)
         return asyncio.run(self(ctx))
+
+    def resume(self, execution_id: str, input: Any = None) -> ExecutionContext:
+        """
+        Resume a paused workflow with the given execution ID and optional input.
+
+        Args:
+            execution_id (str): The ID of the workflow execution to resume.
+            input (Any, optional): Input to provide when resuming the workflow. Defaults to None.
+
+        Returns:
+            ExecutionContext: The updated execution context after resuming the workflow.
+        """
+        ctx = ContextManager.create().get(execution_id)
+        if input is not None:
+            ctx.start_resuming(input)
+            asyncio.run(ctx.checkpoint())
+        ctx.set_checkpoint(self._save)
+        return asyncio.run(self(ctx))
+
+    def _save(self, ctx: ExecutionContext):
+        ContextManager.create().save(ctx)
