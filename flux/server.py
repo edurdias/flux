@@ -327,6 +327,12 @@ class Server:
 
                 ctx = manager.get(execution_id)
 
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
                 if ctx.has_finished:
                     raise HTTPException(
                         status_code=400,
