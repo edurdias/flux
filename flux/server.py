@@ -213,7 +213,7 @@ class Server:
         @api.post("/workflows/{workflow_name}/run/{mode}")
         async def workflows_run(
             workflow_name: str,
-            input: Any = Body(...),
+            input: Any = Body(None),
             mode: str = "async",
             detailed: bool = False,
         ):
@@ -243,6 +243,106 @@ class Server:
                 )
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                )
+
+                if mode == "sync":
+                    current_delay = 0.1
+                    while not ctx.has_finished:
+                        await asyncio.sleep(current_delay)
+                        ctx = manager.get(ctx.execution_id)
+                        current_delay = min(current_delay * backoff_factor, max_delay)
+
+                if mode == "stream":
+
+                    async def check_for_new_executions():
+                        nonlocal ctx
+                        while not ctx.has_finished:
+                            current_delay = 0.1
+                            await asyncio.sleep(current_delay)
+                            new_ctx = manager.get(ctx.execution_id)
+
+                            if new_ctx.events and (
+                                not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                            ):
+                                ctx = new_ctx
+                                dto = ExecutionContextDTO.from_domain(ctx)
+                                yield {
+                                    "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                    "data": to_json(dto if detailed else dto.summary()),
+                                }
+                                current_delay = 0.1
+                            current_delay = min(current_delay * backoff_factor, max_delay)
+
+                    return EventSourceResponse(
+                        check_for_new_executions(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                result = dto.summary() if not detailed else dto
+                logger.debug(
+                    f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
+                )
+                return result
+
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except Exception as e:
+                logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
+
+        @api.post("/workflows/{workflow_name}/resume/{execution_id}/{mode}")
+        async def workflows_resume(
+            workflow_name: str,
+            execution_id: str,
+            input: Any = Body(None),
+            mode: str = "async",
+            detailed: bool = False,
+        ):
+            try:
+                logger.debug(
+                    f"Resuming workflow: {workflow_name} | Execution ID: {execution_id} | Mode: {mode} | Detailed: {detailed}",
+                )
+                logger.debug(f"Input: {to_json(input)}")
+
+                if not workflow_name:
+                    raise HTTPException(status_code=400, detail="Workflow name is required.")
+
+                if not execution_id:
+                    raise HTTPException(status_code=400, detail="Execution ID is required.")
+
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
+                manager = ContextManager.create()
+
+                ctx = manager.get(execution_id)
+
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                if ctx.has_finished:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot resume a finished execution.",
+                    )
+
+                ctx.start_resuming(input)
+                manager.save(ctx)
+                logger.debug(
+                    f"Resuming execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
 
                 if mode == "sync":
@@ -338,8 +438,6 @@ class Server:
 
                 manager = ContextManager.create()
                 ctx = manager.get(execution_id)
-                if not ctx:
-                    raise HTTPException(status_code=404, detail="Execution context not found.")
 
                 if ctx.has_finished:
                     raise HTTPException(
@@ -463,6 +561,26 @@ class Server:
 
                                 logger.debug(
                                     f"Cancellation {ctx.execution_id} sent to worker {name}",
+                                )
+
+                                current_delay = 1
+
+                            ctx = context_manager.next_resume(worker)
+                            if ctx:
+                                workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                workflow.source = base64.b64encode(workflow.source).decode("utf-8")
+                                logger.debug(
+                                    f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                )
+
+                                yield {
+                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
+                                    "event": "execution_resumed",
+                                    "data": to_json({"workflow": workflow, "context": ctx}),
+                                }
+
+                                logger.debug(
+                                    f"Resumption {ctx.execution_id} sent to worker {name}",
                                 )
 
                                 current_delay = 1

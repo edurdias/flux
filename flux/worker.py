@@ -96,7 +96,7 @@ class Worker:
     async def _start(self):
         try:
             await self._register()
-            await self._start_sse_connection()
+            await self._connect()
         except KeyboardInterrupt:
             raise
         except Exception:
@@ -140,7 +140,7 @@ class Worker:
             logger.exception(e)
             raise
 
-    async def _start_sse_connection(self):
+    async def _connect(self):
         """Connect to SSE endpoint and handle events asynchronously"""
         logger.info("Establishing connection with server...")
 
@@ -176,6 +176,13 @@ class Worker:
                                 name=f"handle_execution_cancelled_{evt.id}",
                             )
 
+                        if evt.event == "execution_resumed":
+                            # Create task to handle execution resumed event without blocking the connection
+                            asyncio.create_task(
+                                self._handle_execution_resumed(evt),
+                                name=f"handle_execution_resumed_{evt.id}",
+                            )
+
                         if evt.event == "keep-alive":
                             logger.debug("Event received: Keep-alive")
 
@@ -209,6 +216,39 @@ class Worker:
                     self._running_workflows.pop(context.execution_id, None)
         except Exception as ex:
             logger.error(f"Error handling execution_cancelled event: {str(ex)}")
+            logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+
+    async def _handle_execution_resumed(self, e):
+        """Handle execution resumed event asynchronously.
+
+        This method is called as a separate task and should handle its own exceptions.
+        """
+        try:
+            logger.debug("Received execution_resumed event")
+            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
+            logger.info(
+                f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+            )
+            logger.debug(f"Workflow input: {request.context.input}")
+            ctx = await self._execute_workflow(request)
+            logger.debug(
+                f"Workflow execution completed with state: {ctx.state.value}",
+            )
+
+            if ctx.has_failed:
+                logger.error(
+                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+                logger.debug(
+                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
+                )
+            else:
+                logger.info(
+                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+                logger.debug(f"Execution output: {ctx.output}")
+        except Exception as ex:
+            logger.error(f"Error handling execution_resumed event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
 
     async def _handle_execution_scheduled(self, base_url, headers, e):

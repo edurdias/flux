@@ -204,6 +204,75 @@ def run_workflow(
         click.echo(f"Error running workflow: {str(ex)}", err=True)
 
 
+@workflow.command("resume")
+@click.argument("workflow_name")
+@click.argument("execution_id")
+@click.argument("input")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["sync", "async", "stream"]),
+    default="async",
+    help="Execution mode (sync, async, or stream)",
+)
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed execution information",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def resume_workflow(
+    workflow_name: str,
+    execution_id: str,
+    input: str,
+    mode: str,
+    detailed: bool,
+    server_url: str | None,
+):
+    """Run the specified workflow."""
+    try:
+        base_url = server_url or get_server_url()
+        parsed_input = parse_value(input)
+
+        with httpx.Client(timeout=60.0) as client:
+            response = client.post(
+                f"{base_url}/workflows/{workflow_name}/resume/{execution_id}/{mode}",
+                json=parsed_input,
+                params={"detailed": detailed},
+            )
+            response.raise_for_status()
+
+            if mode == "stream":
+                # Handle streaming response
+                click.echo("Streaming execution...")
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        if data.strip():
+                            try:
+                                event_data = json.loads(data)
+                                click.echo(to_json(event_data))
+                            except json.JSONDecodeError:
+                                click.echo(data)
+            else:
+                result = response.json()
+                click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+        else:
+            click.echo(f"Error running workflow: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error running workflow: {str(ex)}", err=True)
+
+
 @workflow.command("status")
 @click.argument("workflow_name")
 @click.argument("execution_id")

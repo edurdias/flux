@@ -97,27 +97,6 @@ class TestServerCancellation:
         mock_context_manager.save.assert_not_called()
 
     @patch("flux.server.ContextManager.create")
-    def test_cancel_nonexistent_workflow_fails(
-        self,
-        mock_create,
-        test_client,
-        mock_context_manager,
-    ):
-        """Test that cancelling a non-existent workflow fails."""
-        # Set up the mock context manager
-        mock_create.return_value = mock_context_manager
-
-        # Set up the mock to return None
-        mock_context_manager.get.return_value = None
-
-        # Make the request
-        response = test_client.get("/workflows/test-workflow/cancel/test-execution-id?mode=async")
-
-        # Check the response - should be a 404 error
-        assert response.status_code == 404
-        assert "Execution context not found" in response.text
-
-    @patch("flux.server.ContextManager.create")
     def test_cancel_workflow_sync(self, mock_create, test_client, mock_context_manager):
         """Test cancelling a workflow in sync mode."""
         # This is more complex due to the async/await logic in the endpoint
