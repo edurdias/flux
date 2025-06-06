@@ -2,8 +2,6 @@
 
 Flux is a distributed workflow orchestration engine written in Python that enables building stateful and fault-tolerant workflows. It provides an intuitive async programming model for creating complex, reliable distributed applications with built-in support for state management, error handling, and execution control.
 
-**Current Version**: 0.2.7
-
 ## Key Features
 
 ### Core Capabilities
@@ -157,6 +155,7 @@ async def process_item(item: str):
 
 @workflow
 async def map_workflow(ctx: ExecutionContext[list[str]]):
+    # ctx.input should be a list of strings
     results = await process_item.map(ctx.input)
     return results
 ```
@@ -271,7 +270,7 @@ async def metadata_aware_task(data, metadata: TaskMetadata = {}):
 Flux provides several built-in tasks for common operations:
 
 ```python
-from flux.tasks import now, sleep, uuid4, choice, randint, pause
+from flux.tasks import now, sleep, uuid4, choice, randint, randrange, pause, parallel, call, pipeline
 
 @workflow
 async def built_in_tasks_example(ctx: ExecutionContext):
@@ -282,6 +281,7 @@ async def built_in_tasks_example(ctx: ExecutionContext):
     # Random operations
     random_choice = await choice(['option1', 'option2', 'option3'])
     random_number = await randint(1, 100)
+    random_range = await randrange(0, 10, 2)  # Random even number 0-8
 
     # UUID generation
     unique_id = await uuid4()
@@ -289,11 +289,29 @@ async def built_in_tasks_example(ctx: ExecutionContext):
     # Workflow pause points
     await pause("wait_for_approval")
 
+    # Parallel execution
+    results = await parallel(
+        process_task_1(data),
+        process_task_2(data),
+        process_task_3(data)
+    )
+
+    # Pipeline processing
+    result = await pipeline(
+        transform_data,
+        validate_data,
+        save_data,
+        input=raw_data
+    )
+
     return {
         'start_time': start_time,
         'choice': random_choice,
         'number': random_number,
-        'id': str(unique_id)
+        'range': random_range,
+        'id': str(unique_id),
+        'parallel_results': results,
+        'pipeline_result': result
     }
 ```
 
