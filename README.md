@@ -2,7 +2,7 @@
 
 Flux is a distributed workflow orchestration engine written in Python that enables building stateful and fault-tolerant workflows. It provides an intuitive async programming model for creating complex, reliable distributed applications with built-in support for state management, error handling, and execution control.
 
-**Current Version**: 0.4.2
+**Current Version**: 0.4.3
 
 ## Key Features
 
