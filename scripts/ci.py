@@ -150,6 +150,10 @@ def test_workflow(
         str(EVENT_FILES_DIR / f"{event}.json"),
         "--secret",
         "PYPI_API_TOKEN=fake-token",
+        "--secret",
+        "DOCKER_USERNAME=fake-user",
+        "--secret",
+        "DOCKER_TOKEN=fake-token",
     ]
 
     # Add dry-run flag if needed
@@ -182,6 +186,7 @@ def test_workflows() -> None:
     workflows_to_test = [
         ("pull-request.yml", "test", "pull_request"),
         ("build-publish.yml", "build", "push"),
+        ("docker-publish.yml", "build-and-publish", "push"),
         ("docs.yml", "deploy", "paths"),
     ]
 
