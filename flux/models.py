@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import dill
@@ -18,11 +20,15 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import PickleType
 from sqlalchemy import String
+from sqlalchemy import TEXT
 from sqlalchemy import TypeDecorator
 from sqlalchemy import UniqueConstraint
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
+import sqlalchemy.exc
 
 from flux import ExecutionContext
 from flux.config import Configuration
@@ -30,24 +36,127 @@ from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
 from flux.domain.resource_request import ResourceRequest
+from flux.errors import PostgreSQLConnectionError
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class SQLiteRepository:
+class DatabaseRepository(ABC):
+    """Abstract base class for database repositories"""
+    
     def __init__(self):
-        self._engine = create_engine(Configuration.get().settings.database_url)
+        self._engine = self._create_engine()
         Base.metadata.create_all(self._engine)
-
+    
+    @abstractmethod
+    def _create_engine(self) -> Engine:
+        """Create database engine based on configuration"""
+        pass
+    
     def session(self) -> Session:
         return Session(self._engine)
+    
+    def health_check(self) -> bool:
+        """Check database connectivity"""
+        try:
+            with self.session() as session:
+                session.execute(text("SELECT 1"))
+                return True
+        except Exception:
+            return False
+
+
+class SQLiteRepository(DatabaseRepository):
+    def _create_engine(self) -> Engine:
+        config = Configuration.get().settings
+        return create_engine(config.database_url)
+
+
+class PostgreSQLRepository(DatabaseRepository):
+    def _create_engine(self) -> Engine:
+        try:
+            config = Configuration.get().settings
+            url = config.database_url
+            
+            # Validate URL format
+            self._validate_postgresql_url(url)
+            
+            # PostgreSQL-specific engine configuration
+            engine_kwargs = {
+                "pool_size": config.database_pool_size,
+                "max_overflow": config.database_max_overflow,
+                "pool_pre_ping": True,
+                "pool_recycle": config.database_pool_recycle,
+                "pool_timeout": config.database_pool_timeout,
+                "echo": config.debug,
+            }
+            
+            engine = create_engine(url, **engine_kwargs)
+            
+            # Test connection
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            return engine
+            
+        except ImportError as e:
+            raise PostgreSQLConnectionError(
+                "PostgreSQL driver not installed. Install with: pip install 'flux-core[postgresql]'",
+                original_error=e
+            )
+        except sqlalchemy.exc.ArgumentError as e:
+            raise PostgreSQLConnectionError(
+                f"Invalid PostgreSQL connection URL format: {str(e)}",
+                original_error=e
+            )
+        except sqlalchemy.exc.OperationalError as e:
+            raise PostgreSQLConnectionError(
+                f"Failed to connect to PostgreSQL database: {str(e)}",
+                original_error=e
+            )
+        except Exception as e:
+            raise PostgreSQLConnectionError(
+                f"Unexpected error connecting to PostgreSQL: {str(e)}",
+                original_error=e
+            )
+    
+    def _validate_postgresql_url(self, url: str) -> None:
+        """Validate PostgreSQL URL format"""
+        if not url.startswith("postgresql://"):
+            raise ValueError("PostgreSQL URL must start with 'postgresql://'")
+        
+        # Additional validation for required components
+        parsed = urlparse(url)
+        if not parsed.hostname:
+            raise ValueError("PostgreSQL URL must include hostname")
+
+
+class RepositoryFactory:
+    @staticmethod
+    def create_repository() -> DatabaseRepository:
+        """Create appropriate repository based on configuration"""
+        config = Configuration.get().settings
+        
+        if config.database_type == "postgresql":
+            return PostgreSQLRepository()
+        elif config.database_type == "sqlite":
+            return SQLiteRepository()
+        else:
+            raise ValueError(f"Unsupported database type: {config.database_type}")
 
 
 class EncryptedType(TypeDecorator):
     impl = String
     cache_ok = True
+    
+    def load_dialect_impl(self, dialect):
+        """Use TEXT for PostgreSQL, String for SQLite"""
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(TEXT())
+        else:
+            return dialect.type_descriptor(String())
 
     def __init__(self):
         super().__init__()
@@ -118,6 +227,13 @@ class EncryptedType(TypeDecorator):
 class Base64Type(TypeDecorator):
     impl = String
     cache_ok = True
+    
+    def load_dialect_impl(self, dialect):
+        """Use TEXT for PostgreSQL to handle larger serialized objects"""
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(TEXT())
+        else:
+            return dialect.type_descriptor(String())
 
     def __init__(self):
         super().__init__()

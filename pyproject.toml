@@ -28,6 +28,7 @@ psutil = "^7.0.0"
 gputil = "^1.4.0"
 types-setuptools = "^80.7.0.20250516"
 fastmcp = "^2.5.1"
+psycopg2-binary = {version = "^2.9.0", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
@@ -54,6 +55,11 @@ flux = "flux.cli:cli"
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+markers = [
+    "integration: marks tests as integration tests (may require external dependencies)",
+    "postgresql: marks tests as requiring PostgreSQL database",
+    "slow: marks tests as slow running"
+]
 
 # Custom commands for workflow management
 [tool.poe.tasks]
@@ -89,6 +95,10 @@ args = [
     { name = "event", default = "paths", positional = true },
     { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
 ]
+
+[tool.poetry.extras]
+postgresql = ["psycopg2-binary"]
+
 
 [tool.ruff]
 line-length = 100
