@@ -282,7 +282,7 @@ pip install 'flux-core[postgresql]'
 ```
 Error: Failed to connect to PostgreSQL database
 ```
-**Solution**: 
+**Solution**:
 - Verify PostgreSQL is running
 - Check connection parameters
 - Verify network connectivity
@@ -383,7 +383,7 @@ make test-postgresql
 # Run unit tests
 make test-postgresql-unit
 
-# Run integration tests  
+# Run integration tests
 make test-postgresql-integration
 
 # Run all tests

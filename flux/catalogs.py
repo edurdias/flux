@@ -12,7 +12,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from flux.errors import WorkflowNotFoundError
-from flux.models import DatabaseRepository, RepositoryFactory
+from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
 from flux.domain.resource_request import ResourceRequest
 from flux.utils import get_logger
@@ -246,14 +246,15 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
         # Create repository using factory pattern
         self.repository = RepositoryFactory.create_repository()
         self._engine = self.repository._engine
-    
+
     def session(self):
         """Delegate to repository session method"""
         return self.repository.session()
-    
+
     def health_check(self) -> bool:
         """Delegate to repository health check"""
         return self.repository.health_check()
+
     def all(self) -> list[WorkflowInfo]:
         """
         Get all workflows in the catalog (latest version of each).

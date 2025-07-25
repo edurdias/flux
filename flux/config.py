@@ -89,30 +89,33 @@ class FluxConfig(BaseSettings):
     cache_path: str = Field(default=".cache", description="Path for cache directory")
     local_storage_path: str = Field(default=".data", description="Path for local storage directory")
     serializer: str = Field(default="pkl", description="Default serializer (json or pkl)")
-    database_url: str = Field(default="sqlite:///.flux/flux.db", description="Database URL with environment variable support")
+    database_url: str = Field(
+        default="sqlite:///.flux/flux.db",
+        description="Database URL with environment variable support",
+    )
     database_type: Literal["sqlite", "postgresql"] = Field(
         default="sqlite",
-        description="Database backend type"
+        description="Database backend type",
     )
     database_pool_size: int = Field(
         default=5,
-        description="Database connection pool size (PostgreSQL only)"
+        description="Database connection pool size (PostgreSQL only)",
     )
     database_max_overflow: int = Field(
         default=10,
-        description="Maximum pool overflow (PostgreSQL only)"
+        description="Maximum pool overflow (PostgreSQL only)",
     )
     database_pool_timeout: int = Field(
         default=30,
-        description="Database connection timeout in seconds"
+        description="Database connection timeout in seconds",
     )
     database_pool_recycle: int = Field(
         default=3600,
-        description="Connection recycle time in seconds"
+        description="Connection recycle time in seconds",
     )
     database_health_check_interval: int = Field(
         default=300,
-        description="Health check interval in seconds"
+        description="Health check interval in seconds",
     )
 
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
@@ -123,14 +126,14 @@ class FluxConfig(BaseSettings):
     def interpolate_database_url(cls, v: str) -> str:
         """Interpolate environment variables in database URL"""
         # Pattern to match ${VAR_NAME} or $VAR_NAME
-        pattern = r'\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)'
-        
+        pattern = r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+
         def replace_var(match):
             var_name = match.group(1) or match.group(2)
             return os.getenv(var_name, match.group(0))
-        
+
         return re.sub(pattern, replace_var, v)
-    
+
     @field_validator("database_type")
     def infer_database_type(cls, v: str, info) -> str:
         """Auto-infer database type from URL if not explicitly set"""
@@ -139,7 +142,7 @@ class FluxConfig(BaseSettings):
             if database_url.startswith("postgresql://"):
                 return "postgresql"
         return v
-    
+
     @field_validator("serializer")
     def validate_serializer(cls, v: str) -> str:
         if v not in ["json", "pkl"]:

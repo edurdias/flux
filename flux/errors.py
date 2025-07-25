@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from typing import Literal
+from typing import Optional
 from typing import TypeVar
 
 T = TypeVar("T", bound=Any)
@@ -122,7 +123,8 @@ class WorkerNotFoundError(ExecutionError):
 
 class DatabaseConnectionError(Exception):
     """Database connection related errors"""
-    def __init__(self, message: str, database_type: str, original_error: Exception = None):
+
+    def __init__(self, message: str, database_type: str, original_error: Optional[Exception] = None):
         self.database_type = database_type
         self.original_error = original_error
         super().__init__(message)
@@ -130,5 +132,6 @@ class DatabaseConnectionError(Exception):
 
 class PostgreSQLConnectionError(DatabaseConnectionError):
     """PostgreSQL-specific connection errors"""
-    def __init__(self, message: str, original_error: Exception = None):
+
+    def __init__(self, message: str, original_error: Optional[Exception] = None):
         super().__init__(message, "postgresql", original_error)

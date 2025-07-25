@@ -45,19 +45,19 @@ class Base(DeclarativeBase):
 
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
-    
+
     def __init__(self):
         self._engine = self._create_engine()
         Base.metadata.create_all(self._engine)
-    
+
     @abstractmethod
     def _create_engine(self) -> Engine:
         """Create database engine based on configuration"""
         pass
-    
+
     def session(self) -> Session:
         return Session(self._engine)
-    
+
     def health_check(self) -> bool:
         """Check database connectivity"""
         try:
@@ -79,10 +79,10 @@ class PostgreSQLRepository(DatabaseRepository):
         try:
             config = Configuration.get().settings
             url = config.database_url
-            
+
             # Validate URL format
             self._validate_postgresql_url(url)
-            
+
             # PostgreSQL-specific engine configuration
             engine_kwargs = {
                 "pool_size": config.database_pool_size,
@@ -92,41 +92,41 @@ class PostgreSQLRepository(DatabaseRepository):
                 "pool_timeout": config.database_pool_timeout,
                 "echo": config.debug,
             }
-            
+
             engine = create_engine(url, **engine_kwargs)
-            
+
             # Test connection
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            
+
             return engine
-            
+
         except ImportError as e:
             raise PostgreSQLConnectionError(
                 "PostgreSQL driver not installed. Install with: pip install 'flux-core[postgresql]'",
-                original_error=e
+                original_error=e,
             )
         except sqlalchemy.exc.ArgumentError as e:
             raise PostgreSQLConnectionError(
                 f"Invalid PostgreSQL connection URL format: {str(e)}",
-                original_error=e
+                original_error=e,
             )
         except sqlalchemy.exc.OperationalError as e:
             raise PostgreSQLConnectionError(
                 f"Failed to connect to PostgreSQL database: {str(e)}",
-                original_error=e
+                original_error=e,
             )
         except Exception as e:
             raise PostgreSQLConnectionError(
                 f"Unexpected error connecting to PostgreSQL: {str(e)}",
-                original_error=e
+                original_error=e,
             )
-    
+
     def _validate_postgresql_url(self, url: str) -> None:
         """Validate PostgreSQL URL format"""
         if not url.startswith("postgresql://"):
             raise ValueError("PostgreSQL URL must start with 'postgresql://'")
-        
+
         # Additional validation for required components
         parsed = urlparse(url)
         if not parsed.hostname:
@@ -138,7 +138,7 @@ class RepositoryFactory:
     def create_repository() -> DatabaseRepository:
         """Create appropriate repository based on configuration"""
         config = Configuration.get().settings
-        
+
         if config.database_type == "postgresql":
             return PostgreSQLRepository()
         elif config.database_type == "sqlite":
@@ -150,10 +150,10 @@ class RepositoryFactory:
 class EncryptedType(TypeDecorator):
     impl = String
     cache_ok = True
-    
+
     def load_dialect_impl(self, dialect):
         """Use TEXT for PostgreSQL, String for SQLite"""
-        if dialect.name == 'postgresql':
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(TEXT())
         else:
             return dialect.type_descriptor(String())
@@ -227,10 +227,10 @@ class EncryptedType(TypeDecorator):
 class Base64Type(TypeDecorator):
     impl = String
     cache_ok = True
-    
+
     def load_dialect_impl(self, dialect):
         """Use TEXT for PostgreSQL to handle larger serialized objects"""
-        if dialect.name == 'postgresql':
+        if dialect.name == "postgresql":
             return dialect.type_descriptor(TEXT())
         else:
             return dialect.type_descriptor(String())

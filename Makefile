@@ -129,7 +129,7 @@ dev-postgres: install-postgres postgres-up ## Set up PostgreSQL development envi
 	@echo "PostgreSQL development environment ready!"
 	@echo "Connection: postgresql://flux_user:flux_password@localhost:5432/flux_dev"
 
-dev-sqlite: install ## Set up SQLite development environment  
+dev-sqlite: install ## Set up SQLite development environment
 	@echo "SQLite development environment ready!"
 	@echo "Database: .flux/flux.db"
 
