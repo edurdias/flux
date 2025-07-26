@@ -54,13 +54,14 @@ poethepoet = "^0.34.0"
 flux = "flux.cli:cli"
 
 [tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::pytest.PytestReturnNotNoneWarning",
     "ignore::RuntimeWarning:flux.tasks",
     "ignore::RuntimeWarning:unittest.mock",
     "ignore::FutureWarning:numpy._core.fromnumeric",
-    "ignore::DeprecationWarning:pydantic._internal._config"
+    "ignore::DeprecationWarning:pydantic._internal._config",
+    "ignore::pytest.PytestDeprecationWarning",
+    "ignore::pytest.PytestConfigWarning"
 ]
 markers = [
     "asyncio: marks tests as async tests",
