@@ -179,16 +179,21 @@ class TestSchemaCreation:
         )
         assert name_version_constraint, "Missing unique constraint on (name, version) in workflows"
 
-        # Workers should have unique name
+        # Workers should have unique name constraint
         workers_constraints = inspector.get_unique_constraints("workers")
         name_constraint = any(
             "name" in constraint["column_names"] for constraint in workers_constraints
         )
-        # Note: Primary key constraints might not show up in unique constraints
-        # The important thing is that the constraint exists functionally
-        assert workers_constraints is not None
-        # name_constraint may be False if constraint is enforced via primary key
-        assert isinstance(name_constraint, bool)
+
+        # If unique constraint not found, check if it's enforced via primary key
+        if not name_constraint:
+            workers_pk = inspector.get_pk_constraint("workers")
+            name_in_pk = "name" in workers_pk.get("constrained_columns", [])
+            assert (
+                name_in_pk
+            ), "Workers table must have unique name constraint (either unique or primary key)"
+        else:
+            assert name_constraint, "Workers table must have unique name constraint"
 
     def test_primary_keys(self, inspector):
         """Test primary key constraints."""

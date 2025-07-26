@@ -79,12 +79,12 @@ class TestDatabaseTypeInference:
         config1 = FluxConfig(database_url="postgresql://user:pass@host:5432/db")
         assert config1.database_type == "postgresql"  # Should be inferred
 
-        # Test that explicit non-default type is preserved
+        # Test that explicit type overrides URL inference
         config2 = FluxConfig(
-            database_url="postgresql://user:pass@host:5432/db",
-            database_type="postgresql",  # Explicit non-default
+            database_url="sqlite:///test.db",  # SQLite URL
+            database_type="postgresql",  # Explicit PostgreSQL override
         )
-        assert config2.database_type == "postgresql"
+        assert config2.database_type == "postgresql"  # Explicit should override inference
 
     def test_invalid_url_no_inference(self):
         """Test invalid URLs don't affect type inference."""

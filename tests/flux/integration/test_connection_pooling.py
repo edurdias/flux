@@ -128,17 +128,27 @@ class TestConnectionPooling:
         # Give operations time to start and hold connections
         time.sleep(0.2)
 
-        # Now try a quick operation - might timeout but that's expected
+        # Now try a quick operation - should either succeed quickly or fail due to pool exhaustion
         start_time = time.time()
+        pool_exhausted = False
         try:
             result = repository.health_check()
             operation_time = time.time() - start_time
-            # If it succeeds, it should be quick (connection available)
-            # If it times out, that's also a valid test result
-            assert result is not None or operation_time > 0  # Use the variables
-        except Exception:
+            # If it succeeds, it should be reasonably quick (< 1 second)
+            assert result is True, "Health check should return True when successful"
+            assert operation_time < 1.0, f"Health check took too long: {operation_time}s"
+        except Exception as e:
             # Connection pool exhaustion is expected behavior
-            pass
+            pool_exhausted = True
+            # Verify it's a connection-related error
+            assert any(
+                keyword in str(e).lower() for keyword in ["connection", "pool", "timeout"]
+            ), f"Expected connection-related error, got: {e}"
+
+        # Test validates pool behavior - either quick success or proper pool exhaustion
+        assert (
+            result is True or pool_exhausted
+        ), "Pool should either provide connection or be exhausted"
 
         # Wait for long operations to complete
         for thread in threads:
