@@ -1,0 +1,38 @@
+# Monitoring profile - adds database monitoring tools
+version: '3.8'
+
+services:
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: flux-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@flux.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin
+      - PGADMIN_CONFIG_SERVER_MODE=False
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - flux-network
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: flux-postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://flux_user:flux_password@postgres:5432/flux_dev?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+    networks:
+      - flux-network
+    restart: unless-stopped
+
+volumes:
+  pgadmin-data:
+    name: flux-pgadmin-data

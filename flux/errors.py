@@ -118,3 +118,24 @@ class ExecutionContextNotFoundError(ExecutionError):
 class WorkerNotFoundError(ExecutionError):
     def __init__(self, name: str):
         super().__init__(message=f"Worker '{name}' not found.")
+
+
+class DatabaseConnectionError(Exception):
+    """Database connection related errors"""
+
+    def __init__(
+        self,
+        message: str,
+        database_type: str,
+        original_error: Exception | None = None,
+    ):
+        self.database_type = database_type
+        self.original_error = original_error
+        super().__init__(message)
+
+
+class PostgreSQLConnectionError(DatabaseConnectionError):
+    """PostgreSQL-specific connection errors"""
+
+    def __init__(self, message: str, original_error: Exception | None = None):
+        super().__init__(message, "postgresql", original_error)
