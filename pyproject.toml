@@ -54,8 +54,16 @@ poethepoet = "^0.34.0"
 flux = "flux.cli:cli"
 
 [tool.pytest.ini_options]
-filterwarnings = ["ignore::pytest.PytestReturnNotNoneWarning"]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::pytest.PytestReturnNotNoneWarning",
+    "ignore::RuntimeWarning:flux.tasks",
+    "ignore::RuntimeWarning:unittest.mock",
+    "ignore::FutureWarning:numpy._core.fromnumeric",
+    "ignore::DeprecationWarning:pydantic._internal._config"
+]
 markers = [
+    "asyncio: marks tests as async tests",
     "integration: marks tests as integration tests (may require external dependencies)",
     "postgresql: marks tests as requiring PostgreSQL database",
     "slow: marks tests as slow running"
