@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from flux.catalogs import SQLiteWorkflowCatalog
+from flux.catalogs import DatabaseWorkflowCatalog
 from flux.catalogs import WorkflowInfo
 from flux.errors import WorkflowNotFoundError
 from flux.models import Base
@@ -23,9 +23,10 @@ def sqlite_workflow_catalog():
     # Configure temporary database URL
     with patch("flux.config.Configuration.get") as mock_config:
         mock_config.return_value.settings.database_url = f"sqlite:///{db_path}"
+        mock_config.return_value.settings.database_type = "sqlite"
 
         # Create catalog instance
-        catalog = SQLiteWorkflowCatalog()
+        catalog = DatabaseWorkflowCatalog()
 
         # Create tables
         Base.metadata.create_all(catalog._engine)
@@ -202,8 +203,8 @@ def test_workflow_info_to_dict(sample_workflow):
 
 
 def test_workflow_catalog_create():
-    """Test the static create method returns an SQLiteWorkflowCatalog instance."""
-    from flux.catalogs import WorkflowCatalog
+    """Test the static create method returns a DatabaseWorkflowCatalog instance."""
+    from flux.catalogs import WorkflowCatalog, DatabaseWorkflowCatalog
 
     catalog = WorkflowCatalog.create()
-    assert isinstance(catalog, SQLiteWorkflowCatalog)
+    assert isinstance(catalog, DatabaseWorkflowCatalog)

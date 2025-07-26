@@ -1,0 +1,3 @@
+-- This file is no longer needed
+-- SQLAlchemy will handle all table creation in the default 'public' schema
+-- Keeping file for compatibility but removing all schema creation logic

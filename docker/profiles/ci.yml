@@ -1,0 +1,57 @@
+# CI/CD profile - optimized for continuous integration
+version: '3.8'
+
+services:
+  postgres-ci:
+    build: ./docker/postgres
+    container_name: flux-postgres-ci
+    environment:
+      POSTGRES_DB: flux_ci
+      POSTGRES_USER: flux_ci_user
+      POSTGRES_PASSWORD: flux_ci_password
+    volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - flux-ci-network
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flux_ci_user -d flux_ci"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+      start_period: 5s
+    command: >
+      postgres
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=8MB
+      -c shared_buffers=128MB
+      -c effective_cache_size=256MB
+      -c work_mem=4MB
+      -c log_statement=none
+      -c log_min_messages=error
+      -c autovacuum=off
+
+  flux-server:
+    environment:
+      - FLUX_DATABASE_URL=postgresql://flux_ci_user:flux_ci_password@postgres-ci:5432/flux_ci
+      - FLUX_DATABASE_TYPE=postgresql
+      - FLUX_DATABASE_POOL_SIZE=2
+      - FLUX_DATABASE_MAX_OVERFLOW=5
+      - FLUX_DATABASE_POOL_TIMEOUT=10
+      - FLUX_LOG_LEVEL=WARNING
+    depends_on:
+      postgres-ci:
+        condition: service_healthy
+    networks:
+      - flux-ci-network
+
+networks:
+  flux-ci-network:
+    driver: bridge
+    name: flux-ci-network

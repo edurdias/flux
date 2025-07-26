@@ -9,6 +9,11 @@ cache_path = ".cache"                                               # Cache dire
 local_storage_path = ".storage"                                     # Base path for storing task outputs
 serializer = "pkl"                                                  # Default serializer (json or pkl)
 database_url = "sqlite:///.flux/flux.db"                            # Database URL
+# For PostgreSQL with environment variables:
+# database_url = "postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}"
+# database_type = "postgresql"
+# database_pool_size = 10
+# database_max_overflow = 20
 
 [flux.workers]
 bootstrap_token = "4298a036-a934-4add-8963-521294f06bf3"    # Token for bootstrapping workers

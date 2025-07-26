@@ -1,0 +1,70 @@
+# PostgreSQL development profile - full database development setup
+version: '3.8'
+
+services:
+  postgres:
+    build: ./docker/postgres
+    container_name: flux-postgres
+    environment:
+      POSTGRES_DB: flux_dev
+      POSTGRES_USER: flux_user
+      POSTGRES_PASSWORD: flux_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./docker/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - flux-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flux_user -d flux_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c log_statement=all
+      -c log_destination=stderr
+
+  flux-server:
+    environment:
+      - FLUX_DATABASE_URL=postgresql://flux_user:flux_password@postgres:5432/flux_dev
+      - FLUX_DATABASE_TYPE=postgresql
+      - FLUX_DATABASE_POOL_SIZE=10
+      - FLUX_DATABASE_MAX_OVERFLOW=20
+      - FLUX_DATABASE_POOL_TIMEOUT=30
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  flux-worker-1:
+    environment:
+      - FLUX_DATABASE_URL=postgresql://flux_user:flux_password@postgres:5432/flux_dev
+      - FLUX_DATABASE_TYPE=postgresql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  flux-worker-2:
+    environment:
+      - FLUX_DATABASE_URL=postgresql://flux_user:flux_password@postgres:5432/flux_dev
+      - FLUX_DATABASE_TYPE=postgresql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  flux-mcp:
+    environment:
+      - FLUX_DATABASE_URL=postgresql://flux_user:flux_password@postgres:5432/flux_dev
+      - FLUX_DATABASE_TYPE=postgresql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    name: flux-postgres-data

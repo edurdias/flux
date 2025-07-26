@@ -1,0 +1,29 @@
+# SQLite development profile - lightweight development setup
+version: '3.8'
+
+services:
+  flux-server:
+    environment:
+      - FLUX_DATABASE_URL=sqlite:///.flux/flux.db
+      - FLUX_DATABASE_TYPE=sqlite
+    volumes:
+      - flux-sqlite-data:/app/.flux
+
+  flux-worker-1:
+    environment:
+      - FLUX_DATABASE_URL=sqlite:///.flux/flux.db
+      - FLUX_DATABASE_TYPE=sqlite
+
+  flux-worker-2:
+    environment:
+      - FLUX_DATABASE_URL=sqlite:///.flux/flux.db
+      - FLUX_DATABASE_TYPE=sqlite
+
+  flux-mcp:
+    environment:
+      - FLUX_DATABASE_URL=sqlite:///.flux/flux.db
+      - FLUX_DATABASE_TYPE=sqlite
+
+volumes:
+  flux-sqlite-data:
+    name: flux-sqlite-data

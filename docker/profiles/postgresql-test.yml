@@ -1,0 +1,43 @@
+# PostgreSQL testing profile - optimized for testing performance
+version: '3.8'
+
+services:
+  postgres-test:
+    build: ./docker/postgres
+    container_name: flux-postgres-test
+    environment:
+      POSTGRES_DB: flux_test
+      POSTGRES_USER: flux_test_user
+      POSTGRES_PASSWORD: flux_test_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - flux-test-network
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flux_test_user -d flux_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    command: >
+      postgres
+      -c fsync=off
+      -c synchronous_commit=off
+      -c full_page_writes=off
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c work_mem=8MB
+      -c log_statement=none
+      -c log_min_messages=warning
+
+networks:
+  flux-test-network:
+    driver: bridge
+    name: flux-test-network
