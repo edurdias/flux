@@ -777,6 +777,20 @@ docs = ["Sphinx", "furo"]
 test = ["objgraph", "psutil"]
 
 [[package]]
+name = "griffe"
+version = "1.8.0"
+description = "Signatures for entire Python programs. Extract the structure, the frame, the skeleton of your project, to generate API documentation or find breaking changes in your API."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "griffe-1.8.0-py3-none-any.whl", hash = "sha256:110faa744b2c5c84dd432f4fa9aa3b14805dd9519777dd55e8db214320593b02"},
+    {file = "griffe-1.8.0.tar.gz", hash = "sha256:0b4658443858465c13b2de07ff5e15a1032bc889cfafad738a476b8b97bb28d7"},
+]
+
+[package.dependencies]
+colorama = ">=0.4"
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 description = "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
@@ -1357,29 +1371,44 @@ files = [
 
 [[package]]
 name = "mkdocstrings"
-version = "0.26.2"
+version = "0.30.0"
 description = "Automatic documentation from sources, for MkDocs."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "mkdocstrings-0.26.2-py3-none-any.whl", hash = "sha256:1248f3228464f3b8d1a15bd91249ce1701fe3104ac517a5f167a0e01ca850ba5"},
-    {file = "mkdocstrings-0.26.2.tar.gz", hash = "sha256:34a8b50f1e6cfd29546c6c09fbe02154adfb0b361bb758834bf56aa284ba876e"},
+    {file = "mkdocstrings-0.30.0-py3-none-any.whl", hash = "sha256:ae9e4a0d8c1789697ac776f2e034e2ddd71054ae1cf2c2bb1433ccfd07c226f2"},
+    {file = "mkdocstrings-0.30.0.tar.gz", hash = "sha256:5d8019b9c31ddacd780b6784ffcdd6f21c408f34c0bd1103b5351d609d5b4444"},
 ]
 
 [package.dependencies]
-click = ">=7.0"
 Jinja2 = ">=2.11.1"
 Markdown = ">=3.6"
 MarkupSafe = ">=1.1"
-mkdocs = ">=1.4"
-mkdocs-autorefs = ">=1.2"
-platformdirs = ">=2.2"
+mkdocs = ">=1.6"
+mkdocs-autorefs = ">=1.4"
+mkdocstrings-python = {version = ">=1.16.2", optional = true, markers = "extra == \"python\""}
 pymdown-extensions = ">=6.3"
 
 [package.extras]
 crystal = ["mkdocstrings-crystal (>=0.3.4)"]
-python = ["mkdocstrings-python (>=0.5.2)"]
+python = ["mkdocstrings-python (>=1.16.2)"]
 python-legacy = ["mkdocstrings-python-legacy (>=0.2.1)"]
+
+[[package]]
+name = "mkdocstrings-python"
+version = "1.16.12"
+description = "A Python handler for mkdocstrings."
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "mkdocstrings_python-1.16.12-py3-none-any.whl", hash = "sha256:22ded3a63b3d823d57457a70ff9860d5a4de9e8b1e482876fc9baabaf6f5f374"},
+    {file = "mkdocstrings_python-1.16.12.tar.gz", hash = "sha256:9b9eaa066e0024342d433e332a41095c4e429937024945fea511afe58f63175d"},
+]
+
+[package.dependencies]
+griffe = ">=1.6.2"
+mkdocs-autorefs = ">=1.4"
+mkdocstrings = ">=0.28.3"
 
 [[package]]
 name = "nest-asyncio"
@@ -3292,4 +3321,4 @@ postgresql = ["psycopg2-binary"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "c511c1e7f1628605404995d810b0f56a6bb0a012ab2e35342a51047e3367cb5e"
+content-hash = "a2c7f273b199027c9e7faf191a6a36b1b55005cdcd0386c0c954886cfc1ba848"

@@ -169,3 +169,7 @@ cython_debug/
 
 # Used for VS Code Test Explorer
 Pipfile
+
+
+# Claude
+.claude/
