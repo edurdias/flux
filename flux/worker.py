@@ -240,7 +240,7 @@ class Worker:
                     f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
                 logger.debug(
-                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
+                    f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
                 )
             else:
                 logger.info(
@@ -289,7 +289,7 @@ class Worker:
                     f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
                 logger.debug(
-                    f"Failure details: {ctx.events[-1].message if ctx.events else 'No details'}",
+                    f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
                 )
             else:
                 logger.info(
