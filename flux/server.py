@@ -28,6 +28,10 @@ from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import to_json
 from flux.worker_registry import WorkerInfo
 from flux.worker_registry import WorkerRegistry
+from flux.schedule_manager import create_schedule_manager
+from flux.domain.schedule import schedule_factory
+from datetime import datetime, timezone
+from flux.models import ScheduledExecutionModel
 
 logger = get_logger(__name__)
 
@@ -75,14 +79,76 @@ class SecretResponse(BaseModel):
     value: Any | None = None
 
 
+class ScheduleRequest(BaseModel):
+    """Model for schedule creation/update requests"""
+
+    workflow_name: str
+    name: str
+    schedule_config: dict  # Schedule configuration (cron expression, interval, etc.)
+    description: str | None = None
+    input_data: Any | None = None
+
+
+class ScheduleResponse(BaseModel):
+    """Model for schedule responses"""
+
+    id: str
+    workflow_id: str
+    workflow_name: str
+    name: str
+    description: str | None
+    schedule_type: str
+    status: str
+    created_at: str
+    updated_at: str
+    last_run_at: str | None
+    next_run_at: str | None
+    run_count: int
+    failure_count: int
+
+
+class ScheduleUpdateRequest(BaseModel):
+    """Model for schedule update requests"""
+
+    schedule_config: dict | None = None
+    description: str | None = None
+    input_data: Any | None = None
+
+
+class ScheduleHistoryResponse(BaseModel):
+    """Model for schedule execution history responses"""
+
+    id: str
+    schedule_id: str
+    execution_id: str | None
+    scheduled_at: str
+    created_at: str
+    started_at: str | None
+    completed_at: str | None
+    status: str
+    error_message: str | None
+
+
 class Server:
     """
-    Server for managing workflows and tasks.
+    Server for managing workflows and tasks with integrated scheduler.
     """
 
     def __init__(self, host: str, port: int):
         self.host = host
         self.port = port
+
+        # Scheduler state
+        self.scheduler_task = None
+        self.scheduler_running = False
+        self._active_executions: set[str] = set()
+        self._execution_tasks: dict[str, asyncio.Task] = {}
+
+        # Scheduler config
+        config = Configuration.get().settings.scheduling
+        self.poll_interval = config.poll_interval
+        self.max_concurrent_executions = config.max_concurrent_executions
+        self.execution_timeout = config.execution_timeout
 
     def start(self):
         """
@@ -94,6 +160,10 @@ class Server:
         async def on_server_startup():
             logger.info("Flux server started successfully")
             logger.debug("Server is ready to accept connections")
+
+            # Start integrated scheduler
+            await self._start_scheduler()
+            logger.info(f"Scheduler started (poll_interval={self.poll_interval}s)")
 
         try:
             config = uvicorn.Config(
@@ -147,6 +217,286 @@ class Server:
         except importlib.metadata.PackageNotFoundError:
             return "Flux API"  # Default if package is not installed
 
+    # ===========================================
+    # Auto-Scheduling Helper
+    # ===========================================
+
+    def _auto_create_schedules_from_source(self, source: bytes, workflows: list):
+        """Auto-create schedules for workflows by executing source and extracting schedule from workflow objects"""
+        config = Configuration.get().settings.scheduling
+
+        if not config.auto_schedule_enabled:
+            logger.debug("Auto-scheduling disabled in configuration")
+            return
+
+        try:
+            module_globals: dict[str, Any] = {}
+            exec(source, module_globals)
+
+            schedule_manager = create_schedule_manager()
+
+            for workflow_info in workflows:
+                workflow_obj = None
+
+                for obj in module_globals.values():
+                    if (
+                        hasattr(obj, "name")
+                        and hasattr(obj, "schedule")
+                        and obj.name == workflow_info.name
+                    ):
+                        workflow_obj = obj
+                        break
+
+                if workflow_obj is None or workflow_obj.schedule is None:
+                    continue
+
+                schedule_name = f"{workflow_info.name}{config.auto_schedule_suffix}"
+
+                try:
+                    existing_schedules = schedule_manager.list_schedules(
+                        workflow_id=workflow_info.name,
+                        active_only=False,
+                    )
+                    existing = next(
+                        (s for s in existing_schedules if s.name == schedule_name),
+                        None,
+                    )
+
+                    if existing:
+                        schedule_manager.update_schedule(
+                            schedule_id=existing.id,
+                            schedule=workflow_obj.schedule,
+                            description="Auto-created from workflow decorator",
+                        )
+                        logger.info(
+                            f"Updated auto-schedule '{schedule_name}' for workflow '{workflow_info.name}'",
+                        )
+                    else:
+                        schedule_manager.create_schedule(
+                            workflow_id=workflow_info.name,
+                            workflow_name=workflow_info.name,
+                            name=schedule_name,
+                            schedule=workflow_obj.schedule,
+                            description="Auto-created from workflow decorator",
+                            input_data=None,
+                        )
+                        logger.info(
+                            f"Created auto-schedule '{schedule_name}' for workflow '{workflow_info.name}'",
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        f"Failed to auto-create schedule for workflow '{workflow_info.name}': {str(e)}",
+                        exc_info=True,
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to execute workflow source for schedule extraction: {str(e)}",
+                exc_info=True,
+            )
+
+    # ===========================================
+    # Integrated Scheduler Methods
+    # ===========================================
+
+    async def _start_scheduler(self):
+        """Start the integrated scheduler background task"""
+        if self.scheduler_running:
+            return
+
+        self.scheduler_running = True
+        self.scheduler_task = asyncio.create_task(self._scheduler_loop())
+        logger.info("Integrated scheduler started")
+
+    async def _stop_scheduler(self):
+        """Stop the integrated scheduler"""
+        if not self.scheduler_running:
+            return
+
+        self.scheduler_running = False
+        if self.scheduler_task:
+            self.scheduler_task.cancel()
+            try:
+                await self.scheduler_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Integrated scheduler stopped")
+
+    async def _scheduler_loop(self):
+        """Main scheduler loop - checks for due schedules periodically"""
+        schedule_manager = create_schedule_manager()
+
+        try:
+            while self.scheduler_running:
+                try:
+                    await asyncio.sleep(self.poll_interval)
+
+                    # Clean up completed executions
+                    await self._cleanup_completed_tasks()
+
+                    # Check capacity
+                    if len(self._active_executions) >= self.max_concurrent_executions:
+                        logger.debug(
+                            f"Max concurrent executions ({self.max_concurrent_executions}) reached",
+                        )
+                        continue
+
+                    # Get due schedules
+                    current_time = datetime.now(timezone.utc)
+                    available_slots = self.max_concurrent_executions - len(self._active_executions)
+                    due_schedules = schedule_manager.get_due_schedules(
+                        current_time=current_time,
+                        limit=available_slots,
+                    )
+
+                    if due_schedules:
+                        logger.info(f"Found {len(due_schedules)} due schedule(s)")
+
+                    # Execute each due schedule
+                    for schedule in due_schedules:
+                        try:
+                            await self._execute_scheduled_workflow(schedule, current_time)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to execute schedule '{schedule.name}': {str(e)}",
+                                exc_info=True,
+                            )
+                            schedule.mark_failure()
+
+                except Exception as e:
+                    logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
+
+        except asyncio.CancelledError:
+            logger.info("Scheduler loop cancelled")
+        finally:
+            await self._cleanup_all_tasks()
+
+    async def _execute_scheduled_workflow(self, schedule, scheduled_time: datetime):
+        """Execute a scheduled workflow via internal API"""
+        logger.info(
+            f"Executing scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
+        )
+
+        # Create scheduled execution record
+        scheduled_execution = create_schedule_manager().create_scheduled_execution(
+            schedule=schedule,
+            scheduled_at=scheduled_time,
+        )
+
+        try:
+            # Get workflow from catalog
+            workflow = WorkflowCatalog.create().get(schedule.workflow_name)
+            if not workflow:
+                raise Exception(f"Workflow '{schedule.workflow_name}' not found")
+
+            # Create execution context (PENDING state)
+            ctx = ContextManager.create().save(
+                ExecutionContext(
+                    workflow_id=workflow.id,
+                    workflow_name=workflow.name,
+                    input=schedule.input_data,
+                    requests=workflow.requests,
+                ),
+            )
+
+            # Mark scheduled execution as started
+            scheduled_execution.mark_started(ctx.execution_id)
+
+            # Update schedule
+            schedule.mark_run(scheduled_time)
+
+            # Track execution
+            self._active_executions.add(ctx.execution_id)
+
+            # Create monitoring task
+            task = asyncio.create_task(
+                self._monitor_execution(ctx.execution_id, scheduled_execution),
+            )
+            self._execution_tasks[ctx.execution_id] = task
+
+            logger.info(
+                f"Created execution '{ctx.execution_id}' for '{schedule.workflow_name}' - "
+                f"waiting for worker to claim",
+            )
+
+        except Exception as e:
+            scheduled_execution.mark_failed(str(e))
+            schedule.mark_failure()
+            logger.error(f"Failed to execute scheduled workflow: {str(e)}", exc_info=True)
+
+    async def _monitor_execution(
+        self,
+        execution_id: str,
+        scheduled_execution: ScheduledExecutionModel,
+    ):
+        """Monitor a scheduled execution until completion"""
+        context_manager = ContextManager.create()
+        start_time = datetime.now(timezone.utc)
+
+        try:
+            while True:
+                # Check timeout
+                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+                if elapsed > self.execution_timeout:
+                    logger.warning(f"Execution {execution_id} timed out after {elapsed:.1f}s")
+                    scheduled_execution.mark_failed("Execution timeout")
+                    break
+
+                # Check execution status
+                try:
+                    ctx = context_manager.get(execution_id)
+
+                    if ctx.has_succeeded:
+                        scheduled_execution.mark_completed()
+                        logger.info(f"Scheduled execution {execution_id} completed successfully")
+                        break
+                    elif ctx.has_failed:
+                        error_msg = str(ctx.output) if ctx.output else "Unknown error"
+                        scheduled_execution.mark_failed(error_msg)
+                        logger.error(f"Scheduled execution {execution_id} failed: {error_msg}")
+                        break
+                    elif ctx.is_cancelled:
+                        scheduled_execution.mark_failed("Execution was cancelled")
+                        logger.info(f"Scheduled execution {execution_id} was cancelled")
+                        break
+
+                    # Still running, wait before checking again
+                    await asyncio.sleep(1)
+
+                except Exception as e:
+                    logger.error(f"Error checking execution status: {str(e)}")
+                    await asyncio.sleep(1)
+
+        except asyncio.CancelledError:
+            logger.debug(f"Monitoring cancelled for execution {execution_id}")
+        finally:
+            self._active_executions.discard(execution_id)
+            self._execution_tasks.pop(execution_id, None)
+
+    async def _cleanup_completed_tasks(self):
+        """Clean up completed monitoring tasks"""
+        completed = [exec_id for exec_id, task in self._execution_tasks.items() if task.done()]
+        for exec_id in completed:
+            self._execution_tasks.pop(exec_id, None)
+            self._active_executions.discard(exec_id)
+
+    async def _cleanup_all_tasks(self):
+        """Clean up all monitoring tasks"""
+        for task in self._execution_tasks.values():
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._execution_tasks.clear()
+        self._active_executions.clear()
+
+    # ===========================================
+    # End Scheduler Methods
+    # ===========================================
+
     def _create_api(self) -> FastAPI:
         api = FastAPI(
             title="Flux",
@@ -176,6 +526,9 @@ class Server:
                 workflows = catalog.parse(source)
                 result = catalog.save(workflows)
                 logger.debug(f"Saved workflows: {[w.name for w in workflows]}")
+
+                self._auto_create_schedules_from_source(source, workflows)
+
                 return result
             except SyntaxError as e:
                 logger.error(f"Syntax error while saving workflow: {str(e)}")
@@ -742,6 +1095,275 @@ class Server:
             except Exception as ex:
                 logger.error(f"Admin API: Error in admin_delete_secret for '{name}': {str(ex)}")
                 raise HTTPException(status_code=500, detail=str(ex))
+
+        # Scheduling API
+        def _schedule_model_to_response(schedule) -> ScheduleResponse:
+            """Convert ScheduleModel to ScheduleResponse"""
+            return ScheduleResponse(
+                id=schedule.id,
+                workflow_id=schedule.workflow_id,
+                workflow_name=schedule.workflow_name,
+                name=schedule.name,
+                description=schedule.description,
+                schedule_type=schedule.schedule_type.value,
+                status=schedule.status.value,
+                created_at=schedule.created_at.isoformat(),
+                updated_at=schedule.updated_at.isoformat(),
+                last_run_at=schedule.last_run_at.isoformat() if schedule.last_run_at else None,
+                next_run_at=schedule.next_run_at.isoformat() if schedule.next_run_at else None,
+                run_count=schedule.run_count,
+                failure_count=schedule.failure_count,
+            )
+
+        def _execution_model_to_history_response(execution) -> ScheduleHistoryResponse:
+            """Convert ScheduledExecutionModel to ScheduleHistoryResponse"""
+            return ScheduleHistoryResponse(
+                id=execution.id,
+                schedule_id=execution.schedule_id,
+                execution_id=execution.execution_id,
+                scheduled_at=execution.scheduled_at.isoformat(),
+                created_at=execution.created_at.isoformat(),
+                started_at=execution.started_at.isoformat() if execution.started_at else None,
+                completed_at=execution.completed_at.isoformat() if execution.completed_at else None,
+                status=execution.status,
+                error_message=execution.error_message,
+            )
+
+        @api.post("/schedules", response_model=ScheduleResponse)
+        async def create_schedule(request: ScheduleRequest):
+            """Create a new schedule for a workflow"""
+            try:
+                logger.info(
+                    f"Creating schedule '{request.name}' for workflow '{request.workflow_name}'",
+                )
+
+                # Get workflow from catalog to ensure it exists
+                catalog = WorkflowCatalog.create()
+                workflow_def = catalog.get(request.workflow_name)
+                if not workflow_def:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{request.workflow_name}' not found",
+                    )
+
+                # Create schedule from configuration
+                schedule = schedule_factory(request.schedule_config)
+
+                # Create schedule via manager
+                schedule_manager = create_schedule_manager()
+                schedule_model = schedule_manager.create_schedule(
+                    workflow_id=workflow_def.id,
+                    workflow_name=request.workflow_name,
+                    name=request.name,
+                    schedule=schedule,
+                    description=request.description,
+                    input_data=request.input_data,
+                )
+
+                logger.info(
+                    f"Successfully created schedule '{request.name}' with ID '{schedule_model.id}'",
+                )
+                return _schedule_model_to_response(schedule_model)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error creating schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error creating schedule: {str(e)}")
+
+        @api.get("/schedules", response_model=list[ScheduleResponse])
+        async def list_schedules(
+            workflow_name: str | None = None,
+            active_only: bool = True,
+            limit: int | None = None,
+            offset: int | None = None,
+        ):
+            """List all schedules, optionally filtered by workflow with pagination support"""
+            try:
+                logger.debug(
+                    f"Listing schedules (workflow: {workflow_name}, active_only: {active_only}, "
+                    f"limit: {limit}, offset: {offset})",
+                )
+
+                schedule_manager = create_schedule_manager()
+
+                if workflow_name:
+                    # Get workflow to get its ID
+                    catalog = WorkflowCatalog.create()
+                    workflow_def = catalog.get(workflow_name)
+                    if not workflow_def:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Workflow '{workflow_name}' not found",
+                        )
+
+                    schedules = schedule_manager.list_schedules(
+                        workflow_id=workflow_def.id,
+                        active_only=active_only,
+                        limit=limit,
+                        offset=offset,
+                    )
+                else:
+                    schedules = schedule_manager.list_schedules(
+                        active_only=active_only,
+                        limit=limit,
+                        offset=offset,
+                    )
+
+                result = [_schedule_model_to_response(s) for s in schedules]
+                logger.debug(f"Found {len(result)} schedules")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing schedules: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error listing schedules: {str(e)}")
+
+        @api.get("/schedules/{schedule_id}", response_model=ScheduleResponse)
+        async def get_schedule(schedule_id: str):
+            """Get a specific schedule by ID"""
+            try:
+                logger.debug(f"Getting schedule '{schedule_id}'")
+
+                schedule_manager = create_schedule_manager()
+                schedule = schedule_manager.get_schedule(schedule_id)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                return _schedule_model_to_response(schedule)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error getting schedule: {str(e)}")
+
+        @api.put("/schedules/{schedule_id}", response_model=ScheduleResponse)
+        async def update_schedule(schedule_id: str, request: ScheduleUpdateRequest):
+            """Update an existing schedule"""
+            try:
+                logger.info(f"Updating schedule '{schedule_id}'")
+
+                schedule_manager = create_schedule_manager()
+
+                # Build update parameters
+                schedule_param = None
+                if request.schedule_config is not None:
+                    schedule_param = schedule_factory(request.schedule_config)
+
+                schedule = schedule_manager.update_schedule(
+                    schedule_id,
+                    schedule=schedule_param,
+                    description=request.description,
+                    input_data=request.input_data,
+                )
+
+                logger.info(f"Successfully updated schedule '{schedule_id}'")
+                return _schedule_model_to_response(schedule)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error updating schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error updating schedule: {str(e)}")
+
+        @api.post("/schedules/{schedule_id}/pause", response_model=ScheduleResponse)
+        async def pause_schedule(schedule_id: str):
+            """Pause a schedule"""
+            try:
+                logger.info(f"Pausing schedule '{schedule_id}'")
+
+                schedule_manager = create_schedule_manager()
+                schedule = schedule_manager.pause_schedule(schedule_id)
+
+                logger.info(f"Successfully paused schedule '{schedule_id}'")
+                return _schedule_model_to_response(schedule)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error pausing schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error pausing schedule: {str(e)}")
+
+        @api.post("/schedules/{schedule_id}/resume", response_model=ScheduleResponse)
+        async def resume_schedule(schedule_id: str):
+            """Resume a paused schedule"""
+            try:
+                logger.info(f"Resuming schedule '{schedule_id}'")
+
+                schedule_manager = create_schedule_manager()
+                schedule = schedule_manager.resume_schedule(schedule_id)
+
+                logger.info(f"Successfully resumed schedule '{schedule_id}'")
+                return _schedule_model_to_response(schedule)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error resuming schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error resuming schedule: {str(e)}")
+
+        @api.delete("/schedules/{schedule_id}")
+        async def delete_schedule(schedule_id: str):
+            """Delete a schedule"""
+            try:
+                logger.info(f"Deleting schedule '{schedule_id}'")
+
+                schedule_manager = create_schedule_manager()
+                success = schedule_manager.delete_schedule(schedule_id)
+
+                if not success:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                logger.info(f"Successfully deleted schedule '{schedule_id}'")
+                return {
+                    "status": "success",
+                    "message": f"Schedule '{schedule_id}' deleted successfully",
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error deleting schedule: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error deleting schedule: {str(e)}")
+
+        @api.get("/schedules/{schedule_id}/history", response_model=list[ScheduleHistoryResponse])
+        async def get_schedule_history(schedule_id: str, limit: int = 50):
+            """Get execution history for a schedule"""
+            try:
+                logger.debug(f"Getting history for schedule '{schedule_id}' (limit: {limit})")
+
+                schedule_manager = create_schedule_manager()
+
+                # Verify schedule exists
+                schedule = schedule_manager.get_schedule(schedule_id)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                history = schedule_manager.get_schedule_history(schedule_id, limit)
+                result = [_execution_model_to_history_response(h) for h in history]
+
+                logger.debug(f"Found {len(result)} history entries for schedule '{schedule_id}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting schedule history: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error getting schedule history: {str(e)}",
+                )
 
         return api
 

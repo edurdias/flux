@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 
@@ -380,6 +380,390 @@ def mcp(
     from flux.mcp_server import MCPServer
 
     MCPServer(name, host, port, server_url, transport).start()
+
+
+@cli.group()
+def schedule():
+    """Manage workflow schedules."""
+    pass
+
+
+@schedule.command("create")
+@click.argument("workflow_name")
+@click.argument("schedule_name")
+@click.option(
+    "--cron",
+    "-c",
+    default=None,
+    help="Cron expression (e.g., '0 9 * * MON-FRI' for 9 AM weekdays)",
+)
+@click.option(
+    "--interval-hours",
+    default=None,
+    type=int,
+    help="Interval in hours",
+)
+@click.option(
+    "--interval-minutes",
+    default=None,
+    type=int,
+    help="Interval in minutes",
+)
+@click.option(
+    "--timezone",
+    "-tz",
+    default="UTC",
+    help="Timezone for the schedule (default: UTC)",
+)
+@click.option(
+    "--description",
+    "-d",
+    default=None,
+    help="Description of the schedule",
+)
+@click.option(
+    "--input",
+    "-i",
+    default=None,
+    help="Input data for scheduled workflow executions (JSON format)",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def create_schedule(
+    workflow_name: str,
+    schedule_name: str,
+    cron: str | None,
+    interval_hours: int | None,
+    interval_minutes: int | None,
+    timezone: str,
+    description: str | None,
+    input: str | None,
+    server_url: str | None,
+):
+    """Create a new schedule for a workflow."""
+    try:
+        # Validate schedule parameters
+        if not cron and not interval_hours and not interval_minutes:
+            click.echo("Error: Must specify either --cron or --interval-* options", err=True)
+            return
+
+        if cron and (interval_hours or interval_minutes):
+            click.echo("Error: Cannot specify both cron and interval options", err=True)
+            return
+
+        # Build schedule config
+        if cron:
+            schedule_config: dict[str, Any] = {
+                "type": "cron",
+                "cron_expression": cron,
+                "timezone": timezone,
+            }
+        else:
+            schedule_config = {
+                "type": "interval",
+                "interval_seconds": (interval_hours or 0) * 3600 + (interval_minutes or 0) * 60,
+                "timezone": timezone,
+            }
+
+        # Parse input if provided
+        input_data = None
+        if input:
+            input_data = parse_value(input)
+
+        # Prepare request
+        request_data = {
+            "workflow_name": workflow_name,
+            "name": schedule_name,
+            "schedule_config": schedule_config,
+            "description": description,
+            "input_data": input_data,
+        }
+
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(f"{base_url}/schedules", json=request_data)
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(
+            f"Successfully created schedule '{schedule_name}' for workflow '{workflow_name}'",
+        )
+        click.echo(f"Schedule ID: {result['id']}")
+        click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
+
+    except Exception as ex:
+        click.echo(f"Error creating schedule: {str(ex)}", err=True)
+
+
+@schedule.command("list")
+@click.option(
+    "--workflow",
+    "-w",
+    default=None,
+    help="Filter by workflow name",
+)
+@click.option(
+    "--all",
+    "-a",
+    "show_all",
+    is_flag=True,
+    help="Show all schedules including paused/disabled ones",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_schedules(workflow: str | None, show_all: bool, format: str, server_url: str | None):
+    """List all schedules."""
+    try:
+        base_url = server_url or get_server_url()
+        params: dict[str, Any] = {"active_only": not show_all}
+        if workflow:
+            params["workflow_name"] = workflow
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/schedules", params=params)
+            response.raise_for_status()
+            schedules = response.json()
+
+        if not schedules:
+            click.echo("No schedules found.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(schedules, indent=2))
+        else:
+            click.echo(f"Found {len(schedules)} schedule(s):")
+            click.echo()
+            for schedule in schedules:
+                status_indicator = "✓" if schedule["status"] == "active" else "⏸"
+                click.echo(f"{status_indicator} {schedule['name']} ({schedule['workflow_name']})")
+                click.echo(f"   Type: {schedule['schedule_type']} | Status: {schedule['status']}")
+                click.echo(f"   Next run: {schedule.get('next_run_at', 'Not scheduled')}")
+                click.echo(
+                    f"   Runs: {schedule['run_count']} | Failures: {schedule['failure_count']}",
+                )
+                if schedule.get("description"):
+                    click.echo(f"   Description: {schedule['description']}")
+                click.echo()
+
+    except Exception as ex:
+        click.echo(f"Error listing schedules: {str(ex)}", err=True)
+
+
+@schedule.command("show")
+@click.argument("schedule_id")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def show_schedule(schedule_id: str, server_url: str | None):
+    """Show details of a specific schedule."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/schedules/{schedule_id}")
+            response.raise_for_status()
+            schedule = response.json()
+
+        click.echo(f"\nSchedule: {schedule['name']}")
+        click.echo(f"ID: {schedule['id']}")
+        click.echo(f"Workflow: {schedule['workflow_name']}")
+        click.echo(f"Type: {schedule['schedule_type']}")
+        click.echo(f"Status: {schedule['status']}")
+        click.echo(f"Created: {schedule['created_at']}")
+        click.echo(f"Updated: {schedule['updated_at']}")
+        click.echo(f"Last run: {schedule.get('last_run_at', 'Never')}")
+        click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
+        click.echo(f"Total runs: {schedule['run_count']}")
+        click.echo(f"Failures: {schedule['failure_count']}")
+
+        if schedule.get("description"):
+            click.echo(f"Description: {schedule['description']}")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Schedule '{schedule_id}' not found.", err=True)
+        else:
+            click.echo(f"Error showing schedule: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing schedule: {str(ex)}", err=True)
+
+
+@schedule.command("pause")
+@click.argument("schedule_id")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def pause_schedule(schedule_id: str, server_url: str | None):
+    """Pause a schedule."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(f"{base_url}/schedules/{schedule_id}/pause")
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(f"Successfully paused schedule '{result['name']}'")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Schedule '{schedule_id}' not found.", err=True)
+        else:
+            click.echo(f"Error pausing schedule: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error pausing schedule: {str(ex)}", err=True)
+
+
+@schedule.command("resume")
+@click.argument("schedule_id")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def resume_schedule(schedule_id: str, server_url: str | None):
+    """Resume a paused schedule."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(f"{base_url}/schedules/{schedule_id}/resume")
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(f"Successfully resumed schedule '{result['name']}'")
+        click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Schedule '{schedule_id}' not found.", err=True)
+        else:
+            click.echo(f"Error resuming schedule: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error resuming schedule: {str(ex)}", err=True)
+
+
+@schedule.command("delete")
+@click.argument("schedule_id")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+@click.confirmation_option(prompt="Are you sure you want to delete this schedule?")
+def delete_schedule(schedule_id: str, server_url: str | None):
+    """Delete a schedule."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.delete(f"{base_url}/schedules/{schedule_id}")
+            response.raise_for_status()
+
+        click.echo(f"Successfully deleted schedule '{schedule_id}'")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Schedule '{schedule_id}' not found.", err=True)
+        else:
+            click.echo(f"Error deleting schedule: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error deleting schedule: {str(ex)}", err=True)
+
+
+@schedule.command("history")
+@click.argument("schedule_id")
+@click.option(
+    "--limit",
+    "-l",
+    default=10,
+    type=int,
+    help="Number of history entries to show (default: 10)",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def schedule_history(schedule_id: str, limit: int, format: str, server_url: str | None):
+    """Show execution history for a schedule."""
+    try:
+        base_url = server_url or get_server_url()
+        params = {"limit": limit}
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/schedules/{schedule_id}/history", params=params)
+            response.raise_for_status()
+            history = response.json()
+
+        if not history:
+            click.echo("No execution history found.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(history, indent=2))
+        else:
+            click.echo(f"Execution history for schedule '{schedule_id}':")
+            click.echo()
+            for entry in history:
+                status_icon = (
+                    "✓"
+                    if entry["status"] == "completed"
+                    else "✗"
+                    if entry["status"] == "failed"
+                    else "⏸"
+                )
+                click.echo(f"{status_icon} {entry['scheduled_at']} - {entry['status'].upper()}")
+
+                if entry.get("execution_id"):
+                    click.echo(f"   Execution ID: {entry['execution_id']}")
+                if entry.get("started_at"):
+                    click.echo(f"   Started: {entry['started_at']}")
+                if entry.get("completed_at"):
+                    click.echo(f"   Completed: {entry['completed_at']}")
+                if entry.get("error_message"):
+                    click.echo(f"   Error: {entry['error_message']}")
+                click.echo()
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Schedule '{schedule_id}' not found.", err=True)
+        else:
+            click.echo(f"Error getting schedule history: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error getting schedule history: {str(ex)}", err=True)
 
 
 @cli.group()

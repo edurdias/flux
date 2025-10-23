@@ -64,6 +64,39 @@ class EncryptionConfig(BaseConfig):
     )
 
 
+class SchedulingConfig(BaseConfig):
+    """Configuration for workflow scheduling."""
+
+    poll_interval: float = Field(
+        default=30.0,
+        description="Interval in seconds between scheduler polls for due schedules",
+    )
+    max_concurrent_executions: int = Field(
+        default=10,
+        description="Maximum number of concurrent scheduled workflow executions",
+    )
+    execution_timeout: float = Field(
+        default=3600.0,
+        description="Maximum execution time in seconds for scheduled workflows",
+    )
+    schedule_check_tolerance: float = Field(
+        default=1.0,
+        description="Time tolerance in seconds for cron schedule matching",
+    )
+    once_schedule_tolerance: float = Field(
+        default=60.0,
+        description="Time tolerance in seconds for one-time schedule matching",
+    )
+    auto_schedule_enabled: bool = Field(
+        default=True,
+        description="Enable automatic schedule creation from workflow decorator",
+    )
+    auto_schedule_suffix: str = Field(
+        default="_auto",
+        description="Suffix for auto-created schedule names",
+    )
+
+
 class FluxConfig(BaseSettings):
     """Main configuration class for Flux framework."""
 
@@ -121,6 +154,7 @@ class FluxConfig(BaseSettings):
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:

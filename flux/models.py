@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -17,6 +17,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
+from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import PickleType
 from sqlalchemy import String
@@ -36,6 +37,7 @@ from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
 from flux.domain.resource_request import ResourceRequest
+from flux.domain.schedule import Schedule, ScheduleStatus, ScheduleType
 from flux.errors import PostgreSQLConnectionError
 
 
@@ -561,3 +563,187 @@ class ExecutionEventModel(Base):
             time=obj.time,
             value=obj.value,
         )
+
+
+class ScheduleModel(Base):
+    """Database model for storing workflow schedules"""
+
+    __tablename__ = "schedules"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
+    workflow_name = Column(String, nullable=False)
+    name = Column(String, nullable=False)  # Human-readable schedule name
+    description = Column(String, nullable=True)
+
+    # Schedule configuration stored as serialized dict
+    schedule_config = Column(Base64Type(), nullable=False)  # Stores Schedule object
+    schedule_type = Column(SqlEnum(ScheduleType), nullable=False)
+    status = Column(SqlEnum(ScheduleStatus), nullable=False, default=ScheduleStatus.ACTIVE)
+
+    # Metadata
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+
+    # Optional input for scheduled executions
+    input_data = Column(PickleType(pickler=dill), nullable=True)
+
+    # Statistics
+    run_count = Column(Integer, nullable=False, default=0)
+    failure_count = Column(Integer, nullable=False, default=0)
+
+    # Relationships
+    workflow = relationship("WorkflowModel", backref="schedules")
+    executions = relationship(
+        "ScheduledExecutionModel",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+        order_by="desc(ScheduledExecutionModel.created_at)",
+    )
+
+    # Unique constraint and indexes for performance
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "name", name="uix_schedule_workflow_name"),
+        Index("idx_schedule_workflow_id", "workflow_id"),
+        Index("idx_schedule_status", "status"),
+        Index("idx_schedule_next_run_at", "next_run_at"),
+        Index("idx_schedule_status_next_run", "status", "next_run_at"),
+    )
+
+    def __init__(
+        self,
+        workflow_id: str,
+        workflow_name: str,
+        name: str,
+        schedule: Schedule,
+        description: str | None = None,
+        input_data: Any = None,
+        status: ScheduleStatus = ScheduleStatus.ACTIVE,
+    ):
+        self.workflow_id = workflow_id
+        self.workflow_name = workflow_name
+        self.name = name
+        self.description = description
+        self.schedule_config = schedule
+        self.schedule_type = ScheduleType(schedule.to_dict()["type"])
+        self.status = status
+        self.input_data = input_data
+        self.next_run_at = schedule.next_run_time()
+
+    def get_schedule(self) -> Schedule:
+        """Get the Schedule object from stored configuration"""
+        return self.schedule_config
+
+    def update_next_run(self):
+        """Update the next run time based on the schedule"""
+        schedule = self.get_schedule()
+        self.next_run_at = schedule.next_run_time()
+
+    def is_due(self, current_time: datetime | None = None) -> bool:
+        """Check if the schedule is due to run"""
+        if self.status != ScheduleStatus.ACTIVE:
+            return False
+
+        if current_time is None:
+            current_time = datetime.now(timezone.utc)
+
+        if self.next_run_at is None:
+            return False
+
+        return current_time >= self.next_run_at
+
+    def mark_run(self, run_time: datetime | None = None):
+        """Mark that the schedule was executed"""
+        if run_time is None:
+            run_time = datetime.now(timezone.utc)
+
+        self.last_run_at = run_time
+        self.run_count += 1
+
+        # Sync the embedded schedule object state for IntervalSchedule
+        schedule = self.get_schedule()
+        from flux.domain.schedule import IntervalSchedule
+
+        if isinstance(schedule, IntervalSchedule):
+            schedule.mark_run(run_time)
+            # Re-serialize the updated schedule
+            self.schedule_config = schedule
+
+        self.update_next_run()
+
+    def mark_failure(self):
+        """Mark that the schedule execution failed"""
+        self.failure_count += 1
+
+
+class ScheduledExecutionModel(Base):
+    """Database model for tracking scheduled workflow executions"""
+
+    __tablename__ = "scheduled_executions"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    schedule_id = Column(String, ForeignKey("schedules.id"), nullable=False)
+    execution_id = Column(String, ForeignKey("executions.execution_id"), nullable=True)
+
+    # Execution details
+    scheduled_at = Column(DateTime, nullable=False)  # When it was supposed to run
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )  # When execution was created
+    started_at = Column(DateTime, nullable=True)  # When execution actually started
+    completed_at = Column(DateTime, nullable=True)  # When execution finished
+
+    # Status and result
+    status = Column(
+        String,
+        nullable=False,
+        default="scheduled",
+    )  # scheduled, running, completed, failed, skipped
+    error_message = Column(String, nullable=True)
+
+    # Relationships
+    schedule = relationship("ScheduleModel", back_populates="executions")
+    execution = relationship("ExecutionContextModel", backref="scheduled_execution", uselist=False)
+
+    def __init__(
+        self,
+        schedule_id: str,
+        scheduled_at: datetime,
+        execution_id: str | None = None,
+        status: str = "scheduled",
+    ):
+        self.schedule_id = schedule_id
+        self.scheduled_at = scheduled_at
+        self.execution_id = execution_id
+        self.status = status
+
+    def mark_started(self, execution_id: str):
+        """Mark the scheduled execution as started"""
+        self.execution_id = execution_id
+        self.started_at = datetime.now(timezone.utc)
+        self.status = "running"
+
+    def mark_completed(self):
+        """Mark the scheduled execution as completed"""
+        self.completed_at = datetime.now(timezone.utc)
+        self.status = "completed"
+
+    def mark_failed(self, error_message: str | None = None):
+        """Mark the scheduled execution as failed"""
+        self.completed_at = datetime.now(timezone.utc)
+        self.status = "failed"
+        self.error_message = error_message
+
+    def mark_skipped(self, reason: str | None = None):
+        """Mark the scheduled execution as skipped"""
+        self.status = "skipped"
+        self.error_message = reason

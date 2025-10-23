@@ -2,7 +2,7 @@
 
 Flux is a distributed workflow orchestration engine written in Python that enables building stateful and fault-tolerant workflows. It provides an intuitive async programming model for creating complex, reliable distributed applications with built-in support for state management, error handling, and execution control.
 
-**Current Version**: 0.4.3
+**Current Version**: 0.6.0
 
 ## Key Features
 
@@ -45,6 +45,15 @@ Flux is a distributed workflow orchestration engine written in Python that enabl
 - **Dynamic Workflows**: Modify workflow behavior based on runtime conditions
 - **Workflow Cancellation**: Cancel running workflows gracefully with proper cleanup
 - **Pause and Resume**: Create workflow pause points with input data for human approval or external triggers
+
+### Scheduling
+- **Auto-scheduling**: Workflows automatically create schedules when registered
+- **Cron Scheduling**: Full cron expression support with timezone awareness
+- **Interval Scheduling**: Execute workflows at regular intervals (minutes, hours, days)
+- **One-time Scheduling**: Schedule workflows to run once at a specific time
+- **Schedule Management**: Pause, resume, modify, and delete schedules via CLI or API
+- **Integrated Scheduler**: Built-in scheduler daemon runs within the server process
+- **Execution History**: Track scheduled executions with detailed history and failure tracking
 
 ### Error Handling & Recovery
 - **Automatic Retries**: Configurable retry policies with exponential backoff
@@ -170,6 +179,50 @@ async def map_workflow(ctx: ExecutionContext[list[str]]):
     return results
 ```
 
+### 5. Scheduled Workflows
+
+Define workflows that run automatically on a schedule:
+
+```python
+from flux import workflow, task, cron, interval, ExecutionContext
+
+@task
+async def generate_daily_report(date: str):
+    return f"Report generated for {date}"
+
+# Workflow with cron schedule - runs weekdays at 9 AM UTC
+@workflow.with_options(
+    name="daily_report",
+    schedule=cron("0 9 * * MON-FRI", timezone="UTC")
+)
+async def daily_report_workflow(ctx: ExecutionContext):
+    result = await generate_daily_report("today")
+    return {"report": result}
+
+# Workflow with interval schedule - runs every 6 hours
+@workflow.with_options(
+    name="data_sync",
+    schedule=interval(hours=6, timezone="UTC")
+)
+async def data_sync_workflow(ctx: ExecutionContext):
+    # Sync data logic
+    return {"status": "synced"}
+```
+
+When you register these workflows, schedules are created automatically:
+
+```bash
+# Register workflow - schedule is auto-created
+flux workflow register my_workflows.py
+
+# View schedules
+flux schedule list
+
+# The auto-created schedules will be named:
+# - daily_report_auto
+# - data_sync_auto
+```
+
 ## CLI Commands
 
 Flux provides a comprehensive command-line interface for workflow management:
@@ -201,7 +254,7 @@ flux workflow status my_workflow execution_id --detailed
 
 ### Server & Worker Management
 ```bash
-# Start the Flux server
+# Start the Flux server (includes integrated scheduler)
 flux start server
 flux start server --host 0.0.0.0 --port 8080
 
@@ -212,6 +265,37 @@ flux start worker worker-name --server-url http://server:8000
 # Start MCP server
 flux start mcp
 flux start mcp --host localhost --port 8080 --transport sse
+```
+
+### Schedule Management
+```bash
+# List all schedules
+flux schedule list
+flux schedule list --format json
+
+# Show schedule details
+flux schedule show <schedule-id>
+
+# Create a cron schedule
+flux schedule create my_workflow daily_report \
+  --cron "0 9 * * MON-FRI" \
+  --timezone "UTC" \
+  --description "Daily business report"
+
+# Create an interval schedule
+flux schedule create my_workflow hourly_sync \
+  --interval-hours 1 \
+  --description "Hourly data sync"
+
+# Pause/resume schedules
+flux schedule pause <schedule-id>
+flux schedule resume <schedule-id>
+
+# View execution history
+flux schedule history <schedule-id> --limit 20
+
+# Delete a schedule
+flux schedule delete <schedule-id>
 ```
 
 ### Secret Management
@@ -278,6 +362,41 @@ Authorization: Bearer {session_token}
 # Send execution checkpoint
 POST /workers/{name}/checkpoint/{execution_id}
 Authorization: Bearer {session_token}
+```
+
+### Schedule Endpoints
+```bash
+# List all schedules
+GET /schedules?workflow_id={workflow_id}&active_only=true
+
+# Get schedule details
+GET /schedules/{schedule_id}
+
+# Create a schedule
+POST /schedules
+Content-Type: application/json
+{
+  "workflow_name": "my_workflow",
+  "name": "schedule_name",
+  "schedule_config": {
+    "type": "cron",
+    "cron_expression": "0 9 * * MON-FRI",
+    "timezone": "UTC"
+  },
+  "description": "Schedule description"
+}
+
+# Pause a schedule
+POST /schedules/{schedule_id}/pause
+
+# Resume a schedule
+POST /schedules/{schedule_id}/resume
+
+# Delete a schedule
+DELETE /schedules/{schedule_id}
+
+# Get schedule execution history
+GET /schedules/{schedule_id}/history?limit=50
 ```
 
 ### Admin Endpoints
@@ -571,6 +690,12 @@ host = "localhost"
 port = 8080
 server_url = "http://localhost:8000"
 transport = "sse"
+
+[flux.scheduling]
+auto_schedule_enabled = true
+auto_schedule_suffix = "_auto"
+poll_interval = 30.0
+max_concurrent_executions = 10
 ```
 
 ### Environment Variables
@@ -596,6 +721,12 @@ export FLUX_SECURITY__ENCRYPTION_KEY=your-secret-key
 export FLUX_MCP__HOST=0.0.0.0
 export FLUX_MCP__PORT=8080
 export FLUX_MCP__TRANSPORT=streamable-http
+
+# Scheduling settings
+export FLUX_SCHEDULING__AUTO_SCHEDULE_ENABLED=true
+export FLUX_SCHEDULING__AUTO_SCHEDULE_SUFFIX=_auto
+export FLUX_SCHEDULING__POLL_INTERVAL=30.0
+export FLUX_SCHEDULING__MAX_CONCURRENT_EXECUTIONS=10
 ```
 
 ### Programmatic Configuration
@@ -650,6 +781,15 @@ config.reset()
 - `host` - MCP server host
 - `port` - MCP server port
 - `transport` - Transport protocol: "stdio", "streamable-http", "sse"
+
+**Scheduling Settings:**
+- `auto_schedule_enabled` - Enable automatic schedule creation (default: true)
+- `auto_schedule_suffix` - Suffix for auto-created schedule names (default: "_auto")
+- `poll_interval` - Scheduler poll interval in seconds (default: 30.0)
+- `max_concurrent_executions` - Max concurrent scheduled executions (default: 10)
+- `execution_timeout` - Max execution time for scheduled workflows (default: 3600.0)
+- `schedule_check_tolerance` - Time tolerance for cron matching (default: 1.0)
+- `once_schedule_tolerance` - Time tolerance for one-time schedules (default: 60.0)
 
 ## Distributed Architecture
 

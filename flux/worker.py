@@ -329,30 +329,33 @@ class Worker:
         exec(source_code, module.__dict__)
 
         ctx = request.context
-        if request.workflow.name in module.__dict__:
-            wfunc = module.__dict__[request.workflow.name]
-            logger.debug(f"Found workflow function: {request.workflow.name}")
 
-            if isinstance(wfunc, workflow):
-                logger.debug(f"Executing workflow: {request.workflow.name}")
-                task = asyncio.create_task(wfunc(request.context))
-                logger.debug(f"Added async task for workflow execution: {request.workflow.name}")
-                self._running_workflows[ctx.execution_id] = task
-                start_time = asyncio.get_event_loop().time()
-                logger.debug(f"Workflow execution started: {request.workflow.name}")
-                try:
-                    ctx = await task
-                finally:
-                    self._running_workflows.pop(request.context.execution_id, None)
-                    logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
+        # Find the workflow by searching for a workflow object with matching name
+        wfunc = None
+        for obj in module.__dict__.values():
+            if isinstance(obj, workflow) and obj.name == request.workflow.name:
+                wfunc = obj
+                break
 
-                execution_time = asyncio.get_event_loop().time() - start_time
-                logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
-            else:
-                logger.debug(f"Found {request.workflow.name} but it is not a workflow decorator")
+        if wfunc:
+            logger.debug(f"Found workflow: {request.workflow.name}")
+            logger.debug(f"Executing workflow: {request.workflow.name}")
+            task = asyncio.create_task(wfunc(request.context))
+            logger.debug(f"Added async task for workflow execution: {request.workflow.name}")
+            self._running_workflows[ctx.execution_id] = task
+            start_time = asyncio.get_event_loop().time()
+            logger.debug(f"Workflow execution started: {request.workflow.name}")
+            try:
+                ctx = await task
+            finally:
+                self._running_workflows.pop(request.context.execution_id, None)
+                logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
+
+            execution_time = asyncio.get_event_loop().time() - start_time
+            logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
         else:
-            logger.warning(f"Workflow function {request.workflow.name} not found in module")
-            raise WorkflowNotFoundError(f"Workflow function {request.workflow.name} not found")
+            logger.warning(f"Workflow {request.workflow.name} not found in module")
+            raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
 
         return ctx
 

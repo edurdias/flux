@@ -20,6 +20,8 @@ from flux.secret_managers import *
 from flux.tasks import *
 from flux.catalogs import *
 from flux.context_managers import *
+from flux.domain.schedule import cron, interval, once, Schedule, ScheduleType, ScheduleStatus
+from flux.schedule_manager import create_schedule_manager
 
 logger = get_logger("flux")
 
@@ -31,4 +33,11 @@ __all__ = [
     "ExecutionState",
     "ExecutionEventType",
     "ExecutionContext",
+    "cron",
+    "interval",
+    "once",
+    "Schedule",
+    "ScheduleType",
+    "ScheduleStatus",
+    "create_schedule_manager",
 ]
