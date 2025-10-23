@@ -275,6 +275,29 @@ class Server:
             )
 
     # ===========================================
+    # Internal Execution Helper
+    # ===========================================
+
+    def _create_execution(self, workflow_name: str, input_data: Any = None) -> ExecutionContext:
+        """
+        Internal method to create a workflow execution.
+        This is used by both the HTTP API and the scheduler.
+        """
+        workflow = WorkflowCatalog.create().get(workflow_name)
+        if not workflow:
+            raise WorkflowNotFoundError(f"Workflow '{workflow_name}' not found")
+
+        ctx = ContextManager.create().save(
+            ExecutionContext(
+                workflow_id=workflow.id,
+                workflow_name=workflow.name,
+                input=input_data,
+                requests=workflow.requests,
+            ),
+        )
+        return ctx
+
+    # ===========================================
     # Integrated Scheduler Methods
     # ===========================================
 
@@ -317,13 +340,13 @@ class Server:
                     if due_schedules:
                         logger.info(f"Found {len(due_schedules)} due schedule(s)")
 
-                    # Execute each due schedule
+                    # Trigger each due schedule
                     for schedule in due_schedules:
                         try:
-                            await self._execute_scheduled_workflow(schedule, current_time)
+                            self._trigger_scheduled_workflow(schedule, current_time)
                         except Exception as e:
                             logger.error(
-                                f"Failed to execute schedule '{schedule.name}': {str(e)}",
+                                f"Failed to trigger schedule '{schedule.name}': {str(e)}",
                                 exc_info=True,
                             )
                             schedule.mark_failure()
@@ -334,39 +357,30 @@ class Server:
         except asyncio.CancelledError:
             logger.info("Scheduler loop cancelled")
 
-    async def _execute_scheduled_workflow(self, schedule, scheduled_time: datetime):
-        """Execute a scheduled workflow via internal API"""
+    def _trigger_scheduled_workflow(self, schedule, scheduled_time: datetime):
+        """
+        Trigger a scheduled workflow execution.
+        Simple trigger-and-forget pattern - creates execution and lets workers handle it.
+        """
         logger.info(
-            f"Executing scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
+            f"Triggering scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
         )
 
         try:
-            # Get workflow from catalog
-            workflow = WorkflowCatalog.create().get(schedule.workflow_name)
-            if not workflow:
-                raise Exception(f"Workflow '{schedule.workflow_name}' not found")
+            # Use the common execution creation method
+            ctx = self._create_execution(schedule.workflow_name, schedule.input_data)
 
-            # Create execution context (PENDING state) - worker will pick it up
-            ctx = ContextManager.create().save(
-                ExecutionContext(
-                    workflow_id=workflow.id,
-                    workflow_name=workflow.name,
-                    input=schedule.input_data,
-                    requests=workflow.requests,
-                ),
-            )
-
-            # Update schedule
+            # Update schedule tracking
             schedule.mark_run(scheduled_time)
 
             logger.info(
-                f"Created execution '{ctx.execution_id}' for '{schedule.workflow_name}' - "
-                f"waiting for worker to claim",
+                f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",
             )
 
         except Exception as e:
             schedule.mark_failure()
-            logger.error(f"Failed to execute scheduled workflow: {str(e)}", exc_info=True)
+            logger.error(f"Failed to trigger scheduled workflow: {str(e)}", exc_info=True)
+            raise
 
     # ===========================================
     # End Scheduler Methods
@@ -460,15 +474,9 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
-                workflow = WorkflowCatalog.create().get(workflow_name)
+                # Use internal method to create execution
+                ctx = self._create_execution(workflow_name, input)
                 manager = ContextManager.create()
-                ctx = manager.save(
-                    ExecutionContext(
-                        workflow_id=workflow.id,
-                        workflow_name=workflow.name,
-                        input=input,
-                    ),
-                )
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
