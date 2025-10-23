@@ -601,12 +601,6 @@ class ScheduleModel(Base):
 
     # Relationships
     workflow = relationship("WorkflowModel", backref="schedules")
-    executions = relationship(
-        "ScheduledExecutionModel",
-        back_populates="schedule",
-        cascade="all, delete-orphan",
-        order_by="desc(ScheduledExecutionModel.created_at)",
-    )
 
     # Unique constraint and indexes for performance
     __table_args__ = (
@@ -681,69 +675,3 @@ class ScheduleModel(Base):
     def mark_failure(self):
         """Mark that the schedule execution failed"""
         self.failure_count += 1
-
-
-class ScheduledExecutionModel(Base):
-    """Database model for tracking scheduled workflow executions"""
-
-    __tablename__ = "scheduled_executions"
-
-    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
-    schedule_id = Column(String, ForeignKey("schedules.id"), nullable=False)
-    execution_id = Column(String, ForeignKey("executions.execution_id"), nullable=True)
-
-    # Execution details
-    scheduled_at = Column(DateTime, nullable=False)  # When it was supposed to run
-    created_at = Column(
-        DateTime,
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )  # When execution was created
-    started_at = Column(DateTime, nullable=True)  # When execution actually started
-    completed_at = Column(DateTime, nullable=True)  # When execution finished
-
-    # Status and result
-    status = Column(
-        String,
-        nullable=False,
-        default="scheduled",
-    )  # scheduled, running, completed, failed, skipped
-    error_message = Column(String, nullable=True)
-
-    # Relationships
-    schedule = relationship("ScheduleModel", back_populates="executions")
-    execution = relationship("ExecutionContextModel", backref="scheduled_execution", uselist=False)
-
-    def __init__(
-        self,
-        schedule_id: str,
-        scheduled_at: datetime,
-        execution_id: str | None = None,
-        status: str = "scheduled",
-    ):
-        self.schedule_id = schedule_id
-        self.scheduled_at = scheduled_at
-        self.execution_id = execution_id
-        self.status = status
-
-    def mark_started(self, execution_id: str):
-        """Mark the scheduled execution as started"""
-        self.execution_id = execution_id
-        self.started_at = datetime.now(timezone.utc)
-        self.status = "running"
-
-    def mark_completed(self):
-        """Mark the scheduled execution as completed"""
-        self.completed_at = datetime.now(timezone.utc)
-        self.status = "completed"
-
-    def mark_failed(self, error_message: str | None = None):
-        """Mark the scheduled execution as failed"""
-        self.completed_at = datetime.now(timezone.utc)
-        self.status = "failed"
-        self.error_message = error_message
-
-    def mark_skipped(self, reason: str | None = None):
-        """Mark the scheduled execution as skipped"""
-        self.status = "skipped"
-        self.error_message = reason

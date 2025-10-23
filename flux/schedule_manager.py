@@ -6,7 +6,7 @@ from typing import Any
 
 
 from flux.domain.schedule import Schedule
-from flux.models import ScheduleModel, ScheduledExecutionModel, RepositoryFactory
+from flux.models import ScheduleModel, RepositoryFactory
 from flux.errors import ExecutionError
 
 
@@ -87,24 +87,6 @@ class ScheduleManager(ABC):
         limit: int | None = None,
     ) -> list[ScheduleModel]:
         """Get schedules that are due to run"""
-        pass
-
-    @abstractmethod
-    def create_scheduled_execution(
-        self,
-        schedule: ScheduleModel,
-        scheduled_at: datetime,
-    ) -> ScheduledExecutionModel:
-        """Create a scheduled execution record"""
-        pass
-
-    @abstractmethod
-    def get_schedule_history(
-        self,
-        schedule_id: str,
-        limit: int = 50,
-    ) -> list[ScheduledExecutionModel]:
-        """Get execution history for a schedule"""
         pass
 
 
@@ -343,46 +325,6 @@ class DatabaseScheduleManager(ScheduleManager):
 
         except Exception as e:
             raise ScheduleManagerError(f"Failed to get due schedules: {str(e)}", e)
-
-    def create_scheduled_execution(
-        self,
-        schedule: ScheduleModel,
-        scheduled_at: datetime,
-    ) -> ScheduledExecutionModel:
-        """Create a scheduled execution record"""
-        try:
-            with self._repository.session() as session:
-                scheduled_execution = ScheduledExecutionModel(
-                    schedule_id=schedule.id,
-                    scheduled_at=scheduled_at,
-                )
-
-                session.add(scheduled_execution)
-                session.commit()
-                session.refresh(scheduled_execution)
-                return scheduled_execution
-
-        except Exception as e:
-            raise ScheduleManagerError(f"Failed to create scheduled execution: {str(e)}", e)
-
-    def get_schedule_history(
-        self,
-        schedule_id: str,
-        limit: int = 50,
-    ) -> list[ScheduledExecutionModel]:
-        """Get execution history for a schedule"""
-        try:
-            with self._repository.session() as session:
-                return (
-                    session.query(ScheduledExecutionModel)
-                    .filter(ScheduledExecutionModel.schedule_id == schedule_id)
-                    .order_by(ScheduledExecutionModel.created_at.desc())
-                    .limit(limit)
-                    .all()
-                )
-
-        except Exception as e:
-            raise ScheduleManagerError(f"Failed to get schedule history: {str(e)}", e)
 
     def health_check(self) -> bool:
         """Check database connectivity"""

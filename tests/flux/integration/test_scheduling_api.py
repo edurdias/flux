@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flux.domain.schedule import CronSchedule, IntervalSchedule, ScheduleStatus, ScheduleType
-from flux.models import ScheduleModel, ScheduledExecutionModel
+from flux.models import ScheduleModel
 from flux.server import Server
 
 
@@ -54,22 +54,6 @@ def mock_schedule_model():
     schedule.run_count = 0
     schedule.failure_count = 0
     return schedule
-
-
-@pytest.fixture
-def mock_execution_model():
-    """Mock scheduled execution model."""
-    execution = MagicMock(spec=ScheduledExecutionModel)
-    execution.id = "execution-123"
-    execution.schedule_id = "schedule-123"
-    execution.execution_id = "exec-456"
-    execution.scheduled_at = datetime.now(timezone.utc)
-    execution.created_at = datetime.now(timezone.utc)
-    execution.started_at = datetime.now(timezone.utc)
-    execution.completed_at = None
-    execution.status = "running"
-    execution.error_message = None
-    return execution
 
 
 class TestSchedulingAPICreate:
@@ -456,84 +440,6 @@ class TestSchedulingAPIDelete:
 
         # Make request
         response = test_client.delete("/schedules/nonexistent")
-
-        # Verify response
-        assert response.status_code == 404
-        assert "not found" in response.text.lower()
-
-
-class TestSchedulingAPIHistory:
-    """Tests for schedule history endpoint."""
-
-    @patch("flux.server.create_schedule_manager")
-    def test_get_schedule_history_success(
-        self,
-        mock_manager_create,
-        test_client,
-        mock_schedule_model,
-        mock_execution_model,
-    ):
-        """Test getting schedule execution history."""
-        # Setup mocks
-        mock_manager = MagicMock()
-        mock_manager.get_schedule.return_value = mock_schedule_model
-        mock_manager.get_schedule_history.return_value = [mock_execution_model]
-        mock_manager_create.return_value = mock_manager
-
-        # Make request
-        response = test_client.get("/schedules/schedule-123/history")
-
-        # Verify response
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["id"] == "execution-123"
-        assert data[0]["schedule_id"] == "schedule-123"
-        assert data[0]["execution_id"] == "exec-456"
-        assert data[0]["status"] == "running"
-
-        # Verify mocks were called
-        mock_manager.get_schedule.assert_called_once_with("schedule-123")
-        mock_manager.get_schedule_history.assert_called_once_with("schedule-123", 50)
-
-    @patch("flux.server.create_schedule_manager")
-    def test_get_schedule_history_with_limit(
-        self,
-        mock_manager_create,
-        test_client,
-        mock_schedule_model,
-        mock_execution_model,
-    ):
-        """Test getting schedule history with custom limit."""
-        # Setup mocks
-        mock_manager = MagicMock()
-        mock_manager.get_schedule.return_value = mock_schedule_model
-        mock_manager.get_schedule_history.return_value = [mock_execution_model]
-        mock_manager_create.return_value = mock_manager
-
-        # Make request
-        response = test_client.get("/schedules/schedule-123/history?limit=10")
-
-        # Verify response
-        assert response.status_code == 200
-
-        # Verify mock was called with custom limit
-        mock_manager.get_schedule_history.assert_called_once_with("schedule-123", 10)
-
-    @patch("flux.server.create_schedule_manager")
-    def test_get_schedule_history_schedule_not_found(
-        self,
-        mock_manager_create,
-        test_client,
-    ):
-        """Test getting history for non-existent schedule."""
-        # Setup mocks
-        mock_manager = MagicMock()
-        mock_manager.get_schedule.return_value = None
-        mock_manager_create.return_value = mock_manager
-
-        # Make request
-        response = test_client.get("/schedules/nonexistent/history")
 
         # Verify response
         assert response.status_code == 404

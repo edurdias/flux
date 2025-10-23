@@ -32,7 +32,6 @@ from flux.worker_registry import WorkerRegistry
 from flux.schedule_manager import create_schedule_manager
 from flux.domain.schedule import schedule_factory
 from datetime import datetime, timezone
-from flux.models import ScheduledExecutionModel
 
 logger = get_logger(__name__)
 
@@ -116,20 +115,6 @@ class ScheduleUpdateRequest(BaseModel):
     input_data: Any | None = None
 
 
-class ScheduleHistoryResponse(BaseModel):
-    """Model for schedule execution history responses"""
-
-    id: str
-    schedule_id: str
-    execution_id: str | None
-    scheduled_at: str
-    created_at: str
-    started_at: str | None
-    completed_at: str | None
-    status: str
-    error_message: str | None
-
-
 class Server:
     """
     Server for managing workflows and tasks with integrated scheduler.
@@ -142,14 +127,10 @@ class Server:
         # Scheduler state
         self.scheduler_task = None
         self.scheduler_running = False
-        self._active_executions: set[str] = set()
-        self._execution_tasks: dict[str, asyncio.Task] = {}
 
         # Scheduler config
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
-        self.max_concurrent_executions = config.max_concurrent_executions
-        self.execution_timeout = config.execution_timeout
 
     def start(self):
         """
@@ -329,23 +310,9 @@ class Server:
                 try:
                     await asyncio.sleep(self.poll_interval)
 
-                    # Clean up completed executions
-                    await self._cleanup_completed_tasks()
-
-                    # Check capacity
-                    if len(self._active_executions) >= self.max_concurrent_executions:
-                        logger.debug(
-                            f"Max concurrent executions ({self.max_concurrent_executions}) reached",
-                        )
-                        continue
-
                     # Get due schedules
                     current_time = datetime.now(timezone.utc)
-                    available_slots = self.max_concurrent_executions - len(self._active_executions)
-                    due_schedules = schedule_manager.get_due_schedules(
-                        current_time=current_time,
-                        limit=available_slots,
-                    )
+                    due_schedules = schedule_manager.get_due_schedules(current_time=current_time)
 
                     if due_schedules:
                         logger.info(f"Found {len(due_schedules)} due schedule(s)")
@@ -366,19 +333,11 @@ class Server:
 
         except asyncio.CancelledError:
             logger.info("Scheduler loop cancelled")
-        finally:
-            await self._cleanup_all_tasks()
 
     async def _execute_scheduled_workflow(self, schedule, scheduled_time: datetime):
         """Execute a scheduled workflow via internal API"""
         logger.info(
             f"Executing scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
-        )
-
-        # Create scheduled execution record
-        scheduled_execution = create_schedule_manager().create_scheduled_execution(
-            schedule=schedule,
-            scheduled_at=scheduled_time,
         )
 
         try:
@@ -387,7 +346,7 @@ class Server:
             if not workflow:
                 raise Exception(f"Workflow '{schedule.workflow_name}' not found")
 
-            # Create execution context (PENDING state)
+            # Create execution context (PENDING state) - worker will pick it up
             ctx = ContextManager.create().save(
                 ExecutionContext(
                     workflow_id=workflow.id,
@@ -397,20 +356,8 @@ class Server:
                 ),
             )
 
-            # Mark scheduled execution as started
-            scheduled_execution.mark_started(ctx.execution_id)
-
             # Update schedule
             schedule.mark_run(scheduled_time)
-
-            # Track execution
-            self._active_executions.add(ctx.execution_id)
-
-            # Create monitoring task
-            task = asyncio.create_task(
-                self._monitor_execution(ctx.execution_id, scheduled_execution),
-            )
-            self._execution_tasks[ctx.execution_id] = task
 
             logger.info(
                 f"Created execution '{ctx.execution_id}' for '{schedule.workflow_name}' - "
@@ -418,89 +365,8 @@ class Server:
             )
 
         except Exception as e:
-            scheduled_execution.mark_failed(str(e))
             schedule.mark_failure()
             logger.error(f"Failed to execute scheduled workflow: {str(e)}", exc_info=True)
-
-    async def _monitor_execution(
-        self,
-        execution_id: str,
-        scheduled_execution: ScheduledExecutionModel,
-    ):
-        """Monitor a scheduled execution until completion"""
-        context_manager = ContextManager.create()
-        start_time = datetime.now(timezone.utc)
-
-        try:
-            while True:
-                # Check timeout
-                elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-                if elapsed > self.execution_timeout:
-                    logger.warning(f"Execution {execution_id} timed out after {elapsed:.1f}s")
-                    # Attempt to cancel the execution to avoid orphaned workflows consuming resources
-                    try:
-                        ctx = context_manager.get(execution_id)
-                        if not ctx.has_finished:
-                            ctx.start_cancel()
-                            context_manager.save(ctx)
-                            logger.info(
-                                f"Cancellation requested for timed-out execution {execution_id}",
-                            )
-                    except Exception as cancel_exc:
-                        logger.error(f"Failed to cancel execution {execution_id}: {cancel_exc}")
-
-                    scheduled_execution.mark_failed("Execution timeout")
-                    break
-
-                # Check execution status
-                try:
-                    ctx = context_manager.get(execution_id)
-
-                    if ctx.has_succeeded:
-                        scheduled_execution.mark_completed()
-                        logger.info(f"Scheduled execution {execution_id} completed successfully")
-                        break
-                    elif ctx.has_failed:
-                        error_msg = str(ctx.output) if ctx.output else "Unknown error"
-                        scheduled_execution.mark_failed(error_msg)
-                        logger.error(f"Scheduled execution {execution_id} failed: {error_msg}")
-                        break
-                    elif ctx.is_cancelled:
-                        scheduled_execution.mark_failed("Execution was cancelled")
-                        logger.info(f"Scheduled execution {execution_id} was cancelled")
-                        break
-
-                    # Still running, wait before checking again
-                    await asyncio.sleep(1)
-
-                except Exception as e:
-                    logger.error(f"Error checking execution status: {str(e)}")
-                    await asyncio.sleep(1)
-
-        except asyncio.CancelledError:
-            logger.debug(f"Monitoring cancelled for execution {execution_id}")
-        finally:
-            self._active_executions.discard(execution_id)
-            self._execution_tasks.pop(execution_id, None)
-
-    async def _cleanup_completed_tasks(self):
-        """Clean up completed monitoring tasks"""
-        completed = [exec_id for exec_id, task in self._execution_tasks.items() if task.done()]
-        for exec_id in completed:
-            self._execution_tasks.pop(exec_id, None)
-            self._active_executions.discard(exec_id)
-
-    async def _cleanup_all_tasks(self):
-        """Clean up all monitoring tasks"""
-        for task in self._execution_tasks.values():
-            if not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        self._execution_tasks.clear()
-        self._active_executions.clear()
 
     # ===========================================
     # End Scheduler Methods
@@ -1124,20 +990,6 @@ class Server:
                 failure_count=schedule.failure_count,
             )
 
-        def _execution_model_to_history_response(execution) -> ScheduleHistoryResponse:
-            """Convert ScheduledExecutionModel to ScheduleHistoryResponse"""
-            return ScheduleHistoryResponse(
-                id=execution.id,
-                schedule_id=execution.schedule_id,
-                execution_id=execution.execution_id,
-                scheduled_at=execution.scheduled_at.isoformat(),
-                created_at=execution.created_at.isoformat(),
-                started_at=execution.started_at.isoformat() if execution.started_at else None,
-                completed_at=execution.completed_at.isoformat() if execution.completed_at else None,
-                status=execution.status,
-                error_message=execution.error_message,
-            )
-
         @api.post("/schedules", response_model=ScheduleResponse)
         async def create_schedule(request: ScheduleRequest):
             """Create a new schedule for a workflow"""
@@ -1342,37 +1194,6 @@ class Server:
             except Exception as e:
                 logger.error(f"Error deleting schedule: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error deleting schedule: {str(e)}")
-
-        @api.get("/schedules/{schedule_id}/history", response_model=list[ScheduleHistoryResponse])
-        async def get_schedule_history(schedule_id: str, limit: int = 50):
-            """Get execution history for a schedule"""
-            try:
-                logger.debug(f"Getting history for schedule '{schedule_id}' (limit: {limit})")
-
-                schedule_manager = create_schedule_manager()
-
-                # Verify schedule exists
-                schedule = schedule_manager.get_schedule(schedule_id)
-                if not schedule:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Schedule '{schedule_id}' not found",
-                    )
-
-                history = schedule_manager.get_schedule_history(schedule_id, limit)
-                result = [_execution_model_to_history_response(h) for h in history]
-
-                logger.debug(f"Found {len(result)} history entries for schedule '{schedule_id}'")
-                return result
-
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.error(f"Error getting schedule history: {str(e)}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error getting schedule history: {str(e)}",
-                )
 
         return api
 

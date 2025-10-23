@@ -71,14 +71,6 @@ class SchedulingConfig(BaseConfig):
         default=30.0,
         description="Interval in seconds between scheduler polls for due schedules",
     )
-    max_concurrent_executions: int = Field(
-        default=10,
-        description="Maximum number of concurrent scheduled workflow executions",
-    )
-    execution_timeout: float = Field(
-        default=3600.0,
-        description="Maximum execution time in seconds for scheduled workflows",
-    )
     schedule_check_tolerance: float = Field(
         default=1.0,
         description="Time tolerance in seconds for cron schedule matching",
