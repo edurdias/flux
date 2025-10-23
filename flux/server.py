@@ -437,10 +437,18 @@ class Server:
                 elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 if elapsed > self.execution_timeout:
                     logger.warning(f"Execution {execution_id} timed out after {elapsed:.1f}s")
-                    # Note: The scheduled execution is marked as failed, but the actual workflow
-                    # execution continues running on the worker. This is expected behavior as
-                    # execution cancellation is not yet supported. The workflow will eventually
-                    # complete or fail on its own.
+                    # Attempt to cancel the execution to avoid orphaned workflows consuming resources
+                    try:
+                        ctx = context_manager.get(execution_id)
+                        if not ctx.has_finished:
+                            ctx.start_cancel()
+                            context_manager.save(ctx)
+                            logger.info(
+                                f"Cancellation requested for timed-out execution {execution_id}",
+                            )
+                    except Exception as cancel_exc:
+                        logger.error(f"Failed to cancel execution {execution_id}: {cancel_exc}")
+
                     scheduled_execution.mark_failed("Execution timeout")
                     break
 
