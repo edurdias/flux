@@ -10,13 +10,13 @@ from __future__ import annotations
 from flux import ExecutionContext, cron, interval
 from flux.task import task
 from flux.workflow import workflow
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @task
 async def generate_report(data: str):
     """Generate a report with the given data"""
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     return f"Report generated at {timestamp}: {data}"
 
 

@@ -19,6 +19,7 @@ from sse_starlette import EventSourceResponse
 from flux import ExecutionContext
 from flux.catalogs import WorkflowCatalog, WorkflowInfo
 from flux.config import Configuration
+from flux.workflow import workflow
 from flux.context_managers import ContextManager
 from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
 from flux.utils import get_logger
@@ -239,11 +240,7 @@ class Server:
                 workflow_obj = None
 
                 for obj in module_globals.values():
-                    if (
-                        hasattr(obj, "name")
-                        and hasattr(obj, "schedule")
-                        and obj.name == workflow_info.name
-                    ):
+                    if isinstance(obj, workflow) and obj.name == workflow_info.name:
                         workflow_obj = obj
                         break
 
@@ -440,6 +437,10 @@ class Server:
                 elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
                 if elapsed > self.execution_timeout:
                     logger.warning(f"Execution {execution_id} timed out after {elapsed:.1f}s")
+                    # Note: The scheduled execution is marked as failed, but the actual workflow
+                    # execution continues running on the worker. This is expected behavior as
+                    # execution cancellation is not yet supported. The workflow will eventually
+                    # complete or fail on its own.
                     scheduled_execution.mark_failed("Execution timeout")
                     break
 

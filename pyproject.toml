@@ -30,6 +30,7 @@ types-setuptools = "^80.7.0.20250516"
 fastmcp = "^2.5.1"
 psycopg2-binary = {version = "^2.9.0", optional = true}
 croniter = "^3.0.3"
+types-croniter = "^6.0.0.20250809"
 
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
@@ -50,7 +51,6 @@ mkdocs-material-extensions = "^1.3.1"
 mkdocstrings = {extras = ["python"], version = "^0.30.0"}
 ipykernel = "^6.29.5"
 poethepoet = "^0.34.0"
-types-croniter = "^6.0.0.20250809"
 
 [tool.poetry.scripts]
 flux = "flux.cli:cli"

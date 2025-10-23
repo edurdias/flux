@@ -576,8 +576,8 @@ class ScheduleModel(Base):
     name = Column(String, nullable=False)  # Human-readable schedule name
     description = Column(String, nullable=True)
 
-    # Schedule configuration stored as serialized dict
-    schedule_config = Column(Base64Type(), nullable=False)  # Stores Schedule object
+    # Schedule configuration stored as serialized (pickled and base64-encoded) Schedule object
+    schedule_config = Column(Base64Type(), nullable=False)  # Stores serialized Schedule object
     schedule_type = Column(SqlEnum(ScheduleType), nullable=False)
     status = Column(SqlEnum(ScheduleStatus), nullable=False, default=ScheduleStatus.ACTIVE)
 
