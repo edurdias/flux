@@ -6,6 +6,7 @@ Scheduled backup workflow that runs every 6 hours to backup critical data.
 """
 
 from flux import ExecutionContext, interval
+from flux.domain.schedule import IntervalSchedule
 from flux.task import task
 from flux.workflow import workflow
 from datetime import datetime, timezone
@@ -52,7 +53,7 @@ if __name__ == "__main__":
     print("Testing backup workflow...")
     result = backup_workflow.run("test_db")
     print(f"Backup result: {result.output}")
-    if backup_workflow.schedule and hasattr(backup_workflow.schedule, "interval"):
+    if isinstance(backup_workflow.schedule, IntervalSchedule):
         print(f"Schedule: Every {backup_workflow.schedule.interval}")
     else:
         print("Schedule: Not configured")

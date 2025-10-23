@@ -632,7 +632,7 @@ class ScheduleModel(Base):
         self.name = name
         self.description = description
         self.schedule_config = schedule
-        self.schedule_type = ScheduleType(schedule.to_dict()["type"])
+        self.schedule_type = schedule.type
         self.status = status
         self.input_data = input_data
         self.next_run_at = schedule.next_run_time()

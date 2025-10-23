@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sse_starlette import EventSourceResponse
 
 from flux import ExecutionContext
-from flux.catalogs import WorkflowCatalog
+from flux.catalogs import WorkflowCatalog, WorkflowInfo
 from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
@@ -221,7 +221,7 @@ class Server:
     # Auto-Scheduling Helper
     # ===========================================
 
-    def _auto_create_schedules_from_source(self, source: bytes, workflows: list):
+    def _auto_create_schedules_from_source(self, source: bytes, workflows: list[WorkflowInfo]):
         """Auto-create schedules for workflows by executing source and extracting schedule from workflow objects"""
         config = Configuration.get().settings.scheduling
 
@@ -254,7 +254,7 @@ class Server:
 
                 try:
                     existing_schedules = schedule_manager.list_schedules(
-                        workflow_id=workflow_info.name,
+                        workflow_id=workflow_info.id,
                         active_only=False,
                     )
                     existing = next(
@@ -273,7 +273,7 @@ class Server:
                         )
                     else:
                         schedule_manager.create_schedule(
-                            workflow_id=workflow_info.name,
+                            workflow_id=workflow_info.id,
                             workflow_name=workflow_info.name,
                             name=schedule_name,
                             schedule=workflow_obj.schedule,

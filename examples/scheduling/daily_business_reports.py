@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from flux import ExecutionContext, cron
+from flux.domain.schedule import CronSchedule, IntervalSchedule
 from flux.task import task
 from flux.workflow import workflow
 
@@ -226,9 +227,9 @@ if __name__ == "__main__":
     if schedule:
         print("\n⏰ Schedule Information:")
         print(f"   Type: {schedule.to_dict()['type']}")
-        if hasattr(schedule, "cron_expression"):
+        if isinstance(schedule, CronSchedule):
             print(f"   Expression: {schedule.cron_expression}")
-        elif hasattr(schedule, "interval"):
+        elif isinstance(schedule, IntervalSchedule):
             print(f"   Interval: {schedule.interval}")
         else:
             print("   Configuration: Custom schedule")

@@ -51,6 +51,12 @@ class Schedule(ABC):
 
         self.timezone = timezone
 
+    @property
+    @abstractmethod
+    def type(self) -> ScheduleType:
+        """Get the schedule type"""
+        pass
+
     @abstractmethod
     def next_run_time(self, base_time: datetime | None = None) -> datetime | None:
         """Get the next run time for this schedule
@@ -104,6 +110,14 @@ class CronSchedule(Schedule):
 
         self.cron_expression = cron_expression
 
+        # Cache tolerance from configuration
+        self._tolerance = Configuration.get().settings.scheduling.schedule_check_tolerance
+
+    @property
+    def type(self) -> ScheduleType:
+        """Get the schedule type"""
+        return ScheduleType.CRON
+
     def _is_valid_cron(self, expression: str) -> bool:
         """Validate cron expression format"""
         try:
@@ -128,10 +142,6 @@ class CronSchedule(Schedule):
     def should_run(self, current_time: datetime) -> bool:
         """Check if current time matches cron schedule"""
         try:
-            # Get tolerance from configuration
-            config = Configuration.get().settings.scheduling
-            tolerance = config.schedule_check_tolerance
-
             # Convert to timezone-aware datetime if needed
             if current_time.tzinfo is None:
                 tz = ZoneInfo(self.timezone)
@@ -144,8 +154,8 @@ class CronSchedule(Schedule):
 
             # Should run if we're exactly at a scheduled time (within configured tolerance)
             return (
-                abs((current_time - prev_time).total_seconds()) <= tolerance
-                or abs((current_time - next_time).total_seconds()) <= tolerance
+                abs((current_time - prev_time).total_seconds()) <= self._tolerance
+                or abs((current_time - next_time).total_seconds()) <= self._tolerance
             )
         except Exception:
             return False
@@ -211,6 +221,11 @@ class IntervalSchedule(Schedule):
 
         # Track the last scheduled time
         self.last_run_time: datetime | None = None
+
+    @property
+    def type(self) -> ScheduleType:
+        """Get the schedule type"""
+        return ScheduleType.INTERVAL
 
     def next_run_time(self, base_time: datetime | None = None) -> datetime | None:
         """Get next run time based on interval"""
@@ -294,6 +309,14 @@ class OnceSchedule(Schedule):
         self.run_time = run_time
         self.executed = False
 
+        # Cache tolerance from configuration
+        self._tolerance = Configuration.get().settings.scheduling.once_schedule_tolerance
+
+    @property
+    def type(self) -> ScheduleType:
+        """Get the schedule type"""
+        return ScheduleType.ONCE
+
     def next_run_time(self, base_time: datetime | None = None) -> datetime | None:
         """Get next run time (only if not executed yet)"""
         if self.executed:
@@ -316,10 +339,6 @@ class OnceSchedule(Schedule):
         if self.executed:
             return False
 
-        # Get tolerance from configuration
-        config = Configuration.get().settings.scheduling
-        tolerance = config.once_schedule_tolerance
-
         # Ensure both datetime objects have the same timezone awareness
         run_time = self.run_time
         if run_time.tzinfo is None and current_time.tzinfo is not None:
@@ -328,7 +347,7 @@ class OnceSchedule(Schedule):
             current_time = current_time.replace(tzinfo=timezone.utc)
 
         time_diff = abs((current_time - run_time).total_seconds())
-        return time_diff < tolerance
+        return time_diff < self._tolerance
 
     def mark_executed(self):
         """Mark the schedule as executed"""
