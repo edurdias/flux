@@ -29,6 +29,7 @@ class WorkflowInfo:
         source: bytes,
         version: int = 1,
         requests: ResourceRequest | None = None,
+        schedule: Any | None = None,
     ):
         self.id = id
         self.name = name
@@ -36,6 +37,7 @@ class WorkflowInfo:
         self.source = source
         self.version = version
         self.requests = requests
+        self.schedule = schedule
 
     def to_dict(self) -> dict[str, Any]:
         """

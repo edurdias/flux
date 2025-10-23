@@ -7,6 +7,7 @@ from flux.context_managers import ContextManager
 from flux.errors import PauseRequested
 from flux.output_storage import OutputStorage
 from flux.utils import maybe_awaitable
+from flux.domain.schedule import Schedule
 
 import asyncio
 from functools import wraps
@@ -22,6 +23,7 @@ class workflow:
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
+        schedule: Schedule | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -30,7 +32,8 @@ class workflow:
             name (str | None, optional): The name of the workflow. Defaults to None.
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
-            requests (WorkflowRequests | None, optional): The requests minimum resources, runtime and packages for the workflow. Defaults to None.
+            requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
+            schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
@@ -43,6 +46,7 @@ class workflow:
                 secret_requests=secret_requests,
                 output_storage=output_storage,
                 requests=requests,
+                schedule=schedule,
             )
 
         return wrapper
@@ -54,12 +58,14 @@ class workflow:
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
+        schedule: Schedule | None = None,
     ):
         self._func = func
         self._name = name if name else func.__name__
         self._secret_requests = secret_requests
         self._output_storage = output_storage
         self._requests = requests
+        self._schedule = schedule
         wraps(func)(self)
 
     @property
@@ -77,6 +83,10 @@ class workflow:
     @property
     def requests(self) -> ResourceRequest | None:
         return self._requests
+
+    @property
+    def schedule(self) -> Schedule | None:
+        return self._schedule
 
     async def __call__(self, ctx: ExecutionContext, *args) -> Any:
         if ctx.has_finished:

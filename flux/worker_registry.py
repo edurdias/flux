@@ -87,6 +87,10 @@ class WorkerRegistry(ABC):
     ) -> WorkerInfo:  # pragma: no cover
         raise NotImplementedError()
 
+    @abstractmethod
+    def list(self) -> list[WorkerInfo]:  # pragma: no cover
+        raise NotImplementedError()
+
     @staticmethod
     def create() -> WorkerRegistry:
         return SQLiteWorkerRegistry()
@@ -137,6 +141,14 @@ class SQLiteWorkerRegistry(WorkerRegistry):
             except Exception:  # pragma: no cover
                 session.rollback()
                 raise
+
+    def list(self) -> list[WorkerInfo]:
+        # Import here to avoid circular imports
+        from flux.models import WorkerModel
+
+        with self.session() as session:
+            workers = session.query(WorkerModel).all()
+            return [self._to_info(worker) for worker in workers]
 
     def _from_info(self, name, runtime, packages, resources):
         # Import here to avoid circular imports
