@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.6.0"
+version = "0.6.1"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -51,6 +51,9 @@ mkdocs-material-extensions = "^1.3.1"
 mkdocstrings = {extras = ["python"], version = "^0.30.0"}
 ipykernel = "^6.29.5"
 poethepoet = "^0.34.0"
+openai = "^2.6.0"
+anthropic = "^0.71.0"
+ollama = "^0.6.0"
 
 [tool.poetry.scripts]
 flux = "flux.cli:cli"
