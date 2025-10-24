@@ -19,7 +19,7 @@ Usage:
     flux workflow resume conversational_agent_anthropic <execution_id> '{"message": "Why does the sky turn red and orange during sunset?"}'
 
     # Use Claude 3.7 Sonnet (older version)
-    flux workflow run conversational_agent_anthropic '{"message": "What color would the sky be on Mars?", "model": "claude-sonnet-4-5-20250929"}'
+    flux workflow run conversational_agent_anthropic '{"message": "What color would the sky be on Mars?", "model": "claude-3-7-sonnet-20250219"}'
 """
 
 from __future__ import annotations
