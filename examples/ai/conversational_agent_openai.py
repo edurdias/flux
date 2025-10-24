@@ -1,5 +1,5 @@
 """
-Conversational AI Agent using OpenAI (GPT-4/GPT-3.5).
+Conversational AI Agent using OpenAI (GPT-4o).
 
 This example uses OpenAI's Chat Completions API for production-grade conversations.
 
