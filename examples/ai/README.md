@@ -89,9 +89,7 @@ flux workflow run conversational_agent_anthropic '{"message": "Why is the sky bl
 
 Build a fully local RAG system that answers questions based on your documentation.
 
-**Two workflows available:**
-- **Production pattern**: `rag_index_documents` + `rag_query_documents` (index once, query many)
-- **Simple pattern**: `rag_agent_ollama_simple` (index on every query)
+**Two-workflow pattern:** Index documents once with `rag_index_documents`, then query many times with `rag_query_documents`.
 
 ```bash
 # Install Ollama
@@ -107,7 +105,6 @@ ollama serve
 # Register the workflows
 flux workflow register examples/ai/rag_agent_ollama.py
 
-# PRODUCTION PATTERN (Recommended)
 # Step 1: Index documents once
 flux workflow run rag_index_documents '{
   "docs_path": "./examples/ai/docs",
@@ -125,13 +122,7 @@ flux workflow run rag_query_documents '{
   "query": "How does task caching work?"
 }'
 
-# SIMPLE PATTERN (For demos/testing)
-flux workflow run rag_agent_ollama_simple '{
-  "docs_path": "./examples/ai/docs",
-  "query": "What are Flux workflows?"
-}'
-
-# Or run the example directly (uses production pattern)
+# Or run the example directly
 python examples/ai/rag_agent_ollama.py
 ```
 
@@ -246,7 +237,6 @@ async def rag_query_documents(ctx: ExecutionContext):
 - **Source Attribution**: Each answer includes source documents
 - **Chunk Overlap**: Prevents context loss at chunk boundaries
 - **Fully Local**: All operations run on your machine (no external APIs)
-- **Simple Alternative**: `rag_agent_ollama_simple` for quick demos
 
 ## Configuration Options
 
@@ -291,7 +281,7 @@ All conversational agents support these configuration options:
 }
 ```
 
-**RAG Agent (Production Pattern):**
+**RAG Agent:**
 ```json
 // Indexing workflow
 {
@@ -307,20 +297,6 @@ All conversational agents support these configuration options:
 {
   "index_name": "my_docs",                 // Required: index to query
   "query": "Your question here",           // Required: question
-  "llm_model": "llama3",                   // Optional: LLM model
-  "top_k": 3,                              // Optional: chunks to retrieve
-  "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
-}
-```
-
-**RAG Agent (Simple Pattern):**
-```json
-{
-  "docs_path": "./path/to/docs",           // Required: path to docs
-  "query": "Your question here",           // Required: question
-  "chunk_size": 500,                       // Optional: chunk size
-  "overlap": 50,                           // Optional: chunk overlap
-  "embedding_model": "nomic-embed-text",   // Optional: embedding model
   "llm_model": "llama3",                   // Optional: LLM model
   "top_k": 3,                              // Optional: chunks to retrieve
   "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
