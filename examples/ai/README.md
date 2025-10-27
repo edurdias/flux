@@ -15,6 +15,14 @@ Stateful conversational agents that maintain context across multiple turns using
 | **conversational_agent_openai.py** | OpenAI GPT-4o | Production-ready, powerful models |
 | **conversational_agent_anthropic.py** | Anthropic Claude Sonnet 4.5 | Extended context, complex reasoning |
 
+### RAG (Retrieval Augmented Generation)
+
+AI agents enhanced with document retrieval for answering questions based on specific knowledge bases.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **rag_agent_ollama.py** | Fully local RAG with Ollama + FAISS | Documentation Q&A, knowledge bases, privacy-sensitive applications |
+
 ## Quick Start
 
 ### 1. Ollama (Local Development)
@@ -77,6 +85,56 @@ flux workflow run conversational_agent_anthropic '{"message": "Why is the sky bl
 flux workflow run conversational_agent_anthropic '{"message": "Why is the sky blue?", "model": "claude-3-7-sonnet-20250219"}'
 ```
 
+### 4. RAG Agent (Document Q&A)
+
+Build a fully local RAG system that answers questions based on your documentation.
+
+**Two workflows available:**
+- **Production pattern**: `rag_index_documents` + `rag_query_documents` (index once, query many)
+- **Simple pattern**: `rag_agent_ollama_simple` (index on every query)
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull required models
+ollama pull llama3
+ollama pull nomic-embed-text
+
+# Start Ollama service
+ollama serve
+
+# Register the workflows
+flux workflow register examples/ai/rag_agent_ollama.py
+
+# PRODUCTION PATTERN (Recommended)
+# Step 1: Index documents once
+flux workflow run rag_index_documents '{
+  "docs_path": "./examples/ai/docs",
+  "index_name": "my_docs"
+}'
+
+# Step 2: Query multiple times (reuses index - fast!)
+flux workflow run rag_query_documents '{
+  "index_name": "my_docs",
+  "query": "What are Flux workflows?"
+}'
+
+flux workflow run rag_query_documents '{
+  "index_name": "my_docs",
+  "query": "How does task caching work?"
+}'
+
+# SIMPLE PATTERN (For demos/testing)
+flux workflow run rag_agent_ollama_simple '{
+  "docs_path": "./examples/ai/docs",
+  "query": "What are Flux workflows?"
+}'
+
+# Or run the example directly (uses production pattern)
+python examples/ai/rag_agent_ollama.py
+```
+
 ## How It Works
 
 ### Stateful Conversations
@@ -128,6 +186,68 @@ async def conversational_agent(ctx: ExecutionContext):
 - Scale conversations horizontally
 - Load balancing built-in
 
+### RAG Architecture
+
+The RAG implementation uses a **two-workflow pattern** for production efficiency:
+
+**Workflow 1: Index Documents (rag_index_documents)**
+```python
+@workflow
+async def rag_index_documents(ctx: ExecutionContext):
+    # 1. Load documents from directory
+    documents = await load_markdown_documents(docs_path)
+
+    # 2. Split into chunks with overlap
+    chunks = await chunk_documents(documents, chunk_size=500, overlap=50)
+
+    # 3. Generate embeddings via Ollama
+    embeddings = await generate_embeddings(
+        texts=[c["content"] for c in chunks],
+        model="nomic-embed-text"
+    )
+
+    # 4. Build FAISS vector index
+    index = await build_faiss_index(embeddings)
+
+    # 5. Save to disk (~/.flux/rag_indexes/)
+    save_index_to_disk(index, chunks, metadata)
+
+    return {"status": "indexed", "num_chunks": len(chunks)}
+```
+
+**Workflow 2: Query Documents (rag_query_documents)**
+```python
+@workflow
+async def rag_query_documents(ctx: ExecutionContext):
+    # 1. Load index from disk
+    index, chunks, metadata = load_index_from_disk(index_name)
+
+    # 2. Generate query embedding
+    query_embedding = await generate_embeddings([query])
+
+    # 3. Retrieve top-k similar chunks
+    relevant_chunks = await retrieve_relevant_chunks(
+        query, index, chunks, top_k=3
+    )
+
+    # 4. Build context from chunks
+    context = format_context(relevant_chunks)
+
+    # 5. Generate answer with LLM
+    answer = await generate_rag_response(query, context, model="llama3")
+
+    return {"answer": answer, "sources": relevant_chunks}
+```
+
+**Key RAG Features:**
+- **Two-Workflow Pattern**: Index once, query many times (production-ready)
+- **Persistent Indexes**: Stored in `~/.flux/rag_indexes/` for reuse
+- **Semantic Search**: FAISS L2 distance for finding relevant content
+- **Source Attribution**: Each answer includes source documents
+- **Chunk Overlap**: Prevents context loss at chunk boundaries
+- **Fully Local**: All operations run on your machine (no external APIs)
+- **Simple Alternative**: `rag_agent_ollama_simple` for quick demos
+
 ## Configuration Options
 
 All conversational agents support these configuration options:
@@ -168,6 +288,42 @@ All conversational agents support these configuration options:
   "model": "claude-sonnet-4-5-20250929",  // or claude-3-7-sonnet-20250219
   "temperature": 1.0,
   "max_tokens": 1024
+}
+```
+
+**RAG Agent (Production Pattern):**
+```json
+// Indexing workflow
+{
+  "docs_path": "./path/to/docs",           // Required: path to docs
+  "index_name": "my_docs",                 // Required: unique index name
+  "chunk_size": 500,                       // Optional: chunk size
+  "overlap": 50,                           // Optional: chunk overlap
+  "embedding_model": "nomic-embed-text",   // Optional: embedding model
+  "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
+}
+
+// Query workflow
+{
+  "index_name": "my_docs",                 // Required: index to query
+  "query": "Your question here",           // Required: question
+  "llm_model": "llama3",                   // Optional: LLM model
+  "top_k": 3,                              // Optional: chunks to retrieve
+  "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
+}
+```
+
+**RAG Agent (Simple Pattern):**
+```json
+{
+  "docs_path": "./path/to/docs",           // Required: path to docs
+  "query": "Your question here",           // Required: question
+  "chunk_size": 500,                       // Optional: chunk size
+  "overlap": 50,                           // Optional: chunk overlap
+  "embedding_model": "nomic-embed-text",   // Optional: embedding model
+  "llm_model": "llama3",                   // Optional: LLM model
+  "top_k": 3,                              // Optional: chunks to retrieve
+  "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
 }
 ```
 
@@ -231,6 +387,34 @@ initial_input = {
     "max_turns": 15
 }
 ```
+
+### RAG Documentation Assistant
+```python
+# Ask questions about your documentation
+rag_input = {
+    "docs_path": "./docs",
+    "query": "How do I implement error handling in my workflows?",
+    "chunk_size": 500,
+    "overlap": 50,
+    "llm_model": "llama3",
+    "top_k": 3
+}
+```
+
+**RAG Use Cases:**
+- Internal documentation Q&A
+- Customer support knowledge bases
+- Technical documentation chatbots
+- Product manual assistants
+- Legal document search
+- Research paper analysis
+
+**Why RAG?**
+- Grounds LLM responses in factual documents
+- Reduces hallucinations with source attribution
+- Works with private/proprietary data
+- Updates easily (re-index documents)
+- Fully local with Ollama (no external APIs)
 
 ## Monitoring & Debugging
 
@@ -377,6 +561,53 @@ flux workflow status <workflow_name> <execution_id> --detailed
 # Look for "state": "PAUSED" in the output
 ```
 
+### RAG-Specific Issues
+
+**Embedding Model Not Found:**
+```bash
+# Pull the embedding model
+ollama pull nomic-embed-text
+
+# Verify it's available
+ollama list | grep nomic-embed-text
+```
+
+**No Documents Found:**
+```bash
+# Check directory exists and contains .md files
+ls -la examples/ai/docs/*.md
+
+# Verify path is correct (relative to where you run the command)
+pwd
+```
+
+**FAISS Import Error:**
+```bash
+# Install FAISS dependency
+poetry install
+
+# Or directly with pip
+pip install faiss-cpu
+```
+
+**Memory Issues with Large Document Sets:**
+- Reduce `chunk_size` (e.g., from 500 to 300)
+- Process fewer documents at once
+- Use smaller embedding model
+- Increase system memory allocation
+
+**Poor Retrieval Quality:**
+- Increase `top_k` to retrieve more chunks (e.g., 5 or 7)
+- Adjust `chunk_size` and `overlap` for better context
+- Try different embedding models (mxbai-embed-large)
+- Ensure documents are well-formatted markdown
+
+**Query Returns "No relevant information":**
+- Check if documents were indexed successfully
+- Verify query is related to document content
+- Increase `top_k` to cast a wider net
+- Review chunk content with detailed status
+
 ## Contributing
 
 Have ideas for new AI agent examples? Contributions are welcome!
@@ -392,3 +623,5 @@ Have ideas for new AI agent examples? Contributions are welcome!
 - [OpenAI API Docs](https://platform.openai.com/docs)
 - [Anthropic API Docs](https://docs.anthropic.com/)
 - [Ollama Documentation](https://ollama.ai/docs)
+- [FAISS Documentation](https://github.com/facebookresearch/faiss)
+- [RAG Pattern Overview](https://www.promptingguide.ai/techniques/rag)

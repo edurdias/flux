@@ -35,6 +35,7 @@ types-croniter = "^6.0.0.20250809"
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
 numpy = "^2.1.1"
+faiss-cpu = "^1.8.0"
 pyright = "^1.1.384"
 pylint = "^3.3.1"
 bandit = "^1.7.10"
