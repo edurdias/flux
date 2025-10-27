@@ -23,6 +23,14 @@ AI agents enhanced with document retrieval for answering questions based on spec
 |---------|-------------|----------|
 | **rag_agent_ollama.py** | Fully local RAG with Ollama + FAISS | Documentation Q&A, knowledge bases, privacy-sensitive applications |
 
+### Function Calling / Tool Use
+
+AI agents that can autonomously call external tools and APIs to answer questions requiring real-time data.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **function_calling_agent_ollama.py** | Local LLM with function calling (llama3.2, mistral) + Open-Meteo API | Weather queries, multi-city comparisons, forecasts, zero API keys |
+
 ## Quick Start
 
 ### 1. Ollama (Local Development)
@@ -124,6 +132,61 @@ flux workflow run rag_query_documents '{
 
 # Or run the example directly
 python examples/ai/rag_agent_ollama.py
+```
+
+### 5. Function Calling Agent (Weather Assistant)
+
+Build a fully local AI assistant that uses tools to answer questions requiring real-time data.
+
+**Function calling pattern:** LLM decides when to call tools, executes them, and uses results to answer.
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model that supports tool calling
+ollama pull llama3.2  # or mistral
+ollama pull llama3.2  # llama3.2 has better tool calling support
+
+# Start Ollama service
+ollama serve
+
+# Register the workflow
+flux workflow register examples/ai/function_calling_agent_ollama.py
+
+# Start a conversation with weather queries
+flux workflow run function_calling_agent_ollama '{
+  "message": "What is the weather like in San Francisco?"
+}'
+
+# Resume with multi-city comparison (use execution_id from previous response)
+flux workflow resume function_calling_agent_ollama <execution_id> '{
+  "message": "How does that compare to New York?"
+}'
+
+# Ask for a forecast
+flux workflow resume function_calling_agent_ollama <execution_id> '{
+  "message": "Give me a 5-day forecast for London"
+}'
+
+# Or run the example directly
+python examples/ai/function_calling_agent_ollama.py
+```
+
+**Available Tools:**
+- `get_current_weather`: Get current weather conditions for any city
+- `get_weather_forecast`: Get N-day weather forecast (default: 7 days)
+- `compare_weather`: Compare weather between two cities
+
+**Example Conversation:**
+```
+User: "What's the weather in Paris?"
+Assistant: *calls get_current_weather("Paris")*
+Assistant: "The current weather in Paris is 15°C (59°F) with partly cloudy skies..."
+
+User: "How does that compare to London?"
+Assistant: *calls compare_weather("Paris", "London")*
+Assistant: "Paris is currently 3°F warmer than London (59°F vs 56°F)..."
 ```
 
 ## How It Works
@@ -238,6 +301,79 @@ async def rag_query_documents(ctx: ExecutionContext):
 - **Chunk Overlap**: Prevents context loss at chunk boundaries
 - **Fully Local**: All operations run on your machine (no external APIs)
 
+### Function Calling Architecture
+
+The function calling implementation uses LLM-driven tool selection and execution:
+
+**Workflow: Function Calling Agent (function_calling_agent_ollama)**
+```python
+@workflow
+async def function_calling_agent_ollama(ctx: ExecutionContext):
+    # 1. User asks a question
+    user_message = ctx.input.get("message")
+    messages.append({"role": "user", "content": user_message})
+
+    # 2. Call LLM with available tools
+    response = await call_ollama_with_tools(
+        messages=messages,
+        tools=WEATHER_TOOLS,  # Tool definitions
+        model="llama3.2"
+    )
+
+    # 3. Check if LLM wants to use tools
+    if response["message"].get("tool_calls"):
+        for tool_call in response["message"]["tool_calls"]:
+            tool_name = tool_call["function"]["name"]
+            tool_args = tool_call["function"]["arguments"]
+
+            # 4. Execute the tool
+            result = await execute_tool_call(tool_name, tool_args)
+
+            # 5. Add tool result to conversation
+            messages.append({"role": "tool", "content": result})
+
+        # 6. Call LLM again with tool results
+        response = await call_ollama_with_tools(messages, tools, model)
+
+    # 7. Return final answer to user
+    assistant_message = response["message"]["content"]
+    messages.append({"role": "assistant", "content": assistant_message})
+
+    # 8. Pause for next input
+    await pause("waiting_for_user_input")
+```
+
+**Tool Execution Flow:**
+```python
+@task
+async def execute_tool_call(tool_name: str, tool_args: dict) -> str:
+    """Route to appropriate tool and return JSON result."""
+    if tool_name == "get_current_weather":
+        # 1. Geocode location to lat/lon
+        geo = await geocode_location(tool_args["location"])
+
+        # 2. Call Open-Meteo API
+        weather_data = await fetch_current_weather(geo["latitude"], geo["longitude"])
+
+        # 3. Format and return result
+        return json.dumps({
+            "location": geo["name"],
+            "temperature": weather_data["temperature_2m"],
+            "conditions": decode_weather_code(weather_data["weather_code"]),
+            "humidity": weather_data["relative_humidity_2m"],
+            "wind_speed": weather_data["wind_speed_10m"]
+        })
+```
+
+**Key Function Calling Features:**
+- **LLM-Driven Tool Selection**: Model decides when and which tools to call
+- **Multi-Tool Execution**: Can call multiple tools in sequence
+- **Structured Arguments**: Type-safe tool parameters via JSON schema
+- **Error Handling**: Retries and fallbacks for API calls
+- **Fully Local**: Ollama + Open-Meteo (no API keys required)
+- **Stateful Conversations**: Maintains context across tool calls
+- **Tool Result Integration**: LLM sees tool outputs and uses them in responses
+
 ## Configuration Options
 
 All conversational agents support these configuration options:
@@ -302,6 +438,29 @@ All conversational agents support these configuration options:
   "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
 }
 ```
+
+**Function Calling Agent:**
+```json
+{
+  "message": "What's the weather in Tokyo?",  // Required: user message
+  "system_prompt": "You are a helpful weather assistant...",  // Optional: system instructions
+  "model": "llama3.2",                     // Optional: llama3.2 (default), mistral
+  "temperature": 0.7,                      // Optional: response randomness
+  "max_turns": 10,                         // Optional: max conversation turns
+  "ollama_url": "http://localhost:11434"   // Optional: Ollama URL
+}
+```
+
+**Supported Models for Function Calling:**
+- `llama3.2` (recommended) - Best tool calling support
+- `mistral` - Good alternative with tool support
+- Other Ollama models with tool/function calling capabilities
+
+**Example Queries:**
+- "What's the weather in Paris?"
+- "Give me a 5-day forecast for London"
+- "Compare the weather in San Francisco and New York"
+- "Is it warmer in Miami or Los Angeles right now?"
 
 ## Running via HTTP API
 
@@ -391,6 +550,33 @@ rag_input = {
 - Works with private/proprietary data
 - Updates easily (re-index documents)
 - Fully local with Ollama (no external APIs)
+
+### Weather Assistant (Function Calling)
+```python
+# Ask weather-related questions that require real-time data
+weather_input = {
+    "message": "What's the weather like in Seattle?",
+    "system_prompt": "You are a helpful weather assistant. Use tools to get accurate weather data.",
+    "model": "llama3.2",
+    "max_turns": 15
+}
+```
+
+**Function Calling Use Cases:**
+- Real-time data queries (weather, stock prices, etc.)
+- Multi-step information gathering
+- Tool-augmented research assistants
+- API integration workflows
+- Data comparison and analysis
+- Event-driven automations
+
+**Why Function Calling?**
+- Enables LLMs to access real-time information
+- Structured tool execution with type safety
+- Autonomous tool selection by the LLM
+- Combines reasoning with external data
+- Fully local with Ollama + free APIs (no OpenAI/Anthropic needed)
+- Extensible to any API or tool
 
 ## Monitoring & Debugging
 
@@ -584,6 +770,35 @@ pip install faiss-cpu
 - Increase `top_k` to cast a wider net
 - Review chunk content with detailed status
 
+### Function Calling Issues
+
+**Model Not Calling Tools:**
+```bash
+# Ensure you're using a model with tool support
+ollama pull llama3.2  # llama3.2 has better function calling than llama3
+
+# Verify model is running
+ollama list | grep llama3.2
+```
+
+**Tool Execution Errors:**
+- Check network connectivity for Open-Meteo API
+- Verify location name is valid (try major cities first)
+- Review error messages in workflow status output
+- Check that httpx is installed: `poetry show httpx`
+
+**LLM Not Understanding Tool Results:**
+- Ensure tool results are valid JSON
+- Check that tool result format matches expectations
+- Try increasing temperature for more creative responses
+- Verify model supports function calling (llama3.2, mistral)
+
+**Weather Data Inaccurate or Missing:**
+- Open-Meteo API requires valid geocoding
+- Try using full city names with country (e.g., "Paris, France")
+- Check API status at https://open-meteo.com/
+- Review geocoding results in detailed status
+
 ## Contributing
 
 Have ideas for new AI agent examples? Contributions are welcome!
@@ -599,5 +814,7 @@ Have ideas for new AI agent examples? Contributions are welcome!
 - [OpenAI API Docs](https://platform.openai.com/docs)
 - [Anthropic API Docs](https://docs.anthropic.com/)
 - [Ollama Documentation](https://ollama.ai/docs)
+- [Ollama Function Calling](https://ollama.com/blog/tool-support)
 - [FAISS Documentation](https://github.com/facebookresearch/faiss)
 - [RAG Pattern Overview](https://www.promptingguide.ai/techniques/rag)
+- [Open-Meteo API](https://open-meteo.com/en/docs)
