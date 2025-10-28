@@ -68,6 +68,7 @@ Example Output:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -75,6 +76,80 @@ from ollama import AsyncClient
 
 from flux import ExecutionContext, task, workflow
 from flux.tasks import parallel
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def parse_llm_json_response(content: str) -> list[dict[str, Any]]:
+    """
+    Parse JSON from LLM response with robust error handling.
+
+    Handles common issues:
+    - Markdown code fences
+    - Invalid control characters
+    - Extra whitespace
+    - Partial responses
+
+    Args:
+        content: Raw LLM response content
+
+    Returns:
+        Parsed JSON as list of dictionaries
+
+    Raises:
+        json.JSONDecodeError: If JSON cannot be parsed after cleanup attempts
+    """
+    # Remove markdown code fences if present
+    content = content.strip()
+    if content.startswith("```"):
+        lines = content.split("\n")
+        # Remove first line (```json or ```) and last line (```)
+        if len(lines) > 2:
+            content = "\n".join(lines[1:-1])
+        elif len(lines) > 1:
+            content = "\n".join(lines[1:])
+
+    # Remove any remaining backticks
+    content = content.replace("```", "").strip()
+
+    # Try to parse directly first
+    try:
+        result = json.loads(content)
+        return result if isinstance(result, list) else [result]
+    except json.JSONDecodeError:
+        pass
+
+    # Try fixing common control character issues
+    # Replace problematic control characters
+    content = content.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+    # Try parsing again
+    try:
+        result = json.loads(content)
+        return result if isinstance(result, list) else [result]
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting JSON from text using regex
+    json_pattern = r"\[[\s\S]*\]|\{[\s\S]*\}"
+    matches = re.findall(json_pattern, content)
+
+    for match in matches:
+        try:
+            result = json.loads(match)
+            return result if isinstance(result, list) else [result]
+        except json.JSONDecodeError:
+            continue
+
+    # If all else fails, raise the original error
+    raise json.JSONDecodeError(
+        "Could not parse JSON from LLM response after multiple attempts",
+        content,
+        0,
+    )
 
 
 # =============================================================================
@@ -237,18 +312,13 @@ Respond with ONLY the JSON array, no other text.""",
         response = await client.chat(model=model, messages=messages)
         content = response["message"]["content"].strip()
 
-        # Try to parse JSON
-        # Remove markdown code fences if present
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-
-        findings = json.loads(content)
+        # Parse JSON with robust error handling
+        findings = parse_llm_json_response(content)
 
         return {
             "agent": "security",
             "status": "success",
-            "findings": findings if isinstance(findings, list) else [findings],
+            "findings": findings,
             "model_used": model,
         }
 
@@ -323,16 +393,13 @@ Respond with ONLY the JSON array, no other text.""",
         response = await client.chat(model=model, messages=messages)
         content = response["message"]["content"].strip()
 
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-
-        findings = json.loads(content)
+        # Parse JSON with robust error handling
+        findings = parse_llm_json_response(content)
 
         return {
             "agent": "performance",
             "status": "success",
-            "findings": findings if isinstance(findings, list) else [findings],
+            "findings": findings,
             "model_used": model,
         }
 
@@ -407,16 +474,13 @@ Respond with ONLY the JSON array, no other text.""",
         response = await client.chat(model=model, messages=messages)
         content = response["message"]["content"].strip()
 
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-
-        findings = json.loads(content)
+        # Parse JSON with robust error handling
+        findings = parse_llm_json_response(content)
 
         return {
             "agent": "style",
             "status": "success",
-            "findings": findings if isinstance(findings, list) else [findings],
+            "findings": findings,
             "model_used": model,
         }
 
@@ -491,16 +555,13 @@ Respond with ONLY the JSON array, no other text.""",
         response = await client.chat(model=model, messages=messages)
         content = response["message"]["content"].strip()
 
-        if content.startswith("```"):
-            lines = content.split("\n")
-            content = "\n".join(lines[1:-1]) if len(lines) > 2 else content
-
-        suggestions = json.loads(content)
+        # Parse JSON with robust error handling
+        suggestions = parse_llm_json_response(content)
 
         return {
             "agent": "testing",
             "status": "success",
-            "suggestions": suggestions if isinstance(suggestions, list) else [suggestions],
+            "suggestions": suggestions,
             "model_used": model,
         }
 
