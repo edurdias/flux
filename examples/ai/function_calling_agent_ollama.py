@@ -84,12 +84,10 @@ async def geocode_location(location: str) -> dict[str, Any]:
 @task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=30)
 async def get_current_weather(location: str) -> dict[str, Any]:
     """
-    Get current weather for a location.
-
-    This tool fetches real-time weather data from Open-Meteo API.
+    Get the current weather conditions for a specific location. Use this when the user asks about current weather, temperature, or conditions.
 
     Args:
-        location: City name (e.g., "San Francisco" or "London, UK")
+        location: The city name, e.g. 'San Francisco' or 'London, UK'
 
     Returns:
         Dictionary with current weather conditions
@@ -158,11 +156,11 @@ async def get_current_weather(location: str) -> dict[str, Any]:
 @task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=30)
 async def get_weather_forecast(location: str, days: int = 7) -> dict[str, Any]:
     """
-    Get weather forecast for the next N days.
+    Get the weather forecast for the next several days. Use this when the user asks about future weather or forecasts.
 
     Args:
-        location: City name
-        days: Number of days to forecast (1-16)
+        location: The city name, e.g. 'San Francisco' or 'London, UK'
+        days: Number of days to forecast (1-16, default: 7)
 
     Returns:
         Dictionary with daily forecast data
@@ -233,11 +231,11 @@ async def get_weather_forecast(location: str, days: int = 7) -> dict[str, Any]:
 @task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=30)
 async def compare_weather(location1: str, location2: str) -> dict[str, Any]:
     """
-    Compare current weather between two locations.
+    Compare current weather between two locations. Use this when the user wants to compare weather in different cities.
 
     Args:
-        location1: First city name
-        location2: Second city name
+        location1: The first city name
+        location2: The second city name
 
     Returns:
         Dictionary with weather data for both locations and comparison
@@ -274,71 +272,15 @@ async def compare_weather(location1: str, location2: str) -> dict[str, Any]:
 
 
 # =============================================================================
-# Tool Definitions for Ollama
+# Available Tools (Ollama automatically parses these Python functions)
 # =============================================================================
 
-# Define tools in OpenAI function calling format (supported by Ollama)
+# The Ollama Python SDK automatically converts these functions to tool schemas.
+# We can pass them directly to the tools parameter without manual conversion.
 WEATHER_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_weather",
-            "description": "Get the current weather conditions for a specific location. Use this when the user asks about current weather, temperature, or conditions.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The city name, e.g. 'San Francisco' or 'London, UK'",
-                    },
-                },
-                "required": ["location"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather_forecast",
-            "description": "Get the weather forecast for the next several days. Use this when the user asks about future weather or forecasts.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "The city name, e.g. 'San Francisco' or 'London, UK'",
-                    },
-                    "days": {
-                        "type": "integer",
-                        "description": "Number of days to forecast (1-16)",
-                        "default": 7,
-                    },
-                },
-                "required": ["location"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "compare_weather",
-            "description": "Compare current weather between two locations. Use this when the user wants to compare weather in different cities.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "location1": {
-                        "type": "string",
-                        "description": "The first city name",
-                    },
-                    "location2": {
-                        "type": "string",
-                        "description": "The second city name",
-                    },
-                },
-                "required": ["location1", "location2"],
-            },
-        },
-    },
+    get_current_weather,
+    get_weather_forecast,
+    compare_weather,
 ]
 
 
