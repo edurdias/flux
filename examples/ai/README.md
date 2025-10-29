@@ -31,6 +31,22 @@ AI agents that can autonomously call external tools and APIs to answer questions
 |---------|-------------|----------|
 | **function_calling_agent_ollama.py** | Local LLM with function calling (llama3.2, mistral) + Open-Meteo API | Weather queries, multi-city comparisons, forecasts, zero API keys |
 
+### MCP Integration
+
+AI assistants that leverage Model Context Protocol (MCP) for dynamic tool discovery and standards-compliant integration.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **mcp_workflow_assistant_ollama.py** | MCP-integrated workflow assistant with Ollama | Workflow management via natural language, dynamic tool discovery, MCP server integration |
+
+### Multi-Agent Systems
+
+Collaborative AI systems where multiple specialized agents work together in parallel to accomplish complex tasks.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **multi_agent_code_review_ollama.py** | 4 specialized review agents (security, performance, style, testing) with parallel execution | Automated code review, vulnerability detection, code quality improvement |
+
 ## Quick Start
 
 ### 1. Ollama (Local Development)
@@ -188,6 +204,216 @@ User: "How does that compare to London?"
 Assistant: *calls compare_weather("Paris", "London")*
 Assistant: "Paris is currently 3°F warmer than London (59°F vs 56°F)..."
 ```
+
+### 6. MCP Workflow Assistant (Model Context Protocol Integration)
+
+Build an AI assistant that connects to Flux workflows via MCP protocol for dynamic tool discovery and workflow management.
+
+**MCP Integration Pattern:** Dynamic tool discovery at runtime, standards-compliant protocol usage, no hardcoded tools.
+
+```bash
+# Prerequisites: Flux server, worker, and MCP server running
+poetry run flux start server  # Terminal 1
+poetry run flux start worker worker-1  # Terminal 2
+poetry run flux start mcp  # Terminal 3
+
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model that supports tool calling
+ollama pull llama3.2
+
+# Start Ollama service
+ollama serve
+
+# Register the workflow
+flux workflow register examples/ai/mcp_workflow_assistant_ollama.py
+
+# Start a conversation about workflows
+flux workflow run mcp_workflow_assistant_ollama '{
+  "message": "What workflows are available?"
+}'
+
+# Continue the conversation (use execution_id from previous response)
+flux workflow resume mcp_workflow_assistant_ollama <execution_id> '{
+  "message": "Run the hello_world workflow with name Alice"
+}'
+
+# Ask for workflow suggestions
+flux workflow run mcp_workflow_assistant_ollama '{
+  "message": "I want to process some data"
+}'
+
+# Check execution status
+flux workflow resume mcp_workflow_assistant_ollama <execution_id> '{
+  "message": "Show me the status of execution abc-123"
+}'
+
+# Or run the example directly
+python examples/ai/mcp_workflow_assistant_ollama.py
+```
+
+**MCP Tools Dynamically Discovered:**
+- `list_workflows` - List all available workflows
+- `get_workflow_details` - Get details about a specific workflow
+- `execute_workflow_async` - Start workflow execution asynchronously
+- `execute_workflow_sync` - Execute workflow synchronously
+- `resume_workflow_async` - Resume paused workflow asynchronously
+- `resume_workflow_sync` - Resume paused workflow synchronously
+- `get_execution_status` - Get current execution status
+- `cancel_execution` - Cancel running execution
+- `upload_workflow` - Upload new workflow file
+
+**Example Conversation:**
+```
+User: "What workflows are available?"
+Assistant: *calls list_workflows via MCP*
+Assistant: "Here are the available workflows: hello_world, data_pipeline, email_sender..."
+
+User: "Run the hello_world workflow with name 'Alice'"
+Assistant: *calls execute_workflow_async via MCP*
+Assistant: "Started hello_world workflow with execution ID: abc-123"
+
+User: "What's the status?"
+Assistant: *calls get_execution_status via MCP*
+Assistant: "The workflow completed successfully. Output: Hello, Alice!"
+```
+
+**Configuration Options:**
+```json
+{
+  "message": "What workflows are available?",  // Required: user message
+  "system_prompt": "You are a helpful AI assistant...",  // Optional
+  "model": "llama3.2",                         // Optional: llama3.2 (default), mistral
+  "ollama_url": "http://localhost:11434",      // Optional: Ollama URL
+  "mcp_url": "http://localhost:8080/mcp",      // Optional: Flux MCP server URL
+  "max_turns": 20                              // Optional: max conversation turns
+}
+```
+
+**Key MCP Features:**
+- **Dynamic Tool Discovery**: No hardcoded tools, discovered at runtime via MCP
+- **Standards-Compliant**: Full Model Context Protocol implementation
+- **Workflow Suggestions**: Intelligently recommends workflows based on intent
+- **Execution Monitoring**: Proactively tracks workflow status
+- **Multi-turn Conversations**: Maintains context with pause/resume
+- **Production Pattern**: Real-world MCP + AI framework integration
+
+### 7. Multi-Agent Code Review System (Parallel Execution)
+
+Build a collaborative code review system with 4 specialized AI agents working in parallel to analyze code quality, security, performance, and testing.
+
+**Multi-Agent Pattern:** Parallel execution with specialized agents, aggregated results, comprehensive reporting.
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model (qwen2.5-coder recommended for code analysis)
+ollama pull qwen2.5-coder
+
+# Start Ollama service
+ollama serve
+
+# Register the workflow
+flux workflow register examples/ai/multi_agent_code_review_ollama.py
+
+# Review code from a file
+flux workflow run multi_agent_code_review_ollama '{
+  "code_path": "./src/app.py"
+}'
+
+# Review code from a string
+flux workflow run multi_agent_code_review_ollama '{
+  "code": "def login(username, password):\n    query = f\"SELECT * FROM users WHERE username='\''{username}'\''\"",
+  "language": "python"
+}'
+
+# Customize agent behavior
+flux workflow run multi_agent_code_review_ollama '{
+  "code_path": "./src/api.py",
+  "model": "qwen2.5-coder",
+  "temperature": 0.3,
+  "enable_security": true,
+  "enable_performance": true,
+  "enable_style": true,
+  "enable_testing": true
+}'
+
+# Or run the example directly
+python examples/ai/multi_agent_code_review_ollama.py
+```
+
+**Specialized Review Agents:**
+1. **Security Agent**: Detects vulnerabilities (SQL injection, XSS, auth issues, secrets)
+2. **Performance Agent**: Identifies inefficiencies (algorithms, memory, I/O, caching)
+3. **Style Agent**: Checks code quality (readability, naming, documentation, patterns)
+4. **Testing Agent**: Suggests test improvements (coverage, edge cases, mocking)
+
+**Example Output:**
+```json
+{
+  "summary": {
+    "total_issues": 9,
+    "critical": 1,
+    "high": 2,
+    "medium": 4,
+    "low": 2,
+    "agents_completed": 4,
+    "agents_failed": 0,
+    "execution_time_seconds": 5.67
+  },
+  "by_agent": {
+    "security": {
+      "issues_found": 3,
+      "findings": [
+        {
+          "severity": "critical",
+          "category": "SQL Injection",
+          "description": "String concatenation in SQL query allows injection",
+          "line": 15,
+          "suggestion": "Use parameterized queries or ORM"
+        }
+      ]
+    },
+    "performance": { ... },
+    "style": { ... },
+    "testing": { ... }
+  }
+}
+```
+
+**Configuration Options:**
+```json
+{
+  "code": "def foo(): pass",                   // Code string (if code_path not provided)
+  "code_path": "./src/app.py",                 // Or path to code file
+  "language": "python",                        // Optional: python, javascript, go, etc.
+  "model": "qwen2.5-coder",                    // Optional: qwen2.5-coder (default), llama3.2
+  "temperature": 0.3,                          // Optional: lower = more focused
+  "ollama_url": "http://localhost:11434",      // Optional: Ollama URL
+  "enable_security": true,                     // Optional: enable/disable agents
+  "enable_performance": true,
+  "enable_style": true,
+  "enable_testing": true
+}
+```
+
+**Key Multi-Agent Features:**
+- **Parallel Execution**: All 4 agents run concurrently using `flux.tasks.parallel()`
+- **Specialized Analysis**: Each agent focuses on specific code aspects
+- **Graceful Degradation**: System continues even if individual agents fail
+- **Aggregated Results**: Comprehensive report combining all agent findings
+- **Severity Classification**: Critical, high, medium, low issue categories
+- **Detailed Metrics**: Execution time, success rates, issue counts
+
+**Use Cases:**
+- Pre-commit code review automation
+- CI/CD pipeline integration
+- Security vulnerability scanning
+- Code quality gates
+- Technical debt identification
+- Developer education and best practices
 
 ## How It Works
 
@@ -373,6 +599,198 @@ async def execute_tool_call(tool_name: str, tool_args: dict) -> str:
 - **Fully Local**: Ollama + Open-Meteo (no API keys required)
 - **Stateful Conversations**: Maintains context across tool calls
 - **Tool Result Integration**: LLM sees tool outputs and uses them in responses
+
+### MCP Architecture
+
+The MCP workflow assistant demonstrates standards-compliant Model Context Protocol integration:
+
+**Workflow: MCP Workflow Assistant (mcp_workflow_assistant_ollama)**
+```python
+@workflow
+async def mcp_workflow_assistant_ollama(ctx: ExecutionContext):
+    # 1. Connect to MCP server and discover tools dynamically
+    mcp_tools = await discover_mcp_tools(mcp_url)
+
+    # 2. Convert MCP tool schemas to Ollama format
+    ollama_tools = await convert_mcp_tools_to_ollama(mcp_tools)
+
+    # 3. Start conversation loop
+    while turn < max_turns:
+        # 4. Call LLM with dynamically discovered tools
+        response = await call_ollama_with_mcp_tools(
+            messages=messages,
+            ollama_tools=ollama_tools,
+            model="llama3.2"
+        )
+
+        # 5. Execute tool calls via MCP protocol
+        if response["message"].get("tool_calls"):
+            for tool_call in response["message"]["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                tool_args = tool_call["function"]["arguments"]
+
+                # Execute via MCP protocol
+                result = await execute_mcp_tool(mcp_url, tool_name, tool_args)
+                messages.append({"role": "tool", "content": result})
+
+            # 6. Call LLM again with tool results
+            response = await call_ollama_with_mcp_tools(messages, ollama_tools, model)
+
+        # 7. Return response and pause for next input
+        await pause("waiting_for_user_input")
+```
+
+**MCP Tool Discovery:**
+```python
+@task
+async def discover_mcp_tools(mcp_url: str) -> list[dict[str, Any]]:
+    """Discover tools dynamically from MCP server."""
+    async with Client(mcp_url) as client:
+        # Use MCP protocol to list available tools
+        tools = await client.list_tools()
+
+        # Convert to serializable format
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema,
+            }
+            for tool in tools
+        ]
+```
+
+**MCP Tool Execution:**
+```python
+@task
+async def execute_mcp_tool(mcp_url: str, tool_name: str, tool_args: dict) -> str:
+    """Execute tool via MCP protocol."""
+    async with Client(mcp_url) as client:
+        # Call tool via MCP
+        result = await client.call_tool(tool_name, tool_args)
+
+        # Extract text content from MCP response
+        if result and len(result) > 0:
+            content = result[0]
+            if hasattr(content, "text"):
+                return content.text
+            return json.dumps({"result": str(content)})
+```
+
+**Key MCP Features:**
+- **Dynamic Tool Discovery**: Tools discovered at runtime, no hardcoded definitions
+- **Standards-Compliant**: Full MCP protocol implementation using fastmcp
+- **Tool Schema Conversion**: Bridges MCP schemas to Ollama format
+- **Protocol-Based Execution**: All tool calls route through MCP client
+- **Multi-Server Support**: Can connect to multiple MCP servers
+- **Error Resilience**: Retries and fallbacks for MCP operations
+
+### Multi-Agent Architecture
+
+The multi-agent code review system demonstrates parallel execution with specialized agents:
+
+**Workflow: Multi-Agent Code Review (multi_agent_code_review_ollama)**
+```python
+@workflow
+async def multi_agent_code_review_ollama(ctx: ExecutionContext):
+    # 1. Load code from file or string
+    code = load_code(ctx.input.get("code_path") or ctx.input.get("code"))
+
+    # 2. Run specialized agents in parallel using flux.tasks.parallel()
+    reviews = await parallel(
+        security_review(code, model, ollama_url),
+        performance_review(code, model, ollama_url),
+        style_review(code, model, ollama_url),
+        testing_review(code, model, ollama_url)
+    )
+
+    # 3. Aggregate results from all agents
+    aggregated = await aggregate_reviews(reviews)
+
+    # 4. Generate comprehensive summary report
+    report = await generate_summary_report(aggregated, code)
+
+    return report
+```
+
+**Specialized Agent Implementation:**
+```python
+@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+async def security_review(code: str, model: str, ollama_url: str) -> dict:
+    """Security-focused code analysis agent."""
+    system_prompt = """You are a security expert. Analyze code for:
+    - SQL injection vulnerabilities
+    - XSS (cross-site scripting) risks
+    - Authentication/authorization issues
+    - Hardcoded secrets or credentials
+    - Insecure cryptography
+    - Path traversal vulnerabilities
+
+    Return JSON array of findings with severity, category, description, line, suggestion."""
+
+    # Call LLM with specialized prompt
+    response = await call_ollama(code, system_prompt, model, ollama_url)
+
+    # Parse LLM response with robust JSON handling
+    findings = parse_llm_json_response(response["message"]["content"])
+
+    return {
+        "agent": "security",
+        "status": "success",
+        "findings": findings,
+        "issues_found": len(findings)
+    }
+```
+
+**Parallel Execution with Flux:**
+```python
+from flux.tasks import parallel
+
+# Execute all agents concurrently
+reviews = await parallel(
+    agent1_task(args),
+    agent2_task(args),
+    agent3_task(args),
+    agent4_task(args)
+)
+# Returns list of results once all tasks complete
+```
+
+**Result Aggregation:**
+```python
+@task
+async def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine results from all agents."""
+    by_agent: dict[str, Any] = {}
+    all_findings: list[dict[str, Any]] = []
+    counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+
+    for review in reviews:
+        agent_name = review["agent"]
+        by_agent[agent_name] = review
+
+        if review["status"] == "success":
+            for finding in review.get("findings", []):
+                all_findings.append({**finding, "agent": agent_name})
+                severity = finding.get("severity", "low")
+                counts[severity] = counts.get(severity, 0) + 1
+
+    return {
+        "by_agent": by_agent,
+        "all_findings": all_findings,
+        "severity_counts": counts,
+        "total_issues": len(all_findings)
+    }
+```
+
+**Key Multi-Agent Features:**
+- **Parallel Execution**: Uses `flux.tasks.parallel()` for concurrent agent execution
+- **Specialized Agents**: Each agent focuses on specific analysis domain
+- **Robust JSON Parsing**: Handles LLM output inconsistencies
+- **Graceful Degradation**: System continues if individual agents fail
+- **Aggregated Results**: Comprehensive report combining all findings
+- **Retry Logic**: Automatic retries with exponential backoff
+- **Execution Metrics**: Tracks completion rates, timing, and failures
 
 ## Configuration Options
 
@@ -669,10 +1087,39 @@ print(f"Total tokens: {result.output['total_tokens']}")
 
 ### Building Multi-Agent Systems
 
-Check out upcoming examples:
-- `multi_agent_research.py` - Multiple agents collaborating on research
-- `code_reviewer.py` - AI code review with multiple specialized agents
-- `content_pipeline.py` - Content creation workflow with agents
+We now have working multi-agent examples! Check out:
+- **multi_agent_code_review_ollama.py** - 4 specialized review agents (security, performance, style, testing) working in parallel
+- **mcp_workflow_assistant_ollama.py** - MCP-integrated workflow management assistant
+
+Build your own multi-agent systems:
+```python
+from flux import workflow, task, ExecutionContext
+from flux.tasks import parallel
+
+@task
+async def research_agent(topic: str) -> dict:
+    """Agent that researches a topic."""
+    # Your research logic
+    return {"findings": [...]}
+
+@task
+async def analysis_agent(data: dict) -> dict:
+    """Agent that analyzes data."""
+    # Your analysis logic
+    return {"insights": [...]}
+
+@workflow
+async def multi_agent_research(ctx: ExecutionContext):
+    # Run agents in parallel
+    results = await parallel(
+        research_agent("AI trends"),
+        research_agent("ML frameworks"),
+        analysis_agent(ctx.input.get("data"))
+    )
+
+    # Aggregate and return
+    return aggregate_results(results)
+```
 
 ### Integration Ideas
 
@@ -798,6 +1245,83 @@ ollama list | grep llama3.2
 - Try using full city names with country (e.g., "Paris, France")
 - Check API status at https://open-meteo.com/
 - Review geocoding results in detailed status
+
+### MCP Integration Issues
+
+**MCP Server Not Running:**
+```bash
+# Start the Flux MCP server
+poetry run flux start mcp
+
+# Verify it's accessible
+curl http://localhost:8080/mcp
+```
+
+**Tool Discovery Fails:**
+```bash
+# Check MCP server logs for errors
+# Verify Flux server is running first
+poetry run flux start server
+
+# Ensure worker is running
+poetry run flux start worker worker-1
+
+# Test MCP connection manually
+python -c "from fastmcp import Client; import asyncio; asyncio.run(Client('http://localhost:8080/mcp').list_tools())"
+```
+
+**Tools Not Available to LLM:**
+- Ensure model supports tool calling (llama3.2, mistral)
+- Verify MCP tools were discovered (check workflow output)
+- Review tool schema conversion in detailed status
+- Check that mcp_url is correct in configuration
+
+**Workflow Execution via MCP Fails:**
+- Verify workflow is registered: `flux workflow list`
+- Check execution status: `flux workflow status <workflow> <execution_id>`
+- Ensure worker is processing tasks
+- Review MCP server logs for errors
+
+### Multi-Agent System Issues
+
+**Agents Failing or Timing Out:**
+```bash
+# Increase timeout for slow models
+flux workflow run multi_agent_code_review_ollama '{
+  "code_path": "./src/app.py",
+  "timeout": 120
+}'
+
+# Check if model is downloaded
+ollama list | grep qwen2.5-coder
+
+# Pull model if missing
+ollama pull qwen2.5-coder
+```
+
+**Inconsistent JSON Parsing:**
+- The system includes robust JSON parsing with multiple fallback strategies
+- If still failing, check workflow status for raw LLM output
+- Try lowering temperature for more consistent output (0.2-0.3)
+- Verify model supports structured output (qwen2.5-coder recommended)
+
+**Not All Agents Running:**
+- Check that all agents are enabled in configuration
+- Review parallel execution results in detailed status
+- Individual agent failures don't stop the workflow (graceful degradation)
+- Look for specific agent errors in task history
+
+**Poor Code Analysis Quality:**
+- Use qwen2.5-coder model (specialized for code)
+- Lower temperature for more focused analysis (0.2-0.3)
+- Provide language hint for better context
+- Ensure code sample is complete and well-formatted
+
+**High Execution Time:**
+- Parallel execution should take ~5-10 seconds for 4 agents
+- If slower, check Ollama performance and model size
+- Consider using smaller/faster models
+- Disable unused agents to speed up execution
 
 ## Contributing
 
