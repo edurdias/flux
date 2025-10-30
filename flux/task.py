@@ -119,7 +119,7 @@ class task:
             else:
                 if not isinstance(value, dict):
                     raise ExecutionError(
-                        message=f"Failed to deserialize OutputStorageReference when resuming task '{full_name}' (task_id={task_id}). "
+                        message=f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
                         f"Expected OutputStorageReference or dict, but got {type(value)}: {value!r}.",
                     )
                 try:
@@ -127,7 +127,7 @@ class task:
                 except Exception as ex:
                     raise ExecutionError(
                         ex,
-                        f"Failed to deserialize OutputStorageReference when resuming task '{full_name}' (task_id={task_id}). "
+                        f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
                         f"Original error: {ex}",
                     ) from ex
             return self.output_storage.retrieve(reference)

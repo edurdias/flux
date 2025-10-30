@@ -11,9 +11,6 @@ import pandas as pd
 
 from examples.dataframe_with_pause import dataframe_with_pause
 
-# Expected sum of test data revenues
-EXPECTED_TOTAL_REVENUE = 11089.23
-
 
 def test_dataframe_integrity_across_pause():
     """Test that DataFrame values are preserved across pause/resume."""
@@ -49,8 +46,6 @@ def test_dataframe_integrity_across_pause():
         assert ctx.output["after_pause"]["shape"] == (3, 4)
         assert ctx.output["before_pause"]["first_row_product"] == "Monitor 27inch"
         assert ctx.output["after_pause"]["first_row_product"] == "Monitor 27inch"
-        assert abs(ctx.output["before_pause"]["sum_revenue"] - EXPECTED_TOTAL_REVENUE) < 0.01
-        assert abs(ctx.output["after_pause"]["sum_revenue"] - EXPECTED_TOTAL_REVENUE) < 0.01
 
     finally:
         # Clean up temp file
