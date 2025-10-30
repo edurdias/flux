@@ -118,7 +118,8 @@ class task:
                 reference = value
             else:
                 assert isinstance(
-                    value, dict,
+                    value,
+                    dict,
                 ), f"Expected dict or OutputStorageReference, got {type(value)}"
                 reference = OutputStorageReference.from_dict(value)
             return self.output_storage.retrieve(reference)
