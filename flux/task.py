@@ -117,11 +117,19 @@ class task:
             if isinstance(value, OutputStorageReference):
                 reference = value
             else:
-                assert isinstance(
-                    value,
-                    dict,
-                ), f"Expected dict or OutputStorageReference, got {type(value)}"
-                reference = OutputStorageReference.from_dict(value)
+                if not isinstance(value, dict):
+                    raise ExecutionError(
+                        message=f"Failed to deserialize OutputStorageReference when resuming task '{full_name}' (task_id={task_id}). "
+                        f"Expected OutputStorageReference or dict, but got {type(value)}: {value!r}.",
+                    )
+                try:
+                    reference = OutputStorageReference.from_dict(value)
+                except Exception as ex:
+                    raise ExecutionError(
+                        ex,
+                        f"Failed to deserialize OutputStorageReference when resuming task '{full_name}' (task_id={task_id}). "
+                        f"Original error: {ex}",
+                    ) from ex
             return self.output_storage.retrieve(reference)
 
         if not ctx.is_resuming and not ctx.has_resumed:

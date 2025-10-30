@@ -53,6 +53,12 @@ async def dataframe_with_pause(ctx: ExecutionContext[dict[str, str]]):
     # Load CSV
     df = await load_csv(file_path)
 
+    # Validate required columns exist
+    required_columns = {"product", "quantity", "revenue"}
+    if not required_columns.issubset(df.columns):
+        missing = required_columns - set(df.columns)
+        raise ValueError(f"Missing required columns: {missing}")
+
     # Capture values before pause to validate integrity after resume
     before_pause_values = {
         "shape": df.shape,
