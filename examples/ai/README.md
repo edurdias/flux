@@ -47,6 +47,22 @@ Multiple specialized agents executing in parallel.
 |---------|-------------|----------|
 | **multi_agent_code_review_ollama.py** | 4 review agents (security, performance, style, testing) | Code review, vulnerability detection |
 
+### Data Analysis
+
+AI agents that analyze structured data (CSV, JSON) using pandas and provide natural language insights.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **data_analysis_agent_ollama.py** | Local LLM + pandas for data analysis | Business analytics, data exploration, automated insights |
+
+### Streaming Responses
+
+AI agents that stream tokens in real-time for better user experience.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **streaming_agent_ollama.py** | Real-time token streaming with Ollama | Long-form content, interactive chatbots, live previews |
+
 ## Quick Start
 
 ### 1. Ollama (Local Development)
@@ -364,6 +380,129 @@ python examples/ai/multi_agent_code_review_ollama.py
   "code": "def foo(): pass",
   "file_path": "app.py",
   "context": "Optional additional context",
+  "model": "llama3.2",
+  "ollama_url": "http://localhost:11434"
+}
+```
+
+### 8. Data Analysis Agent
+
+Analyze CSV and JSON files using pandas + LLM for natural language insights.
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model
+ollama pull llama3.2
+
+# Start Ollama service
+ollama serve
+
+# Generate sample data
+python examples/ai/create_sample_data.py
+
+# Register the workflow
+flux workflow register examples/ai/data_analysis_agent_ollama.py
+
+# Analyze sample sales data
+flux workflow run data_analysis_agent_ollama '{
+  "file_path": "examples/ai/sample_data/sales_data.csv",
+  "question": "What are the top 5 products by revenue?"
+}'
+
+# Ask follow-up questions (use execution_id from previous response)
+flux workflow resume data_analysis_agent_ollama <execution_id> '{
+  "question": "Which products have the highest profit margins?"
+}'
+
+flux workflow resume data_analysis_agent_ollama <execution_id> '{
+  "question": "Are there any seasonal trends in the sales?"
+}'
+
+# Analyze your own data
+flux workflow run data_analysis_agent_ollama '{
+  "file_path": "/path/to/your/data.csv",
+  "question": "Show me a summary of this data"
+}'
+
+# Or run the example directly
+python examples/ai/data_analysis_agent_ollama.py
+```
+
+**Sample Data Included:**
+- `sales_data.csv` - 500 sales records with products, regions, revenue, profit
+- `customer_data.json` - 200 customer records with industry, company size, lifetime value
+
+**Example Questions:**
+- "What are the top products by revenue?"
+- "Which regions have the highest sales?"
+- "Show me seasonal trends in the data"
+- "What's the average profit margin?"
+- "Which products have declining sales?"
+
+**Configuration:**
+```json
+{
+  "file_path": "path/to/data.csv",
+  "question": "What are the key insights?",
+  "model": "llama3.2",
+  "max_turns": 10,
+  "ollama_url": "http://localhost:11434"
+}
+```
+
+### 9. Streaming Response Agent
+
+Experience real-time token streaming for better UX with long responses.
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model
+ollama pull llama3.2
+
+# Start Ollama service
+ollama serve
+
+# Register the workflow
+flux workflow register examples/ai/streaming_agent_ollama.py
+
+# Generate with streaming (tokens appear in real-time)
+flux workflow run streaming_agent_ollama '{
+  "prompt": "Write a detailed explanation of how neural networks work",
+  "stream": true
+}'
+
+# Compare with non-streaming (wait for complete response)
+flux workflow run streaming_agent_ollama '{
+  "prompt": "Write a detailed explanation of how neural networks work",
+  "stream": false
+}'
+
+# Or run the example directly to see both modes
+python examples/ai/streaming_agent_ollama.py
+```
+
+**Benefits of Streaming:**
+- Immediate feedback for users
+- Better perceived performance
+- Can start processing partial responses
+- Improved interactivity for long responses
+
+**Example Output:**
+```
+Streaming: 12.34s (20.8 tokens/s) - tokens appear as generated
+Non-streaming: 12.45s (0 tokens/s until complete) - entire response at once
+```
+
+**Configuration:**
+```json
+{
+  "prompt": "Your prompt here",
+  "stream": true,
+  "system_prompt": "Optional system prompt",
   "model": "llama3.2",
   "ollama_url": "http://localhost:11434"
 }
@@ -724,6 +863,190 @@ async def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
         "total_issues": len(all_findings)
     }
 ```
+
+### Data Analysis Architecture
+
+**Workflow: data_analysis_agent_ollama**
+```python
+@workflow
+async def data_analysis_agent_ollama(ctx: ExecutionContext):
+    # 1. Load data from CSV or JSON file
+    df, metadata = await load_data(file_path)
+
+    # 2. Initialize conversation history
+    conversation_history: list[dict[str, str]] = []
+
+    # 3. Process initial question
+    # 3a. Analyze data with pandas
+    analysis_results = await analyze_data(df, question)
+
+    # 3b. Generate LLM insights from analysis
+    assistant_response = await call_ollama_for_insights(
+        question, metadata, analysis_results, conversation_history, model
+    )
+
+    # 3c. Update conversation history
+    conversation_history.append({"role": "user", "content": question})
+    conversation_history.append({"role": "assistant", "content": assistant_response})
+
+    # 4. Main conversation loop - pause for follow-up questions
+    for turn in range(1, max_turns):
+        # Pause and wait for next question
+        resume_input = await pause(f"waiting_for_question_turn_{turn}")
+        next_question = resume_input.get("question")
+
+        # Process next question (repeat steps 3a-3c)
+        # ...
+```
+
+**Data Loading:**
+```python
+@task
+async def load_data(file_path: str) -> tuple[pd.DataFrame, dict]:
+    """Load CSV or JSON and generate metadata."""
+    # 1. Detect file type and load
+    if path.suffix.lower() == ".csv":
+        df = pd.read_csv(file_path)
+    elif path.suffix.lower() == ".json":
+        df = pd.read_json(file_path)
+
+    # 2. Generate metadata
+    metadata = {
+        "row_count": len(df),
+        "column_count": len(df.columns),
+        "columns": list(df.columns),
+        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+        "missing_values": df.isnull().sum().to_dict(),
+        "sample_rows": df.head(3).to_dict(orient="records"),
+    }
+
+    # 3. Add statistics for numeric columns
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    if len(numeric_cols) > 0:
+        metadata["statistics"] = df[numeric_cols].describe().to_dict()
+
+    return df, metadata
+```
+
+**Data Analysis:**
+```python
+@task
+async def analyze_data(df: pd.DataFrame, question: str) -> str:
+    """Perform statistical analysis with pandas."""
+    analysis_results = {}
+
+    # Basic statistics
+    numeric_cols = df.select_dtypes(include=["number"]).columns
+    analysis_results["basic_stats"] = df[numeric_cols].describe().to_dict()
+
+    # Top records by numeric columns
+    for col in numeric_cols[:3]:
+        analysis_results[f"top_5_by_{col}"] = df.nlargest(5, col).to_dict(orient="records")
+
+    # Value distributions for categorical columns
+    categorical_cols = df.select_dtypes(include=["object"]).columns
+    for col in categorical_cols[:3]:
+        analysis_results[f"{col}_distribution"] = df[col].value_counts().head(10).to_dict()
+
+    # Correlation matrix
+    if len(numeric_cols) > 1:
+        analysis_results["correlations"] = df[numeric_cols].corr().to_dict()
+
+    return json.dumps(analysis_results, indent=2)
+```
+
+**Key Data Analysis Features:**
+- **Automatic Format Detection**: Supports CSV and JSON
+- **Comprehensive Metadata**: Row/column counts, data types, missing values, sample data
+- **Statistical Analysis**: Descriptive stats, top/bottom records, distributions, correlations
+- **Natural Language Interface**: Ask questions in plain English
+- **Stateful Conversations**: Ask follow-up questions building on previous context
+- **Pandas Integration**: Leverages pandas for efficient data manipulation
+- **Fully Local**: All operations run on your machine (no external APIs)
+
+### Streaming Architecture
+
+**Workflow: streaming_agent_ollama**
+```python
+@workflow
+async def streaming_agent_ollama(ctx: ExecutionContext):
+    # Get configuration
+    prompt = input_data.get("prompt")
+    stream = input_data.get("stream", True)
+    model = input_data.get("model", "llama3.2")
+
+    # Generate response based on streaming preference
+    if stream:
+        response, generation_time, token_count = await generate_streaming_response(
+            prompt, system_prompt, model, ollama_url
+        )
+
+        tokens_per_second = token_count / generation_time
+
+        return {
+            "response": response,
+            "mode": "streaming",
+            "generation_time_seconds": generation_time,
+            "tokens_generated": token_count,
+            "tokens_per_second": tokens_per_second,
+        }
+    else:
+        response, generation_time = await generate_non_streaming_response(
+            prompt, system_prompt, model, ollama_url
+        )
+
+        return {
+            "response": response,
+            "mode": "non-streaming",
+            "generation_time_seconds": generation_time,
+        }
+```
+
+**Streaming Implementation:**
+```python
+@task
+async def generate_streaming_response(prompt, system_prompt, model, ollama_url):
+    """Stream tokens as they're generated."""
+    client = AsyncClient(host=ollama_url)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
+    # Track metrics
+    start_time = time.time()
+    complete_response = ""
+    token_count = 0
+
+    # Stream the response token by token
+    async for chunk in await client.chat(model=model, messages=messages, stream=True):
+        # Extract token from chunk
+        token = chunk["message"]["content"]
+        complete_response += token
+        token_count += 1
+
+        # In production, you'd send this to the client immediately
+        print(token, end="", flush=True)
+
+    generation_time = time.time() - start_time
+
+    return complete_response, generation_time, token_count
+```
+
+**Key Streaming Features:**
+- **Real-Time Feedback**: Tokens appear as generated, not all at once
+- **Performance Metrics**: Track tokens/second, generation time
+- **Comparison Mode**: Run streaming vs non-streaming side-by-side
+- **Production-Ready**: Pattern works with any streaming API
+- **Async/Await**: Non-blocking streaming implementation
+- **Flush Control**: Proper buffer flushing for real-time display
+
+**Streaming vs Non-Streaming:**
+- **Streaming**: Better UX, immediate feedback, can start processing early
+- **Non-Streaming**: Simpler, good for batch processing, easier error handling
+- **Use Streaming When**: Long responses, interactive chat, live updates
+- **Use Non-Streaming When**: Short responses, batch jobs, caching needed
 
 ## Configuration Options
 
