@@ -62,6 +62,7 @@ AI agents that stream tokens in real-time for better user experience.
 | Example | Description | Use Case |
 |---------|-------------|----------|
 | **streaming_agent_ollama.py** | Real-time token streaming with Ollama | Long-form content, interactive chatbots, live previews |
+| **streaming_with_task_events_ollama.py** | Event-based streaming showcase | Demonstrates Flux's event-based execution with real-time LLM streaming |
 
 ## Quick Start
 
@@ -506,6 +507,98 @@ Non-streaming: 12.45s (0 tokens/s until complete) - entire response at once
   "model": "llama3.2",
   "ollama_url": "http://localhost:11434"
 }
+```
+
+### 10. Event-Based Streaming (Advanced)
+
+Showcase Flux's event-based execution architecture with real-time LLM streaming.
+
+This example demonstrates how Flux's automatic task event generation can be used to stream data through the event system. Each token batch becomes a task execution, creating traceable events consumable via Server-Sent Events (SSE).
+
+**Key Concepts:**
+- Each token batch is processed by a Flux task
+- Tasks automatically generate TASK_STARTED + TASK_COMPLETED events
+- Events can be consumed in real-time via HTTP SSE endpoint
+- Demonstrates distributed execution with event tracking
+
+```bash
+# Register the workflow
+flux workflow register examples/ai/streaming_with_task_events_ollama.py
+
+# Run via CLI (see stdout + task events)
+flux workflow run streaming_with_task_events_ollama '{
+  "prompt": "Explain quantum computing in 3 sentences.",
+  "batch_size": 5
+}'
+
+# Consume events via HTTP SSE (real-time streaming)
+curl -N http://localhost:8000/workflows/streaming_with_task_events_ollama/run/stream?detailed=true \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain quantum computing in 3 sentences."}'
+
+# Use the Python SSE client
+python examples/ai/stream_event_client.py "Explain neural networks briefly"
+```
+
+**Event Structure:**
+
+Each token batch generates automatic Flux events:
+
+```json
+{
+  "type": "TASK_STARTED",
+  "name": "process_token_batch",
+  "value": {
+    "tokens": "Quantum",
+    "batch_number": 0,
+    "total_tokens": 5
+  }
+}
+```
+
+```json
+{
+  "type": "TASK_COMPLETED",
+  "name": "process_token_batch",
+  "value": {
+    "tokens": "Quantum",
+    "batch_number": 0,
+    "total_tokens": 5,
+    "timestamp": 1234567890.123
+  }
+}
+```
+
+**Benefits:**
+- Leverages Flux's built-in event system
+- No manual event emission required
+- Events are automatically persisted via checkpoint
+- Real-time consumption via SSE infrastructure
+- Full execution traceability
+
+**Configuration:**
+```json
+{
+  "prompt": "Your prompt here",
+  "batch_size": 5,
+  "model": "llama3.2",
+  "system_prompt": "Optional",
+  "ollama_url": "http://localhost:11434"
+}
+```
+
+**Performance Tuning:**
+- Smaller `batch_size` (1-5): More frequent events, lower latency
+- Larger `batch_size` (10-20): Fewer events, better checkpoint performance
+- Trade-off: Event volume vs real-time granularity
+
+**Monitoring Events:**
+```bash
+# Get execution with all events
+curl http://localhost:8000/workflows/streaming_with_task_events_ollama/executions/<execution_id>?detailed=true
+
+# Or use the Python client for real-time streaming
+python examples/ai/stream_event_client.py
 ```
 
 ## How It Works
