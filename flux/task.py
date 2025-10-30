@@ -4,7 +4,7 @@ from flux import ExecutionContext
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
-from flux.output_storage import OutputStorage
+from flux.output_storage import InlineOutputStorage, OutputStorage, OutputStorageReference
 from flux.secret_managers import SecretManager
 from flux.utils import get_func_args, make_hashable, maybe_awaitable
 
@@ -82,7 +82,7 @@ class task:
         self.retry_backoff = retry_backoff
         self.timeout = timeout
         self.secret_requests = secret_requests
-        self.output_storage = output_storage
+        self.output_storage = output_storage if output_storage else InlineOutputStorage()
         self.cache = cache
         self.metadata = metadata
         wraps(func)(self)
@@ -113,7 +113,24 @@ class task:
         ]
 
         if len(finished) > 0:
-            return finished[0].value
+            value = finished[0].value
+            if isinstance(value, OutputStorageReference):
+                reference = value
+            else:
+                if not isinstance(value, dict):
+                    raise ExecutionError(
+                        message=f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
+                        f"Expected OutputStorageReference or dict, but got {type(value)}: {value!r}.",
+                    )
+                try:
+                    reference = OutputStorageReference.from_dict(value)
+                except Exception as ex:
+                    raise ExecutionError(
+                        ex,
+                        f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
+                        f"Original error: {ex}",
+                    ) from ex
+            return self.output_storage.retrieve(reference)
 
         if not ctx.is_resuming and not ctx.has_resumed:
             ctx.events.append(
@@ -173,7 +190,7 @@ class task:
                 type=ExecutionEventType.TASK_COMPLETED,
                 source_id=task_id,
                 name=full_name,
-                value=self.output_storage.store(task_id, output) if self.output_storage else output,
+                value=self.output_storage.store(task_id, output),
             ),
         )
 
@@ -284,9 +301,7 @@ class task:
                         type=ExecutionEventType.TASK_FALLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output)
-                        if self.output_storage
-                        else output,
+                        value=self.output_storage.store(task_id, output),
                     ),
                 )
             except Exception as ex:
@@ -329,9 +344,7 @@ class task:
                         type=ExecutionEventType.TASK_ROLLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output)
-                        if self.output_storage
-                        else output,
+                        value=self.output_storage.store(task_id, output),
                     ),
                 )
                 return output
@@ -391,9 +404,7 @@ class task:
                             "max_attempts": self.retry_max_attempts,
                             "current_delay": current_delay,
                             "backoff": self.retry_backoff,
-                            "output": self.output_storage.store(task_id, output)
-                            if self.output_storage
-                            else output,
+                            "output": self.output_storage.store(task_id, output),
                         },
                     ),
                 )
