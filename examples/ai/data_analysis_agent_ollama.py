@@ -40,10 +40,13 @@ import pandas as pd
 from ollama import AsyncClient
 
 from flux import ExecutionContext, task, workflow
+from flux.output_storage import LocalFileStorage
 from flux.tasks import pause
 
+file_storage = LocalFileStorage()
 
-@task
+
+@task.with_options(output_storage=file_storage)
 async def load_data(file_path: str) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     Load data from CSV or JSON file and generate metadata.
@@ -198,7 +201,7 @@ Your task is to answer the user's question based on this data analysis. Be speci
         ) from e
 
 
-@task
+@task.with_options(output_storage=file_storage)
 async def process_question(
     df: pd.DataFrame,
     metadata: dict[str, Any],
