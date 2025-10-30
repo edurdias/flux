@@ -153,7 +153,7 @@ def parse_llm_json_response(content: str) -> list[dict[str, Any]]:
 
 
 # =============================================================================
-# Agent System Prompts - Specialized Expertise
+# Agent System Prompts
 # =============================================================================
 
 SECURITY_AGENT_PROMPT = """You are a security code reviewer with expertise in finding vulnerabilities.
@@ -243,7 +243,7 @@ Focus on tests that provide real value and catch likely bugs."""
 
 
 # =============================================================================
-# Specialized Agent Tasks - Run in Parallel
+# Specialized Agent Tasks
 # =============================================================================
 
 
@@ -716,7 +716,6 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     start_time = datetime.now()
 
-    # Extract input parameters
     code = ctx.input.get("code")
     if not code:
         return {"error": "No code provided", "execution_id": ctx.execution_id}
@@ -726,7 +725,6 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     model = ctx.input.get("model", "llama3.2")
     ollama_url = ctx.input.get("ollama_url", "http://localhost:11434")
 
-    # Execute all agent reviews in parallel using Flux's parallel task
     reviews = await parallel(
         security_review(code, model, ollama_url, file_path, context),
         performance_review(code, model, ollama_url, file_path, context),
@@ -734,13 +732,9 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
         testing_review(code, model, ollama_url, file_path, context),
     )
 
-    # Aggregate all findings
     aggregated = await aggregate_reviews(reviews)
-
-    # Generate final report
     report = await generate_summary_report(aggregated)
 
-    # Add execution metadata
     end_time = datetime.now()
     execution_time = (end_time - start_time).total_seconds()
 

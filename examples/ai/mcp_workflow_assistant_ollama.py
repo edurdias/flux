@@ -65,25 +65,18 @@ from flux.tasks import pause
 @task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=30)
 async def discover_mcp_tools(mcp_url: str) -> list[dict[str, Any]]:
     """
-    Connect to the Flux MCP server and dynamically discover available tools.
-
-    This function demonstrates the proper way to integrate with an MCP server:
-    1. Create a Client connection
-    2. Use list_tools() to discover available tools
-    3. Return serializable tool schemas for use with AI models
+    Connect to MCP server and discover available tools.
 
     Args:
         mcp_url: URL of the MCP server (e.g., "http://localhost:8080/mcp")
 
     Returns:
-        List of MCP tool schemas (fully serializable)
+        List of MCP tool schemas
     """
     try:
         async with Client(mcp_url) as client:
-            # Discover tools dynamically via MCP protocol
             tools = await client.list_tools()
 
-            # Convert tools to serializable format
             tool_schemas = []
             for tool in tools:
                 tool_schemas.append(
@@ -108,10 +101,6 @@ async def convert_mcp_tools_to_ollama(mcp_tools: list[dict[str, Any]]) -> list[d
     """
     Convert MCP tool schemas to Ollama function calling format.
 
-    MCP tools have a standard schema format with inputSchema.
-    Ollama expects a specific function calling format.
-    This task bridges the two formats.
-
     Args:
         mcp_tools: List of MCP tool schemas
 
@@ -121,7 +110,6 @@ async def convert_mcp_tools_to_ollama(mcp_tools: list[dict[str, Any]]) -> list[d
     ollama_tools = []
 
     for tool in mcp_tools:
-        # Convert MCP schema to Ollama format
         ollama_tool = {
             "type": "function",
             "function": {
@@ -142,12 +130,7 @@ async def execute_mcp_tool(
     tool_args: dict[str, Any],
 ) -> str:
     """
-    Execute a tool call via MCP protocol.
-
-    This demonstrates the proper way to invoke MCP tools:
-    1. Connect to the MCP server
-    2. Use call_tool() with the tool name and arguments
-    3. Return the result as a JSON string
+    Execute a tool via MCP protocol.
 
     Args:
         mcp_url: URL of the MCP server
@@ -159,12 +142,9 @@ async def execute_mcp_tool(
     """
     try:
         async with Client(mcp_url) as client:
-            # Call the tool via MCP protocol
             result = await client.call_tool(tool_name, tool_args)
 
-            # MCP returns a list of content items
             if result and len(result) > 0:
-                # Extract text content from the first item
                 content = result[0]
                 if hasattr(content, "text"):
                     return content.text
@@ -209,11 +189,9 @@ async def call_ollama_with_mcp_tools(
     try:
         client = AsyncClient(host=ollama_url)
 
-        # Prepare messages with system prompt
         full_messages = [{"role": "system", "content": system_prompt}]
         full_messages.extend(messages)
 
-        # Call Ollama with MCP-discovered tools
         response = await client.chat(
             model=model,
             messages=full_messages,
@@ -237,19 +215,10 @@ async def call_ollama_with_mcp_tools(
 @workflow.with_options(name="mcp_workflow_assistant_ollama")
 async def mcp_workflow_assistant_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
-    An AI assistant that helps users manage Flux workflows through natural language.
+    AI assistant that manages Flux workflows via MCP protocol.
 
-    This workflow demonstrates proper MCP protocol integration:
-    - Dynamically discovers tools from the MCP server
-    - Routes all tool calls through MCP protocol
-    - No hardcoded tool definitions
-    - Standards-compliant implementation
-
-    Features:
-    - Multi-turn conversations with state persistence
-    - Intelligent workflow suggestions based on user intent
-    - Proactive execution monitoring
-    - Natural language interface to all Flux workflow operations
+    Discovers tools dynamically from the MCP server and routes all
+    tool calls through the MCP protocol.
 
     Initial Input format:
     {
@@ -300,17 +269,12 @@ Be proactive, helpful, and explain technical details in accessible language.""",
     mcp_url = initial_input.get("mcp_url", "http://localhost:8080/mcp")
     max_turns = initial_input.get("max_turns", 20)
 
-    # Discover MCP tools dynamically
     mcp_tools = await discover_mcp_tools(mcp_url)
-
-    # Convert MCP tools to Ollama format
     ollama_tools = await convert_mcp_tools_to_ollama(mcp_tools)
 
-    # Initialize conversation state
     messages: list[dict[str, Any]] = []
     execution_ids: list[str] = []  # Track execution IDs across conversation
 
-    # Process first message
     first_message = initial_input.get("message", "")
     if not first_message:
         return {
@@ -321,9 +285,7 @@ Be proactive, helpful, and explain technical details in accessible language.""",
 
     messages.append({"role": "user", "content": first_message})
 
-    # Main conversation loop
     for turn in range(max_turns):
-        # Call LLM with MCP-discovered tools
         response = await call_ollama_with_mcp_tools(
             messages=messages,
             system_prompt=system_prompt,
@@ -334,17 +296,14 @@ Be proactive, helpful, and explain technical details in accessible language.""",
 
         message = response["message"]
 
-        # Check if the LLM wants to use MCP tools
         if message.get("tool_calls"):
-            # Execute all tool calls via MCP protocol
             for tool_call in message["tool_calls"]:
                 tool_name = tool_call["function"]["name"]
                 tool_args = tool_call["function"]["arguments"]
 
-                # Execute the tool via MCP protocol
                 tool_result = await execute_mcp_tool(mcp_url, tool_name, tool_args)
 
-                # Track execution IDs if this was an execute command
+                # Track execution IDs for workflow executions
                 if "execute_workflow" in tool_name and "execution_id" in tool_result:
                     try:
                         result_data = json.loads(tool_result)
@@ -353,7 +312,6 @@ Be proactive, helpful, and explain technical details in accessible language.""",
                     except json.JSONDecodeError:
                         pass
 
-                # Add tool result to messages
                 messages.append(
                     {
                         "role": "tool",
@@ -361,7 +319,6 @@ Be proactive, helpful, and explain technical details in accessible language.""",
                     },
                 )
 
-            # Call LLM again to generate final response with tool results
             response = await call_ollama_with_mcp_tools(
                 messages=messages,
                 system_prompt=system_prompt,
@@ -372,14 +329,11 @@ Be proactive, helpful, and explain technical details in accessible language.""",
 
             message = response["message"]
 
-        # Add assistant response to messages
         assistant_content = message.get("content", "")
         messages.append({"role": "assistant", "content": assistant_content})
 
-        # Pause and wait for next user input
         resume_input = await pause(f"waiting_for_user_input_turn_{turn + 1}")
 
-        # Get next message
         next_message = resume_input.get("message", "") if resume_input else ""
         if not next_message:
             return {
@@ -392,7 +346,6 @@ Be proactive, helpful, and explain technical details in accessible language.""",
 
         messages.append({"role": "user", "content": next_message})
 
-    # Max turns reached
     return {
         "conversation_history": messages,
         "total_turns": max_turns,
