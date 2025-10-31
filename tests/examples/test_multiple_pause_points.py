@@ -15,7 +15,7 @@ def test_first_pause():
     # Check for the pause event
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     assert len(pause_events) == 1
-    assert pause_events[0].value == "verify_setup"
+    assert pause_events[0].value["name"] == "verify_setup"
 
     return ctx
 
@@ -32,7 +32,7 @@ def test_second_pause():
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     # Filter out duplicate events by value (keeping only unique pause points)
-    unique_pause_points = {e.value for e in pause_events}
+    unique_pause_points = {e.value["name"] for e in pause_events}
     assert len(unique_pause_points) == 2
     assert "validate_data" in unique_pause_points
 
@@ -51,7 +51,7 @@ def test_third_pause():
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     # Filter out duplicate events by value (keeping only unique pause points)
-    unique_pause_points = {e.value for e in pause_events}
+    unique_pause_points = {e.value["name"] for e in pause_events}
     assert len(unique_pause_points) == 3
     assert "monitor_progress_1" in unique_pause_points
 
@@ -70,7 +70,7 @@ def test_fourth_pause():
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     # Filter out duplicate events by value (keeping only unique pause points)
-    unique_pause_points = {e.value for e in pause_events}
+    unique_pause_points = {e.value["name"] for e in pause_events}
     assert len(unique_pause_points) == 4
     assert "monitor_progress_2" in unique_pause_points
 
@@ -89,7 +89,7 @@ def test_fifth_pause():
     # Check for the pause events
     pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
     # Filter out duplicate events by value (keeping only unique pause points)
-    unique_pause_points = {e.value for e in pause_events}
+    unique_pause_points = {e.value["name"] for e in pause_events}
     assert len(unique_pause_points) == 5
     assert "final_approval" in unique_pause_points
 
@@ -133,7 +133,7 @@ def test_full_resume_sequence():
         # Check current pause point
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
         # Filter out duplicate events by value (keeping only unique pause points)
-        unique_pause_points = [e.value for e in pause_events]
+        unique_pause_points = [e.value["name"] for e in pause_events]
         assert point in unique_pause_points
         # Make sure we have at least i+1 unique pause points
         assert len(set(unique_pause_points)) >= i + 1

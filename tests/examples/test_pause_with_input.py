@@ -25,7 +25,8 @@ class TestPauseWithInput:
         # Check the pause event
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
         assert len(pause_events) == 1
-        assert pause_events[0].value == "waiting_for_user_input"
+        assert pause_events[0].value["name"] == "waiting_for_user_input"
+        assert pause_events[0].value["output"] is None
 
         # Resume with input using the correct pattern:
         # 1. Save the paused context
@@ -118,7 +119,7 @@ class TestPauseWithInput:
         # Check first pause point
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
         assert len(pause_events) == 1
-        assert pause_events[0].value == "collect_config"
+        assert pause_events[0].value["name"] == "collect_config"
 
         # Resume with config input using proper pattern
         config_input = {"database_url": "localhost:5432", "timeout": 30}
@@ -127,7 +128,7 @@ class TestPauseWithInput:
         # Should be paused at second point
         assert ctx.is_paused, "Workflow should be paused at second point"
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
-        unique_pause_points = {e.value for e in pause_events}
+        unique_pause_points = {e.value["name"] for e in pause_events}
         assert "collect_parameters" in unique_pause_points
         assert len(unique_pause_points) == 2
 
@@ -138,7 +139,7 @@ class TestPauseWithInput:
         # Should be paused at third point
         assert ctx.is_paused, "Workflow should be paused at third point"
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
-        unique_pause_points = {e.value for e in pause_events}
+        unique_pause_points = {e.value["name"] for e in pause_events}
         assert "final_approval" in unique_pause_points
         assert len(unique_pause_points) == 3
 
@@ -190,7 +191,7 @@ class TestPauseWithInput:
         # Check pause point
         pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
         assert len(pause_events) == 1
-        assert pause_events[0].value == "approval_required"
+        assert pause_events[0].value["name"] == "approval_required"
 
         # Resume with approval using proper pattern
         approval_input = {"approved": True, "reason": "Looks good"}

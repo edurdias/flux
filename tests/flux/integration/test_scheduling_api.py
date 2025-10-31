@@ -359,8 +359,10 @@ class TestSchedulingAPIPauseResume:
         """Test pausing a schedule."""
         # Setup mocks
         mock_schedule_model.status = ScheduleStatus.PAUSED
+        mock_schedule_model.id = "schedule-123"
 
         mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule_model
         mock_manager.pause_schedule.return_value = mock_schedule_model
         mock_manager_create.return_value = mock_manager
 
@@ -372,7 +374,8 @@ class TestSchedulingAPIPauseResume:
         data = response.json()
         assert data["status"] == "paused"
 
-        # Verify mock was called
+        # Verify mocks were called - now resolves ID first
+        mock_manager.get_schedule.assert_called_once_with("schedule-123")
         mock_manager.pause_schedule.assert_called_once_with("schedule-123")
 
     @patch("flux.server.create_schedule_manager")
@@ -384,7 +387,10 @@ class TestSchedulingAPIPauseResume:
     ):
         """Test resuming a paused schedule."""
         # Setup mocks
+        mock_schedule_model.id = "schedule-123"
+
         mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule_model
         mock_manager.resume_schedule.return_value = mock_schedule_model
         mock_manager_create.return_value = mock_manager
 
@@ -396,7 +402,8 @@ class TestSchedulingAPIPauseResume:
         data = response.json()
         assert data["status"] == "active"
 
-        # Verify mock was called
+        # Verify mocks were called - now resolves ID first
+        mock_manager.get_schedule.assert_called_once_with("schedule-123")
         mock_manager.resume_schedule.assert_called_once_with("schedule-123")
 
 
@@ -411,7 +418,11 @@ class TestSchedulingAPIDelete:
     ):
         """Test deleting a schedule."""
         # Setup mocks
+        mock_schedule = MagicMock()
+        mock_schedule.id = "schedule-123"
+
         mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule
         mock_manager.delete_schedule.return_value = True
         mock_manager_create.return_value = mock_manager
 
@@ -423,7 +434,8 @@ class TestSchedulingAPIDelete:
         data = response.json()
         assert data["status"] == "success"
 
-        # Verify mock was called
+        # Verify mocks were called - now resolves ID first
+        mock_manager.get_schedule.assert_called_once_with("schedule-123")
         mock_manager.delete_schedule.assert_called_once_with("schedule-123")
 
     @patch("flux.server.create_schedule_manager")
