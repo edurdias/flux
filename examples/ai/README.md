@@ -39,6 +39,14 @@ AI assistants that use Model Context Protocol (MCP) for dynamic tool discovery.
 |---------|-------------|----------|
 | **mcp_workflow_assistant_ollama.py** | Workflow assistant with MCP tool discovery | Natural language workflow management |
 
+### Multi-Turn Assistants
+
+AI assistants that autonomously use tools to complete tasks through natural conversation flow.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **multi_turn_assistant_ollama.py** | Multi-turn assistant with natural tool calling via MCP | Complex queries requiring multiple tool calls, autonomous problem solving, workflow management |
+
 ### Multi-Agent Systems
 
 Multiple specialized agents executing in parallel.
@@ -302,7 +310,83 @@ Assistant: "The workflow completed successfully. Output: Hello, Alice!"
 }
 ```
 
-### 7. Multi-Agent Code Review
+### 7. Multi-Turn Assistant
+
+Multi-turn conversational AI assistant that autonomously uses tools to complete tasks.
+
+The assistant uses a natural tool calling pattern where it decides when to use tools versus when to respond to the user. It can chain multiple tool calls together to complete complex tasks in a single turn, creating a fluid and efficient conversation flow.
+
+```bash
+# Prerequisites: Flux server, worker, and MCP server running
+poetry run flux start server  # Terminal 1
+poetry run flux start worker worker-1  # Terminal 2
+poetry run flux start mcp  # Terminal 3
+
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Pull a model that supports tool calling
+ollama pull llama3.2
+
+# Start Ollama service
+ollama serve
+
+# Register the workflow
+flux workflow register examples/ai/multi_turn_assistant_ollama.py
+
+# Ask the assistant to help with workflows
+flux workflow run multi_turn_assistant_ollama '{
+  "message": "What workflows are available? Run the hello_world workflow."
+}'
+
+# Continue the conversation (use execution_id from previous response)
+flux workflow resume multi_turn_assistant_ollama <execution_id> '{
+  "message": "What was the result?"
+}'
+
+# Use with multiple MCP servers
+flux workflow run multi_turn_assistant_ollama '{
+  "message": "List all workflows",
+  "mcp_urls": ["http://localhost:8080/mcp"]
+}'
+
+# Or run the example directly
+python examples/ai/multi_turn_assistant_ollama.py
+```
+
+**Key Features:**
+- **Natural Tool Calling**: LLM autonomously decides when to use tools vs respond
+- **Tool Chaining**: Can call multiple tools in sequence within a single turn
+- **Multi-MCP Support**: Connects to multiple MCP servers simultaneously
+- **Multi-Turn Conversations**: Maintains context across interactions
+- **Clean Architecture**: Simple, maintainable implementation (~400 lines)
+
+**How It Works:**
+```
+User: "List available workflows and run hello_world"
+
+Assistant decides → "I need to list workflows first"
+  → calls list_workflows via MCP
+  → receives workflow list
+  → "Now I'll run hello_world"
+  → calls execute_workflow_async via MCP
+  → receives execution result
+  → responds to user: "Found 5 workflows. I ran hello_world (execution ID: abc-123)"
+```
+
+**Configuration:**
+```json
+{
+  "message": "Your request or question",
+  "system_prompt": "Optional custom instructions",
+  "model": "llama3.2",
+  "ollama_url": "http://localhost:11434",
+  "mcp_urls": ["http://localhost:8080/mcp"],
+  "max_turns": 20
+}
+```
+
+### 8. Multi-Agent Code Review
 
 4 specialized agents run in parallel to analyze code for security, performance, style, and testing issues.
 
@@ -386,7 +470,7 @@ python examples/ai/multi_agent_code_review_ollama.py
 }
 ```
 
-### 8. Data Analysis Agent
+### 9. Data Analysis Agent
 
 Analyze CSV and JSON files using pandas + LLM for natural language insights.
 
@@ -399,9 +483,6 @@ ollama pull llama3.2
 
 # Start Ollama service
 ollama serve
-
-# Generate sample data
-python examples/ai/create_sample_data.py
 
 # Register the workflow
 flux workflow register examples/ai/data_analysis_agent_ollama.py
@@ -453,7 +534,7 @@ python examples/ai/data_analysis_agent_ollama.py
 }
 ```
 
-### 9. Streaming Response Agent
+### 10. Streaming Response Agent
 
 Experience real-time token streaming for better UX with long responses.
 
@@ -509,7 +590,7 @@ Non-streaming: 12.45s (0 tokens/s until complete) - entire response at once
 }
 ```
 
-### 10. Event-Based Streaming (Advanced)
+### 11. Event-Based Streaming (Advanced)
 
 Showcase Flux's event-based execution architecture with real-time LLM streaming.
 
@@ -535,9 +616,6 @@ flux workflow run streaming_with_task_events_ollama '{
 curl -N http://localhost:8000/workflows/streaming_with_task_events_ollama/run/stream?detailed=true \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Explain quantum computing in 3 sentences."}'
-
-# Use the Python SSE client
-python examples/ai/stream_event_client.py "Explain neural networks briefly"
 ```
 
 **Event Structure:**
@@ -596,9 +674,6 @@ Each token batch generates automatic Flux events:
 ```bash
 # Get execution with all events
 curl http://localhost:8000/workflows/streaming_with_task_events_ollama/executions/<execution_id>?detailed=true
-
-# Or use the Python client for real-time streaming
-python examples/ai/stream_event_client.py
 ```
 
 ## How It Works
