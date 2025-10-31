@@ -161,7 +161,7 @@ async def pipeline(*tasks: Callable, input: Any):
 
 
 @flux.task.with_options(metadata=True)
-async def pause(name: str, metadata: TaskMetadata):
+async def pause(name: str, output: Any = None, *, metadata: TaskMetadata):
     ctx = await ExecutionContext.get()
 
     if ctx.is_resuming:
@@ -175,7 +175,7 @@ async def pause(name: str, metadata: TaskMetadata):
             ),
         )
         return input
-    raise PauseRequested(name=name)
+    raise PauseRequested(name=name, output=output)
 
 
 async def default_action(arg: Any) -> Any:

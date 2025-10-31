@@ -109,7 +109,7 @@ class workflow:
             )
             ctx.complete(self.id, output_value)
         except PauseRequested as ex:
-            ctx.pause(self.id, ex.name)
+            ctx.pause(self.id, ex.name, ex.output)
         except asyncio.CancelledError:
             ctx.cancel()
             raise

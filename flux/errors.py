@@ -73,15 +73,20 @@ class ExecutionTimeoutError(ExecutionError):
 
 
 class PauseRequested(ExecutionError):
-    def __init__(self, name: str):
+    def __init__(self, name: str, output: Any = None):
         super().__init__(
             message="Pause Requested.",
         )
         self._name = name
+        self._output = output
 
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def output(self) -> Any:
+        return self._output
 
 
 class WorkflowCatalogError(ExecutionError):
