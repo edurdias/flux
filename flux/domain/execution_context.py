@@ -268,14 +268,14 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return event.value
 
-    def pause(self, id: str, name: str) -> Self:
+    def pause(self, id: str, name: str, output: Any = None) -> Self:
         self._state = ExecutionState.PAUSED
         self.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_PAUSED,
                 source_id=id,
                 name=self.workflow_name,
-                value=name,
+                value={"name": name, "output": output},
             ),
         )
         return self

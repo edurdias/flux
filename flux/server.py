@@ -998,6 +998,35 @@ class Server:
                 failure_count=schedule.failure_count,
             )
 
+        def _resolve_schedule_id_or_name(schedule_id_or_name: str, schedule_manager):
+            """
+            Resolve schedule by ID or name.
+
+            First tries to get by ID. If not found, tries to find by name.
+            If the input looks like a name (contains underscore or dash), also search by name.
+
+            Args:
+                schedule_id_or_name: Either a UUID schedule ID or a schedule name
+                schedule_manager: The schedule manager instance
+
+            Returns:
+                ScheduleModel if found, None otherwise
+            """
+            # First try getting by ID (UUID)
+            schedule = schedule_manager.get_schedule(schedule_id_or_name)
+            if schedule:
+                return schedule
+
+            # If not found and looks like it could be a name (not a UUID pattern),
+            # search all schedules for a matching name
+            if "_" in schedule_id_or_name or "-" in schedule_id_or_name:
+                all_schedules = schedule_manager.list_schedules(active_only=False)
+                for sched in all_schedules:
+                    if sched.name == schedule_id_or_name:
+                        return sched
+
+            return None
+
         @api.post("/schedules", response_model=ScheduleResponse)
         async def create_schedule(request: ScheduleRequest):
             """Create a new schedule for a workflow"""
@@ -1091,12 +1120,14 @@ class Server:
 
         @api.get("/schedules/{schedule_id}", response_model=ScheduleResponse)
         async def get_schedule(schedule_id: str):
-            """Get a specific schedule by ID"""
+            """Get a specific schedule by ID or name"""
             try:
                 logger.debug(f"Getting schedule '{schedule_id}'")
 
                 schedule_manager = create_schedule_manager()
-                schedule = schedule_manager.get_schedule(schedule_id)
+
+                # Resolve by ID or name
+                schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
                 if not schedule:
                     raise HTTPException(
                         status_code=404,
@@ -1113,19 +1144,28 @@ class Server:
 
         @api.put("/schedules/{schedule_id}", response_model=ScheduleResponse)
         async def update_schedule(schedule_id: str, request: ScheduleUpdateRequest):
-            """Update an existing schedule"""
+            """Update an existing schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Updating schedule '{schedule_id}'")
 
                 schedule_manager = create_schedule_manager()
+
+                # Resolve by ID or name
+                existing_schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
+                if not existing_schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
 
                 # Build update parameters
                 schedule_param = None
                 if request.schedule_config is not None:
                     schedule_param = schedule_factory(request.schedule_config)
 
+                # Update using the actual ID
                 schedule = schedule_manager.update_schedule(
-                    schedule_id,
+                    existing_schedule.id,
                     schedule=schedule_param,
                     description=request.description,
                     input_data=request.input_data,
@@ -1142,12 +1182,22 @@ class Server:
 
         @api.post("/schedules/{schedule_id}/pause", response_model=ScheduleResponse)
         async def pause_schedule(schedule_id: str):
-            """Pause a schedule"""
+            """Pause a schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Pausing schedule '{schedule_id}'")
 
                 schedule_manager = create_schedule_manager()
-                schedule = schedule_manager.pause_schedule(schedule_id)
+
+                # Resolve by ID or name
+                schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                # Now pause using the actual ID
+                schedule = schedule_manager.pause_schedule(schedule.id)
 
                 logger.info(f"Successfully paused schedule '{schedule_id}'")
                 return _schedule_model_to_response(schedule)
@@ -1160,12 +1210,22 @@ class Server:
 
         @api.post("/schedules/{schedule_id}/resume", response_model=ScheduleResponse)
         async def resume_schedule(schedule_id: str):
-            """Resume a paused schedule"""
+            """Resume a paused schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Resuming schedule '{schedule_id}'")
 
                 schedule_manager = create_schedule_manager()
-                schedule = schedule_manager.resume_schedule(schedule_id)
+
+                # Resolve by ID or name
+                schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                # Now resume using the actual ID
+                schedule = schedule_manager.resume_schedule(schedule.id)
 
                 logger.info(f"Successfully resumed schedule '{schedule_id}'")
                 return _schedule_model_to_response(schedule)
@@ -1178,12 +1238,22 @@ class Server:
 
         @api.delete("/schedules/{schedule_id}")
         async def delete_schedule(schedule_id: str):
-            """Delete a schedule"""
+            """Delete a schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Deleting schedule '{schedule_id}'")
 
                 schedule_manager = create_schedule_manager()
-                success = schedule_manager.delete_schedule(schedule_id)
+
+                # Resolve by ID or name
+                schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                # Now delete using the actual ID
+                success = schedule_manager.delete_schedule(schedule.id)
 
                 if not success:
                     raise HTTPException(
