@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 from flux.domain.resource_request import ResourceRequest
-from flux.worker_registry import WorkerResouceGPUInfo, WorkerResourcesInfo
+from flux.worker_registry import WorkerResourceGPUInfo, WorkerResourcesInfo
 
 
 def test_matches_worker_basic():
@@ -55,7 +55,7 @@ def test_matches_worker_gpu():
         disk_total=100 * 1024 * 1024 * 1024,
         disk_free=80 * 1024 * 1024 * 1024,
         gpus=[
-            WorkerResouceGPUInfo(
+            WorkerResourceGPUInfo(
                 name="NVIDIA GeForce RTX 3080",
                 memory_total=10 * 1024 * 1024 * 1024,  # 10Gi
                 memory_available=8 * 1024 * 1024 * 1024,  # 8Gi

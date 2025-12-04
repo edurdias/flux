@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import httpx
 
-from typing import Literal
+from typing import Any, Literal
 from fastmcp import FastMCP
 
 from flux.config import Configuration
@@ -63,7 +63,7 @@ class MCPServer:
 
         # Workflow Management Tools
         @self.mcp.tool()
-        async def list_workflows() -> dict[str, any]:
+        async def list_workflows() -> dict[str, Any]:
             """List all available workflows in the Flux system."""
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
@@ -87,7 +87,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_workflow_details(workflow_name: str) -> dict[str, any]:
+        async def get_workflow_details(workflow_name: str) -> dict[str, Any]:
             """Get detailed information about a specific workflow.
 
             Args:
@@ -119,7 +119,7 @@ class MCPServer:
             workflow_name: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Execute a workflow asynchronously and return immediately with execution ID.
 
             Args:
@@ -166,7 +166,7 @@ class MCPServer:
             workflow_name: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Execute a workflow synchronously and wait for completion.
 
             Args:
@@ -213,7 +213,7 @@ class MCPServer:
             execution_id: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Resume a paused workflow asynchronously with input data.
 
             Args:
@@ -266,7 +266,7 @@ class MCPServer:
             execution_id: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Resume a paused workflow synchronously and wait for completion.
 
             Args:
@@ -314,7 +314,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def upload_workflow(file_content: str) -> dict[str, any]:
+        async def upload_workflow(file_content: str) -> dict[str, Any]:
             """Upload and register a new workflow file.
 
             Args:
@@ -355,7 +355,7 @@ class MCPServer:
             workflow_name: str,
             execution_id: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get the current status of a workflow execution.
 
             Args:
@@ -394,7 +394,7 @@ class MCPServer:
             execution_id: str,
             mode: str = "async",
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Cancel a running workflow execution.
 
             Args:

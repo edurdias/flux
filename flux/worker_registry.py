@@ -24,7 +24,7 @@ class WorkerRuntimeInfo:
         self.python_version = python_version
 
 
-class WorkerResouceGPUInfo:
+class WorkerResourceGPUInfo:
     def __init__(
         self,
         name: str,
@@ -45,7 +45,7 @@ class WorkerResourcesInfo:
         memory_available: int,
         disk_total: int,
         disk_free: int,
-        gpus: list[WorkerResouceGPUInfo],
+        gpus: list[WorkerResourceGPUInfo],
     ):
         self.cpu_total = cpu_total
         self.cpu_available = cpu_available
@@ -203,7 +203,7 @@ class SQLiteWorkerRegistry(WorkerRegistry):
                 model.resources.disk_total,
                 model.resources.disk_free,
                 [
-                    WorkerResouceGPUInfo(
+                    WorkerResourceGPUInfo(
                         gpu.name,
                         gpu.memory_total,
                         gpu.memory_available,
