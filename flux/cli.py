@@ -105,18 +105,29 @@ def register_workflows(filename: str, server_url: str | None):
 @workflow.command("show")
 @click.argument("workflow_name")
 @click.option(
+    "--version",
+    "-v",
+    type=int,
+    default=None,
+    help="Specific workflow version to show (defaults to latest)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def show_workflow(workflow_name: str, server_url: str | None):
+def show_workflow(workflow_name: str, version: int | None, server_url: str | None):
     """Show the details of a registered workflow."""
     try:
         base_url = server_url or get_server_url()
 
         with httpx.Client(timeout=30.0) as client:
-            response = client.get(f"{base_url}/workflows/{workflow_name}")
+            if version is not None:
+                url = f"{base_url}/workflows/{workflow_name}/versions/{version}"
+            else:
+                url = f"{base_url}/workflows/{workflow_name}"
+            response = client.get(url)
             response.raise_for_status()
             workflow = response.json()
 
@@ -130,11 +141,121 @@ def show_workflow(workflow_name: str, server_url: str | None):
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
-            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+            version_str = f" version {version}" if version else ""
+            click.echo(f"Workflow '{workflow_name}'{version_str} not found.", err=True)
         else:
             click.echo(f"Error showing workflow: {str(ex)}", err=True)
     except Exception as ex:
         click.echo(f"Error showing workflow: {str(ex)}", err=True)
+
+
+@workflow.command("delete")
+@click.argument("workflow_name")
+@click.option(
+    "--version",
+    "-v",
+    type=int,
+    default=None,
+    help="Specific version to delete (defaults to all versions)",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Skip confirmation prompt",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def delete_workflow(
+    workflow_name: str,
+    version: int | None,
+    force: bool,
+    server_url: str | None,
+):
+    """Delete a workflow (all versions or a specific version)."""
+    try:
+        base_url = server_url or get_server_url()
+
+        version_str = f" version {version}" if version else " (all versions)"
+        if not force:
+            if not click.confirm(f"Delete workflow '{workflow_name}'{version_str}?"):
+                click.echo("Cancelled.")
+                return
+
+        params = {}
+        if version is not None:
+            params["version"] = version
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.delete(
+                f"{base_url}/workflows/{workflow_name}",
+                params=params,
+            )
+            response.raise_for_status()
+
+        click.echo(f"Successfully deleted workflow '{workflow_name}'{version_str}.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+        else:
+            click.echo(f"Error deleting workflow: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error deleting workflow: {str(ex)}", err=True)
+
+
+@workflow.command("versions")
+@click.argument("workflow_name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_workflow_versions(
+    workflow_name: str,
+    format: str,
+    server_url: str | None,
+):
+    """List all versions of a workflow."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/workflows/{workflow_name}/versions")
+            response.raise_for_status()
+            versions = response.json()
+
+        if not versions:
+            click.echo(f"No versions found for workflow '{workflow_name}'.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(versions, indent=2))
+        else:
+            click.echo(f"\nVersions of '{workflow_name}':")
+            click.echo("-" * 40)
+            for v in versions:
+                click.echo(f"  Version {v['version']} (id: {v['id']})")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
+        else:
+            click.echo(f"Error listing versions: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing versions: {str(ex)}", err=True)
 
 
 @workflow.command("run")
@@ -146,6 +267,13 @@ def show_workflow(workflow_name: str, server_url: str | None):
     type=click.Choice(["sync", "async", "stream"]),
     default="async",
     help="Execution mode (sync, async, or stream)",
+)
+@click.option(
+    "--version",
+    "-v",
+    type=int,
+    default=None,
+    help="Specific workflow version to run (defaults to latest)",
 )
 @click.option(
     "--detailed",
@@ -163,6 +291,7 @@ def run_workflow(
     workflow_name: str,
     input: str,
     mode: str,
+    version: int | None,
     detailed: bool,
     server_url: str | None,
 ):
@@ -171,11 +300,15 @@ def run_workflow(
         base_url = server_url or get_server_url()
         parsed_input = parse_value(input)
 
+        params = {"detailed": detailed}
+        if version is not None:
+            params["version"] = version
+
         with httpx.Client(timeout=60.0) as client:
             response = client.post(
                 f"{base_url}/workflows/{workflow_name}/run/{mode}",
                 json=parsed_input,
-                params={"detailed": detailed},
+                params=params,
             )
             response.raise_for_status()
 
@@ -320,6 +453,273 @@ def workflow_status(
         click.echo(f"Error checking workflow status: {str(ex)}", err=True)
 
 
+# =============================================================================
+# Execution Commands
+# =============================================================================
+
+
+@cli.group()
+def execution():
+    """Manage workflow executions."""
+    pass
+
+
+@execution.command("list")
+@click.option(
+    "--workflow",
+    "-w",
+    default=None,
+    help="Filter by workflow name",
+)
+@click.option(
+    "--state",
+    "-s",
+    default=None,
+    help="Filter by execution state (e.g., RUNNING, COMPLETED, FAILED)",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=50,
+    help="Maximum number of results",
+)
+@click.option(
+    "--offset",
+    "-o",
+    type=int,
+    default=0,
+    help="Number of results to skip",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_executions(
+    workflow: str | None,
+    state: str | None,
+    limit: int,
+    offset: int,
+    format: str,
+    server_url: str | None,
+):
+    """List workflow executions."""
+    try:
+        base_url = server_url or get_server_url()
+
+        params = {"limit": limit, "offset": offset}
+        if workflow:
+            params["workflow_name"] = workflow
+        if state:
+            params["state"] = state
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/executions", params=params)
+            response.raise_for_status()
+            result = response.json()
+
+        executions = result.get("executions", [])
+        total = result.get("total", 0)
+
+        if not executions:
+            click.echo("No executions found.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"\nExecutions ({len(executions)} of {total}):")
+            click.echo("-" * 70)
+            for ex in executions:
+                state_str = ex.get("state", "UNKNOWN")
+                worker = ex.get("worker_name") or "unassigned"
+                click.echo(
+                    f"  {ex['execution_id'][:12]}...  "
+                    f"{ex['workflow_name']:20}  {state_str:12}  {worker}"
+                )
+
+    except httpx.HTTPStatusError as ex:
+        click.echo(f"Error listing executions: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing executions: {str(ex)}", err=True)
+
+
+@execution.command("show")
+@click.argument("execution_id")
+@click.option(
+    "--detailed",
+    "-d",
+    is_flag=True,
+    help="Show detailed execution information",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def show_execution(execution_id: str, detailed: bool, server_url: str | None):
+    """Show details of a specific execution."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                f"{base_url}/executions/{execution_id}",
+                params={"detailed": detailed},
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Execution '{execution_id}' not found.", err=True)
+        else:
+            click.echo(f"Error showing execution: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing execution: {str(ex)}", err=True)
+
+
+# =============================================================================
+# Worker Commands
+# =============================================================================
+
+
+@cli.group()
+def worker():
+    """Manage workers."""
+    pass
+
+
+@worker.command("list")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_workers(format: str, server_url: str | None):
+    """List all registered workers."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/workers")
+            response.raise_for_status()
+            workers = response.json()
+
+        if not workers:
+            click.echo("No workers found.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(workers, indent=2))
+        else:
+            click.echo(f"\nWorkers ({len(workers)}):")
+            click.echo("-" * 50)
+            for w in workers:
+                runtime = w.get("runtime")
+                py_version = runtime.get("python_version", "unknown") if runtime else "unknown"
+                click.echo(f"  {w['name']:30}  Python {py_version}")
+
+    except httpx.HTTPStatusError as ex:
+        click.echo(f"Error listing workers: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing workers: {str(ex)}", err=True)
+
+
+@worker.command("show")
+@click.argument("name")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def show_worker(name: str, server_url: str | None):
+    """Show details of a specific worker."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(f"{base_url}/workers/{name}")
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Worker '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error showing worker: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing worker: {str(ex)}", err=True)
+
+
+# =============================================================================
+# Health Command
+# =============================================================================
+
+
+@cli.command("health")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def health_check(server_url: str | None):
+    """Check the health of the Flux server."""
+    try:
+        base_url = server_url or get_server_url()
+
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{base_url}/health")
+            response.raise_for_status()
+            result = response.json()
+
+        status = result.get("status", "unknown")
+        database = "connected" if result.get("database") else "disconnected"
+        version = result.get("version", "unknown")
+
+        if status == "healthy":
+            click.echo(f"✓ Server is healthy")
+        else:
+            click.echo(f"✗ Server is unhealthy", err=True)
+
+        click.echo(f"  Database: {database}")
+        click.echo(f"  Version: {version}")
+
+    except httpx.ConnectError:
+        click.echo(f"✗ Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"✗ Health check failed: {str(ex)}", err=True)
+
+
+# =============================================================================
+# Start Commands
+# =============================================================================
+
+
 @cli.group()
 def start():
     pass
@@ -342,7 +742,7 @@ def server(host: str | None = None, port: int | None = None):
     Server(host, port).start()
 
 
-@start.command()
+@start.command("worker")
 @click.argument("name", type=str, required=False)
 @click.option(
     "--server-url",
@@ -350,7 +750,7 @@ def server(host: str | None = None, port: int | None = None):
     default=None,
     help="Server URL to connect to.",
 )
-def worker(name: str | None, server_url: str | None = None):
+def start_worker(name: str | None, server_url: str | None = None):
     name = name or f"worker-{uuid4().hex[-6:]}"
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
