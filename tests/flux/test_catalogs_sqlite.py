@@ -1,4 +1,5 @@
 """Tests for the SQLiteWorkflowCatalog implementation."""
+
 from __future__ import annotations
 
 import os

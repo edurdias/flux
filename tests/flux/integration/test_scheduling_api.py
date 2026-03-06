@@ -660,7 +660,7 @@ class TestScheduleManagerGetHistory:
     @patch("flux.schedule_manager.RepositoryFactory.create_repository")
     def test_get_schedule_history_returns_executions(self, mock_repo_factory):
         """Test that get_schedule_history returns execution history."""
-        from flux.schedule_manager import DatabaseScheduleManager, ScheduleManagerError
+        from flux.schedule_manager import DatabaseScheduleManager
 
         # Setup mock repository and session
         mock_repo = MagicMock()
@@ -696,9 +696,7 @@ class TestScheduleManagerGetHistory:
             mock_exec1,
             mock_exec2,
         ]
-        mock_session.query.return_value.filter.return_value.first.return_value = (
-            mock_schedule
-        )
+        mock_session.query.return_value.filter.return_value.first.return_value = mock_schedule
         mock_session.query.return_value.filter.return_value = mock_query
 
         # Create manager and call method
@@ -754,16 +752,12 @@ class TestScheduleManagerGetHistory:
         mock_query.filter.return_value = mock_query
         mock_query.count.return_value = 100
         mock_query.offset.return_value.limit.return_value.all.return_value = []
-        mock_session.query.return_value.filter.return_value.first.return_value = (
-            mock_schedule
-        )
+        mock_session.query.return_value.filter.return_value.first.return_value = mock_schedule
         mock_session.query.return_value.filter.return_value = mock_query
 
         # Create manager and call with pagination
         manager = DatabaseScheduleManager()
-        results, total = manager.get_schedule_history(
-            "schedule-123", limit=10, offset=20
-        )
+        results, total = manager.get_schedule_history("schedule-123", limit=10, offset=20)
 
         # Verify pagination was applied
         mock_query.offset.assert_called_with(20)
@@ -791,9 +785,7 @@ class TestScheduleManagerGetHistory:
         mock_query.filter.return_value = mock_query
         mock_query.count.return_value = 0
         mock_query.offset.return_value.limit.return_value.all.return_value = []
-        mock_session.query.return_value.filter.return_value.first.return_value = (
-            mock_schedule
-        )
+        mock_session.query.return_value.filter.return_value.first.return_value = mock_schedule
         mock_session.query.return_value.filter.return_value = mock_query
 
         # Create manager and call

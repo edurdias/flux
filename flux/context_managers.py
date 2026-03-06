@@ -234,7 +234,6 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
         Returns:
             Tuple of (list of ExecutionContext, total count)
         """
-        from sqlalchemy import func
 
         with self.session() as session:
             query = session.query(ExecutionContextModel)

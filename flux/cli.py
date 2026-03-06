@@ -702,9 +702,9 @@ def health_check(server_url: str | None):
         version = result.get("version", "unknown")
 
         if status == "healthy":
-            click.echo(f"✓ Server is healthy")
+            click.echo("✓ Server is healthy")
         else:
-            click.echo(f"✗ Server is unhealthy", err=True)
+            click.echo("✗ Server is unhealthy", err=True)
 
         click.echo(f"  Database: {database}")
         click.echo(f"  Version: {version}")

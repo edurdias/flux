@@ -364,9 +364,7 @@ class DatabaseScheduleManager(ScheduleManager):
             with self._repository.session() as session:
                 # Get the schedule first
                 schedule = (
-                    session.query(ScheduleModel)
-                    .filter(ScheduleModel.id == schedule_id)
-                    .first()
+                    session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
                 )
 
                 if not schedule:
@@ -386,12 +384,16 @@ class DatabaseScheduleManager(ScheduleManager):
                 # Return execution summaries
                 results = []
                 for ex in executions:
-                    results.append({
-                        "execution_id": ex.execution_id,
-                        "workflow_name": ex.workflow_name,
-                        "state": ex.state.value if hasattr(ex.state, 'value') else str(ex.state),
-                        "worker_name": ex.worker_name,
-                    })
+                    results.append(
+                        {
+                            "execution_id": ex.execution_id,
+                            "workflow_name": ex.workflow_name,
+                            "state": ex.state.value
+                            if hasattr(ex.state, "value")
+                            else str(ex.state),
+                            "worker_name": ex.worker_name,
+                        }
+                    )
 
                 return results, total
 
