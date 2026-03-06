@@ -291,9 +291,7 @@ class TestExecutionEndpoints:
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
-    def test_workflow_executions_list(
-        self, mock_catalog_create, mock_cm_create, test_client
-    ):
+    def test_workflow_executions_list(self, mock_catalog_create, mock_cm_create, test_client):
         """Test listing executions for a specific workflow."""
         # Mock workflow catalog - endpoint checks if workflow exists first
         mock_catalog = MagicMock()
@@ -550,9 +548,7 @@ class TestAPIEdgeCases:
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
-    def test_workflow_executions_not_found(
-        self, mock_catalog_create, mock_cm_create, test_client
-    ):
+    def test_workflow_executions_not_found(self, mock_catalog_create, mock_cm_create, test_client):
         """Test listing executions for non-existent workflow returns 404."""
         from flux.errors import WorkflowNotFoundError
 
@@ -587,9 +583,7 @@ class TestWorkflowRunWithVersion:
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
-    def test_run_workflow_latest_version(
-        self, mock_catalog_create, mock_cm_create, test_client
-    ):
+    def test_run_workflow_latest_version(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow without version uses latest."""
         # Setup workflow mock
         mock_catalog = MagicMock()
@@ -622,9 +616,7 @@ class TestWorkflowRunWithVersion:
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
-    def test_run_workflow_specific_version(
-        self, mock_catalog_create, mock_cm_create, test_client
-    ):
+    def test_run_workflow_specific_version(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow with specific version."""
         # Setup workflow mock
         mock_catalog = MagicMock()
@@ -658,9 +650,7 @@ class TestWorkflowRunWithVersion:
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
-    def test_run_workflow_version_not_found(
-        self, mock_catalog_create, mock_cm_create, test_client
-    ):
+    def test_run_workflow_version_not_found(self, mock_catalog_create, mock_cm_create, test_client):
         """Test running workflow with non-existent version returns 404."""
         from flux.errors import WorkflowNotFoundError
 
