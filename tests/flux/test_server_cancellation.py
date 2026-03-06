@@ -279,15 +279,29 @@ class TestExecutionEndpoints:
 
     @patch("flux.server.ContextManager.create")
     def test_execution_not_found(self, mock_cm_create, test_client):
-        """Test getting a non-existent execution."""
+        """Test getting a non-existent execution returns 404."""
+        from flux.errors import ExecutionContextNotFoundError
+
         mock_cm = MagicMock()
-        mock_cm.get.return_value = None
+        mock_cm.get.side_effect = ExecutionContextNotFoundError("nonexistent")
         mock_cm_create.return_value = mock_cm
 
         response = test_client.get("/executions/nonexistent")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()
+
+    @patch("flux.server.ContextManager.create")
+    def test_execution_get_server_error(self, mock_cm_create, test_client):
+        """Test that server errors return 500, not 404."""
+        mock_cm = MagicMock()
+        mock_cm.get.side_effect = Exception("Database connection failed")
+        mock_cm_create.return_value = mock_cm
+
+        response = test_client.get("/executions/exec-123")
+
+        assert response.status_code == 500
+        assert "error" in response.text.lower()
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")

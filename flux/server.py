@@ -21,7 +21,7 @@ from flux.catalogs import WorkflowCatalog, WorkflowInfo
 from flux.config import Configuration
 from flux.workflow import workflow
 from flux.context_managers import ContextManager
-from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
+from flux.errors import ExecutionContextNotFoundError, WorkerNotFoundError, WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.secret_managers import SecretManager
 from flux.servers.uvicorn_server import UvicornServer
@@ -1538,11 +1538,16 @@ class Server:
                 logger.debug(f"Found execution {execution_id} in state: {ctx.state.value}")
                 return result
 
-            except Exception as e:
-                logger.error(f"Error retrieving execution: {str(e)}")
+            except ExecutionContextNotFoundError:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Execution '{execution_id}' not found",
+                )
+            except Exception as e:
+                logger.error(f"Error retrieving execution: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error retrieving execution: {str(e)}",
                 )
 
         @api.get(
@@ -1626,6 +1631,44 @@ class Server:
         # Worker Management Endpoints
         # ===========================================
 
+        def _worker_info_to_response(w: WorkerInfo) -> WorkerResponse:
+            """Convert WorkerInfo to WorkerResponse."""
+            worker_response = WorkerResponse(
+                name=w.name,
+                packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
+                if w.packages
+                else [],
+            )
+
+            if w.runtime:
+                worker_response.runtime = WorkerRuntimeModel(
+                    os_name=w.runtime.os_name,
+                    os_version=w.runtime.os_version,
+                    python_version=w.runtime.python_version,
+                )
+
+            if w.resources:
+                worker_response.resources = WorkerResourcesModel(
+                    cpu_total=w.resources.cpu_total,
+                    cpu_available=w.resources.cpu_available,
+                    memory_total=w.resources.memory_total,
+                    memory_available=w.resources.memory_available,
+                    disk_total=w.resources.disk_total,
+                    disk_free=w.resources.disk_free,
+                    gpus=[
+                        WorkerGPUModel(
+                            name=g.name,
+                            memory_total=g.memory_total,
+                            memory_available=g.memory_available,
+                        )
+                        for g in w.resources.gpus
+                    ]
+                    if w.resources.gpus
+                    else [],
+                )
+
+            return worker_response
+
         @api.get("/workers", response_model=list[WorkerResponse])
         async def workers_list():
             """List all registered workers."""
@@ -1635,43 +1678,7 @@ class Server:
                 registry = WorkerRegistry.create()
                 workers = registry.list()
 
-                result = []
-                for w in workers:
-                    worker_response = WorkerResponse(
-                        name=w.name,
-                        packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
-                        if w.packages
-                        else [],
-                    )
-
-                    if w.runtime:
-                        worker_response.runtime = WorkerRuntimeModel(
-                            os_name=w.runtime.os_name,
-                            os_version=w.runtime.os_version,
-                            python_version=w.runtime.python_version,
-                        )
-
-                    if w.resources:
-                        worker_response.resources = WorkerResourcesModel(
-                            cpu_total=w.resources.cpu_total,
-                            cpu_available=w.resources.cpu_available,
-                            memory_total=w.resources.memory_total,
-                            memory_available=w.resources.memory_available,
-                            disk_total=w.resources.disk_total,
-                            disk_free=w.resources.disk_free,
-                            gpus=[
-                                WorkerGPUModel(
-                                    name=g.name,
-                                    memory_total=g.memory_total,
-                                    memory_available=g.memory_available,
-                                )
-                                for g in w.resources.gpus
-                            ]
-                            if w.resources.gpus
-                            else [],
-                        )
-
-                    result.append(worker_response)
+                result = [_worker_info_to_response(w) for w in workers]
 
                 logger.debug(f"Found {len(result)} workers")
                 return result
@@ -1692,42 +1699,8 @@ class Server:
                 registry = WorkerRegistry.create()
                 w = registry.get(name)
 
-                worker_response = WorkerResponse(
-                    name=w.name,
-                    packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
-                    if w.packages
-                    else [],
-                )
-
-                if w.runtime:
-                    worker_response.runtime = WorkerRuntimeModel(
-                        os_name=w.runtime.os_name,
-                        os_version=w.runtime.os_version,
-                        python_version=w.runtime.python_version,
-                    )
-
-                if w.resources:
-                    worker_response.resources = WorkerResourcesModel(
-                        cpu_total=w.resources.cpu_total,
-                        cpu_available=w.resources.cpu_available,
-                        memory_total=w.resources.memory_total,
-                        memory_available=w.resources.memory_available,
-                        disk_total=w.resources.disk_total,
-                        disk_free=w.resources.disk_free,
-                        gpus=[
-                            WorkerGPUModel(
-                                name=g.name,
-                                memory_total=g.memory_total,
-                                memory_available=g.memory_available,
-                            )
-                            for g in w.resources.gpus
-                        ]
-                        if w.resources.gpus
-                        else [],
-                    )
-
                 logger.debug(f"Found worker: {name}")
-                return worker_response
+                return _worker_info_to_response(w)
 
             except WorkerNotFoundError:
                 raise HTTPException(
