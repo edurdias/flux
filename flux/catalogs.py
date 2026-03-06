@@ -86,6 +86,11 @@ class WorkflowCatalog(ABC):
     def delete(self, name: str, version: int | None = None):  # pragma: no cover
         raise NotImplementedError()
 
+    @abstractmethod
+    def versions(self, name: str) -> list[WorkflowInfo]:  # pragma: no cover
+        """Get all versions of a workflow by name."""
+        raise NotImplementedError()
+
     def parse(self, source: bytes) -> list[WorkflowInfo]:
         """
         Parse Python source code to extract workflows and their metadata.
@@ -388,6 +393,49 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
             except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
+
+    def versions(self, name: str) -> list[WorkflowInfo]:
+        """
+        Get all versions of a workflow by name.
+
+        Args:
+            name: Name of the workflow
+
+        Returns:
+            List of WorkflowInfo objects for all versions, ordered by version descending
+        """
+        with self.session() as session:
+            models = (
+                session.query(WorkflowModel)
+                .filter(WorkflowModel.name == name)
+                .order_by(desc(WorkflowModel.version))
+                .all()
+            )
+
+            workflows = []
+            for model in models:
+                requests = None
+                if model.requests:
+                    requests = ResourceRequest(
+                        cpu=model.requests.get("cpu"),
+                        memory=model.requests.get("memory"),
+                        gpu=model.requests.get("gpu"),
+                        disk=model.requests.get("disk"),
+                        packages=model.requests.get("packages"),
+                    )
+
+                workflows.append(
+                    WorkflowInfo(
+                        id=model.id,
+                        name=model.name,
+                        imports=model.imports,
+                        source=model.source,
+                        version=model.version,
+                        requests=requests,
+                    ),
+                )
+
+            return workflows
 
     def _get(self, name: str, version: int | None = None) -> WorkflowModel:
         with self.session() as session:
