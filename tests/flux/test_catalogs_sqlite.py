@@ -208,3 +208,70 @@ def test_workflow_catalog_create():
 
     catalog = WorkflowCatalog.create()
     assert isinstance(catalog, DatabaseWorkflowCatalog)
+
+
+def test_versions_returns_all_versions(sqlite_workflow_catalog, sample_workflow):
+    """Test that versions() returns all versions of a workflow."""
+    # Save the workflow multiple times to create multiple versions
+    sqlite_workflow_catalog.save([sample_workflow])
+    sqlite_workflow_catalog.save([sample_workflow])
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    # Get all versions
+    versions = sqlite_workflow_catalog.versions("test_workflow")
+
+    # Should have 3 versions
+    assert len(versions) == 3
+
+    # Check version numbers (should be ordered descending - newest first)
+    assert versions[0].version == 3
+    assert versions[1].version == 2
+    assert versions[2].version == 1
+
+    # All should have the same name
+    for v in versions:
+        assert v.name == "test_workflow"
+
+
+def test_versions_empty_for_nonexistent_workflow(sqlite_workflow_catalog):
+    """Test that versions() returns empty list for non-existent workflow."""
+    versions = sqlite_workflow_catalog.versions("nonexistent_workflow")
+
+    assert versions == []
+
+
+def test_versions_ordered_descending(sqlite_workflow_catalog, sample_workflow):
+    """Test that versions are ordered by version number descending."""
+    # Save multiple versions
+    sqlite_workflow_catalog.save([sample_workflow])
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    versions = sqlite_workflow_catalog.versions("test_workflow")
+
+    # Verify descending order
+    assert len(versions) == 2
+    assert versions[0].version > versions[1].version
+
+
+def test_versions_only_returns_requested_workflow(sqlite_workflow_catalog, sample_workflow):
+    """Test that versions() only returns versions of the requested workflow."""
+    # Save the sample workflow
+    sqlite_workflow_catalog.save([sample_workflow])
+    sqlite_workflow_catalog.save([sample_workflow])
+
+    # Create and save another workflow
+    another_workflow = WorkflowInfo(
+        id="another-workflow-id",
+        name="another_workflow",
+        imports=["import1"],
+        source=b"async def another_workflow(): pass",
+    )
+    sqlite_workflow_catalog.save([another_workflow])
+
+    # Get versions of test_workflow only
+    versions = sqlite_workflow_catalog.versions("test_workflow")
+
+    # Should only have 2 versions (not 3)
+    assert len(versions) == 2
+    for v in versions:
+        assert v.name == "test_workflow"

@@ -115,6 +115,72 @@ class ScheduleUpdateRequest(BaseModel):
     input_data: Any | None = None
 
 
+# New response models for missing endpoints
+class WorkflowVersionResponse(BaseModel):
+    """Model for workflow version responses"""
+
+    id: str
+    name: str
+    version: int
+
+
+class ExecutionSummaryResponse(BaseModel):
+    """Model for execution summary responses"""
+
+    execution_id: str
+    workflow_id: str
+    workflow_name: str
+    state: str
+    worker_name: str | None = None
+
+
+class ExecutionListResponse(BaseModel):
+    """Model for execution list responses"""
+
+    executions: list[ExecutionSummaryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class WorkerResponse(BaseModel):
+    """Model for worker responses"""
+
+    name: str
+    runtime: WorkerRuntimeModel | None = None
+    resources: WorkerResourcesModel | None = None
+    packages: list[dict[str, str]] = []
+
+
+class HealthResponse(BaseModel):
+    """Model for health check responses"""
+
+    status: str
+    database: bool
+    version: str
+
+
+class ScheduleHistoryEntry(BaseModel):
+    """Model for schedule history entry"""
+
+    execution_id: str
+    workflow_name: str
+    state: str
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class ScheduleHistoryResponse(BaseModel):
+    """Model for schedule history responses"""
+
+    schedule_id: str
+    workflow_name: str
+    entries: list[ScheduleHistoryEntry]
+    total: int
+    limit: int
+    offset: int
+
+
 class Server:
     """
     Server for managing workflows and tasks with integrated scheduler.
@@ -1272,6 +1338,492 @@ class Server:
             except Exception as e:
                 logger.error(f"Error deleting schedule: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error deleting schedule: {str(e)}")
+
+        # ===========================================
+        # Workflow Version Management Endpoints
+        # ===========================================
+
+        @api.delete("/workflows/{workflow_name}")
+        async def workflow_delete(workflow_name: str, version: int | None = None):
+            """Delete workflow by name, optionally specific version."""
+            try:
+                logger.info(
+                    f"Deleting workflow '{workflow_name}'"
+                    + (f" version {version}" if version else " (all versions)"),
+                )
+
+                catalog = WorkflowCatalog.create()
+
+                # Check if workflow exists
+                try:
+                    catalog.get(workflow_name, version)
+                except WorkflowNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{workflow_name}'"
+                        + (f" version {version}" if version else "")
+                        + " not found",
+                    )
+
+                catalog.delete(workflow_name, version)
+
+                logger.info(f"Successfully deleted workflow '{workflow_name}'")
+                return {
+                    "status": "success",
+                    "message": f"Workflow '{workflow_name}'"
+                    + (f" version {version}" if version else " (all versions)")
+                    + " deleted successfully",
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error deleting workflow: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error deleting workflow: {str(e)}",
+                )
+
+        @api.get(
+            "/workflows/{workflow_name}/versions",
+            response_model=list[WorkflowVersionResponse],
+        )
+        async def workflow_versions(workflow_name: str):
+            """List all versions of a workflow."""
+            try:
+                logger.debug(f"Fetching versions for workflow: {workflow_name}")
+
+                catalog = WorkflowCatalog.create()
+                versions = catalog.versions(workflow_name)
+
+                if not versions:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{workflow_name}' not found",
+                    )
+
+                result = [
+                    WorkflowVersionResponse(
+                        id=v.id,
+                        name=v.name,
+                        version=v.version,
+                    )
+                    for v in versions
+                ]
+                logger.debug(f"Found {len(result)} versions for workflow '{workflow_name}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing workflow versions: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing workflow versions: {str(e)}",
+                )
+
+        @api.get("/workflows/{workflow_name}/versions/{version}")
+        async def workflow_version_get(workflow_name: str, version: int):
+            """Get specific workflow version."""
+            try:
+                logger.debug(f"Fetching workflow '{workflow_name}' version {version}")
+
+                catalog = WorkflowCatalog.create()
+                workflow = catalog.get(workflow_name, version)
+
+                logger.debug(f"Found workflow '{workflow_name}' version {version}")
+                return workflow.to_dict()
+
+            except WorkflowNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except Exception as e:
+                logger.error(f"Error retrieving workflow version: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error retrieving workflow version: {str(e)}",
+                )
+
+        # ===========================================
+        # Execution Endpoints
+        # ===========================================
+
+        @api.get("/executions", response_model=ExecutionListResponse)
+        async def executions_list(
+            workflow_name: str | None = None,
+            state: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+        ):
+            """List executions with optional filtering."""
+            try:
+                logger.debug(
+                    f"Listing executions (workflow: {workflow_name}, state: {state}, "
+                    f"limit: {limit}, offset: {offset})",
+                )
+
+                from flux.domain import ExecutionState
+
+                # Parse state if provided
+                state_filter = None
+                if state:
+                    try:
+                        state_filter = ExecutionState(state.upper())
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid state '{state}'. Valid states: "
+                            + ", ".join([s.value for s in ExecutionState]),
+                        )
+
+                manager = ContextManager.create()
+                executions, total = manager.list(
+                    workflow_name=workflow_name,
+                    state=state_filter,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                result = ExecutionListResponse(
+                    executions=[
+                        ExecutionSummaryResponse(
+                            execution_id=ex.execution_id,
+                            workflow_id=ex.workflow_id,
+                            workflow_name=ex.workflow_name,
+                            state=ex.state.value,
+                            worker_name=ex.current_worker,
+                        )
+                        for ex in executions
+                    ],
+                    total=total,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                logger.debug(f"Found {total} executions")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing executions: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing executions: {str(e)}",
+                )
+
+        @api.get("/executions/{execution_id}")
+        async def execution_get(execution_id: str, detailed: bool = False):
+            """Get execution by ID."""
+            try:
+                logger.debug(f"Fetching execution: {execution_id}")
+
+                manager = ContextManager.create()
+                ctx = manager.get(execution_id)
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                result = dto.summary() if not detailed else dto
+
+                logger.debug(f"Found execution {execution_id} in state: {ctx.state.value}")
+                return result
+
+            except Exception as e:
+                logger.error(f"Error retrieving execution: {str(e)}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Execution '{execution_id}' not found",
+                )
+
+        @api.get(
+            "/workflows/{workflow_name}/executions",
+            response_model=ExecutionListResponse,
+        )
+        async def workflow_executions_list(
+            workflow_name: str,
+            state: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+        ):
+            """List executions for a specific workflow."""
+            try:
+                logger.debug(
+                    f"Listing executions for workflow '{workflow_name}' "
+                    f"(state: {state}, limit: {limit}, offset: {offset})",
+                )
+
+                from flux.domain import ExecutionState
+
+                # Check workflow exists
+                catalog = WorkflowCatalog.create()
+                try:
+                    catalog.get(workflow_name)
+                except WorkflowNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{workflow_name}' not found",
+                    )
+
+                # Parse state if provided
+                state_filter = None
+                if state:
+                    try:
+                        state_filter = ExecutionState(state.upper())
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid state '{state}'. Valid states: "
+                            + ", ".join([s.value for s in ExecutionState]),
+                        )
+
+                manager = ContextManager.create()
+                executions, total = manager.list(
+                    workflow_name=workflow_name,
+                    state=state_filter,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                result = ExecutionListResponse(
+                    executions=[
+                        ExecutionSummaryResponse(
+                            execution_id=ex.execution_id,
+                            workflow_id=ex.workflow_id,
+                            workflow_name=ex.workflow_name,
+                            state=ex.state.value,
+                            worker_name=ex.current_worker,
+                        )
+                        for ex in executions
+                    ],
+                    total=total,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                logger.debug(f"Found {total} executions for workflow '{workflow_name}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing workflow executions: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing workflow executions: {str(e)}",
+                )
+
+        # ===========================================
+        # Worker Management Endpoints
+        # ===========================================
+
+        @api.get("/workers", response_model=list[WorkerResponse])
+        async def workers_list():
+            """List all registered workers."""
+            try:
+                logger.debug("Listing all workers")
+
+                registry = WorkerRegistry.create()
+                workers = registry.list()
+
+                result = []
+                for w in workers:
+                    worker_response = WorkerResponse(
+                        name=w.name,
+                        packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
+                        if w.packages
+                        else [],
+                    )
+
+                    if w.runtime:
+                        worker_response.runtime = WorkerRuntimeModel(
+                            os_name=w.runtime.os_name,
+                            os_version=w.runtime.os_version,
+                            python_version=w.runtime.python_version,
+                        )
+
+                    if w.resources:
+                        worker_response.resources = WorkerResourcesModel(
+                            cpu_total=w.resources.cpu_total,
+                            cpu_available=w.resources.cpu_available,
+                            memory_total=w.resources.memory_total,
+                            memory_available=w.resources.memory_available,
+                            disk_total=w.resources.disk_total,
+                            disk_free=w.resources.disk_free,
+                            gpus=[
+                                WorkerGPUModel(
+                                    name=g.name,
+                                    memory_total=g.memory_total,
+                                    memory_available=g.memory_available,
+                                )
+                                for g in w.resources.gpus
+                            ]
+                            if w.resources.gpus
+                            else [],
+                        )
+
+                    result.append(worker_response)
+
+                logger.debug(f"Found {len(result)} workers")
+                return result
+
+            except Exception as e:
+                logger.error(f"Error listing workers: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing workers: {str(e)}",
+                )
+
+        @api.get("/workers/{name}", response_model=WorkerResponse)
+        async def worker_get(name: str):
+            """Get worker details by name."""
+            try:
+                logger.debug(f"Fetching worker: {name}")
+
+                registry = WorkerRegistry.create()
+                w = registry.get(name)
+
+                worker_response = WorkerResponse(
+                    name=w.name,
+                    packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
+                    if w.packages
+                    else [],
+                )
+
+                if w.runtime:
+                    worker_response.runtime = WorkerRuntimeModel(
+                        os_name=w.runtime.os_name,
+                        os_version=w.runtime.os_version,
+                        python_version=w.runtime.python_version,
+                    )
+
+                if w.resources:
+                    worker_response.resources = WorkerResourcesModel(
+                        cpu_total=w.resources.cpu_total,
+                        cpu_available=w.resources.cpu_available,
+                        memory_total=w.resources.memory_total,
+                        memory_available=w.resources.memory_available,
+                        disk_total=w.resources.disk_total,
+                        disk_free=w.resources.disk_free,
+                        gpus=[
+                            WorkerGPUModel(
+                                name=g.name,
+                                memory_total=g.memory_total,
+                                memory_available=g.memory_available,
+                            )
+                            for g in w.resources.gpus
+                        ]
+                        if w.resources.gpus
+                        else [],
+                    )
+
+                logger.debug(f"Found worker: {name}")
+                return worker_response
+
+            except WorkerNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Worker '{name}' not found",
+                )
+            except Exception as e:
+                logger.error(f"Error retrieving worker: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error retrieving worker: {str(e)}",
+                )
+
+        # ===========================================
+        # Health & System Endpoints
+        # ===========================================
+
+        @api.get("/health", response_model=HealthResponse)
+        async def health():
+            """Health check endpoint."""
+            try:
+                logger.debug("Health check requested")
+
+                # Check database connectivity
+                catalog = WorkflowCatalog.create()
+                db_healthy = catalog.health_check()
+
+                status = "healthy" if db_healthy else "unhealthy"
+                version = self._get_version()
+
+                result = HealthResponse(
+                    status=status,
+                    database=db_healthy,
+                    version=version,
+                )
+
+                logger.debug(f"Health check result: {status}")
+                return result
+
+            except Exception as e:
+                logger.error(f"Health check failed: {str(e)}")
+                return HealthResponse(
+                    status="unhealthy",
+                    database=False,
+                    version=self._get_version(),
+                )
+
+        # ===========================================
+        # Schedule History Endpoint
+        # ===========================================
+
+        @api.get("/schedules/{schedule_id}/history", response_model=ScheduleHistoryResponse)
+        async def schedule_history(
+            schedule_id: str,
+            limit: int = 50,
+            offset: int = 0,
+        ):
+            """Get execution history for a schedule."""
+            try:
+                logger.debug(
+                    f"Fetching history for schedule '{schedule_id}' "
+                    f"(limit: {limit}, offset: {offset})",
+                )
+
+                schedule_manager = create_schedule_manager()
+
+                # Resolve by ID or name
+                schedule = _resolve_schedule_id_or_name(schedule_id, schedule_manager)
+                if not schedule:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Schedule '{schedule_id}' not found",
+                    )
+
+                # Get execution history
+                entries, total = schedule_manager.get_schedule_history(
+                    schedule.id,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                result = ScheduleHistoryResponse(
+                    schedule_id=schedule.id,
+                    workflow_name=schedule.workflow_name,
+                    entries=[
+                        ScheduleHistoryEntry(
+                            execution_id=e["execution_id"],
+                            workflow_name=e["workflow_name"],
+                            state=e["state"],
+                        )
+                        for e in entries
+                    ],
+                    total=total,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                logger.debug(f"Found {total} history entries for schedule '{schedule_id}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting schedule history: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error getting schedule history: {str(e)}",
+                )
 
         return api
 

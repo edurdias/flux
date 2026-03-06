@@ -51,6 +51,17 @@ class ContextManager(ABC):
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         raise NotImplementedError()
 
+    @abstractmethod
+    def list(
+        self,
+        workflow_name: str | None = None,
+        state: ExecutionState | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ExecutionContext], int]:  # pragma: no cover
+        """List executions with optional filtering and pagination."""
+        raise NotImplementedError()
+
     @staticmethod
     def create() -> ContextManager:
         return SQLiteContextManager()
@@ -203,3 +214,41 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
             for e in ctx.events
             if (e.id, e.type) not in existing_events
         ]
+
+    def list(
+        self,
+        workflow_name: str | None = None,
+        state: ExecutionState | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ExecutionContext], int]:
+        """
+        List executions with optional filtering and pagination.
+
+        Args:
+            workflow_name: Optional workflow name to filter by
+            state: Optional execution state to filter by
+            limit: Maximum number of results to return
+            offset: Number of results to skip
+
+        Returns:
+            Tuple of (list of ExecutionContext, total count)
+        """
+        from sqlalchemy import func
+
+        with self.session() as session:
+            query = session.query(ExecutionContextModel)
+
+            if workflow_name:
+                query = query.filter(ExecutionContextModel.workflow_name == workflow_name)
+
+            if state:
+                query = query.filter(ExecutionContextModel.state == state)
+
+            # Get total count before pagination
+            total = query.count()
+
+            # Apply pagination
+            models = query.offset(offset).limit(limit).all()
+
+            return [model.to_plain() for model in models], total

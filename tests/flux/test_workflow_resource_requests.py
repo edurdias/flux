@@ -28,6 +28,10 @@ class TestWorkflowCatalog(WorkflowCatalog):
         """Do nothing as this method is not needed for testing parse."""
         pass
 
+    def versions(self, name: str) -> list[WorkflowInfo]:
+        """Return an empty list for testing purposes."""
+        return []
+
 
 @pytest.fixture
 def workflow_catalog():

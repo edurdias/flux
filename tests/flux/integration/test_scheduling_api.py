@@ -513,3 +513,293 @@ class TestSchedulingAPIErrorHandling:
 
         # Verify response
         assert response.status_code == 500
+
+
+class TestSchedulingAPIHistory:
+    """Tests for schedule history endpoint."""
+
+    @patch("flux.server.create_schedule_manager")
+    def test_get_schedule_history_success(
+        self,
+        mock_manager_create,
+        test_client,
+        mock_schedule_model,
+    ):
+        """Test getting schedule history."""
+        # Setup mocks
+        mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule_model
+        mock_manager.get_schedule_history.return_value = (
+            [
+                {
+                    "execution_id": "exec-1",
+                    "workflow_name": "test_workflow",
+                    "state": "completed",
+                    "worker_name": "worker-1",
+                },
+                {
+                    "execution_id": "exec-2",
+                    "workflow_name": "test_workflow",
+                    "state": "failed",
+                    "worker_name": "worker-1",
+                },
+            ],
+            2,
+        )
+        mock_manager_create.return_value = mock_manager
+
+        # Make request
+        response = test_client.get("/schedules/schedule-123/history")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["schedule_id"] == "schedule-123"
+        assert data["workflow_name"] == "test_workflow"
+        assert len(data["entries"]) == 2
+        assert data["total"] == 2
+        assert data["entries"][0]["execution_id"] == "exec-1"
+        assert data["entries"][0]["state"] == "completed"
+
+        # Verify mocks were called
+        mock_manager.get_schedule.assert_called_once_with("schedule-123")
+        mock_manager.get_schedule_history.assert_called_once_with(
+            "schedule-123", limit=50, offset=0
+        )
+
+    @patch("flux.server.create_schedule_manager")
+    def test_get_schedule_history_with_pagination(
+        self,
+        mock_manager_create,
+        test_client,
+        mock_schedule_model,
+    ):
+        """Test getting schedule history with pagination."""
+        # Setup mocks
+        mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule_model
+        mock_manager.get_schedule_history.return_value = (
+            [
+                {
+                    "execution_id": "exec-10",
+                    "workflow_name": "test_workflow",
+                    "state": "completed",
+                    "worker_name": "worker-1",
+                },
+            ],
+            50,
+        )
+        mock_manager_create.return_value = mock_manager
+
+        # Make request with pagination
+        response = test_client.get("/schedules/schedule-123/history?limit=10&offset=10")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["limit"] == 10
+        assert data["offset"] == 10
+        assert data["total"] == 50
+
+        # Verify mocks were called with pagination
+        mock_manager.get_schedule_history.assert_called_once_with(
+            "schedule-123", limit=10, offset=10
+        )
+
+    @patch("flux.server.create_schedule_manager")
+    def test_get_schedule_history_not_found(
+        self,
+        mock_manager_create,
+        test_client,
+    ):
+        """Test getting history for non-existent schedule."""
+        # Setup mocks
+        mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = None
+        mock_manager_create.return_value = mock_manager
+
+        # Make request
+        response = test_client.get("/schedules/nonexistent/history")
+
+        # Verify response
+        assert response.status_code == 404
+        assert "not found" in response.text.lower()
+
+    @patch("flux.server.create_schedule_manager")
+    def test_get_schedule_history_empty(
+        self,
+        mock_manager_create,
+        test_client,
+        mock_schedule_model,
+    ):
+        """Test getting schedule history when empty."""
+        # Setup mocks
+        mock_manager = MagicMock()
+        mock_manager.get_schedule.return_value = mock_schedule_model
+        mock_manager.get_schedule_history.return_value = ([], 0)
+        mock_manager_create.return_value = mock_manager
+
+        # Make request
+        response = test_client.get("/schedules/schedule-123/history")
+
+        # Verify response
+        assert response.status_code == 200
+        data = response.json()
+        assert data["entries"] == []
+        assert data["total"] == 0
+
+
+# =============================================================================
+# Unit Tests for ScheduleManager.get_schedule_history()
+# =============================================================================
+
+
+class TestScheduleManagerGetHistory:
+    """Unit tests for ScheduleManager.get_schedule_history() method."""
+
+    @patch("flux.schedule_manager.RepositoryFactory.create_repository")
+    def test_get_schedule_history_returns_executions(self, mock_repo_factory):
+        """Test that get_schedule_history returns execution history."""
+        from flux.schedule_manager import DatabaseScheduleManager, ScheduleManagerError
+
+        # Setup mock repository and session
+        mock_repo = MagicMock()
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo_factory.return_value = mock_repo
+
+        # Setup mock schedule
+        mock_schedule = MagicMock()
+        mock_schedule.workflow_name = "test_workflow"
+
+        # Setup mock executions
+        mock_exec1 = MagicMock()
+        mock_exec1.execution_id = "exec-1"
+        mock_exec1.workflow_name = "test_workflow"
+        mock_exec1.state = MagicMock()
+        mock_exec1.state.value = "completed"
+        mock_exec1.worker_name = "worker-1"
+
+        mock_exec2 = MagicMock()
+        mock_exec2.execution_id = "exec-2"
+        mock_exec2.workflow_name = "test_workflow"
+        mock_exec2.state = MagicMock()
+        mock_exec2.state.value = "failed"
+        mock_exec2.worker_name = "worker-1"
+
+        # Setup query chain
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 2
+        mock_query.offset.return_value.limit.return_value.all.return_value = [
+            mock_exec1,
+            mock_exec2,
+        ]
+        mock_session.query.return_value.filter.return_value.first.return_value = (
+            mock_schedule
+        )
+        mock_session.query.return_value.filter.return_value = mock_query
+
+        # Create manager and call method
+        manager = DatabaseScheduleManager()
+        results, total = manager.get_schedule_history("schedule-123")
+
+        # Verify results
+        assert total == 2
+        assert len(results) == 2
+        assert results[0]["execution_id"] == "exec-1"
+        assert results[1]["execution_id"] == "exec-2"
+
+    @patch("flux.schedule_manager.RepositoryFactory.create_repository")
+    def test_get_schedule_history_schedule_not_found(self, mock_repo_factory):
+        """Test that get_schedule_history raises error for non-existent schedule."""
+        from flux.schedule_manager import DatabaseScheduleManager, ScheduleManagerError
+
+        # Setup mock repository
+        mock_repo = MagicMock()
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo_factory.return_value = mock_repo
+
+        # Schedule not found
+        mock_session.query.return_value.filter.return_value.first.return_value = None
+
+        # Create manager and verify error
+        manager = DatabaseScheduleManager()
+        with pytest.raises(ScheduleManagerError) as excinfo:
+            manager.get_schedule_history("nonexistent")
+
+        assert "not found" in str(excinfo.value).lower()
+
+    @patch("flux.schedule_manager.RepositoryFactory.create_repository")
+    def test_get_schedule_history_with_pagination(self, mock_repo_factory):
+        """Test that get_schedule_history respects pagination parameters."""
+        from flux.schedule_manager import DatabaseScheduleManager
+
+        # Setup mock repository
+        mock_repo = MagicMock()
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo_factory.return_value = mock_repo
+
+        # Setup mock schedule
+        mock_schedule = MagicMock()
+        mock_schedule.workflow_name = "test_workflow"
+
+        # Setup query chain
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 100
+        mock_query.offset.return_value.limit.return_value.all.return_value = []
+        mock_session.query.return_value.filter.return_value.first.return_value = (
+            mock_schedule
+        )
+        mock_session.query.return_value.filter.return_value = mock_query
+
+        # Create manager and call with pagination
+        manager = DatabaseScheduleManager()
+        results, total = manager.get_schedule_history(
+            "schedule-123", limit=10, offset=20
+        )
+
+        # Verify pagination was applied
+        mock_query.offset.assert_called_with(20)
+        mock_query.offset.return_value.limit.assert_called_with(10)
+        assert total == 100
+
+    @patch("flux.schedule_manager.RepositoryFactory.create_repository")
+    def test_get_schedule_history_empty(self, mock_repo_factory):
+        """Test that get_schedule_history returns empty list when no executions."""
+        from flux.schedule_manager import DatabaseScheduleManager
+
+        # Setup mock repository
+        mock_repo = MagicMock()
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo_factory.return_value = mock_repo
+
+        # Setup mock schedule
+        mock_schedule = MagicMock()
+        mock_schedule.workflow_name = "test_workflow"
+
+        # Setup empty query results
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 0
+        mock_query.offset.return_value.limit.return_value.all.return_value = []
+        mock_session.query.return_value.filter.return_value.first.return_value = (
+            mock_schedule
+        )
+        mock_session.query.return_value.filter.return_value = mock_query
+
+        # Create manager and call
+        manager = DatabaseScheduleManager()
+        results, total = manager.get_schedule_history("schedule-123")
+
+        # Verify empty results
+        assert results == []
+        assert total == 0
