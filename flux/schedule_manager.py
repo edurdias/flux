@@ -392,7 +392,7 @@ class DatabaseScheduleManager(ScheduleManager):
                             if hasattr(ex.state, "value")
                             else str(ex.state),
                             "worker_name": ex.worker_name,
-                        }
+                        },
                     )
 
                 return results, total

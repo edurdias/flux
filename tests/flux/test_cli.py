@@ -68,7 +68,8 @@ class TestWorkflowDelete:
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(
-            cli, ["workflow", "delete", "test_workflow", "--version", "2", "--force"]
+            cli,
+            ["workflow", "delete", "test_workflow", "--version", "2", "--force"],
         )
 
         assert result.exit_code == 0
@@ -196,7 +197,8 @@ class TestWorkflowRunWithVersion:
         mock_client_class.return_value = mock_client
 
         result = runner.invoke(
-            cli, ["workflow", "run", "test_workflow", '{"key": "value"}', "--version", "2"]
+            cli,
+            ["workflow", "run", "test_workflow", '{"key": "value"}', "--version", "2"],
         )
 
         assert result.exit_code == 0

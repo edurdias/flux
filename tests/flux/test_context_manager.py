@@ -10,9 +10,9 @@ from flux.errors import ExecutionContextNotFoundError
 
 def test_should_get_existing_context():
     ctx = hello_world.run("Joe")
-    assert ctx.has_finished and ctx.has_succeeded, (
-        "The workflow should have been completed successfully."
-    )
+    assert (
+        ctx.has_finished and ctx.has_succeeded
+    ), "The workflow should have been completed successfully."
     assert ctx.output == "Hello, Joe"
 
     found = ContextManager.create().get(ctx.execution_id)

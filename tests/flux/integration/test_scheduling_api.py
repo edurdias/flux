@@ -564,7 +564,9 @@ class TestSchedulingAPIHistory:
         # Verify mocks were called
         mock_manager.get_schedule.assert_called_once_with("schedule-123")
         mock_manager.get_schedule_history.assert_called_once_with(
-            "schedule-123", limit=50, offset=0
+            "schedule-123",
+            limit=50,
+            offset=0,
         )
 
     @patch("flux.server.create_schedule_manager")
@@ -603,7 +605,9 @@ class TestSchedulingAPIHistory:
 
         # Verify mocks were called with pagination
         mock_manager.get_schedule_history.assert_called_once_with(
-            "schedule-123", limit=10, offset=10
+            "schedule-123",
+            limit=10,
+            offset=10,
         )
 
     @patch("flux.server.create_schedule_manager")

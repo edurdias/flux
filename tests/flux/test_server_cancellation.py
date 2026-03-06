@@ -564,7 +564,10 @@ class TestAPIEdgeCases:
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
     def test_workflow_executions_invalid_state(
-        self, mock_catalog_create, mock_cm_create, test_client
+        self,
+        mock_catalog_create,
+        mock_cm_create,
+        test_client,
     ):
         """Test listing workflow executions with invalid state returns 400."""
         mock_catalog = MagicMock()

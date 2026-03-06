@@ -300,7 +300,7 @@ def run_workflow(
         base_url = server_url or get_server_url()
         parsed_input = parse_value(input)
 
-        params = {"detailed": detailed}
+        params: dict[str, Any] = {"detailed": detailed}
         if version is not None:
             params["version"] = version
 
@@ -516,7 +516,7 @@ def list_executions(
     try:
         base_url = server_url or get_server_url()
 
-        params = {"limit": limit, "offset": offset}
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
             params["workflow_name"] = workflow
         if state:
@@ -544,7 +544,7 @@ def list_executions(
                 worker = ex.get("worker_name") or "unassigned"
                 click.echo(
                     f"  {ex['execution_id'][:12]}...  "
-                    f"{ex['workflow_name']:20}  {state_str:12}  {worker}"
+                    f"{ex['workflow_name']:20}  {state_str:12}  {worker}",
                 )
 
     except httpx.HTTPStatusError as ex:
