@@ -580,3 +580,95 @@ class TestAPIEdgeCases:
 
         assert response.status_code == 400
         assert "invalid state" in response.text.lower()
+
+
+class TestWorkflowRunWithVersion:
+    """Tests for running workflows with specific version."""
+
+    @patch("flux.server.ContextManager.create")
+    @patch("flux.server.WorkflowCatalog.create")
+    def test_run_workflow_latest_version(
+        self, mock_catalog_create, mock_cm_create, test_client
+    ):
+        """Test running workflow without version uses latest."""
+        # Setup workflow mock
+        mock_catalog = MagicMock()
+        mock_workflow = MagicMock()
+        mock_workflow.id = "wf-123"
+        mock_workflow.name = "test_workflow"
+        mock_workflow.requests = None
+        mock_catalog.get.return_value = mock_workflow
+        mock_catalog_create.return_value = mock_catalog
+
+        # Setup context mock with proper ExecutionState
+        mock_cm = MagicMock()
+        mock_ctx = MagicMock(spec=ExecutionContext)
+        mock_ctx.execution_id = "exec-123"
+        mock_ctx.workflow_id = "wf-123"
+        mock_ctx.workflow_name = "test_workflow"
+        mock_ctx.input = None
+        mock_ctx.output = None
+        mock_ctx.state = ExecutionState.CREATED
+        mock_ctx.events = []
+        mock_ctx.has_finished = False
+        mock_cm.save.return_value = mock_ctx
+        mock_cm_create.return_value = mock_cm
+
+        response = test_client.post("/workflows/test_workflow/run/async")
+
+        assert response.status_code == 200
+        # Verify catalog.get was called without version (None)
+        mock_catalog.get.assert_called_once_with("test_workflow", None)
+
+    @patch("flux.server.ContextManager.create")
+    @patch("flux.server.WorkflowCatalog.create")
+    def test_run_workflow_specific_version(
+        self, mock_catalog_create, mock_cm_create, test_client
+    ):
+        """Test running workflow with specific version."""
+        # Setup workflow mock
+        mock_catalog = MagicMock()
+        mock_workflow = MagicMock()
+        mock_workflow.id = "wf-123-v2"
+        mock_workflow.name = "test_workflow"
+        mock_workflow.version = 2
+        mock_workflow.requests = None
+        mock_catalog.get.return_value = mock_workflow
+        mock_catalog_create.return_value = mock_catalog
+
+        # Setup context mock with proper ExecutionState
+        mock_cm = MagicMock()
+        mock_ctx = MagicMock(spec=ExecutionContext)
+        mock_ctx.execution_id = "exec-456"
+        mock_ctx.workflow_id = "wf-123-v2"
+        mock_ctx.workflow_name = "test_workflow"
+        mock_ctx.input = None
+        mock_ctx.output = None
+        mock_ctx.state = ExecutionState.CREATED
+        mock_ctx.events = []
+        mock_ctx.has_finished = False
+        mock_cm.save.return_value = mock_ctx
+        mock_cm_create.return_value = mock_cm
+
+        response = test_client.post("/workflows/test_workflow/run/async?version=2")
+
+        assert response.status_code == 200
+        # Verify catalog.get was called with version=2
+        mock_catalog.get.assert_called_once_with("test_workflow", 2)
+
+    @patch("flux.server.ContextManager.create")
+    @patch("flux.server.WorkflowCatalog.create")
+    def test_run_workflow_version_not_found(
+        self, mock_catalog_create, mock_cm_create, test_client
+    ):
+        """Test running workflow with non-existent version returns 404."""
+        from flux.errors import WorkflowNotFoundError
+
+        mock_catalog = MagicMock()
+        mock_catalog.get.side_effect = WorkflowNotFoundError("test_workflow", 99)
+        mock_catalog_create.return_value = mock_catalog
+
+        response = test_client.post("/workflows/test_workflow/run/async?version=99")
+
+        assert response.status_code == 404
+        assert "not found" in response.text.lower()

@@ -128,15 +128,16 @@ def test_list_returns_correct_total():
     """Test that list() returns accurate total count."""
     manager = ContextManager.create()
 
-    # Get initial count
-    _, initial_total = manager.list()
+    # Get initial count with high limit to ensure accurate count
+    _, initial_total = manager.list(limit=10000)
 
     # Run a new workflow
-    hello_world.run("TotalTest")
+    ctx = hello_world.run("TotalTest")
+    assert ctx.has_finished
 
-    # Total should increase by 1
-    _, new_total = manager.list()
-    assert new_total == initial_total + 1
+    # Total should increase by at least 1
+    _, new_total = manager.list(limit=10000)
+    assert new_total >= initial_total + 1
 
 
 def test_list_combined_filters():

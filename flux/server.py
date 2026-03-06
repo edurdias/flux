@@ -344,12 +344,22 @@ class Server:
     # Internal Execution Helper
     # ===========================================
 
-    def _create_execution(self, workflow_name: str, input_data: Any = None) -> ExecutionContext:
+    def _create_execution(
+        self,
+        workflow_name: str,
+        input_data: Any = None,
+        version: int | None = None,
+    ) -> ExecutionContext:
         """
         Internal method to create a workflow execution.
         This is used by both the HTTP API and the scheduler.
+
+        Args:
+            workflow_name: Name of the workflow to execute
+            input_data: Optional input data for the workflow
+            version: Optional specific version to execute (defaults to latest)
         """
-        workflow = WorkflowCatalog.create().get(workflow_name)
+        workflow = WorkflowCatalog.create().get(workflow_name, version)
         if not workflow:
             raise WorkflowNotFoundError(f"Workflow '{workflow_name}' not found")
 
@@ -524,10 +534,12 @@ class Server:
             input: Any = Body(None),
             mode: str = "async",
             detailed: bool = False,
+            version: int | None = None,
         ):
             try:
                 logger.debug(
-                    f"Running workflow: {workflow_name} | Mode: {mode} | Detailed: {detailed}",
+                    f"Running workflow: {workflow_name} (version: {version or 'latest'}) "
+                    f"| Mode: {mode} | Detailed: {detailed}",
                 )
                 logger.debug(f"Input: {to_json(input)}")
 
@@ -541,7 +553,7 @@ class Server:
                     )
 
                 # Use internal method to create execution
-                ctx = self._create_execution(workflow_name, input)
+                ctx = self._create_execution(workflow_name, input, version)
                 manager = ContextManager.create()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
