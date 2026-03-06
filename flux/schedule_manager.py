@@ -6,7 +6,7 @@ from typing import Any
 
 
 from flux.domain.schedule import Schedule
-from flux.models import ScheduleModel, RepositoryFactory
+from flux.models import ScheduleModel, RepositoryFactory, ExecutionContextModel
 from flux.errors import ExecutionError
 
 
@@ -87,6 +87,16 @@ class ScheduleManager(ABC):
         limit: int | None = None,
     ) -> list[ScheduleModel]:
         """Get schedules that are due to run"""
+        pass
+
+    @abstractmethod
+    def get_schedule_history(
+        self,
+        schedule_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Any], int]:
+        """Get execution history for a schedule"""
         pass
 
 
@@ -329,6 +339,68 @@ class DatabaseScheduleManager(ScheduleManager):
     def health_check(self) -> bool:
         """Check database connectivity"""
         return self._repository.health_check()
+
+    def get_schedule_history(
+        self,
+        schedule_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Any], int]:
+        """
+        Get execution history for a schedule.
+
+        Since executions aren't directly linked to schedules in the database,
+        this returns executions for the workflow associated with the schedule.
+
+        Args:
+            schedule_id: The schedule ID
+            limit: Maximum number of results
+            offset: Number of results to skip
+
+        Returns:
+            Tuple of (list of execution summaries, total count)
+        """
+        try:
+            with self._repository.session() as session:
+                # Get the schedule first
+                schedule = (
+                    session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
+                )
+
+                if not schedule:
+                    raise ScheduleManagerError(f"Schedule with ID '{schedule_id}' not found")
+
+                # Query executions for this workflow using the repository
+                query = session.query(ExecutionContextModel).filter(
+                    ExecutionContextModel.workflow_name == schedule.workflow_name,
+                )
+
+                # Get total count
+                total = query.count()
+
+                # Apply pagination
+                executions = query.offset(offset).limit(limit).all()
+
+                # Return execution summaries
+                results = []
+                for ex in executions:
+                    results.append(
+                        {
+                            "execution_id": ex.execution_id,
+                            "workflow_name": ex.workflow_name,
+                            "state": ex.state.value
+                            if hasattr(ex.state, "value")
+                            else str(ex.state),
+                            "worker_name": ex.worker_name,
+                        },
+                    )
+
+                return results, total
+
+        except ScheduleManagerError:
+            raise
+        except Exception as e:
+            raise ScheduleManagerError(f"Failed to get schedule history: {str(e)}", e)
 
 
 def create_schedule_manager() -> ScheduleManager:
