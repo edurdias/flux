@@ -538,7 +538,7 @@ class MCPServer:
         async def list_executions(
             workflow_name: str | None = None,
             state: str | None = None,
-            limit: int = 100,
+            limit: int = 50,
             offset: int = 0,
         ) -> dict[str, any]:
             """List workflow executions with optional filtering.
@@ -622,7 +622,7 @@ class MCPServer:
         async def list_workflow_executions(
             workflow_name: str,
             state: str | None = None,
-            limit: int = 100,
+            limit: int = 50,
             offset: int = 0,
         ) -> dict[str, any]:
             """List executions for a specific workflow.
@@ -764,7 +764,7 @@ class MCPServer:
                     }
                     if description:
                         body["description"] = description
-                    if parsed_input:
+                    if parsed_input is not None:
                         body["input_data"] = parsed_input
 
                     response = await client.post(
@@ -791,7 +791,7 @@ class MCPServer:
         @self.mcp.tool()
         async def list_schedules(
             workflow_name: str | None = None,
-            active_only: bool = False,
+            active_only: bool = True,
             limit: int | None = None,
             offset: int | None = None,
         ) -> dict[str, any]:
@@ -1002,7 +1002,7 @@ class MCPServer:
         @self.mcp.tool()
         async def get_schedule_history(
             schedule_id: str,
-            limit: int = 100,
+            limit: int = 50,
             offset: int = 0,
         ) -> dict[str, any]:
             """Get execution history for a schedule.
