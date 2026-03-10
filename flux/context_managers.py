@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,14 @@ class ContextManager(ABC):
 
     @abstractmethod
     def get(self, execution_id: str | None) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def exists(self, execution_id: str) -> bool:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def update(self, ctx: ExecutionContext) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -78,6 +87,15 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 return model.to_plain()
             raise ExecutionContextNotFoundError(execution_id)
 
+    def exists(self, execution_id: str) -> bool:
+        with self.session() as session:
+            result = (
+                session.query(ExecutionContextModel.execution_id)
+                .filter(ExecutionContextModel.execution_id == execution_id)
+                .first()
+            )
+            return result is not None
+
     def save(self, ctx: ExecutionContext) -> ExecutionContext:
         with self.session() as session:
             try:
@@ -92,13 +110,30 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 else:
                     session.add(ExecutionContextModel.from_plain(ctx))
                 session.commit()
-                return self.get(ctx.execution_id)
+                return ctx
             except IntegrityError:  # pragma: no cover
                 session.rollback()
                 raise
 
+    def update(self, ctx: ExecutionContext) -> ExecutionContext:
+        with self.session() as session:
+            model = session.get(
+                ExecutionContextModel,
+                ctx.execution_id,
+            )
+            if not model:
+                raise ExecutionContextNotFoundError(ctx.execution_id)
+            model.output = ctx.output
+            model.state = ctx.state
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+            return ctx
+
     def next_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
+            if not self._is_least_loaded_worker(worker, session):
+                return None
+
             model, workflow = self._next_execution_with_requests(worker, session)
 
             if not model or not workflow:
@@ -113,6 +148,39 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 return ctx
 
             return None
+
+    def _is_least_loaded_worker(self, worker: WorkerInfo, session: Session) -> bool:
+        active_states = [
+            ExecutionState.RUNNING,
+            ExecutionState.CLAIMED,
+            ExecutionState.SCHEDULED,
+        ]
+
+        worker_loads = (
+            session.query(
+                ExecutionContextModel.worker_name,
+                func.count(ExecutionContextModel.execution_id).label("count"),
+            )
+            .filter(ExecutionContextModel.state.in_(active_states))
+            .group_by(ExecutionContextModel.worker_name)
+            .all()
+        )
+
+        # Only consider workers with active executions plus the current worker.
+        # This prevents disconnected workers (with 0 active load) from blocking
+        # assignment to connected workers.
+        load_map = {name: count for name, count in worker_loads}
+
+        if worker.name not in load_map:
+            load_map[worker.name] = 0
+
+        if len(load_map) <= 1:
+            return True
+
+        worker_count = load_map[worker.name]
+        min_load = min(load_map.values())
+
+        return worker_count <= min_load
 
     def next_cancellation(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
@@ -183,7 +251,7 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
             )
             .with_for_update(skip_locked=True)
         )
-        for model, workflow in with_requests_query.all():
+        for model, workflow in with_requests_query:
             requests = workflow.requests if workflow else None
             requests = ResourceRequest(**(requests or {}))
             if requests.matches_worker(worker.resources, worker.packages):
@@ -247,7 +315,9 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
             # Get total count before pagination
             total = query.count()
 
-            # Apply pagination
-            models = query.offset(offset).limit(limit).all()
+            # Apply ordering and pagination
+            models = (
+                query.order_by(ExecutionContextModel.execution_id).offset(offset).limit(limit).all()
+            )
 
             return [model.to_plain() for model in models], total

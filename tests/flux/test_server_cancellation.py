@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -441,9 +441,6 @@ class TestHealthEndpoint:
     @patch("flux.server.ContextManager.create")
     def test_cancel_workflow_sync(self, mock_create, test_client, mock_context_manager):
         """Test cancelling a workflow in sync mode."""
-        # This is more complex due to the async/await logic in the endpoint
-        # For this test, we'll mock the asyncio.sleep to avoid waiting
-
         # Set up the mock context manager
         mock_create.return_value = mock_context_manager
 
@@ -469,9 +466,13 @@ class TestHealthEndpoint:
         mock_context_manager.get.side_effect = [ctx_running, ctx_cancelled]
         mock_context_manager.save.return_value = ctx_running
 
-        # Patch asyncio.sleep to avoid waiting
-        with patch("asyncio.sleep", new_callable=AsyncMock):
-            # Make the request
+        # The sync cancel endpoint uses _execution_events to wait for state changes.
+
+        async def mock_wait_for(coro, timeout=None):
+            """Immediately return to avoid blocking on event.wait()."""
+            return None
+
+        with patch("asyncio.wait_for", side_effect=mock_wait_for):
             response = test_client.get(
                 "/workflows/test-workflow/cancel/test-execution-id?mode=sync",
             )

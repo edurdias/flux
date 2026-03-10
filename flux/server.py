@@ -194,9 +194,34 @@ class Server:
         self.scheduler_task = None
         self.scheduler_running = False
 
+        self._work_available = asyncio.Event()
+        self._worker_events: dict[str, asyncio.Event] = {}
+        self._worker_names: list[str] = []
+        self._worker_rr_index = 0
+        self._execution_events: dict[str, asyncio.Event] = {}
+
         # Scheduler config
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
+
+    def _notify_next_worker(self):
+        """Signal the next connected worker in round-robin order."""
+        if not self._worker_names:
+            self._work_available.set()
+            return
+
+        # Try each worker once; if all are gone, fall back to broadcast
+        for _ in range(len(self._worker_names)):
+            idx = self._worker_rr_index % len(self._worker_names)
+            self._worker_rr_index += 1
+            name = self._worker_names[idx]
+            event = self._worker_events.get(name)
+            if event:
+                event.set()
+                return
+
+        # Fallback: broadcast to all
+        self._work_available.set()
 
     def start(self):
         """
@@ -478,9 +503,6 @@ class Server:
             allow_headers=["*"],
         )
 
-        backoff_factor = 1.5
-        max_delay = 2.0
-
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
             source = await file.read()
@@ -555,37 +577,55 @@ class Server:
                 # Use internal method to create execution
                 ctx = self._create_execution(workflow_name, input, version)
                 manager = ContextManager.create()
+                self._notify_next_worker()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
 
                 if mode == "sync":
-                    current_delay = 0.1
-                    while not ctx.has_finished:
-                        await asyncio.sleep(current_delay)
-                        ctx = manager.get(ctx.execution_id)
-                        current_delay = min(current_delay * backoff_factor, max_delay)
+                    event = self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
 
                 if mode == "stream":
 
                     async def check_for_new_executions():
                         nonlocal ctx
-                        while not ctx.has_finished:
-                            current_delay = 0.1
-                            await asyncio.sleep(current_delay)
-                            new_ctx = manager.get(ctx.execution_id)
+                        event = self._execution_events.setdefault(
+                            ctx.execution_id,
+                            asyncio.Event(),
+                        )
+                        try:
+                            while not ctx.has_finished:
+                                try:
+                                    await asyncio.wait_for(event.wait(), timeout=30.0)
+                                except asyncio.TimeoutError:
+                                    pass
+                                event.clear()
+                                new_ctx = manager.get(ctx.execution_id)
 
-                            if new_ctx.events and (
-                                not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
-                            ):
-                                ctx = new_ctx
-                                dto = ExecutionContextDTO.from_domain(ctx)
-                                yield {
-                                    "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                    "data": to_json(dto if detailed else dto.summary()),
-                                }
-                                current_delay = 0.1
-                            current_delay = min(current_delay * backoff_factor, max_delay)
+                                if new_ctx.events and (
+                                    not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                                ):
+                                    ctx = new_ctx
+                                    dto = ExecutionContextDTO.from_domain(ctx)
+                                    yield {
+                                        "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                        "data": to_json(dto if detailed else dto.summary()),
+                                    }
+                        finally:
+                            self._execution_events.pop(ctx.execution_id, None)
 
                     return EventSourceResponse(
                         check_for_new_executions(),
@@ -655,37 +695,55 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
+                self._notify_next_worker()
                 logger.debug(
                     f"Resuming execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
 
                 if mode == "sync":
-                    current_delay = 0.1
-                    while not ctx.has_finished:
-                        await asyncio.sleep(current_delay)
-                        ctx = manager.get(ctx.execution_id)
-                        current_delay = min(current_delay * backoff_factor, max_delay)
+                    event = self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
 
                 if mode == "stream":
 
                     async def check_for_new_executions():
                         nonlocal ctx
-                        while not ctx.has_finished:
-                            current_delay = 0.1
-                            await asyncio.sleep(current_delay)
-                            new_ctx = manager.get(ctx.execution_id)
+                        event = self._execution_events.setdefault(
+                            ctx.execution_id,
+                            asyncio.Event(),
+                        )
+                        try:
+                            while not ctx.has_finished:
+                                try:
+                                    await asyncio.wait_for(event.wait(), timeout=30.0)
+                                except asyncio.TimeoutError:
+                                    pass
+                                event.clear()
+                                new_ctx = manager.get(ctx.execution_id)
 
-                            if new_ctx.events and (
-                                not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
-                            ):
-                                ctx = new_ctx
-                                dto = ExecutionContextDTO.from_domain(ctx)
-                                yield {
-                                    "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                    "data": to_json(dto if detailed else dto.summary()),
-                                }
-                                current_delay = 0.1
-                            current_delay = min(current_delay * backoff_factor, max_delay)
+                                if new_ctx.events and (
+                                    not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                                ):
+                                    ctx = new_ctx
+                                    dto = ExecutionContextDTO.from_domain(ctx)
+                                    yield {
+                                        "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                        "data": to_json(dto if detailed else dto.summary()),
+                                    }
+                        finally:
+                            self._execution_events.pop(ctx.execution_id, None)
 
                     return EventSourceResponse(
                         check_for_new_executions(),
@@ -761,16 +819,26 @@ class Server:
 
                 ctx.start_cancel()
                 manager.save(ctx)
+                self._notify_next_worker()
 
                 if mode == "sync":
-                    current_delay = 0.1
-                    while not ctx.has_finished:
-                        logger.debug(
-                            f"Waiting for cancellation of {execution_id}, current state: {ctx.state.value}",
-                        )
-                        await asyncio.sleep(current_delay)
-                        ctx = manager.get(ctx.execution_id)
-                        current_delay = min(current_delay * backoff_factor, max_delay)
+                    event = self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+                    try:
+                        while not ctx.has_finished:
+                            logger.debug(
+                                f"Waiting for cancellation of {execution_id}, current state: {ctx.state.value}",
+                            )
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
 
                 dto = ExecutionContextDTO.from_domain(ctx)
                 result = dto.summary() if not detailed else dto
@@ -835,78 +903,117 @@ class Server:
                 worker = self._get_worker(name, authorization)
                 logger.info(f"Worker connected: {name}")
 
+                # Register per-worker event for round-robin signaling
+                worker_event = asyncio.Event()
+                self._worker_events[name] = worker_event
+                if name not in self._worker_names:
+                    self._worker_names.append(name)
+                logger.debug(
+                    f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
+                )
+
                 async def check_for_new_executions():
-                    current_delay = 0.1
-                    backoff_factor = 1
-                    max_delay = 5
+                    fallback_interval = 0.5
 
                     context_manager = ContextManager.create()
-                    while True:
-                        try:
-                            ctx = context_manager.next_execution(worker)
-                            if ctx:
-                                workflow = WorkflowCatalog.create().get(ctx.workflow_name)
-                                workflow.source = base64.b64encode(workflow.source).decode("utf-8")
+                    try:
+                        while True:
+                            try:
+                                ctx = context_manager.next_execution(worker)
+                                if ctx:
+                                    workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                    workflow.source = base64.b64encode(workflow.source).decode(
+                                        "utf-8",
+                                    )
 
-                                logger.debug(
-                                    f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                    logger.debug(
+                                        f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                    )
+                                    yield {
+                                        "id": f"{ctx.execution_id}_{uuid4().hex}",
+                                        "event": "execution_scheduled",
+                                        "data": to_json({"workflow": workflow, "context": ctx}),
+                                    }
+                                    logger.debug(
+                                        f"Execution {ctx.execution_id} scheduled for worker {name}",
+                                    )
+                                    continue
+
+                                ctx = context_manager.next_cancellation(worker)
+                                if ctx:
+                                    logger.debug(
+                                        f"Sending cancellation to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                    )
+
+                                    yield {
+                                        "id": f"{ctx.execution_id}_{uuid4().hex}",
+                                        "event": "execution_cancelled",
+                                        "data": to_json({"context": ctx}),
+                                    }
+
+                                    logger.debug(
+                                        f"Cancellation {ctx.execution_id} sent to worker {name}",
+                                    )
+                                    continue
+
+                                ctx = context_manager.next_resume(worker)
+                                if ctx:
+                                    workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                    workflow.source = base64.b64encode(workflow.source).decode(
+                                        "utf-8",
+                                    )
+                                    logger.debug(
+                                        f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
+                                    )
+
+                                    yield {
+                                        "id": f"{ctx.execution_id}_{uuid4().hex}",
+                                        "event": "execution_resumed",
+                                        "data": to_json({"workflow": workflow, "context": ctx}),
+                                    }
+
+                                    logger.debug(
+                                        f"Resumption {ctx.execution_id} sent to worker {name}",
+                                    )
+                                    continue
+
+                                # No work found — wait for per-worker signal or fallback
+                                worker_event.clear()
+                                self._work_available.clear()
+                                try:
+                                    worker_task = asyncio.ensure_future(worker_event.wait())
+                                    broadcast_task = asyncio.ensure_future(
+                                        self._work_available.wait(),
+                                    )
+                                    done, pending = await asyncio.wait(
+                                        [worker_task, broadcast_task],
+                                        timeout=fallback_interval,
+                                        return_when=asyncio.FIRST_COMPLETED,
+                                    )
+                                    for task in pending:
+                                        task.cancel()
+                                        try:
+                                            await task
+                                        except asyncio.CancelledError:
+                                            pass
+                                except Exception:
+                                    pass
+                            except Exception as e:
+                                logger.error(
+                                    f"Error in worker connection stream for {name}: {str(e)}",
                                 )
                                 yield {
-                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
-                                    "event": "execution_scheduled",
-                                    "data": to_json({"workflow": workflow, "context": ctx}),
+                                    "event": "error",
+                                    "data": str(e),
                                 }
-                                logger.debug(
-                                    f"Execution {ctx.execution_id} scheduled for worker {name}",
-                                )
-                                current_delay = 1
-
-                            ctx = context_manager.next_cancellation(worker)
-                            if ctx:
-                                logger.debug(
-                                    f"Sending cancellation to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
-                                )
-
-                                yield {
-                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
-                                    "event": "execution_cancelled",
-                                    "data": to_json({"context": ctx}),
-                                }
-
-                                logger.debug(
-                                    f"Cancellation {ctx.execution_id} sent to worker {name}",
-                                )
-
-                                current_delay = 1
-
-                            ctx = context_manager.next_resume(worker)
-                            if ctx:
-                                workflow = WorkflowCatalog.create().get(ctx.workflow_name)
-                                workflow.source = base64.b64encode(workflow.source).decode("utf-8")
-                                logger.debug(
-                                    f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
-                                )
-
-                                yield {
-                                    "id": f"{ctx.execution_id}_{uuid4().hex}",
-                                    "event": "execution_resumed",
-                                    "data": to_json({"workflow": workflow, "context": ctx}),
-                                }
-
-                                logger.debug(
-                                    f"Resumption {ctx.execution_id} sent to worker {name}",
-                                )
-
-                                current_delay = 1
-
-                            await asyncio.sleep(current_delay)
-                            current_delay = min(current_delay * backoff_factor, max_delay)
-                        except Exception as e:
-                            logger.error(f"Error in worker connection stream for {name}: {str(e)}")
-                            yield {
-                                "event": "error",
-                                "data": str(e),
-                            }
+                    finally:
+                        # Cleanup on disconnect
+                        self._worker_events.pop(name, None)
+                        if name in self._worker_names:
+                            self._worker_names.remove(name)
+                        logger.info(
+                            f"Worker {name} disconnected (remaining: {len(self._worker_names)})",
+                        )
 
                 return EventSourceResponse(
                     check_for_new_executions(),
@@ -928,6 +1035,12 @@ class Server:
                 context_manager = ContextManager.create()
                 ctx = context_manager.claim(execution_id, worker)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
+
+                # Notify any waiting sync/stream endpoint
+                event = self._execution_events.get(execution_id)
+                if event:
+                    event.set()
+
                 return ctx.summary()
             except Exception as e:
                 logger.error(f"Error claiming execution {execution_id} by worker {name}: {str(e)}")
@@ -948,17 +1061,23 @@ class Server:
 
                 self._get_worker(name, authorization)
                 context_manager = ContextManager.create()
-                ctx = context_manager.get(execution_id)
-                if not ctx:
-                    logger.warning(f"Execution context not found: {execution_id}")
-                    raise HTTPException(status_code=404, detail="Execution context not found.")
-
-                # Use Pydantic model for automatic datetime conversion
                 domain_ctx = context.to_domain()
 
-                ctx = context_manager.save(domain_ctx)
+                try:
+                    ctx = context_manager.update(domain_ctx)
+                except ExecutionContextNotFoundError:
+                    logger.warning(f"Execution context not found: {execution_id}")
+                    raise HTTPException(status_code=404, detail="Execution context not found.")
                 logger.debug(f"Checkpoint saved for {execution_id}, state: {ctx.state.value}")
+
+                # Notify any waiting sync/stream endpoint
+                event = self._execution_events.get(execution_id)
+                if event:
+                    event.set()
+
                 return ctx.summary()
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
