@@ -62,8 +62,9 @@ class Worker:
         config = Configuration.get().settings.workers
         self.bootstrap_token = config.bootstrap_token
         self.base_url = f"{server_url or config.server_url}/workers"
-        self.client = httpx.AsyncClient(timeout=config.default_timeout)
+        self.client = httpx.AsyncClient(timeout=config.default_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
+        self._pending_checkpoints: dict[str, asyncio.Task] = {}
 
     def start(self):
         try:
@@ -360,6 +361,19 @@ class Worker:
         return ctx
 
     async def _checkpoint(self, ctx: ExecutionContext):
+        pending = self._pending_checkpoints.pop(ctx.execution_id, None)
+
+        if ctx.has_finished:
+            if pending and not pending.done():
+                pending.cancel()
+            await self._send_checkpoint(ctx)
+        else:
+            if pending and not pending.done():
+                await pending
+            task = asyncio.create_task(self._send_checkpoint(ctx))
+            self._pending_checkpoints[ctx.execution_id] = task
+
+    async def _send_checkpoint(self, ctx: ExecutionContext):
         base_url = f"{self.base_url}/{self.name}"
         headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
@@ -368,7 +382,6 @@ class Worker:
             logger.debug(f"Checkpoint state: {ctx.state.value}")
             logger.debug(f"Number of events: {len(ctx.events)}")
 
-            # Convert to dict and prepare for sending
             ctx_dict = ctx.to_dict()
             logger.debug(f"Sending checkpoint data ({len(str(ctx_dict))} bytes)")
 
