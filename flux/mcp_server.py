@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import httpx
 
-from typing import Literal
+from typing import Any, Literal
 from fastmcp import FastMCP
 
 from flux.config import Configuration
@@ -484,7 +484,7 @@ class MCPServer:
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/versions"
+                        f"{self.server_url}/workflows/{workflow_name}/versions",
                     )
                     response.raise_for_status()
                     versions = response.json()
@@ -514,7 +514,7 @@ class MCPServer:
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/versions/{version}"
+                        f"{self.server_url}/workflows/{workflow_name}/versions/{version}",
                     )
                     response.raise_for_status()
                     workflow = response.json()
@@ -551,7 +551,7 @@ class MCPServer:
             """
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    params = {"limit": limit, "offset": offset}
+                    params: dict[str, Any] = {"limit": limit, "offset": offset}
                     if workflow_name:
                         params["workflow_name"] = workflow_name
                     if state:
@@ -635,7 +635,7 @@ class MCPServer:
             """
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    params = {"limit": limit, "offset": offset}
+                    params: dict[str, Any] = {"limit": limit, "offset": offset}
                     if state:
                         params["state"] = state
 
@@ -649,7 +649,7 @@ class MCPServer:
                     executions = result.get("executions", [])
                     total = result.get("total", len(executions))
                     logger.info(
-                        f"Retrieved {len(executions)} executions for workflow {workflow_name}"
+                        f"Retrieved {len(executions)} executions for workflow {workflow_name}",
                     )
                     return {
                         "success": True,
@@ -805,7 +805,7 @@ class MCPServer:
             """
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    params = {"active_only": active_only}
+                    params: dict[str, Any] = {"active_only": active_only}
                     if workflow_name:
                         params["workflow_name"] = workflow_name
                     if limit is not None:
@@ -925,9 +925,7 @@ class MCPServer:
             """
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        f"{self.server_url}/schedules/{schedule_id}/pause"
-                    )
+                    response = await client.post(f"{self.server_url}/schedules/{schedule_id}/pause")
                     response.raise_for_status()
                     schedule = response.json()
 
@@ -955,7 +953,7 @@ class MCPServer:
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(
-                        f"{self.server_url}/schedules/{schedule_id}/resume"
+                        f"{self.server_url}/schedules/{schedule_id}/resume",
                     )
                     response.raise_for_status()
                     schedule = response.json()
@@ -983,9 +981,7 @@ class MCPServer:
             """
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.delete(
-                        f"{self.server_url}/schedules/{schedule_id}"
-                    )
+                    response = await client.delete(f"{self.server_url}/schedules/{schedule_id}")
                     response.raise_for_status()
                     result = response.json()
 
@@ -1027,7 +1023,7 @@ class MCPServer:
 
                     entries = result.get("entries", [])
                     logger.info(
-                        f"Retrieved {len(entries)} history entries for schedule {schedule_id}"
+                        f"Retrieved {len(entries)} history entries for schedule {schedule_id}",
                     )
                     return {
                         "success": True,
