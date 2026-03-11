@@ -577,16 +577,22 @@ class Server:
                 # Use internal method to create execution
                 ctx = self._create_execution(workflow_name, input, version)
                 manager = ContextManager.create()
-                self._notify_next_worker()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
 
-                if mode == "sync":
-                    event = self._execution_events.setdefault(
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(
                         ctx.execution_id,
                         asyncio.Event(),
                     )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
                     try:
                         while not ctx.has_finished:
                             try:
@@ -602,10 +608,7 @@ class Server:
 
                     async def check_for_new_executions():
                         nonlocal ctx
-                        event = self._execution_events.setdefault(
-                            ctx.execution_id,
-                            asyncio.Event(),
-                        )
+                        event = self._execution_events[ctx.execution_id]
                         try:
                             while not ctx.has_finished:
                                 try:
@@ -695,16 +698,22 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
-                self._notify_next_worker()
                 logger.debug(
                     f"Resuming execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
 
-                if mode == "sync":
-                    event = self._execution_events.setdefault(
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(
                         ctx.execution_id,
                         asyncio.Event(),
                     )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
                     try:
                         while not ctx.has_finished:
                             try:
@@ -720,10 +729,7 @@ class Server:
 
                     async def check_for_new_executions():
                         nonlocal ctx
-                        event = self._execution_events.setdefault(
-                            ctx.execution_id,
-                            asyncio.Event(),
-                        )
+                        event = self._execution_events[ctx.execution_id]
                         try:
                             while not ctx.has_finished:
                                 try:
@@ -819,13 +825,19 @@ class Server:
 
                 ctx.start_cancel()
                 manager.save(ctx)
-                self._notify_next_worker()
 
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
                 if mode == "sync":
-                    event = self._execution_events.setdefault(
+                    self._execution_events.setdefault(
                         ctx.execution_id,
                         asyncio.Event(),
                     )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
                     try:
                         while not ctx.has_finished:
                             logger.debug(

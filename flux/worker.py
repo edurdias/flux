@@ -366,12 +366,24 @@ class Worker:
         if ctx.has_finished:
             if pending and not pending.done():
                 pending.cancel()
+                try:
+                    await pending
+                except (asyncio.CancelledError, Exception):
+                    pass
             await self._send_checkpoint(ctx)
         else:
             if pending and not pending.done():
                 await pending
             task = asyncio.create_task(self._send_checkpoint(ctx))
+            task.add_done_callback(self._handle_checkpoint_error)
             self._pending_checkpoints[ctx.execution_id] = task
+
+    def _handle_checkpoint_error(self, task: asyncio.Task):
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"Checkpoint task failed: {exc}")
 
     async def _send_checkpoint(self, ctx: ExecutionContext):
         base_url = f"{self.base_url}/{self.name}"
