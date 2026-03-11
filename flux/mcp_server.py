@@ -41,6 +41,10 @@ class MCPServer:
             "log_level": settings.log_level.lower(),
             "access_log": settings.log_level.lower() == "debug",
         }
+        self._http_client = httpx.AsyncClient(
+            base_url=self.server_url,
+            timeout=30.0,
+        )
         self.mcp = FastMCP(name or "Flux")
         self._setup_tools()
 
@@ -66,13 +70,12 @@ class MCPServer:
         async def list_workflows() -> dict[str, any]:
             """List all available workflows in the Flux system."""
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/workflows")
-                    response.raise_for_status()
-                    workflows = response.json()
+                response = await self._http_client.get("/workflows")
+                response.raise_for_status()
+                workflows = response.json()
 
-                    logger.info(f"Retrieved {len(workflows)} workflows")
-                    return {"success": True, "workflows": workflows, "count": len(workflows)}
+                logger.info(f"Retrieved {len(workflows)} workflows")
+                return {"success": True, "workflows": workflows, "count": len(workflows)}
             except httpx.ConnectError:
                 error_msg = f"Could not connect to Flux server at {self.server_url}"
                 logger.error(error_msg)
@@ -94,13 +97,12 @@ class MCPServer:
                 workflow_name: Name of the workflow to get details for
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/workflows/{workflow_name}")
-                    response.raise_for_status()
-                    workflow_details = response.json()
+                response = await self._http_client.get(f"/workflows/{workflow_name}")
+                response.raise_for_status()
+                workflow_details = response.json()
 
-                    logger.info(f"Retrieved details for workflow: {workflow_name}")
-                    return {"success": True, "workflow": workflow_details}
+                logger.info(f"Retrieved details for workflow: {workflow_name}")
+                return {"success": True, "workflow": workflow_details}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -135,20 +137,19 @@ class MCPServer:
                     # If not valid JSON, treat as string
                     parsed_input = input_data
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        f"{self.server_url}/workflows/{workflow_name}/run/async",
-                        json=parsed_input,
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
+                response = await self._http_client.post(
+                    f"/workflows/{workflow_name}/run/async",
+                    json=parsed_input,
+                    params={"detailed": detailed},
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
 
-                    logger.info(
-                        f"Started async execution of workflow: {workflow_name} (ID: {context.execution_id})",
-                    )
-                    return context if detailed else context.summary()
+                logger.info(
+                    f"Started async execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                )
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -181,20 +182,20 @@ class MCPServer:
                 except json.JSONDecodeError:
                     parsed_input = input_data
 
-                async with httpx.AsyncClient(timeout=300.0) as client:  # Longer timeout for sync
-                    response = await client.post(
-                        f"{self.server_url}/workflows/{workflow_name}/run/sync",
-                        json=parsed_input,
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
+                response = await self._http_client.post(
+                    f"/workflows/{workflow_name}/run/sync",
+                    json=parsed_input,
+                    params={"detailed": detailed},
+                    timeout=300.0,
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
 
-                    logger.info(
-                        f"Completed sync execution of workflow: {workflow_name} (ID: {context.execution_id})",
-                    )
-                    return context if detailed else context.summary()
+                logger.info(
+                    f"Completed sync execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                )
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -230,20 +231,19 @@ class MCPServer:
                     # If not valid JSON, treat as string
                     parsed_input = input_data
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        f"{self.server_url}/workflows/{workflow_name}/resume/{execution_id}/async",
-                        json=parsed_input,
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
+                response = await self._http_client.post(
+                    f"/workflows/{workflow_name}/resume/{execution_id}/async",
+                    json=parsed_input,
+                    params={"detailed": detailed},
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
 
-                    logger.info(
-                        f"Started async resume of workflow: {workflow_name} (ID: {context.execution_id})",
-                    )
-                    return context if detailed else context.summary()
+                logger.info(
+                    f"Started async resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                )
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = (
@@ -283,20 +283,20 @@ class MCPServer:
                     # If not valid JSON, treat as string
                     parsed_input = input_data
 
-                async with httpx.AsyncClient(timeout=300.0) as client:  # Longer timeout for sync
-                    response = await client.post(
-                        f"{self.server_url}/workflows/{workflow_name}/resume/{execution_id}/sync",
-                        json=parsed_input,
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
+                response = await self._http_client.post(
+                    f"/workflows/{workflow_name}/resume/{execution_id}/sync",
+                    json=parsed_input,
+                    params={"detailed": detailed},
+                    timeout=300.0,
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
 
-                    logger.info(
-                        f"Completed sync resume of workflow: {workflow_name} (ID: {context.execution_id})",
-                    )
-                    return context if detailed else context.summary()
+                logger.info(
+                    f"Completed sync resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                )
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = (
@@ -321,14 +321,11 @@ class MCPServer:
                 file_content: Python code content of the workflow file
             """
             try:
-                # Send the file to the Flux API server as a multipart upload
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    # Convert string to bytes before uploading
-                    file_bytes = file_content.encode("utf-8")
-                    files = {"file": ("workflow.py", file_bytes, "text/x-python")}
-                    response = await client.post(f"{self.server_url}/workflows", files=files)
-                    response.raise_for_status()
-                    result = response.json()
+                file_bytes = file_content.encode("utf-8")
+                files = {"file": ("workflow.py", file_bytes, "text/x-python")}
+                response = await self._http_client.post("/workflows", files=files)
+                response.raise_for_status()
+                result = response.json()
 
                 logger.info("Uploaded workflow successfully via Flux API server")
                 return {
@@ -364,18 +361,17 @@ class MCPServer:
                 detailed: Whether to return detailed execution information including events
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/status/{execution_id}",
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
-                    logger.info(
-                        f"Retrieved status for execution of workflow: {workflow_name} (ID: {context.execution_id})",
-                    )
-                    return context if detailed else context.summary()
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_name}/status/{execution_id}",
+                    params={"detailed": detailed},
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
+                logger.info(
+                    f"Retrieved status for execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                )
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Execution '{execution_id}' not found"
@@ -408,22 +404,22 @@ class MCPServer:
 
             try:
                 timeout = 300.0 if mode == "sync" else 30.0
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/cancel/{execution_id}",
-                        params={"mode": mode, "detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_name}/cancel/{execution_id}",
+                    params={"mode": mode, "detailed": detailed},
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                result = response.json()
 
-                    logger.info(f"Cancelled execution: {execution_id} (mode: {mode})")
-                    return {
-                        "success": True,
-                        "execution_id": execution_id,
-                        "workflow_name": workflow_name,
-                        "cancellation_mode": mode,
-                        "status": result,
-                    }
+                logger.info(f"Cancelled execution: {execution_id} (mode: {mode})")
+                return {
+                    "success": True,
+                    "execution_id": execution_id,
+                    "workflow_name": workflow_name,
+                    "cancellation_mode": mode,
+                    "status": result,
+                }
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Execution '{execution_id}' not found"
@@ -450,18 +446,17 @@ class MCPServer:
                 version: Optional specific version to delete. If not provided, deletes all versions.
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    params = {"version": version} if version is not None else {}
-                    response = await client.delete(
-                        f"{self.server_url}/workflows/{workflow_name}",
-                        params=params,
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                params = {"version": version} if version is not None else {}
+                response = await self._http_client.delete(
+                    f"/workflows/{workflow_name}",
+                    params=params,
+                )
+                response.raise_for_status()
+                result = response.json()
 
-                    version_info = f" version {version}" if version else " (all versions)"
-                    logger.info(f"Deleted workflow: {workflow_name}{version_info}")
-                    return {"success": True, "message": result.get("message", "Workflow deleted")}
+                version_info = f" version {version}" if version else " (all versions)"
+                logger.info(f"Deleted workflow: {workflow_name}{version_info}")
+                return {"success": True, "message": result.get("message", "Workflow deleted")}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -482,15 +477,12 @@ class MCPServer:
                 workflow_name: Name of the workflow to list versions for
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/versions",
-                    )
-                    response.raise_for_status()
-                    versions = response.json()
+                response = await self._http_client.get(f"/workflows/{workflow_name}/versions")
+                response.raise_for_status()
+                versions = response.json()
 
-                    logger.info(f"Retrieved {len(versions)} versions for workflow: {workflow_name}")
-                    return {"success": True, "versions": versions, "count": len(versions)}
+                logger.info(f"Retrieved {len(versions)} versions for workflow: {workflow_name}")
+                return {"success": True, "versions": versions, "count": len(versions)}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -512,15 +504,14 @@ class MCPServer:
                 version: Version number to retrieve
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/versions/{version}",
-                    )
-                    response.raise_for_status()
-                    workflow = response.json()
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_name}/versions/{version}",
+                )
+                response.raise_for_status()
+                workflow = response.json()
 
-                    logger.info(f"Retrieved workflow {workflow_name} version {version}")
-                    return {"success": True, "workflow": workflow}
+                logger.info(f"Retrieved workflow {workflow_name} version {version}")
+                return {"success": True, "workflow": workflow}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' version {version} not found"
@@ -550,30 +541,29 @@ class MCPServer:
                 offset: Number of executions to skip for pagination
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    params: dict[str, Any] = {"limit": limit, "offset": offset}
-                    if workflow_name:
-                        params["workflow_name"] = workflow_name
-                    if state:
-                        params["state"] = state
+                params: dict[str, Any] = {"limit": limit, "offset": offset}
+                if workflow_name:
+                    params["workflow_name"] = workflow_name
+                if state:
+                    params["state"] = state
 
-                    response = await client.get(
-                        f"{self.server_url}/executions",
-                        params=params,
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                response = await self._http_client.get(
+                    "/executions",
+                    params=params,
+                )
+                response.raise_for_status()
+                result = response.json()
 
-                    executions = result.get("executions", [])
-                    total = result.get("total", len(executions))
-                    logger.info(f"Retrieved {len(executions)} executions (total: {total})")
-                    return {
-                        "success": True,
-                        "executions": executions,
-                        "total": total,
-                        "limit": limit,
-                        "offset": offset,
-                    }
+                executions = result.get("executions", [])
+                total = result.get("total", len(executions))
+                logger.info(f"Retrieved {len(executions)} executions (total: {total})")
+                return {
+                    "success": True,
+                    "executions": executions,
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                }
             except httpx.HTTPStatusError as e:
                 error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -595,17 +585,16 @@ class MCPServer:
                 detailed: Whether to return detailed execution information
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        f"{self.server_url}/executions/{execution_id}",
-                        params={"detailed": detailed},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
-                    context = ExecutionContext.from_dict(result)
+                response = await self._http_client.get(
+                    f"/executions/{execution_id}",
+                    params={"detailed": detailed},
+                )
+                response.raise_for_status()
+                result = response.json()
+                context = ExecutionContext.from_dict(result)
 
-                    logger.info(f"Retrieved execution: {execution_id}")
-                    return context if detailed else context.summary()
+                logger.info(f"Retrieved execution: {execution_id}")
+                return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Execution '{execution_id}' not found"
@@ -634,31 +623,28 @@ class MCPServer:
                 offset: Number of executions to skip for pagination
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    params: dict[str, Any] = {"limit": limit, "offset": offset}
-                    if state:
-                        params["state"] = state
+                params: dict[str, Any] = {"limit": limit, "offset": offset}
+                if state:
+                    params["state"] = state
 
-                    response = await client.get(
-                        f"{self.server_url}/workflows/{workflow_name}/executions",
-                        params=params,
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_name}/executions",
+                    params=params,
+                )
+                response.raise_for_status()
+                result = response.json()
 
-                    executions = result.get("executions", [])
-                    total = result.get("total", len(executions))
-                    logger.info(
-                        f"Retrieved {len(executions)} executions for workflow {workflow_name}",
-                    )
-                    return {
-                        "success": True,
-                        "workflow_name": workflow_name,
-                        "executions": executions,
-                        "total": total,
-                        "limit": limit,
-                        "offset": offset,
-                    }
+                executions = result.get("executions", [])
+                total = result.get("total", len(executions))
+                logger.info(f"Retrieved {len(executions)} executions for workflow {workflow_name}")
+                return {
+                    "success": True,
+                    "workflow_name": workflow_name,
+                    "executions": executions,
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                }
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -676,13 +662,12 @@ class MCPServer:
         async def list_workers() -> dict[str, any]:
             """List all workers in the Flux system."""
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/workers")
-                    response.raise_for_status()
-                    workers = response.json()
+                response = await self._http_client.get("/workers")
+                response.raise_for_status()
+                workers = response.json()
 
-                    logger.info(f"Retrieved {len(workers)} workers")
-                    return {"success": True, "workers": workers, "count": len(workers)}
+                logger.info(f"Retrieved {len(workers)} workers")
+                return {"success": True, "workers": workers, "count": len(workers)}
             except httpx.ConnectError:
                 error_msg = f"Could not connect to Flux server at {self.server_url}"
                 logger.error(error_msg)
@@ -704,13 +689,12 @@ class MCPServer:
                 worker_name: Name of the worker to retrieve
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/workers/{worker_name}")
-                    response.raise_for_status()
-                    worker = response.json()
+                response = await self._http_client.get(f"/workers/{worker_name}")
+                response.raise_for_status()
+                worker = response.json()
 
-                    logger.info(f"Retrieved worker: {worker_name}")
-                    return {"success": True, "worker": worker}
+                logger.info(f"Retrieved worker: {worker_name}")
+                return {"success": True, "worker": worker}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Worker '{worker_name}' not found"
@@ -756,26 +740,25 @@ class MCPServer:
                     except json.JSONDecodeError:
                         parsed_input = input_data
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    body = {
-                        "workflow_name": workflow_name,
-                        "name": name,
-                        "schedule_config": parsed_config,
-                    }
-                    if description:
-                        body["description"] = description
-                    if parsed_input is not None:
-                        body["input_data"] = parsed_input
+                body = {
+                    "workflow_name": workflow_name,
+                    "name": name,
+                    "schedule_config": parsed_config,
+                }
+                if description:
+                    body["description"] = description
+                if parsed_input is not None:
+                    body["input_data"] = parsed_input
 
-                    response = await client.post(
-                        f"{self.server_url}/schedules",
-                        json=body,
-                    )
-                    response.raise_for_status()
-                    schedule = response.json()
+                response = await self._http_client.post(
+                    "/schedules",
+                    json=body,
+                )
+                response.raise_for_status()
+                schedule = response.json()
 
-                    logger.info(f"Created schedule '{name}' for workflow {workflow_name}")
-                    return {"success": True, "schedule": schedule}
+                logger.info(f"Created schedule '{name}' for workflow {workflow_name}")
+                return {"success": True, "schedule": schedule}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Workflow '{workflow_name}' not found"
@@ -804,24 +787,23 @@ class MCPServer:
                 offset: Number of schedules to skip for pagination
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    params: dict[str, Any] = {"active_only": active_only}
-                    if workflow_name:
-                        params["workflow_name"] = workflow_name
-                    if limit is not None:
-                        params["limit"] = limit
-                    if offset is not None:
-                        params["offset"] = offset
+                params: dict[str, Any] = {"active_only": active_only}
+                if workflow_name:
+                    params["workflow_name"] = workflow_name
+                if limit is not None:
+                    params["limit"] = limit
+                if offset is not None:
+                    params["offset"] = offset
 
-                    response = await client.get(
-                        f"{self.server_url}/schedules",
-                        params=params,
-                    )
-                    response.raise_for_status()
-                    schedules = response.json()
+                response = await self._http_client.get(
+                    "/schedules",
+                    params=params,
+                )
+                response.raise_for_status()
+                schedules = response.json()
 
-                    logger.info(f"Retrieved {len(schedules)} schedules")
-                    return {"success": True, "schedules": schedules, "count": len(schedules)}
+                logger.info(f"Retrieved {len(schedules)} schedules")
+                return {"success": True, "schedules": schedules, "count": len(schedules)}
             except httpx.HTTPStatusError as e:
                 error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -839,13 +821,12 @@ class MCPServer:
                 schedule_id: ID or name of the schedule to retrieve
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/schedules/{schedule_id}")
-                    response.raise_for_status()
-                    schedule = response.json()
+                response = await self._http_client.get(f"/schedules/{schedule_id}")
+                response.raise_for_status()
+                schedule = response.json()
 
-                    logger.info(f"Retrieved schedule: {schedule_id}")
-                    return {"success": True, "schedule": schedule}
+                logger.info(f"Retrieved schedule: {schedule_id}")
+                return {"success": True, "schedule": schedule}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -894,16 +875,15 @@ class MCPServer:
                 if not body:
                     return {"success": False, "error": "No update parameters provided"}
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.put(
-                        f"{self.server_url}/schedules/{schedule_id}",
-                        json=body,
-                    )
-                    response.raise_for_status()
-                    schedule = response.json()
+                response = await self._http_client.put(
+                    f"/schedules/{schedule_id}",
+                    json=body,
+                )
+                response.raise_for_status()
+                schedule = response.json()
 
-                    logger.info(f"Updated schedule: {schedule_id}")
-                    return {"success": True, "schedule": schedule}
+                logger.info(f"Updated schedule: {schedule_id}")
+                return {"success": True, "schedule": schedule}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -924,13 +904,12 @@ class MCPServer:
                 schedule_id: ID or name of the schedule to pause
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(f"{self.server_url}/schedules/{schedule_id}/pause")
-                    response.raise_for_status()
-                    schedule = response.json()
+                response = await self._http_client.post(f"/schedules/{schedule_id}/pause")
+                response.raise_for_status()
+                schedule = response.json()
 
-                    logger.info(f"Paused schedule: {schedule_id}")
-                    return {"success": True, "schedule": schedule}
+                logger.info(f"Paused schedule: {schedule_id}")
+                return {"success": True, "schedule": schedule}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -951,15 +930,12 @@ class MCPServer:
                 schedule_id: ID or name of the schedule to resume
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        f"{self.server_url}/schedules/{schedule_id}/resume",
-                    )
-                    response.raise_for_status()
-                    schedule = response.json()
+                response = await self._http_client.post(f"/schedules/{schedule_id}/resume")
+                response.raise_for_status()
+                schedule = response.json()
 
-                    logger.info(f"Resumed schedule: {schedule_id}")
-                    return {"success": True, "schedule": schedule}
+                logger.info(f"Resumed schedule: {schedule_id}")
+                return {"success": True, "schedule": schedule}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -980,13 +956,12 @@ class MCPServer:
                 schedule_id: ID or name of the schedule to delete
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.delete(f"{self.server_url}/schedules/{schedule_id}")
-                    response.raise_for_status()
-                    result = response.json()
+                response = await self._http_client.delete(f"/schedules/{schedule_id}")
+                response.raise_for_status()
+                result = response.json()
 
-                    logger.info(f"Deleted schedule: {schedule_id}")
-                    return {"success": True, "message": result.get("message", "Schedule deleted")}
+                logger.info(f"Deleted schedule: {schedule_id}")
+                return {"success": True, "message": result.get("message", "Schedule deleted")}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -1013,27 +988,24 @@ class MCPServer:
                 offset: Number of entries to skip for pagination
             """
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(
-                        f"{self.server_url}/schedules/{schedule_id}/history",
-                        params={"limit": limit, "offset": offset},
-                    )
-                    response.raise_for_status()
-                    result = response.json()
+                response = await self._http_client.get(
+                    f"/schedules/{schedule_id}/history",
+                    params={"limit": limit, "offset": offset},
+                )
+                response.raise_for_status()
+                result = response.json()
 
-                    entries = result.get("entries", [])
-                    logger.info(
-                        f"Retrieved {len(entries)} history entries for schedule {schedule_id}",
-                    )
-                    return {
-                        "success": True,
-                        "schedule_id": result.get("schedule_id"),
-                        "workflow_name": result.get("workflow_name"),
-                        "entries": entries,
-                        "total": result.get("total", len(entries)),
-                        "limit": limit,
-                        "offset": offset,
-                    }
+                entries = result.get("entries", [])
+                logger.info(f"Retrieved {len(entries)} history entries for schedule {schedule_id}")
+                return {
+                    "success": True,
+                    "schedule_id": result.get("schedule_id"),
+                    "workflow_name": result.get("workflow_name"),
+                    "entries": entries,
+                    "total": result.get("total", len(entries)),
+                    "limit": limit,
+                    "offset": offset,
+                }
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
                     error_msg = f"Schedule '{schedule_id}' not found"
@@ -1051,13 +1023,12 @@ class MCPServer:
         async def health_check() -> dict[str, any]:
             """Check the health status of the Flux server."""
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(f"{self.server_url}/health")
-                    response.raise_for_status()
-                    health = response.json()
+                response = await self._http_client.get("/health")
+                response.raise_for_status()
+                health = response.json()
 
-                    logger.info(f"Health check: {health.get('status', 'unknown')}")
-                    return {"success": True, "health": health}
+                logger.info(f"Health check: {health.get('status', 'unknown')}")
+                return {"success": True, "health": health}
             except httpx.ConnectError:
                 error_msg = f"Could not connect to Flux server at {self.server_url}"
                 logger.error(error_msg)
