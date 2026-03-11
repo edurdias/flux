@@ -10,7 +10,6 @@ from examples.complex_pipeline import complex_pipeline
 from examples.hello_world import hello_world
 from flux.context_managers import ContextManager
 from flux.errors import ExecutionContextNotFoundError
-from flux.models import Base
 
 
 @pytest.fixture
@@ -25,8 +24,6 @@ def clean_db():
         mock_config.return_value.settings.database_type = "sqlite"
 
         manager = ContextManager.create()
-        Base.metadata.create_all(manager._engine)
-
         yield manager
 
     if os.path.exists(db_path):
