@@ -29,6 +29,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
+import sqlalchemy.event
 import sqlalchemy.exc
 
 from flux import ExecutionContext
@@ -48,9 +49,15 @@ class Base(DeclarativeBase):
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
 
+    _engines: dict = {}
+
     def __init__(self):
-        self._engine = self._create_engine()
-        Base.metadata.create_all(self._engine)
+        config = Configuration.get().settings
+        engine_key = (type(self), config.database_url)
+        if engine_key not in DatabaseRepository._engines:
+            DatabaseRepository._engines[engine_key] = self._create_engine()
+            Base.metadata.create_all(DatabaseRepository._engines[engine_key])
+        self._engine = DatabaseRepository._engines[engine_key]
 
     @abstractmethod
     def _create_engine(self) -> Engine:
@@ -73,7 +80,22 @@ class DatabaseRepository(ABC):
 class SQLiteRepository(DatabaseRepository):
     def _create_engine(self) -> Engine:
         config = Configuration.get().settings
-        return create_engine(config.database_url)
+        engine = create_engine(config.database_url)
+
+        try:
+
+            @sqlalchemy.event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA temp_store=MEMORY")
+                cursor.execute("PRAGMA mmap_size=268435456")
+                cursor.close()
+        except sqlalchemy.exc.InvalidRequestError:
+            pass  # Engine does not support events (e.g. in tests with mocks)
+
+        return engine
 
 
 class PostgreSQLRepository(DatabaseRepository):
@@ -457,6 +479,12 @@ class ExecutionContextModel(Base):
     # Relationship to workflow
     workflow = relationship("WorkflowModel", back_populates="executions")
     worker = relationship("WorkerModel", back_populates="executions")
+
+    __table_args__ = (
+        Index("idx_execution_state", "state"),
+        Index("idx_execution_worker_name", "worker_name"),
+        Index("idx_execution_state_worker", "state", "worker_name"),
+    )
 
     def __init__(
         self,
