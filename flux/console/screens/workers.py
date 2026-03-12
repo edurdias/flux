@@ -7,6 +7,10 @@ from textual.containers import Grid
 from textual.widget import Widget
 from textual.widgets import Static
 
+from flux.utils import get_logger
+
+logger = get_logger(__name__)
+
 
 def _format_bytes(b: float) -> str:
     """Format bytes to human-readable string."""
@@ -165,13 +169,13 @@ class WorkersView(Widget):
             self.query_one("#workers-summary", Static).update(
                 f"[#3fb950]\u25cf[/] {online} online  [#f85149]\u25cf[/] {offline} offline",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to update workers summary: {e}")
 
         try:
             grid = self.query_one("#workers-grid", Grid)
             grid.remove_children()
             for w in workers:
                 grid.mount(WorkerCard(w))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to update workers grid: {e}")
