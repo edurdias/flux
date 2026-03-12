@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from flux import ExecutionContext
 from flux.domain.events import ExecutionState
 from flux.errors import WorkerNotFoundError
-from flux.server import Server
+from flux.server import Server, WorkerResponse
 
 
 @pytest.fixture
@@ -23,10 +23,15 @@ def mock_context_manager():
 
 
 @pytest.fixture
-def server_app():
+def server_instance():
+    """Create a server instance for testing."""
+    return Server(host="localhost", port=8000)
+
+
+@pytest.fixture
+def server_app(server_instance):
     """Create a server app for testing."""
-    server = Server(host="localhost", port=8000)
-    return server._create_api()
+    return server_instance._create_api()
 
 
 @pytest.fixture
@@ -336,18 +341,12 @@ class TestExecutionEndpoints:
 class TestWorkerEndpoints:
     """Tests for worker management endpoints."""
 
-    @patch("flux.server.WorkerRegistry.create")
-    def test_workers_list(self, mock_registry_create, test_client):
-        """Test listing all workers."""
-        mock_registry = MagicMock()
-        mock_worker = MagicMock()
-        mock_worker.name = "worker-1"
-        mock_worker.runtime = None
-        mock_worker.resources = None
-        mock_worker.packages = []
-
-        mock_registry.list.return_value = [mock_worker]
-        mock_registry_create.return_value = mock_registry
+    def test_workers_list(self, server_instance, test_client):
+        """Test listing all workers from in-memory cache."""
+        server_instance._worker_cache["worker-1"] = WorkerResponse(
+            name="worker-1",
+            status="online",
+        )
 
         response = test_client.get("/workers")
 
@@ -537,17 +536,12 @@ class TestAPIEdgeCases:
         assert response.status_code == 500
         assert "error" in response.text.lower()
 
-    @patch("flux.server.WorkerRegistry.create")
-    def test_workers_list_handles_exception(self, mock_registry_create, test_client):
-        """Test workers list handles errors gracefully."""
-        mock_registry = MagicMock()
-        mock_registry.list.side_effect = Exception("Registry unavailable")
-        mock_registry_create.return_value = mock_registry
-
+    def test_workers_list_empty_cache(self, test_client):
+        """Test workers list returns empty when cache is empty."""
         response = test_client.get("/workers")
 
-        assert response.status_code == 500
-        assert "error" in response.text.lower()
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch("flux.server.WorkflowCatalog.create")
     def test_workflow_versions_handles_exception(self, mock_catalog_create, test_client):

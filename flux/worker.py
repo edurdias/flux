@@ -4,6 +4,7 @@ import asyncio
 import base64
 import importlib
 import platform
+import random
 import sys
 from collections.abc import Awaitable
 from typing import Callable
@@ -65,47 +66,42 @@ class Worker:
         self.client = httpx.AsyncClient(timeout=config.default_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._pending_checkpoints: dict[str, asyncio.Task] = {}
+        self._reconnect_max_delay = config.reconnect_max_delay
 
     def start(self):
+        logger.info("Worker starting up...")
+        logger.debug(f"Worker name: {self.name}")
+        logger.debug(f"Server URL: {self.base_url}")
         try:
-            logger.info("Worker starting up...")
-            logger.debug(f"Worker name: {self.name}")
-            logger.debug(f"Server URL: {self.base_url}")
-            asyncio.run(self._start())
-            logger.info("Worker shutting down...")
-        except Exception:
-            import time
-
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    logger.warning(
-                        f"Retrying worker startup (attempt {attempt + 1}/{max_retries})...",
-                    )
-                    logger.debug(f"Using exponential backoff: {2**attempt}s")
-                    time.sleep(2**attempt)  # Exponential backoff
-                    asyncio.run(self._start())
-                    break
-                except Exception as retry_error:
-                    if attempt == max_retries - 1:
-                        logger.error(
-                            f"Failed to start worker after {max_retries} attempts: {retry_error}",
-                        )
-
-            logger.info("Worker shutting down...")
-
-    async def _start(self):
-        try:
-            await self._register()
-            await self._connect()
+            asyncio.run(self._run())
         except KeyboardInterrupt:
-            raise
-        except Exception:
-            raise
+            logger.info("Worker interrupted by user")
+        finally:
+            logger.info("Worker shutting down...")
+
+    async def _run(self):
+        """Main worker loop: register, connect, reconnect on failure."""
+        backoff = 1
+        while True:
+            try:
+                await self._register()
+                await self._connect()
+                logger.info("SSE connection closed, reconnecting...")
+                backoff = 1
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                jitter = backoff * (0.5 + random.random())
+                delay = min(jitter, self._reconnect_max_delay)
+                logger.warning(
+                    f"Connection lost ({type(e).__name__}: {e}). Reconnecting in {delay:.1f}s...",
+                )
+                await asyncio.sleep(delay)
+                backoff = min(backoff * 2, self._reconnect_max_delay)
 
     async def _register(self):
         try:
-            logger.info(f"Registering worker '{self.name}' with server...   ")
+            logger.info(f"Registering worker '{self.name}' with server...")
             logger.debug(f"Registration endpoint: {self.base_url}/register")
 
             runtime = await self._get_runtime_info()
@@ -164,38 +160,41 @@ class Worker:
                     logger.debug("Starting event loop to receive events")
                     async for evt in es.aiter_sse():
                         if evt.event == "execution_scheduled":
-                            # Create task to handle execution scheduled event without blocking the connection
                             asyncio.create_task(
                                 self._handle_execution_scheduled(base_url, headers, evt),
                                 name=f"handle_execution_scheduled_{evt.id}",
                             )
-
-                        if evt.event == "execution_cancelled":
-                            # Create task to handle execution cancelled event without blocking the connection
+                        elif evt.event == "execution_cancelled":
                             asyncio.create_task(
                                 self._handle_execution_cancelled(evt),
                                 name=f"handle_execution_cancelled_{evt.id}",
                             )
-
-                        if evt.event == "execution_resumed":
-                            # Create task to handle execution resumed event without blocking the connection
+                        elif evt.event == "execution_resumed":
                             asyncio.create_task(
                                 self._handle_execution_resumed(evt),
                                 name=f"handle_execution_resumed_{evt.id}",
                             )
-
-                        if evt.event == "keep-alive":
+                        elif evt.event == "ping":
+                            asyncio.create_task(self._send_pong())
+                        elif evt.event == "keep-alive":
                             logger.debug("Event received: Keep-alive")
-
-                        if evt.event == "error":
-                            logger.error("Event received: Error")
-                            logger.error(evt.data)
-                            logger.debug(f"Error event details: {evt.data}")
+                        elif evt.event == "error":
+                            logger.error(f"Event received: Error - {evt.data}")
 
         except Exception as evt:
             logger.error(f"Error in SSE connection: {str(evt)}")
             logger.debug(f"Connection error details: {type(evt).__name__}: {str(evt)}")
             raise
+
+    async def _send_pong(self):
+        """Respond to server ping with a pong."""
+        base_url = f"{self.base_url}/{self.name}"
+        headers = {"Authorization": f"Bearer {self.session_token}"}
+        try:
+            await self.client.post(f"{base_url}/pong", headers=headers)
+            logger.debug("Pong sent")
+        except Exception as e:
+            logger.debug(f"Failed to send pong: {e}")
 
     async def _handle_execution_cancelled(self, e):
         """Handle execution cancelled event asynchronously.

@@ -782,6 +782,17 @@ def mcp(
     MCPServer(name, host, port, server_url, transport).start()
 
 
+@start.command()
+@click.option("--server-url", "-surl", default=None, help="Server URL to connect to.")
+def console(server_url: str | None = None):
+    """Start the Flux Console TUI for monitoring and managing workflows."""
+    from flux.console.app import FluxConsoleApp
+
+    settings = Configuration.get().settings
+    server_url = server_url or f"http://{settings.server_host}:{settings.server_port}"
+    FluxConsoleApp(server_url).run()
+
+
 @cli.group()
 def schedule():
     """Manage workflow schedules."""
