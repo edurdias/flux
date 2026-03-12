@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from flux.console.widgets.json_viewer import format_json, truncate_json
 from flux.console.widgets.resource_bar import ResourceBar
 from flux.console.widgets.stat_card import StatCard
 from flux.console.widgets.status_badge import StatusBadge
@@ -66,3 +69,30 @@ class TestResourceBar:
     def test_zero_total_no_crash(self):
         bar = ResourceBar(label="CPU", used=0.0, total=0.0, unit="")
         assert bar.percentage == 0.0
+
+
+class TestJsonViewer:
+    def test_truncate_short_value(self):
+        result = truncate_json({"key": "val"})
+        assert result == '{"key": "val"}'
+
+    def test_truncate_long_value(self):
+        data = {"key": "a" * 200}
+        result = truncate_json(data, max_length=80)
+        assert len(result) <= 83  # 80 + "..."
+        assert result.endswith("...")
+
+    def test_format_json_pretty(self):
+        data = {"key": "val", "num": 42}
+        result = format_json(data)
+        assert "  " in result  # indented
+        parsed = json.loads(result)
+        assert parsed == data
+
+    def test_format_non_dict(self):
+        result = format_json("just a string")
+        assert result == '"just a string"'
+
+    def test_format_none(self):
+        result = format_json(None)
+        assert result == "null"
