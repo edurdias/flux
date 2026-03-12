@@ -32,3 +32,11 @@ host = "localhost"                      # Host to bind the MCP server to
 port = 8080                             # Port for the MCP server
 server_url = "http://localhost:8000"    # Default server URL to connect to
 transport = "streamable-http"           # Transport protocol for MCP ("stdio", "streamable-http", "sse")
+
+[flux.observability]
+enabled = false                         # Enable OpenTelemetry observability (requires flux-core[observability])
+service_name = "flux"                   # OTel service name
+prometheus_enabled = true               # Expose Prometheus /metrics endpoint
+# otlp_endpoint = "http://localhost:4317" # OTLP collector endpoint (uncomment to enable push export)
+trace_sample_rate = 1.0                 # Trace sampling rate (0.0 to 1.0)
+metric_export_interval = 60             # OTLP metric push interval in seconds
