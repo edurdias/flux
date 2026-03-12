@@ -87,16 +87,14 @@ class Worker:
             try:
                 await self._register()
                 await self._connect()
-                # If _connect returns cleanly, exit
                 break
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                # Add jitter: backoff * (0.5 to 1.5)
                 jitter = backoff * (0.5 + random.random())
                 delay = min(jitter, self._reconnect_max_delay)
                 logger.warning(
-                    f"Connection lost ({type(e).__name__}: {e}). Reconnecting in {delay:.1f}s..."
+                    f"Connection lost ({type(e).__name__}: {e}). Reconnecting in {delay:.1f}s...",
                 )
                 await asyncio.sleep(delay)
                 backoff = min(backoff * 2, self._reconnect_max_delay)

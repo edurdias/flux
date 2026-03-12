@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from fastapi import FastAPI
 from fastapi import File
 from fastapi import Header
 from fastapi import HTTPException
+from fastapi import Query
 from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -201,15 +203,16 @@ class Server:
         self._worker_rr_index = 0
         self._execution_events: dict[str, asyncio.Event] = {}
         self._worker_last_pong: dict[str, float] = {}
+        self._worker_cache: dict[str, WorkerResponse] = {}
+        self._worker_offline_since: dict[str, float] = {}
 
-        # Scheduler config
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
 
-        # Heartbeat config
         workers_config = Configuration.get().settings.workers
         self.heartbeat_interval = workers_config.heartbeat_interval
         self.heartbeat_timeout = workers_config.heartbeat_timeout
+        self.offline_ttl = workers_config.offline_ttl
 
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
@@ -241,15 +244,13 @@ class Server:
             logger.info("Flux server started successfully")
             logger.debug("Server is ready to accept connections")
 
-            # Start integrated scheduler
             await self._start_scheduler()
             logger.info(f"Scheduler started (poll_interval={self.poll_interval}s)")
 
-            # Start worker heartbeat reaper
             self._reaper_task = asyncio.create_task(self._run_heartbeat_reaper())
             logger.info(
                 f"Heartbeat reaper started (interval={self.heartbeat_interval}s, "
-                f"timeout={self.heartbeat_timeout}s)"
+                f"timeout={self.heartbeat_timeout}s)",
             )
 
         try:
@@ -440,13 +441,12 @@ class Server:
         logger.info("Integrated scheduler stopped")
 
     async def _run_heartbeat_reaper(self):
-        """Background task that evicts stale workers that missed heartbeats."""
-        import time
-
+        """Background task that evicts stale workers and prunes offline cache."""
         try:
             while True:
                 await asyncio.sleep(self.heartbeat_interval)
                 now = time.monotonic()
+
                 stale = [
                     name
                     for name, last_pong in self._worker_last_pong.items()
@@ -458,7 +458,20 @@ class Server:
                     self._worker_events.pop(name, None)
                     if name in self._worker_names:
                         self._worker_names.remove(name)
+                    self._worker_offline_since[name] = now
+                    if name in self._worker_cache:
+                        self._worker_cache[name].status = "offline"
                     logger.info(f"Worker {name} evicted (remaining: {len(self._worker_names)})")
+
+                expired = [
+                    name
+                    for name, since in self._worker_offline_since.items()
+                    if (now - since) > self.offline_ttl
+                ]
+                for name in expired:
+                    self._worker_offline_since.pop(name, None)
+                    self._worker_cache.pop(name, None)
+                    logger.debug(f"Pruned offline worker {name} (exceeded {self.offline_ttl}s TTL)")
         except asyncio.CancelledError:
             logger.info("Heartbeat reaper stopped")
 
@@ -929,6 +942,41 @@ class Server:
                     registration.packages,
                     registration.resources,
                 )
+
+                self._worker_cache[registration.name] = WorkerResponse(
+                    name=registration.name,
+                    status="online" if registration.name in self._worker_names else "offline",
+                    runtime=WorkerRuntimeModel(
+                        os_name=registration.runtime.os_name,
+                        os_version=registration.runtime.os_version,
+                        python_version=registration.runtime.python_version,
+                    ),
+                    resources=WorkerResourcesModel(
+                        cpu_total=registration.resources.cpu_total,
+                        cpu_available=registration.resources.cpu_available,
+                        memory_total=registration.resources.memory_total,
+                        memory_available=registration.resources.memory_available,
+                        disk_total=registration.resources.disk_total,
+                        disk_free=registration.resources.disk_free,
+                        gpus=[
+                            WorkerGPUModel(
+                                name=g.name,
+                                memory_total=g.memory_total,
+                                memory_available=g.memory_available,
+                            )
+                            for g in registration.resources.gpus
+                        ]
+                        if registration.resources.gpus
+                        else [],
+                    ),
+                    packages=[
+                        {"name": p["name"], "version": p["version"]} for p in registration.packages
+                    ]
+                    if registration.packages
+                    else [],
+                )
+                self._worker_offline_since.pop(registration.name, None)
+
                 logger.info(f"Worker registered successfully: {registration.name}")
                 logger.debug(
                     f"Worker details: OS: {registration.runtime.os_name} {registration.runtime.os_version}, "
@@ -948,8 +996,6 @@ class Server:
         @api.post("/workers/{name}/pong")
         async def workers_pong(name: str, authorization: str = Header(None)):
             """Receive heartbeat pong from a worker."""
-            import time
-
             try:
                 self._get_worker(name, authorization)
                 self._worker_last_pong[name] = time.monotonic()
@@ -967,14 +1013,14 @@ class Server:
                 worker = self._get_worker(name, authorization)
                 logger.info(f"Worker connected: {name}")
 
-                import time
-
-                # Register per-worker event for round-robin signaling
                 worker_event = asyncio.Event()
                 self._worker_events[name] = worker_event
                 if name not in self._worker_names:
                     self._worker_names.append(name)
                 self._worker_last_pong[name] = time.monotonic()
+                self._worker_offline_since.pop(name, None)
+                if name in self._worker_cache:
+                    self._worker_cache[name].status = "online"
                 logger.debug(
                     f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
                 )
@@ -1067,7 +1113,6 @@ class Server:
                                 except Exception:
                                     pass
 
-                                # Emit ping if heartbeat interval has elapsed
                                 now = time.monotonic()
                                 if (now - last_ping_time) >= self.heartbeat_interval:
                                     last_ping_time = now
@@ -1084,11 +1129,13 @@ class Server:
                                     "data": str(e),
                                 }
                     finally:
-                        # Cleanup on disconnect
                         self._worker_events.pop(name, None)
                         self._worker_last_pong.pop(name, None)
                         if name in self._worker_names:
                             self._worker_names.remove(name)
+                        self._worker_offline_since[name] = time.monotonic()
+                        if name in self._worker_cache:
+                            self._worker_cache[name].status = "offline"
                         logger.info(
                             f"Worker {name} disconnected (remaining: {len(self._worker_names)})",
                         )
@@ -1869,15 +1916,23 @@ class Server:
             return worker_response
 
         @api.get("/workers", response_model=list[WorkerResponse])
-        async def workers_list():
-            """List all registered workers."""
+        async def workers_list(status: str | None = Query(None)):
+            """List workers from in-memory cache. Optional ?status=online|offline filter."""
             try:
-                logger.debug("Listing all workers")
+                logger.debug(f"Listing workers (filter={status})")
 
-                registry = WorkerRegistry.create()
-                workers = registry.list()
-
-                result = [_worker_info_to_response(w) for w in workers]
+                if status == "online":
+                    result = [
+                        self._worker_cache[n] for n in self._worker_names if n in self._worker_cache
+                    ]
+                elif status == "offline":
+                    result = [
+                        self._worker_cache[n]
+                        for n in self._worker_offline_since
+                        if n in self._worker_cache
+                    ]
+                else:
+                    result = list(self._worker_cache.values())
 
                 logger.debug(f"Found {len(result)} workers")
                 return result
@@ -1891,10 +1946,14 @@ class Server:
 
         @api.get("/workers/{name}", response_model=WorkerResponse)
         async def worker_get(name: str):
-            """Get worker details by name."""
+            """Get worker details, from cache first, DB fallback."""
             try:
                 logger.debug(f"Fetching worker: {name}")
 
+                if name in self._worker_cache:
+                    return self._worker_cache[name]
+
+                # Fallback to DB for historical workers
                 registry = WorkerRegistry.create()
                 w = registry.get(name)
 
