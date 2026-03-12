@@ -4,6 +4,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
 from flux.console.client import FluxClient
+from flux.console.screens.dashboard import DashboardView
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
@@ -30,7 +31,7 @@ class FluxConsoleApp(App):
         yield Header()
         with TabbedContent():
             with TabPane("Dashboard", id="tab-dashboard"):
-                yield Static("Dashboard — loading...", id="dashboard-placeholder")
+                yield DashboardView(id="dashboard-view")
             with TabPane("Workflows", id="tab-workflows"):
                 yield Static("Workflows — loading...", id="workflows-placeholder")
             with TabPane("Executions", id="tab-executions"):
@@ -45,6 +46,7 @@ class FluxConsoleApp(App):
 
     async def on_mount(self) -> None:
         self.poll_health = self.set_interval(10.0, self._poll_health)
+        self.set_interval(5.0, self._poll_dashboard)
         await self._poll_health()
 
     async def _poll_health(self) -> None:
@@ -54,6 +56,23 @@ class FluxConsoleApp(App):
             self.sub_title = f"● {self.server_url}"
         else:
             self.sub_title = f"○ {self.server_url} (disconnected)"
+
+    async def _poll_dashboard(self) -> None:
+        if not self.connected:
+            return
+        try:
+            data = {}
+            data["workflows"] = await self.client.list_workflows()
+            data["executions"] = await self.client.list_executions(limit=10)
+            data["workers"] = await self.client.list_workers()
+            data["schedules"] = await self.client.list_schedules()
+            try:
+                dashboard = self.query_one("#dashboard-view", DashboardView)
+                dashboard.update_data(data)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Dashboard poll error: {e}")
 
     async def action_quit(self) -> None:
         await self.client.close()
