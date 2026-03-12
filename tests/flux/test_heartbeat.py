@@ -203,9 +203,7 @@ class TestWorkerCache:
         server._worker_offline_since["w2"] = time.monotonic()
 
         online = [
-            server._worker_cache[n]
-            for n in server._worker_names
-            if n in server._worker_cache
+            server._worker_cache[n] for n in server._worker_names if n in server._worker_cache
         ]
         assert len(online) == 1
         assert online[0].name == "w1"
@@ -281,9 +279,7 @@ class TestWorkerReconnect:
 
         worker = Worker(name="test-worker", server_url="http://localhost:8000")
 
-        with patch.object(
-            worker, "_register", side_effect=KeyboardInterrupt
-        ):
+        with patch.object(worker, "_register", side_effect=KeyboardInterrupt):
             with pytest.raises(KeyboardInterrupt):
                 await worker._run()
 
@@ -313,7 +309,10 @@ class TestWorkerReconnect:
         worker.session_token = "test-token"
 
         with patch.object(
-            worker.client, "post", new_callable=AsyncMock, side_effect=Exception("Network error")
+            worker.client,
+            "post",
+            new_callable=AsyncMock,
+            side_effect=Exception("Network error"),
         ):
             # Should not raise
             await worker._send_pong()
@@ -341,9 +340,6 @@ class TestWorkerCardStatus:
         assert "offline" in card.classes
 
     def test_workers_view_counts_by_status(self):
-        from flux.console.screens.workers import WorkersView
-
-        view = WorkersView()
         workers = [
             {"name": "w1", "status": "online"},
             {"name": "w2", "status": "online"},

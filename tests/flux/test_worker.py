@@ -182,40 +182,9 @@ class TestWorker:
 
         mock_asyncio_run.assert_called_once()
 
-    @patch("asyncio.run")
-    @patch("time.sleep")
-    def test_start_with_retry_logic(self, mock_sleep, mock_asyncio_run, worker):
-        """Test start with retry logic on failure."""
-        # Make asyncio.run fail 2 times then succeed
-        mock_asyncio_run.side_effect = [
-            Exception("Connection failed"),
-            Exception("Still failing"),
-            None,
-        ]
-
-        worker.start()
-
-        assert mock_asyncio_run.call_count == 3
-        assert mock_sleep.call_count == 2
-        # Check exponential backoff: first retry sleeps 1s, second sleeps 2s
-        mock_sleep.assert_any_call(1)
-        mock_sleep.assert_any_call(2)
-
-    @patch("asyncio.run")
-    @patch("time.sleep")
-    def test_start_max_retries_exceeded(self, mock_sleep, mock_asyncio_run, worker):
-        """Test start when max retries are exceeded."""
-        # Make asyncio.run always fail
-        mock_asyncio_run.side_effect = Exception("Connection failed")
-
-        worker.start()
-
-        assert mock_asyncio_run.call_count == 4  # Initial + 3 retries
-        assert mock_sleep.call_count == 3
-
     @pytest.mark.asyncio
-    async def test_start_async_calls_register_and_sse(self, worker):
-        """Test _start() calls both registration and SSE connection."""
+    async def test_run_calls_register_and_connect(self, worker):
+        """Test _run() calls both registration and SSE connection."""
         with (
             patch.object(
                 worker,
@@ -226,21 +195,21 @@ class TestWorker:
                 worker,
                 "_connect",
                 new_callable=AsyncMock,
-            ) as mock_sse,
+            ) as mock_connect,
         ):
-            await worker._start()
+            await worker._run()
 
             mock_register.assert_called_once()
-            mock_sse.assert_called_once()
+            mock_connect.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_async_handles_keyboard_interrupt(self, worker):
-        """Test _start() properly handles KeyboardInterrupt."""
+    async def test_run_handles_keyboard_interrupt(self, worker):
+        """Test _run() properly handles KeyboardInterrupt."""
         with patch.object(worker, "_register", new_callable=AsyncMock) as mock_register:
             mock_register.side_effect = KeyboardInterrupt()
 
             with pytest.raises(KeyboardInterrupt):
-                await worker._start()
+                await worker._run()
 
     @pytest.mark.asyncio
     async def test_register_successful(self, worker):
@@ -435,8 +404,8 @@ class TestWorker:
             assert mock_execute.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_checkpoint_successful(self, worker, sample_execution_context):
-        """Test successful checkpointing."""
+    async def test_send_checkpoint_successful(self, worker, sample_execution_context):
+        """Test successful checkpoint send."""
         worker.session_token = "test-session-token"
 
         mock_response = MagicMock()
@@ -453,16 +422,15 @@ class TestWorker:
             mock_post.return_value = mock_response
             mock_to_dict.return_value = {"test": "data"}
 
-            await worker._checkpoint(sample_execution_context)
+            await worker._send_checkpoint(sample_execution_context)
 
             mock_post.assert_called_once()
-            # Check the checkpoint URL contains the execution_id
             call_args = mock_post.call_args
             assert "test-execution-id" in call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_checkpoint_failure(self, worker, sample_execution_context):
-        """Test checkpoint failure."""
+    async def test_send_checkpoint_failure(self, worker, sample_execution_context):
+        """Test checkpoint send failure."""
         worker.session_token = "test-session-token"
 
         with (
@@ -475,34 +443,7 @@ class TestWorker:
             mock_post.side_effect = Exception("Checkpoint failed")
 
             with pytest.raises(Exception, match="Checkpoint failed"):
-                await worker._checkpoint(sample_execution_context)
-
-    @pytest.mark.asyncio
-    async def test_connect_handles_execution_scheduled(
-        self,
-        worker,
-        sample_execution_context,
-    ):
-        """Test SSE connection handles execution_scheduled event."""
-        worker.session_token = "test-session-token"
-
-        # Skip the real SSE connection code completely
-        with (
-            patch.object(
-                worker,
-                "_connect",
-                new_callable=AsyncMock,
-            ) as mock_sse,
-            patch.object(worker.client, "post", new_callable=AsyncMock) as mock_post,
-        ):
-            # Just make it return and then check if our mock was called
-            mock_post.return_value = AsyncMock()
-            mock_post.return_value.json.return_value = {"status": "success"}
-            mock_post.return_value.raise_for_status = AsyncMock()
-
-            await worker._checkpoint(sample_execution_context)
-            mock_sse.assert_not_called()
-            mock_post.assert_called_once()
+                await worker._send_checkpoint(sample_execution_context)
 
     @pytest.mark.asyncio
     async def test_connect_handles_keep_alive(self, worker):
