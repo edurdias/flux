@@ -147,6 +147,7 @@ class WorkerResponse(BaseModel):
     """Model for worker responses"""
 
     name: str
+    status: str = "offline"
     runtime: WorkerRuntimeModel | None = None
     resources: WorkerResourcesModel | None = None
     packages: list[dict[str, str]] = []
@@ -199,10 +200,16 @@ class Server:
         self._worker_names: list[str] = []
         self._worker_rr_index = 0
         self._execution_events: dict[str, asyncio.Event] = {}
+        self._worker_last_pong: dict[str, float] = {}
 
         # Scheduler config
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
+
+        # Heartbeat config
+        workers_config = Configuration.get().settings.workers
+        self.heartbeat_interval = workers_config.heartbeat_interval
+        self.heartbeat_timeout = workers_config.heartbeat_timeout
 
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
@@ -237,6 +244,13 @@ class Server:
             # Start integrated scheduler
             await self._start_scheduler()
             logger.info(f"Scheduler started (poll_interval={self.poll_interval}s)")
+
+            # Start worker heartbeat reaper
+            self._reaper_task = asyncio.create_task(self._run_heartbeat_reaper())
+            logger.info(
+                f"Heartbeat reaper started (interval={self.heartbeat_interval}s, "
+                f"timeout={self.heartbeat_timeout}s)"
+            )
 
         try:
             config = uvicorn.Config(
@@ -424,6 +438,29 @@ class Server:
             except asyncio.CancelledError:
                 pass
         logger.info("Integrated scheduler stopped")
+
+    async def _run_heartbeat_reaper(self):
+        """Background task that evicts stale workers that missed heartbeats."""
+        import time
+
+        try:
+            while True:
+                await asyncio.sleep(self.heartbeat_interval)
+                now = time.monotonic()
+                stale = [
+                    name
+                    for name, last_pong in self._worker_last_pong.items()
+                    if (now - last_pong) > self.heartbeat_timeout
+                ]
+                for name in stale:
+                    logger.warning(f"Worker {name} missed heartbeat, evicting (stale)")
+                    self._worker_last_pong.pop(name, None)
+                    self._worker_events.pop(name, None)
+                    if name in self._worker_names:
+                        self._worker_names.remove(name)
+                    logger.info(f"Worker {name} evicted (remaining: {len(self._worker_names)})")
+        except asyncio.CancelledError:
+            logger.info("Heartbeat reaper stopped")
 
     async def _scheduler_loop(self):
         """Main scheduler loop - checks for due schedules periodically"""
@@ -908,6 +945,21 @@ class Server:
                     detail=str(e),
                 )
 
+        @api.post("/workers/{name}/pong")
+        async def workers_pong(name: str, authorization: str = Header(None)):
+            """Receive heartbeat pong from a worker."""
+            import time
+
+            try:
+                self._get_worker(name, authorization)
+                self._worker_last_pong[name] = time.monotonic()
+                logger.debug(f"Pong received from worker {name}")
+                return {"status": "ok"}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
         @api.get("/workers/{name}/connect")
         async def workers_connect(name: str, authorization: str = Header(None)):
             try:
@@ -915,17 +967,21 @@ class Server:
                 worker = self._get_worker(name, authorization)
                 logger.info(f"Worker connected: {name}")
 
+                import time
+
                 # Register per-worker event for round-robin signaling
                 worker_event = asyncio.Event()
                 self._worker_events[name] = worker_event
                 if name not in self._worker_names:
                     self._worker_names.append(name)
+                self._worker_last_pong[name] = time.monotonic()
                 logger.debug(
                     f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
                 )
 
                 async def check_for_new_executions():
                     fallback_interval = 0.5
+                    last_ping_time = time.monotonic()
 
                     context_manager = ContextManager.create()
                     try:
@@ -1010,6 +1066,15 @@ class Server:
                                             pass
                                 except Exception:
                                     pass
+
+                                # Emit ping if heartbeat interval has elapsed
+                                now = time.monotonic()
+                                if (now - last_ping_time) >= self.heartbeat_interval:
+                                    last_ping_time = now
+                                    yield {
+                                        "event": "ping",
+                                        "data": "",
+                                    }
                             except Exception as e:
                                 logger.error(
                                     f"Error in worker connection stream for {name}: {str(e)}",
@@ -1021,6 +1086,7 @@ class Server:
                     finally:
                         # Cleanup on disconnect
                         self._worker_events.pop(name, None)
+                        self._worker_last_pong.pop(name, None)
                         if name in self._worker_names:
                             self._worker_names.remove(name)
                         logger.info(
@@ -1764,8 +1830,10 @@ class Server:
 
         def _worker_info_to_response(w: WorkerInfo) -> WorkerResponse:
             """Convert WorkerInfo to WorkerResponse."""
+            status = "online" if w.name in self._worker_names else "offline"
             worker_response = WorkerResponse(
                 name=w.name,
+                status=status,
                 packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
                 if w.packages
                 else [],
