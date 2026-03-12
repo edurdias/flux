@@ -50,16 +50,40 @@ class FluxConsoleApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.poll_health = self.set_interval(10.0, self._poll_health)
-        self.set_interval(5.0, self._poll_dashboard)
-        self.set_interval(3.0, self._poll_executions)
-        self.set_interval(5.0, self._poll_workers)
-        self.set_interval(5.0, self._poll_workflows)
-        self.query_one("#workflows-view", WorkflowsView)._client = self.client
-        self.query_one("#schedules-view", SchedulesView)._client = self.client
-        self.set_interval(5.0, self._poll_schedules)
-        self.set_interval(3.0, self._poll_logs)
+        self.set_interval(10.0, self._poll_health)
+        self.set_interval(3.0, self._poll_active_view)
         await self._poll_health()
+        await self._poll_active_view()
+        # Set client references for views that need them
+        try:
+            self.query_one("#workflows-view", WorkflowsView)._client = self.client
+        except Exception:
+            pass
+        try:
+            self.query_one("#schedules-view", SchedulesView)._client = self.client
+        except Exception:
+            pass
+
+    async def _poll_active_view(self) -> None:
+        """Poll data only for the currently active tab."""
+        if not self.connected:
+            return
+        try:
+            active = self.query_one(TabbedContent).active
+            if active == "tab-dashboard":
+                await self._poll_dashboard()
+            elif active == "tab-workflows":
+                await self._poll_workflows()
+            elif active == "tab-executions":
+                await self._poll_executions()
+            elif active == "tab-workers":
+                await self._poll_workers()
+            elif active == "tab-schedules":
+                await self._poll_schedules()
+            elif active == "tab-logs":
+                await self._poll_logs()
+        except Exception as e:
+            logger.debug(f"Poll error: {e}")
 
     async def _poll_health(self) -> None:
         result = await self.client.health_check()
