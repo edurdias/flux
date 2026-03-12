@@ -215,6 +215,14 @@ class Server:
         self.heartbeat_timeout = workers_config.heartbeat_timeout
         self.offline_ttl = workers_config.offline_ttl
 
+        try:
+            from flux.observability import setup as setup_observability
+
+            obs_config = Configuration.get().settings.observability
+            setup_observability(obs_config)
+        except Exception:
+            logger.debug("Observability setup skipped or failed")
+
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
         if not self._worker_names:
@@ -412,6 +420,14 @@ class Server:
                 requests=workflow.requests,
             ),
         )
+
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            m.record_execution_started(workflow_name)
+            m.record_execution_queued()
+
         return ctx
 
     # ===========================================
@@ -463,6 +479,12 @@ class Server:
         evicted = self._worker_evicted.pop(name, None)
         if evicted:
             evicted.set()
+
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            m.record_worker_disconnected(name, "disconnect")
 
     async def _run_heartbeat_reaper(self):
         """Background task that evicts stale workers and prunes offline cache."""
@@ -564,6 +586,10 @@ class Server:
             await self._stop_scheduler()
             await self._stop_reaper()
 
+            from flux.observability import shutdown as shutdown_observability
+
+            shutdown_observability()
+
         api = FastAPI(
             title="Flux",
             version=self._get_version(),
@@ -578,6 +604,29 @@ class Server:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+        from flux.observability import get_metrics, is_enabled
+
+        if is_enabled():
+            from flux.observability.middleware import MetricsMiddleware
+
+            metrics = get_metrics()
+            if metrics:
+                api.add_middleware(MetricsMiddleware, metrics=metrics)
+
+            # Prometheus /metrics endpoint
+            obs_config = Configuration.get().settings.observability
+            if obs_config.prometheus_enabled:
+                from prometheus_client import REGISTRY, generate_latest
+
+                @api.get("/metrics")
+                async def metrics_endpoint():
+                    from starlette.responses import Response
+
+                    return Response(
+                        content=generate_latest(REGISTRY),
+                        media_type="text/plain; version=0.0.4; charset=utf-8",
+                    )
 
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
@@ -1013,6 +1062,13 @@ class Server:
                     f"Resources: CPU: {registration.resources.cpu_total}, "
                     f"Memory: {registration.resources.memory_total}",
                 )
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_worker_connected(registration.name)
+
                 return result
             except HTTPException:
                 raise
@@ -1189,6 +1245,12 @@ class Server:
                 context_manager = ContextManager.create()
                 ctx = context_manager.claim(execution_id, worker)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_execution_claimed()
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)
