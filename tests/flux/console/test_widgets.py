@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from flux.console.widgets.gantt_chart import GanttChart
 from flux.console.widgets.json_viewer import format_json, truncate_json
 from flux.console.widgets.resource_bar import ResourceBar
 from flux.console.widgets.stat_card import StatCard
@@ -96,3 +97,15 @@ class TestJsonViewer:
     def test_format_none(self):
         result = format_json(None)
         assert result == "null"
+
+
+class TestGanttChart:
+    def test_creates_with_events(self):
+        events = [
+            {"type": "WORKFLOW_STARTED", "name": "wf", "time": "2026-03-12T14:23:01.000"},
+            {"type": "TASK_STARTED", "name": "task_a", "time": "2026-03-12T14:23:01.100"},
+            {"type": "TASK_COMPLETED", "name": "task_a", "time": "2026-03-12T14:23:01.500"},
+            {"type": "WORKFLOW_COMPLETED", "name": "wf", "time": "2026-03-12T14:23:02.000"},
+        ]
+        chart = GanttChart(events)
+        assert chart is not None
