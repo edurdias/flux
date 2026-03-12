@@ -38,10 +38,16 @@ class WorkersConfig(BaseConfig):
     retry_backoff: int = Field(default=2, description="Default backoff multiplier for retries")
     heartbeat_interval: int = Field(default=10, description="Seconds between server ping events")
     heartbeat_timeout: int = Field(
-        default=30, description="Seconds before a worker is considered stale"
+        default=30,
+        description="Seconds before a worker is considered stale",
     )
     reconnect_max_delay: int = Field(
-        default=60, description="Max backoff cap in seconds for worker reconnect"
+        default=60,
+        description="Max backoff cap in seconds for worker reconnect",
+    )
+    offline_ttl: int = Field(
+        default=7200,
+        description="Seconds to keep offline workers in memory before pruning",
     )
 
 
