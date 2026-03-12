@@ -115,9 +115,7 @@ class FluxMetrics:
     def record_schedule_trigger(self, schedule_name: str, outcome: str):
         self.schedule_triggers.add(1, {"schedule_name": schedule_name, "outcome": outcome})
 
-    def record_http_request(
-        self, method: str, endpoint: str, status_code: int, duration: float
-    ):
+    def record_http_request(self, method: str, endpoint: str, status_code: int, duration: float):
         attrs = {"method": method, "endpoint": endpoint, "status_code": str(status_code)}
         self.http_requests.add(1, attrs)
         self.http_duration.record(duration, {"method": method, "endpoint": endpoint})
