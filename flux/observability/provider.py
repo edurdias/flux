@@ -12,6 +12,7 @@ _meter_provider = None
 _tracer_provider = None
 _logger_provider = None
 _flux_metrics = None
+_log_handler = None
 
 
 def _check_dependencies():
@@ -107,6 +108,12 @@ def setup_providers(config: ObservabilityConfig):
     meter = otel_metrics.get_meter("flux")
     _flux_metrics = FluxMetrics(meter)
 
+    # Attach OTel log handler to root "flux" logger
+    global _log_handler
+    from flux.observability.logging import setup_log_handler
+
+    _log_handler = setup_log_handler(logging.getLogger("flux"))
+
     logger.info(
         f"Observability initialized (prometheus={config.prometheus_enabled}, "
         f"otlp={'enabled' if config.otlp_endpoint else 'disabled'}, "
@@ -116,7 +123,15 @@ def setup_providers(config: ObservabilityConfig):
 
 def shutdown_providers():
     """Flush and shut down all providers."""
-    global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics
+    global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics, _log_handler
+
+    # Remove log handler before shutting down providers
+    if _log_handler:
+        from flux.observability.logging import teardown_log_handler
+
+        teardown_log_handler(logging.getLogger("flux"), _log_handler)
+        _log_handler = None
+
     _flux_metrics = None
 
     if _meter_provider:

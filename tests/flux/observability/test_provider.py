@@ -56,3 +56,18 @@ class TestProviderLifecycle:
         tracer = get_tracer("test")
         assert tracer is not None
         shutdown()
+
+    def test_get_meter_returns_none_when_disabled(self):
+        from flux.observability import get_meter
+
+        assert get_meter("test") is None
+
+    def test_get_tracer_returns_none_when_disabled(self):
+        from flux.observability import get_tracer
+
+        assert get_tracer("test") is None
+
+    def test_get_metrics_returns_none_when_disabled(self):
+        from flux.observability import get_metrics
+
+        assert get_metrics() is None

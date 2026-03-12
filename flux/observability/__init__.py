@@ -37,22 +37,18 @@ def shutdown() -> None:
 
 
 def get_meter(name: str):
-    """Get an OTel Meter. Returns a no-op meter if disabled."""
+    """Get an OTel Meter. Returns None if disabled."""
     if not _enabled:
-        from opentelemetry import metrics
-
-        return metrics.get_meter(name)
+        return None
     from opentelemetry import metrics
 
     return metrics.get_meter(name)
 
 
 def get_tracer(name: str):
-    """Get an OTel Tracer. Returns a no-op tracer if disabled."""
+    """Get an OTel Tracer. Returns None if disabled."""
     if not _enabled:
-        from opentelemetry import trace
-
-        return trace.get_tracer(name)
+        return None
     from opentelemetry import trace
 
     return trace.get_tracer(name)

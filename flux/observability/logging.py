@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from opentelemetry import trace
-
 
 class OTelTraceLogHandler(logging.Handler):
     """Injects trace/span IDs into log records."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        from opentelemetry import trace
+
         span = trace.get_current_span()
         ctx = span.get_span_context()
         if ctx and ctx.trace_id:
@@ -25,6 +25,8 @@ class OTelTraceLogFilter(logging.Filter):
     """Adds trace/span IDs to log records as attributes."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        from opentelemetry import trace
+
         span = trace.get_current_span()
         ctx = span.get_span_context()
         if ctx and ctx.trace_id:

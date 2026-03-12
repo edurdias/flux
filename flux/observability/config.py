@@ -13,10 +13,6 @@ class ObservabilityConfig(BaseModel):
         default=None,
         description="OTLP collector endpoint (e.g. http://localhost:4317)",
     )
-    otlp_protocol: str = Field(
-        default="grpc",
-        description="OTLP protocol: grpc or http/protobuf",
-    )
     prometheus_enabled: bool = Field(
         default=True,
         description="Enable Prometheus /metrics endpoint",
@@ -24,6 +20,8 @@ class ObservabilityConfig(BaseModel):
 
     trace_sample_rate: float = Field(
         default=1.0,
+        ge=0.0,
+        le=1.0,
         description="Trace sampling rate (0.0 to 1.0)",
     )
 

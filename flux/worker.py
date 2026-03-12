@@ -259,18 +259,26 @@ class Worker:
         try:
             logger.debug("Received execution_scheduled event")
 
-            from flux.observability.tracing import extract_trace_context
+            from flux.observability import is_enabled
 
-            trace_ctx = {}
-            try:
-                import json as _json
+            _otel_token = None
+            if is_enabled():
+                from flux.observability.tracing import extract_trace_context
 
-                event_data = _json.loads(e.data) if isinstance(e.data, str) else {}
-                trace_ctx = event_data.get("trace_context", {})
-            except Exception:
-                pass
+                trace_ctx = {}
+                try:
+                    import json as _json
 
-            parent_ctx = extract_trace_context(trace_ctx) if trace_ctx else None  # noqa: F841
+                    event_data = _json.loads(e.data) if isinstance(e.data, str) else {}
+                    trace_ctx = event_data.get("trace_context", {})
+                except Exception:
+                    pass
+
+                if trace_ctx:
+                    from opentelemetry import context
+
+                    parent_ctx = extract_trace_context(trace_ctx)
+                    _otel_token = context.attach(parent_ctx)
 
             request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
 
@@ -313,6 +321,11 @@ class Worker:
         except Exception as ex:
             logger.error(f"Error handling execution_scheduled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+        finally:
+            if _otel_token is not None:
+                from opentelemetry import context
+
+                context.detach(_otel_token)
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         """Execute a workflow from a workflow execution request.

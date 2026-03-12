@@ -467,7 +467,7 @@ class Server:
                 pass
             logger.info("Heartbeat reaper stopped")
 
-    def _disconnect_worker(self, name: str) -> None:
+    def _disconnect_worker(self, name: str, reason: str = "disconnect") -> None:
         """Remove a worker from the connected set and mark it offline in cache."""
         self._worker_events.pop(name, None)
         self._worker_last_pong.pop(name, None)
@@ -484,7 +484,7 @@ class Server:
 
         m = get_metrics()
         if m:
-            m.record_worker_disconnected(name, "disconnect")
+            m.record_worker_disconnected(name, reason)
 
     async def _run_heartbeat_reaper(self):
         """Background task that evicts stale workers and prunes offline cache."""
@@ -500,7 +500,7 @@ class Server:
                 ]
                 for name in stale:
                     logger.warning(f"Worker {name} missed heartbeat, evicting")
-                    self._disconnect_worker(name)
+                    self._disconnect_worker(name, reason="evicted")
                     logger.info(f"Worker {name} evicted (remaining: {len(self._worker_names)})")
 
                 expired = [

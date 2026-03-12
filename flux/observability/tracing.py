@@ -6,9 +6,6 @@ import asyncio
 import functools
 from typing import Any, Callable
 
-from opentelemetry import context, trace
-from opentelemetry.propagate import extract, inject
-
 
 def traced(span_name: str, attributes: dict[str, Any] | None = None) -> Callable:
     """Decorator that wraps a function in an OTel span."""
@@ -18,6 +15,8 @@ def traced(span_name: str, attributes: dict[str, Any] | None = None) -> Callable
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
+                from opentelemetry import trace
+
                 tracer = trace.get_tracer("flux")
                 with tracer.start_as_current_span(span_name) as span:
                     if attributes:
@@ -30,6 +29,8 @@ def traced(span_name: str, attributes: dict[str, Any] | None = None) -> Callable
 
             @functools.wraps(func)
             def sync_wrapper(*args, **kwargs):
+                from opentelemetry import trace
+
                 tracer = trace.get_tracer("flux")
                 with tracer.start_as_current_span(span_name) as span:
                     if attributes:
@@ -44,11 +45,15 @@ def traced(span_name: str, attributes: dict[str, Any] | None = None) -> Callable
 
 def inject_trace_context() -> dict[str, str]:
     """Inject current trace context into a carrier dict (W3C format)."""
+    from opentelemetry.propagate import inject
+
     carrier: dict[str, str] = {}
     inject(carrier)
     return carrier
 
 
-def extract_trace_context(carrier: dict[str, str]) -> context.Context:
+def extract_trace_context(carrier: dict[str, str]):
     """Extract trace context from a carrier dict."""
+    from opentelemetry.propagate import extract
+
     return extract(carrier)
