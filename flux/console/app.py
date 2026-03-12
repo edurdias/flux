@@ -6,6 +6,7 @@ from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 from flux.console.client import FluxClient
 from flux.console.screens.dashboard import DashboardView
 from flux.console.screens.executions import ExecutionsView
+from flux.console.screens.schedules import SchedulesView
 from flux.console.screens.workers import WorkersView
 from flux.console.screens.workflows import WorkflowsView
 from flux.utils import get_logger
@@ -42,7 +43,7 @@ class FluxConsoleApp(App):
             with TabPane("Workers", id="tab-workers"):
                 yield WorkersView(id="workers-view")
             with TabPane("Schedules", id="tab-schedules"):
-                yield Static("Schedules — loading...", id="schedules-placeholder")
+                yield SchedulesView(id="schedules-view")
             with TabPane("Logs", id="tab-logs"):
                 yield Static("Logs — loading...", id="logs-placeholder")
         yield Footer()
@@ -54,6 +55,8 @@ class FluxConsoleApp(App):
         self.set_interval(5.0, self._poll_workers)
         self.set_interval(5.0, self._poll_workflows)
         self.query_one("#workflows-view", WorkflowsView)._client = self.client
+        self.query_one("#schedules-view", SchedulesView)._client = self.client
+        self.set_interval(5.0, self._poll_schedules)
         await self._poll_health()
 
     async def _poll_health(self) -> None:
@@ -124,6 +127,23 @@ class FluxConsoleApp(App):
                 pass
         except Exception as e:
             logger.debug(f"Workflows poll error: {e}")
+
+    async def _poll_schedules(self) -> None:
+        if not self.connected:
+            return
+        try:
+            schedules = await self.client.list_schedules()
+            try:
+                view = self.query_one("#schedules-view", SchedulesView)
+                view.update_data(schedules)
+                if view._selected_schedule:
+                    sid = view._selected_schedule.get("id", "")
+                    history = await self.client.get_schedule_history(sid, limit=10)
+                    view.update_history(history)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Schedules poll error: {e}")
 
     async def action_quit(self) -> None:
         await self.client.close()
