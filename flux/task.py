@@ -143,8 +143,33 @@ class task:
                 ),
             )
 
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            m.record_task_started(ctx.workflow_name, self.name)
+
         task_failed = False
         task_start_time = time.monotonic()
+
+        # Start an OTel span for this task
+        from flux.observability import is_enabled
+
+        _task_span_cm = None
+        _task_span = None
+        if is_enabled():
+            from opentelemetry import trace as _trace
+
+            tracer = _trace.get_tracer("flux")
+            _task_span_cm = tracer.start_as_current_span(
+                "flux.task.execute",
+                attributes={
+                    "flux.task.name": full_name,
+                    "flux.workflow.name": ctx.workflow_name,
+                },
+            )
+            _task_span = _task_span_cm.__enter__()
+
         try:
             output = None
             if self.cache:
@@ -179,6 +204,11 @@ class task:
 
         except Exception as ex:
             task_failed = True
+            if _task_span:
+                from opentelemetry.trace import StatusCode
+
+                _task_span.set_status(StatusCode.ERROR, str(ex))
+                _task_span.record_exception(ex)
             output = await self.__handle_exception(
                 ctx,
                 ex,
@@ -188,6 +218,9 @@ class task:
                 args,
                 kwargs,
             )
+        finally:
+            if _task_span_cm is not None:
+                _task_span_cm.__exit__(None, None, None)
 
         task_duration = time.monotonic() - task_start_time
 

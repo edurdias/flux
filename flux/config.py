@@ -51,6 +51,10 @@ class WorkersConfig(BaseConfig):
         default=7200,
         description="Seconds to keep offline workers in memory before pruning",
     )
+    module_cache_ttl: int = Field(
+        default=300,
+        description="Seconds to cache compiled workflow modules (0 to disable)",
+    )
 
 
 class MCPConfig(BaseConfig):

@@ -202,6 +202,7 @@ class Server:
         self._worker_names: list[str] = []
         self._worker_rr_index = 0
         self._execution_events: dict[str, asyncio.Event] = {}
+        self._execution_queue_times: dict[str, float] = {}
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
@@ -421,11 +422,15 @@ class Server:
             ),
         )
 
+        import time as _time
+
+        self._execution_queue_times[ctx.execution_id] = _time.monotonic()
+
         from flux.observability import get_metrics
 
         m = get_metrics()
         if m:
-            m.record_execution_started(workflow_name)
+            m.record_workflow_started(workflow_name)
             m.record_execution_queued()
 
         return ctx
@@ -1274,11 +1279,15 @@ class Server:
                 ctx = context_manager.claim(execution_id, worker)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
+                import time as _time
+
                 from flux.observability import get_metrics
 
                 m = get_metrics()
                 if m:
-                    m.record_execution_claimed()
+                    queued_at = self._execution_queue_times.pop(execution_id, None)
+                    schedule_to_start = _time.monotonic() - queued_at if queued_at else None
+                    m.record_execution_claimed(schedule_to_start)
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
-from flux.observability.metrics import FluxMetrics
+from flux.observability.metrics import FluxMetrics, _normalize_path
 
 
 class TestFluxMetrics:
@@ -24,6 +24,13 @@ class TestFluxMetrics:
                         return metric
         return None
 
+    def test_record_workflow_started(self):
+        m, reader = self._create_metrics()
+        m.record_workflow_started("my_workflow")
+
+        metric = self._get_metric(reader, "flux_workflow_executions_total")
+        assert metric is not None
+
     def test_record_workflow_completed(self):
         m, reader = self._create_metrics()
         m.record_workflow_completed("my_workflow", "completed", 1.5)
@@ -31,14 +38,14 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
 
-        duration = self._get_metric(reader, "flux_workflow_duration_seconds")
+        duration = self._get_metric(reader, "flux_workflow_execution_duration_seconds")
         assert duration is not None
 
-    def test_record_workflow_started(self):
+    def test_record_task_started(self):
         m, reader = self._create_metrics()
-        m.record_execution_started("my_workflow")
+        m.record_task_started("wf", "my_task")
 
-        metric = self._get_metric(reader, "flux_active_executions")
+        metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
 
     def test_record_task_completed(self):
@@ -48,7 +55,7 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
 
-        duration = self._get_metric(reader, "flux_task_duration_seconds")
+        duration = self._get_metric(reader, "flux_task_execution_duration_seconds")
         assert duration is not None
 
     def test_record_task_retry(self):
@@ -72,6 +79,14 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_worker_disconnections_total")
         assert metric is not None
 
+    def test_record_worker_execution_lifecycle(self):
+        m, reader = self._create_metrics()
+        m.record_worker_execution_started("worker-1")
+        m.record_worker_execution_ended("worker-1")
+
+        metric = self._get_metric(reader, "flux_worker_executions_active")
+        assert metric is not None
+
     def test_record_schedule_trigger(self):
         m, reader = self._create_metrics()
         m.record_schedule_trigger("nightly", "success")
@@ -89,17 +104,50 @@ class TestFluxMetrics:
         duration = self._get_metric(reader, "flux_http_request_duration_seconds")
         assert duration is not None
 
-    def test_record_checkpoint(self):
+    def test_record_checkpoint_with_duration(self):
         m, reader = self._create_metrics()
-        m.record_checkpoint("my_workflow")
+        m.record_checkpoint("my_workflow", 0.15)
 
-        metric = self._get_metric(reader, "flux_checkpoint_total")
+        metric = self._get_metric(reader, "flux_checkpoints_total")
         assert metric is not None
 
-    def test_queue_depth(self):
+        duration = self._get_metric(reader, "flux_checkpoint_duration_seconds")
+        assert duration is not None
+
+    def test_queue_depth_and_schedule_to_start(self):
         m, reader = self._create_metrics()
         m.record_execution_queued()
-        m.record_execution_claimed()
+        m.record_execution_claimed(schedule_to_start=0.08)
 
         metric = self._get_metric(reader, "flux_execution_queue_depth")
         assert metric is not None
+
+        latency = self._get_metric(reader, "flux_execution_schedule_to_start_seconds")
+        assert latency is not None
+
+    def test_record_module_cache(self):
+        m, reader = self._create_metrics()
+        m.record_module_cache("hit")
+        m.record_module_cache("miss")
+
+        metric = self._get_metric(reader, "flux_module_cache_total")
+        assert metric is not None
+
+
+class TestNormalizePath:
+    def test_normalizes_worker_paths(self):
+        assert _normalize_path("/workers/worker-abc123/claim/exec-456") == \
+            "/workers/{worker}/claim/{execution_id}"
+
+    def test_normalizes_checkpoint_path(self):
+        assert _normalize_path("/workers/worker-abc123/checkpoint/exec-456") == \
+            "/workers/{worker}/checkpoint/{execution_id}"
+
+    def test_normalizes_execution_path(self):
+        assert _normalize_path("/workflows/hello_world/executions/abc123") == \
+            "/workflows/hello_world/executions/{execution_id}"
+
+    def test_preserves_simple_paths(self):
+        assert _normalize_path("/workflows") == "/workflows"
+        assert _normalize_path("/health") == "/health"
+        assert _normalize_path("/metrics") == "/metrics"

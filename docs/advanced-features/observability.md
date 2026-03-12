@@ -55,23 +55,31 @@ FLUX_OBSERVABILITY_METRIC_EXPORT_INTERVAL=60
 
 ## Metrics
 
-Flux exposes 14 metric instruments accessible via the Prometheus `/metrics` endpoint at `http://localhost:8000/metrics`.
+Flux exposes 18 metric instruments accessible via the Prometheus `/metrics` endpoint at `http://localhost:8000/metrics`.
 
 ### Workflow Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `flux_workflow_executions_total` | Counter | `workflow_name`, `status` | Completed/failed executions |
-| `flux_workflow_duration_seconds` | Histogram | `workflow_name` | End-to-end execution time |
-| `flux_active_executions` | UpDownCounter | `workflow_name` | Currently running executions |
+| `flux_workflow_executions_total` | Counter | `workflow_name`, `status` | Workflow executions by status (`started`, `completed`, `failed`, `cancelled`) |
+| `flux_workflow_execution_duration_seconds` | Histogram | `workflow_name` | Worker-side workflow execution duration |
 
 ### Task Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `flux_task_executions_total` | Counter | `workflow_name`, `task_name`, `status` | Completed/failed tasks |
-| `flux_task_duration_seconds` | Histogram | `workflow_name`, `task_name` | Per-task execution time |
-| `flux_task_retries_total` | Counter | `workflow_name`, `task_name` | Retry attempts |
+| `flux_task_executions_total` | Counter | `workflow_name`, `task_name`, `status` | Task executions by status (`started`, `completed`, `failed`) |
+| `flux_task_execution_duration_seconds` | Histogram | `workflow_name`, `task_name` | Per-task execution duration |
+| `flux_task_retries_total` | Counter | `workflow_name`, `task_name` | Task retry attempts |
+
+### Execution Pipeline Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `flux_execution_queue_depth` | UpDownCounter | — | Executions waiting for workers |
+| `flux_execution_schedule_to_start_seconds` | Histogram | — | Time from queued to worker claim |
+| `flux_checkpoints_total` | Counter | `workflow_name` | Checkpoint events |
+| `flux_checkpoint_duration_seconds` | Histogram | `workflow_name` | Checkpoint HTTP round-trip duration |
 
 ### Worker Metrics
 
@@ -80,6 +88,8 @@ Flux exposes 14 metric instruments accessible via the Prometheus `/metrics` endp
 | `flux_workers_active` | UpDownCounter | — | Connected workers |
 | `flux_worker_registrations_total` | Counter | `worker_name` | Registration events |
 | `flux_worker_disconnections_total` | Counter | `worker_name`, `reason` | Disconnection events |
+| `flux_worker_executions_active` | UpDownCounter | `worker_name` | Concurrent executions per worker |
+| `flux_module_cache_total` | Counter | `result` | Module cache lookups (`hit`, `miss`) |
 
 ### Schedule Metrics
 
@@ -91,15 +101,8 @@ Flux exposes 14 metric instruments accessible via the Prometheus `/metrics` endp
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `flux_http_requests_total` | Counter | `method`, `endpoint`, `status_code` | HTTP request count |
+| `flux_http_requests_total` | Counter | `method`, `endpoint`, `status_code` | HTTP request count (paths normalized) |
 | `flux_http_request_duration_seconds` | Histogram | `method`, `endpoint` | HTTP request latency |
-
-### Pipeline Metrics
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `flux_checkpoint_total` | Counter | `workflow_name` | Checkpoint events |
-| `flux_execution_queue_depth` | UpDownCounter | — | Pending executions |
 
 ## Distributed Tracing
 
