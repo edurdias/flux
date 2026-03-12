@@ -4,6 +4,7 @@ import asyncio
 import base64
 import importlib
 import platform
+import random
 import sys
 from collections.abc import Awaitable
 from typing import Callable
@@ -80,8 +81,6 @@ class Worker:
 
     async def _run(self):
         """Main worker loop: register, connect, reconnect on failure."""
-        import random
-
         backoff = 1
         while True:
             try:
@@ -101,7 +100,7 @@ class Worker:
 
     async def _register(self):
         try:
-            logger.info(f"Registering worker '{self.name}' with server...   ")
+            logger.info(f"Registering worker '{self.name}' with server...")
             logger.debug(f"Registration endpoint: {self.base_url}/register")
 
             runtime = await self._get_runtime_info()
@@ -160,36 +159,26 @@ class Worker:
                     logger.debug("Starting event loop to receive events")
                     async for evt in es.aiter_sse():
                         if evt.event == "execution_scheduled":
-                            # Create task to handle execution scheduled event without blocking the connection
                             asyncio.create_task(
                                 self._handle_execution_scheduled(base_url, headers, evt),
                                 name=f"handle_execution_scheduled_{evt.id}",
                             )
-
-                        if evt.event == "execution_cancelled":
-                            # Create task to handle execution cancelled event without blocking the connection
+                        elif evt.event == "execution_cancelled":
                             asyncio.create_task(
                                 self._handle_execution_cancelled(evt),
                                 name=f"handle_execution_cancelled_{evt.id}",
                             )
-
-                        if evt.event == "execution_resumed":
-                            # Create task to handle execution resumed event without blocking the connection
+                        elif evt.event == "execution_resumed":
                             asyncio.create_task(
                                 self._handle_execution_resumed(evt),
                                 name=f"handle_execution_resumed_{evt.id}",
                             )
-
-                        if evt.event == "ping":
+                        elif evt.event == "ping":
                             asyncio.create_task(self._send_pong())
-
-                        if evt.event == "keep-alive":
+                        elif evt.event == "keep-alive":
                             logger.debug("Event received: Keep-alive")
-
-                        if evt.event == "error":
-                            logger.error("Event received: Error")
-                            logger.error(evt.data)
-                            logger.debug(f"Error event details: {evt.data}")
+                        elif evt.event == "error":
+                            logger.error(f"Event received: Error - {evt.data}")
 
         except Exception as evt:
             logger.error(f"Error in SSE connection: {str(evt)}")
