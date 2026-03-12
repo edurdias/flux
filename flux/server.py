@@ -1001,7 +1001,10 @@ class Server:
                     if registration.packages
                     else [],
                 )
-                self._worker_offline_since.pop(registration.name, None)
+                if registration.name in self._worker_names:
+                    self._worker_offline_since.pop(registration.name, None)
+                else:
+                    self._worker_offline_since[registration.name] = time.monotonic()
 
                 logger.info(f"Worker registered successfully: {registration.name}")
                 logger.debug(

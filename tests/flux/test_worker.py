@@ -195,9 +195,11 @@ class TestWorker:
                 worker,
                 "_connect",
                 new_callable=AsyncMock,
+                side_effect=KeyboardInterrupt,
             ) as mock_connect,
         ):
-            await worker._run()
+            with pytest.raises(KeyboardInterrupt):
+                await worker._run()
 
             mock_register.assert_called_once()
             mock_connect.assert_called_once()

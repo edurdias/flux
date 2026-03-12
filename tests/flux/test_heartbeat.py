@@ -75,14 +75,17 @@ class TestServerHeartbeatReaper:
         server._worker_last_pong["w1"] = time.monotonic() - 10  # 10s ago, timeout is 5
         server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
 
-        # Run one reaper iteration by calling the method and cancelling after first sleep
-        task = asyncio.create_task(server._run_heartbeat_reaper())
-        await asyncio.sleep(server.heartbeat_interval + 0.5)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return  # Let first iteration run
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
 
         assert "w1" not in server._worker_names
         assert "w1" not in server._worker_last_pong
@@ -98,13 +101,17 @@ class TestServerHeartbeatReaper:
         server._worker_last_pong["w1"] = time.monotonic()  # Just now
         server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
 
-        task = asyncio.create_task(server._run_heartbeat_reaper())
-        await asyncio.sleep(server.heartbeat_interval + 0.5)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
 
         assert "w1" in server._worker_names
         assert server._worker_cache["w1"].status == "online"
@@ -115,13 +122,17 @@ class TestServerHeartbeatReaper:
         server._worker_offline_since["old"] = time.monotonic() - 20  # 20s ago, TTL is 10
         server._worker_cache["old"] = WorkerResponse(name="old", status="offline")
 
-        task = asyncio.create_task(server._run_heartbeat_reaper())
-        await asyncio.sleep(server.heartbeat_interval + 0.5)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
 
         assert "old" not in server._worker_offline_since
         assert "old" not in server._worker_cache
@@ -132,13 +143,17 @@ class TestServerHeartbeatReaper:
         server._worker_offline_since["recent"] = time.monotonic() - 1  # 1s ago, TTL is 10
         server._worker_cache["recent"] = WorkerResponse(name="recent", status="offline")
 
-        task = asyncio.create_task(server._run_heartbeat_reaper())
-        await asyncio.sleep(server.heartbeat_interval + 0.5)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
 
         assert "recent" in server._worker_offline_since
         assert "recent" in server._worker_cache
@@ -252,25 +267,31 @@ class TestWorkerReconnect:
         from flux.worker import Worker
 
         worker = Worker(name="test-worker", server_url="http://localhost:8000")
-        call_count = 0
+        register_count = 0
 
         async def mock_register():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
+            nonlocal register_count
+            register_count += 1
+            if register_count < 3:
                 raise ConnectionError("Server down")
 
+        connect_count = 0
+
         async def mock_connect():
-            pass  # Success on third attempt
+            nonlocal connect_count
+            connect_count += 1
+            if connect_count >= 1:
+                raise KeyboardInterrupt()
 
         with (
             patch.object(worker, "_register", side_effect=mock_register),
             patch.object(worker, "_connect", side_effect=mock_connect),
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
-            await worker._run()
+            with pytest.raises(KeyboardInterrupt):
+                await worker._run()
 
-        assert call_count == 3
+        assert register_count == 3
         assert mock_sleep.call_count == 2
 
     @pytest.mark.asyncio

@@ -86,7 +86,8 @@ class Worker:
             try:
                 await self._register()
                 await self._connect()
-                break
+                logger.info("SSE connection closed, reconnecting...")
+                backoff = 1
             except KeyboardInterrupt:
                 raise
             except Exception as e:
