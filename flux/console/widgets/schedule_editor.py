@@ -78,7 +78,7 @@ class ScheduleEditorModal(ModalScreen[dict | None]):
                             ("Day", parts[2]),
                             ("Month", parts[3]),
                             ("Weekday", parts[4]),
-                        ]
+                        ],
                     ):
                         with Horizontal(classes="field-row"):
                             yield Static(label, classes="field-label")

@@ -92,7 +92,8 @@ class TestFluxClientExecutions:
         result = await client.list_executions()
         assert result["total"] == 0
         client._http_client.get.assert_called_once_with(
-            "/executions", params={"limit": 50, "offset": 0}
+            "/executions",
+            params={"limit": 50, "offset": 0},
         )
 
     @pytest.mark.asyncio
@@ -120,7 +121,8 @@ class TestFluxClientExecutions:
         result = await client.get_execution("abc", detailed=True)
         assert result["execution_id"] == "abc"
         client._http_client.get.assert_called_once_with(
-            "/executions/abc", params={"detailed": True}
+            "/executions/abc",
+            params={"detailed": True},
         )
 
 
@@ -195,7 +197,8 @@ class TestFluxClientActions:
         result = await client.run_workflow("wf1", input_data={"key": "val"})
         assert result["execution_id"] == "new-exec"
         client._http_client.post.assert_called_once_with(
-            "/workflows/wf1/run/async", json={"key": "val"}
+            "/workflows/wf1/run/async",
+            json={"key": "val"},
         )
 
     @pytest.mark.asyncio

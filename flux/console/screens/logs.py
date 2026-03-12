@@ -112,7 +112,7 @@ class LogsView(Widget):
         )
         try:
             self.query_one("#logs-header", Static).update(
-                f"[#8b949e]EVENT LOG[/]  {status}  [#484f58]s=Toggle  v=View[/]"
+                f"[#8b949e]EVENT LOG[/]  {status}  [#484f58]s=Toggle  v=View[/]",
             )
         except Exception:
             pass

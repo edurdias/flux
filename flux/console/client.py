@@ -51,7 +51,8 @@ class FluxClient:
 
     async def get_workflow_executions(self, name: str, limit: int = 30) -> list[dict[str, Any]]:
         response = await self._http_client.get(
-            f"/workflows/{name}/executions", params={"limit": limit}
+            f"/workflows/{name}/executions",
+            params={"limit": limit},
         )
         response.raise_for_status()
         return response.json()
@@ -93,7 +94,10 @@ class FluxClient:
         return response.json()
 
     async def resume_execution(
-        self, workflow_name: str, execution_id: str, input_data: Any = None
+        self,
+        workflow_name: str,
+        execution_id: str,
+        input_data: Any = None,
     ) -> dict[str, Any]:
         response = await self._http_client.post(
             f"/workflows/{workflow_name}/resume/{execution_id}/async",
@@ -131,7 +135,8 @@ class FluxClient:
 
     async def get_schedule_history(self, schedule_id: str, limit: int = 20) -> list[dict[str, Any]]:
         response = await self._http_client.get(
-            f"/schedules/{schedule_id}/history", params={"limit": limit}
+            f"/schedules/{schedule_id}/history",
+            params={"limit": limit},
         )
         response.raise_for_status()
         return response.json()

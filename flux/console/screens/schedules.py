@@ -114,7 +114,8 @@ class SchedulesView(Widget):
     def compose(self) -> ComposeResult:
         with Vertical(id="sched-list-panel"):
             yield Static(
-                "SCHEDULES  [#484f58]p=Pause  e=Edit  d=Delete[/]", classes="section-title"
+                "SCHEDULES  [#484f58]p=Pause  e=Edit  d=Delete[/]",
+                classes="section-title",
             )
             table = DataTable(id="sched-table")
             table.cursor_type = "row"
@@ -166,8 +167,9 @@ class SchedulesView(Widget):
             return
         row_index = event.cursor_row
         if 0 <= row_index < len(self._schedules):
-            self._selected_schedule = self._schedules[row_index]
-            self._update_detail(self._selected_schedule)
+            sched = self._schedules[row_index]
+            self._selected_schedule = sched
+            self._update_detail(sched)
 
     def _update_detail(self, schedule: dict[str, Any]) -> None:
         name = schedule.get("name", "\u2014")
@@ -183,7 +185,7 @@ class SchedulesView(Widget):
                 f"[bold]{name}[/]  [{status_color}]{status}[/]\n"
                 f"[#484f58]Workflow:[/] {workflow}  "
                 f"[#484f58]Expression:[/] {expression}  "
-                f"[#484f58]Created:[/] {created}"
+                f"[#484f58]Created:[/] {created}",
             )
         except Exception:
             pass
@@ -212,10 +214,12 @@ class SchedulesView(Widget):
         for h in history[:10]:
             state = h.get("state", "")
             icon = {"COMPLETED": "\u2713", "FAILED": "\u2717", "RUNNING": "\u25b6"}.get(
-                state, "\u25cb"
+                state,
+                "\u25cb",
             )
             color = {"COMPLETED": "#3fb950", "FAILED": "#f85149", "RUNNING": "#d29922"}.get(
-                state, "#8b949e"
+                state,
+                "#8b949e",
             )
             started = h.get("started_at", "\u2014") or "\u2014"
             if isinstance(started, str) and "T" in started:
@@ -227,7 +231,7 @@ class SchedulesView(Widget):
 
         try:
             self.query_one("#sched-history-list", Static).update(
-                "\n".join(lines) if lines else "No history"
+                "\n".join(lines) if lines else "No history",
             )
         except Exception:
             pass
@@ -269,7 +273,7 @@ class SchedulesView(Widget):
         name = self._selected_schedule.get("name", "")
 
         def handle_confirm(confirmed: bool) -> None:
-            if confirmed and self._client:
+            if confirmed and self._client and self._selected_schedule:
                 sid = self._selected_schedule.get("id", "")
                 self.app.call_later(self._do_delete_schedule, sid)
 
