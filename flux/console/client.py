@@ -29,7 +29,7 @@ class FluxClient:
             response = await self._http_client.get("/health")
             response.raise_for_status()
             return response.json()
-        except (httpx.ConnectError, httpx.HTTPStatusError):
+        except httpx.HTTPError:
             return None
 
     # --- Workflows ---
