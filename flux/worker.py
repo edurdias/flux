@@ -258,6 +258,20 @@ class Worker:
         """
         try:
             logger.debug("Received execution_scheduled event")
+
+            from flux.observability.tracing import extract_trace_context
+
+            trace_ctx = {}
+            try:
+                import json as _json
+
+                event_data = _json.loads(e.data) if isinstance(e.data, str) else {}
+                trace_ctx = event_data.get("trace_context", {})
+            except Exception:
+                pass
+
+            parent_ctx = extract_trace_context(trace_ctx) if trace_ctx else None  # noqa: F841
+
             request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
 
             logger.info(
@@ -353,6 +367,14 @@ class Worker:
 
             execution_time = asyncio.get_event_loop().time() - start_time
             logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                status = "completed" if not ctx.has_failed else "failed"
+                m.record_workflow_completed(request.workflow.name, status, execution_time)
+                m.record_execution_ended(request.workflow.name)
         else:
             logger.warning(f"Workflow {request.workflow.name} not found in module")
             raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
@@ -409,6 +431,12 @@ class Worker:
             logger.info(
                 f"Checkpoint for execution '{ctx.workflow_name}' ({ctx.execution_id}) completed successfully",
             )
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_checkpoint(ctx.workflow_name)
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")

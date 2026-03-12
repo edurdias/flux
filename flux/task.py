@@ -10,6 +10,7 @@ from flux.utils import get_func_args, make_hashable, maybe_awaitable
 
 
 import asyncio
+import time
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
@@ -142,6 +143,8 @@ class task:
                 ),
             )
 
+        task_failed = False
+        task_start_time = time.monotonic()
         try:
             output = None
             if self.cache:
@@ -175,6 +178,7 @@ class task:
                     CacheManager.set(task_id, output)
 
         except Exception as ex:
+            task_failed = True
             output = await self.__handle_exception(
                 ctx,
                 ex,
@@ -184,6 +188,15 @@ class task:
                 args,
                 kwargs,
             )
+
+        task_duration = time.monotonic() - task_start_time
+
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            status = "completed" if not task_failed else "failed"
+            m.record_task_completed(ctx.workflow_name, self.name, status, task_duration)
 
         ctx.events.append(
             ExecutionEvent(
@@ -370,6 +383,13 @@ class task:
         attempt = 0
         while attempt < self.retry_max_attempts:
             attempt += 1
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_task_retry(ctx.workflow_name, self.name)
+
             current_delay = self.retry_delay
             retry_args = {
                 "current_attempt": attempt,

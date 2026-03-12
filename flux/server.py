@@ -568,9 +568,22 @@ class Server:
                 f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",
             )
 
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_schedule_trigger(schedule.name, "success")
+
         except Exception as e:
             schedule.mark_failure()
             logger.error(f"Failed to trigger scheduled workflow: {str(e)}", exc_info=True)
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_schedule_trigger(schedule.name, "failure")
+
             raise
 
     # ===========================================
@@ -1142,10 +1155,25 @@ class Server:
                                     logger.debug(
                                         f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
+
+                                    import json as _json
+
+                                    from flux.observability.tracing import inject_trace_context
+
+                                    data_payload = to_json(
+                                        {"workflow": workflow, "context": ctx},
+                                    )
+                                    try:
+                                        event_data = _json.loads(data_payload)
+                                        event_data["trace_context"] = inject_trace_context()
+                                        data_payload = _json.dumps(event_data)
+                                    except Exception:
+                                        pass
+
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_scheduled",
-                                        "data": to_json({"workflow": workflow, "context": ctx}),
+                                        "data": data_payload,
                                     }
                                     logger.debug(
                                         f"Execution {ctx.execution_id} scheduled for worker {name}",
