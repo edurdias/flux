@@ -14,6 +14,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from flux.observability.config import ObservabilityConfig
+
 
 class BaseConfig(BaseModel):
     def to_dict(self) -> dict[str, Any]:
@@ -160,6 +162,7 @@ class FluxConfig(BaseSettings):
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:
