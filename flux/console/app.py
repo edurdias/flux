@@ -5,6 +5,7 @@ from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
 from flux.console.client import FluxClient
 from flux.console.screens.dashboard import DashboardView
+from flux.console.screens.workers import WorkersView
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
@@ -37,7 +38,7 @@ class FluxConsoleApp(App):
             with TabPane("Executions", id="tab-executions"):
                 yield Static("Executions — loading...", id="executions-placeholder")
             with TabPane("Workers", id="tab-workers"):
-                yield Static("Workers — loading...", id="workers-placeholder")
+                yield WorkersView(id="workers-view")
             with TabPane("Schedules", id="tab-schedules"):
                 yield Static("Schedules — loading...", id="schedules-placeholder")
             with TabPane("Logs", id="tab-logs"):
@@ -47,6 +48,7 @@ class FluxConsoleApp(App):
     async def on_mount(self) -> None:
         self.poll_health = self.set_interval(10.0, self._poll_health)
         self.set_interval(5.0, self._poll_dashboard)
+        self.set_interval(5.0, self._poll_workers)
         await self._poll_health()
 
     async def _poll_health(self) -> None:
@@ -73,6 +75,19 @@ class FluxConsoleApp(App):
                 pass
         except Exception as e:
             logger.debug(f"Dashboard poll error: {e}")
+
+    async def _poll_workers(self) -> None:
+        if not self.connected:
+            return
+        try:
+            workers = await self.client.list_workers()
+            try:
+                workers_view = self.query_one("#workers-view", WorkersView)
+                workers_view.update_data(workers)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Workers poll error: {e}")
 
     async def action_quit(self) -> None:
         await self.client.close()
