@@ -7,6 +7,7 @@ from flux.console.client import FluxClient
 from flux.console.screens.dashboard import DashboardView
 from flux.console.screens.executions import ExecutionsView
 from flux.console.screens.workers import WorkersView
+from flux.console.screens.workflows import WorkflowsView
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
@@ -35,7 +36,7 @@ class FluxConsoleApp(App):
             with TabPane("Dashboard", id="tab-dashboard"):
                 yield DashboardView(id="dashboard-view")
             with TabPane("Workflows", id="tab-workflows"):
-                yield Static("Workflows — loading...", id="workflows-placeholder")
+                yield WorkflowsView(id="workflows-view")
             with TabPane("Executions", id="tab-executions"):
                 yield ExecutionsView(id="executions-view")
             with TabPane("Workers", id="tab-workers"):
@@ -51,6 +52,8 @@ class FluxConsoleApp(App):
         self.set_interval(5.0, self._poll_dashboard)
         self.set_interval(3.0, self._poll_executions)
         self.set_interval(5.0, self._poll_workers)
+        self.set_interval(5.0, self._poll_workflows)
+        self.query_one("#workflows-view", WorkflowsView)._client = self.client
         await self._poll_health()
 
     async def _poll_health(self) -> None:
@@ -103,6 +106,24 @@ class FluxConsoleApp(App):
                 pass
         except Exception as e:
             logger.debug(f"Workers poll error: {e}")
+
+    async def _poll_workflows(self) -> None:
+        if not self.connected:
+            return
+        try:
+            workflows = await self.client.list_workflows()
+            try:
+                view = self.query_one("#workflows-view", WorkflowsView)
+                view.update_data(workflows)
+                # If a workflow is selected, fetch its executions
+                if view._selected_workflow:
+                    name = view._selected_workflow.get("name", "")
+                    execs = await self.client.get_workflow_executions(name, limit=10)
+                    view.update_executions(execs)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Workflows poll error: {e}")
 
     async def action_quit(self) -> None:
         await self.client.close()
