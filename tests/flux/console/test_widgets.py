@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from flux.console.widgets.resource_bar import ResourceBar
 from flux.console.widgets.stat_card import StatCard
 from flux.console.widgets.status_badge import StatusBadge
 
@@ -35,3 +38,31 @@ class TestStatusBadge:
         badge = StatusBadge("RUNNING")
         badge.update_state("COMPLETED")
         assert badge.state == "COMPLETED"
+
+
+class TestResourceBar:
+    def test_creates_with_values(self):
+        bar = ResourceBar(label="CPU", used=4.5, total=8.0, unit="")
+        assert bar.label == "CPU"
+        assert bar.used == 4.5
+        assert bar.total == 8.0
+
+    def test_percentage(self):
+        bar = ResourceBar(label="MEM", used=10.0, total=16.0, unit="G")
+        assert bar.percentage == pytest.approx(62.5)
+
+    def test_color_green_under_60(self):
+        bar = ResourceBar(label="CPU", used=4.0, total=8.0, unit="")
+        assert bar.bar_color == "success"
+
+    def test_color_yellow_60_to_85(self):
+        bar = ResourceBar(label="CPU", used=6.0, total=8.0, unit="")
+        assert bar.bar_color == "warning"
+
+    def test_color_red_above_85(self):
+        bar = ResourceBar(label="CPU", used=7.5, total=8.0, unit="")
+        assert bar.bar_color == "error"
+
+    def test_zero_total_no_crash(self):
+        bar = ResourceBar(label="CPU", used=0.0, total=0.0, unit="")
+        assert bar.percentage == 0.0
