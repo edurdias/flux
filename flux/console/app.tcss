@@ -1,0 +1,142 @@
+Screen {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+
+/* Header */
+#app-header {
+    dock: top;
+    height: 1;
+    background: #161b22;
+    color: #c9d1d9;
+}
+
+#app-header .server-status {
+    color: #3fb950;
+}
+
+#app-header .server-status.disconnected {
+    color: #f85149;
+}
+
+/* Tabs */
+TabbedContent {
+    background: #0d1117;
+}
+
+Tab {
+    background: #161b22;
+    color: #8b949e;
+    padding: 0 2;
+}
+
+Tab.-active {
+    background: #0d1117;
+    color: #58a6ff;
+}
+
+TabPane {
+    background: #0d1117;
+    padding: 1;
+}
+
+/* Footer */
+#app-footer {
+    dock: bottom;
+    height: 1;
+    background: #161b22;
+    color: #484f58;
+}
+
+/* Panels */
+.panel {
+    border: solid #30363d;
+    padding: 1;
+    margin: 0 1;
+}
+
+.panel-title {
+    color: #8b949e;
+    text-style: bold;
+}
+
+/* Stat cards */
+.stat-card {
+    border: solid #30363d;
+    padding: 1;
+    width: 1fr;
+    height: 5;
+}
+
+.stat-card .label {
+    color: #8b949e;
+}
+
+.stat-card .value {
+    text-style: bold;
+}
+
+.stat-card .sublabel {
+    color: #484f58;
+}
+
+/* Status colors */
+.success {
+    color: #3fb950;
+}
+
+.warning {
+    color: #d29922;
+}
+
+.error {
+    color: #f85149;
+}
+
+.info {
+    color: #58a6ff;
+}
+
+.muted {
+    color: #484f58;
+}
+
+.purple {
+    color: #bc8cff;
+}
+
+/* Selected state */
+.selected {
+    background: #1f6feb22;
+}
+
+/* Status badges */
+.badge-running {
+    background: #d2992233;
+    color: #d29922;
+}
+
+.badge-completed {
+    background: #3fb95033;
+    color: #3fb950;
+}
+
+.badge-failed {
+    background: #f8514933;
+    color: #f85149;
+}
+
+.badge-paused {
+    background: #bc8cff33;
+    color: #bc8cff;
+}
+
+.badge-cancelled {
+    background: #484f5833;
+    color: #8b949e;
+}
+
+.badge-scheduled {
+    background: #58a6ff33;
+    color: #58a6ff;
+}
