@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
+from textual.widgets import Footer, Header, TabbedContent, TabPane
 
 from flux.console.client import FluxClient
 from flux.console.screens.dashboard import DashboardView
 from flux.console.screens.executions import ExecutionsView
+from flux.console.screens.logs import LogsView
 from flux.console.screens.schedules import SchedulesView
 from flux.console.screens.workers import WorkersView
 from flux.console.screens.workflows import WorkflowsView
@@ -45,7 +46,7 @@ class FluxConsoleApp(App):
             with TabPane("Schedules", id="tab-schedules"):
                 yield SchedulesView(id="schedules-view")
             with TabPane("Logs", id="tab-logs"):
-                yield Static("Logs — loading...", id="logs-placeholder")
+                yield LogsView(id="logs-view")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -57,6 +58,7 @@ class FluxConsoleApp(App):
         self.query_one("#workflows-view", WorkflowsView)._client = self.client
         self.query_one("#schedules-view", SchedulesView)._client = self.client
         self.set_interval(5.0, self._poll_schedules)
+        self.set_interval(3.0, self._poll_logs)
         await self._poll_health()
 
     async def _poll_health(self) -> None:
@@ -144,6 +146,30 @@ class FluxConsoleApp(App):
                 pass
         except Exception as e:
             logger.debug(f"Schedules poll error: {e}")
+
+    async def _poll_logs(self) -> None:
+        if not self.connected:
+            return
+        try:
+            data = await self.client.list_executions(limit=20)
+            executions = data.get("executions", [])
+            # Fetch detailed events for recent executions
+            detailed_execs = []
+            for ex in executions[:10]:
+                exec_id = ex.get("execution_id", "")
+                if exec_id:
+                    try:
+                        detail = await self.client.get_execution(exec_id, detailed=True)
+                        detailed_execs.append(detail)
+                    except Exception:
+                        detailed_execs.append(ex)
+            try:
+                view = self.query_one("#logs-view", LogsView)
+                view.update_data(detailed_execs)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Logs poll error: {e}")
 
     async def action_quit(self) -> None:
         await self.client.close()
