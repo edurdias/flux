@@ -36,6 +36,13 @@ class WorkersConfig(BaseConfig):
     retry_attempts: int = Field(default=3, description="Default number of retry attempts")
     retry_delay: int = Field(default=1, description="Default delay between retries in seconds")
     retry_backoff: int = Field(default=2, description="Default backoff multiplier for retries")
+    heartbeat_interval: int = Field(default=10, description="Seconds between server ping events")
+    heartbeat_timeout: int = Field(
+        default=30, description="Seconds before a worker is considered stale"
+    )
+    reconnect_max_delay: int = Field(
+        default=60, description="Max backoff cap in seconds for worker reconnect"
+    )
 
 
 class MCPConfig(BaseConfig):
