@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flux.console.widgets.stat_card import StatCard
+from flux.console.widgets.status_badge import StatusBadge
 
 
 class TestStatCard:
@@ -18,3 +19,19 @@ class TestStatCard:
         card = StatCard(label="TEST", value="0", sublabel="items")
         card.update_value("42")
         assert card.value == "42"
+
+
+class TestStatusBadge:
+    def test_maps_state_to_class(self):
+        badge = StatusBadge("RUNNING")
+        assert badge.state == "RUNNING"
+
+    def test_known_states(self):
+        for state in ["RUNNING", "COMPLETED", "FAILED", "PAUSED", "CANCELLED", "SCHEDULED"]:
+            badge = StatusBadge(state)
+            assert badge.state == state
+
+    def test_update_state(self):
+        badge = StatusBadge("RUNNING")
+        badge.update_state("COMPLETED")
+        assert badge.state == "COMPLETED"
