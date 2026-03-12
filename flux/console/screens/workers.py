@@ -54,17 +54,21 @@ class WorkerCard(Widget):
     def __init__(self, worker_data: dict[str, Any], **kwargs):
         super().__init__(**kwargs)
         self.worker_data = worker_data
+        if worker_data.get("status") != "online":
+            self.add_class("offline")
 
     def compose(self) -> ComposeResult:
         w = self.worker_data
         name = w.get("name", "unknown")
+        status = w.get("status", "offline")
         runtime = w.get("runtime") or {}
         resources = w.get("resources") or {}
         os_name = runtime.get("os_name", "")
         py_ver = runtime.get("python_version", "")
 
+        dot_color = "#3fb950" if status == "online" else "#f85149"
         yield Static(
-            f"[bold]{name}[/]  [#3fb950]\u25cf[/]  [#484f58]{os_name} \u00b7 Python {py_ver}[/]",
+            f"[bold]{name}[/]  [{dot_color}]\u25cf[/]  [#484f58]{os_name} \u00b7 Python {py_ver}[/]",
             classes="worker-header",
         )
 
@@ -123,7 +127,10 @@ class WorkerCard(Widget):
                     classes="res-row",
                 )
 
-        yield Static("[#3fb950]Idle[/]", classes="worker-task")
+        if status == "online":
+            yield Static("[#3fb950]Idle[/]", classes="worker-task")
+        else:
+            yield Static("[#f85149]Offline[/]", classes="worker-task")
 
 
 class WorkersView(Widget):
@@ -151,12 +158,12 @@ class WorkersView(Widget):
         yield Grid(id="workers-grid")
 
     def update_data(self, workers: list[dict[str, Any]]) -> None:
-        online = sum(1 for w in workers if w.get("resources"))
+        online = sum(1 for w in workers if w.get("status") == "online")
         offline = len(workers) - online
 
         try:
             self.query_one("#workers-summary", Static).update(
-                f"[#3fb950]\u25cf[/] {online} online  [#f85149]\u25cf[/] {offline} offline"
+                f"[#3fb950]\u25cf[/] {online} online  [#f85149]\u25cf[/] {offline} offline",
             )
         except Exception:
             pass
