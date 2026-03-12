@@ -115,17 +115,19 @@ class DashboardView(Widget):
             state = ex.get("state", "")
             name = ex.get("workflow_name", "unknown")
             icon = {"COMPLETED": "\u2713", "FAILED": "\u2717", "RUNNING": "\u25b6"}.get(
-                state, "\u25cb"
+                state,
+                "\u25cb",
             )
             color = {"COMPLETED": "success", "FAILED": "error", "RUNNING": "warning"}.get(
-                state, "muted"
+                state,
+                "muted",
             )
             worker = ex.get("worker_name", "\u2014") or "\u2014"
             exec_lines.append(f"[{color}]{icon}[/] {name}  {worker}")
 
         try:
             self.query_one("#exec-list", Static).update(
-                "\n".join(exec_lines) if exec_lines else "No executions"
+                "\n".join(exec_lines) if exec_lines else "No executions",
             )
         except Exception:
             pass
@@ -147,7 +149,7 @@ class DashboardView(Widget):
 
         try:
             self.query_one("#worker-list", Static).update(
-                "\n".join(worker_lines) if worker_lines else "No workers"
+                "\n".join(worker_lines) if worker_lines else "No workers",
             )
         except Exception:
             pass
@@ -161,7 +163,7 @@ class DashboardView(Widget):
 
         try:
             self.query_one("#schedule-list", Static).update(
-                "\n".join(sched_lines) if sched_lines else "No active schedules"
+                "\n".join(sched_lines) if sched_lines else "No active schedules",
             )
         except Exception:
             pass

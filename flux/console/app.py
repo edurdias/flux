@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, TabbedContent, TabPane
 
@@ -97,7 +99,7 @@ class FluxConsoleApp(App):
         if not self.connected:
             return
         try:
-            data = {}
+            data: dict[str, Any] = {}
             data["workflows"] = await self.client.list_workflows()
             data["executions"] = await self.client.list_executions(limit=10)
             data["workers"] = await self.client.list_workers()

@@ -226,8 +226,9 @@ class WorkflowsView(Widget):
             return
         row_index = event.cursor_row
         if 0 <= row_index < len(self._workflows):
-            self._selected_workflow = self._workflows[row_index]
-            self._update_detail(self._selected_workflow)
+            wf = self._workflows[row_index]
+            self._selected_workflow = wf
+            self._update_detail(wf)
 
     def _update_detail(self, wf: dict[str, Any]) -> None:
         """Update the detail panel for the selected workflow."""
@@ -238,7 +239,7 @@ class WorkflowsView(Widget):
         try:
             self.query_one("#wf-detail-header", Static).update(
                 f"[bold]{name}[/]  [#bc8cff]v{version}[/]\n"
-                f"[#484f58]{description or 'No description'}[/]"
+                f"[#484f58]{description or 'No description'}[/]",
             )
         except Exception:
             pass
@@ -267,7 +268,8 @@ class WorkflowsView(Widget):
         for ex in executions[:10]:
             state = ex.get("state", "")
             icon = {"COMPLETED": "\u2713", "FAILED": "\u2717", "RUNNING": "\u25b6"}.get(
-                state, "\u25cb"
+                state,
+                "\u25cb",
             )
             color = {
                 "COMPLETED": "#3fb950",
@@ -284,7 +286,7 @@ class WorkflowsView(Widget):
 
         try:
             self.query_one("#wf-exec-list", Static).update(
-                "\n".join(exec_lines) if exec_lines else "No executions"
+                "\n".join(exec_lines) if exec_lines else "No executions",
             )
         except Exception:
             pass

@@ -92,6 +92,7 @@ class GanttChart(Widget):
                 if span.get("end") and span["end"] > wf_end:
                     wf_end = span["end"]
 
+        assert wf_end is not None
         total_duration = (wf_end - wf_start).total_seconds()
         if total_duration <= 0:
             total_duration = 1.0
@@ -117,7 +118,8 @@ class GanttChart(Widget):
             bar_chars = max(1, int(duration_secs / total_duration * self.chart_width))
 
             color = {"COMPLETED": "#3fb950", "FAILED": "#f85149", "RUNNING": "#d29922"}.get(
-                state, "#8b949e"
+                state,
+                "#8b949e",
             )
 
             padding = " " * offset_chars
