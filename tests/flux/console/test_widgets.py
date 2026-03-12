@@ -7,6 +7,7 @@ import pytest
 from flux.console.widgets.gantt_chart import GanttChart
 from flux.console.widgets.json_viewer import format_json, truncate_json
 from flux.console.widgets.resource_bar import ResourceBar
+from flux.console.widgets.run_history import RunHistoryChart
 from flux.console.widgets.stat_card import StatCard
 from flux.console.widgets.status_badge import StatusBadge
 
@@ -108,4 +109,23 @@ class TestGanttChart:
             {"type": "WORKFLOW_COMPLETED", "name": "wf", "time": "2026-03-12T14:23:02.000"},
         ]
         chart = GanttChart(events)
+        assert chart is not None
+
+
+class TestRunHistoryChart:
+    def test_creates_with_executions(self):
+        executions = [
+            {
+                "state": "COMPLETED",
+                "events": [
+                    {"type": "WORKFLOW_STARTED", "time": "2026-03-12T14:23:01.000"},
+                    {"type": "WORKFLOW_COMPLETED", "time": "2026-03-12T14:23:03.312"},
+                ],
+            },
+        ]
+        chart = RunHistoryChart(executions)
+        assert chart is not None
+
+    def test_creates_empty(self):
+        chart = RunHistoryChart([])
         assert chart is not None
