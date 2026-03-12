@@ -11,6 +11,7 @@ logger = logging.getLogger("flux.observability")
 _meter_provider = None
 _tracer_provider = None
 _logger_provider = None
+_flux_metrics = None
 
 
 def _check_dependencies():
@@ -98,6 +99,14 @@ def setup_providers(config: ObservabilityConfig):
         _logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
         set_logger_provider(_logger_provider)
 
+    global _flux_metrics
+    from opentelemetry import metrics as otel_metrics
+
+    from flux.observability.metrics import FluxMetrics
+
+    meter = otel_metrics.get_meter("flux")
+    _flux_metrics = FluxMetrics(meter)
+
     logger.info(
         f"Observability initialized (prometheus={config.prometheus_enabled}, "
         f"otlp={'enabled' if config.otlp_endpoint else 'disabled'}, "
@@ -107,7 +116,8 @@ def setup_providers(config: ObservabilityConfig):
 
 def shutdown_providers():
     """Flush and shut down all providers."""
-    global _meter_provider, _tracer_provider, _logger_provider
+    global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics
+    _flux_metrics = None
 
     if _meter_provider:
         _meter_provider.shutdown()
@@ -130,3 +140,7 @@ def get_meter_provider():
 
 def get_tracer_provider():
     return _tracer_provider
+
+
+def get_flux_metrics():
+    return _flux_metrics

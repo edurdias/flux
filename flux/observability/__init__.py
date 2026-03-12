@@ -56,3 +56,12 @@ def get_tracer(name: str):
     from opentelemetry import trace
 
     return trace.get_tracer(name)
+
+
+def get_metrics():
+    """Get the FluxMetrics singleton. Returns None if disabled."""
+    if not _enabled:
+        return None
+    from flux.observability.provider import get_flux_metrics
+
+    return get_flux_metrics()
