@@ -315,7 +315,6 @@ class Worker:
             request = WorkflowExecutionRequest.from_json(event_data, self._checkpoint)
 
             if is_enabled():
-                from opentelemetry import context as otel_context
                 from opentelemetry import trace as _trace
 
                 from flux.observability.tracing import extract_trace_context

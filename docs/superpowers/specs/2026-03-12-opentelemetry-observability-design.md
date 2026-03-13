@@ -1,7 +1,7 @@
 # OpenTelemetry Observability Design
 
 **Date:** 2026-03-12
-**Flux Version:** 0.8.0
+**Flux Version:** 0.9.0
 **Status:** Approved
 
 ---
@@ -151,7 +151,7 @@ Env vars follow existing pattern: `FLUX_OBSERVABILITY_ENABLED=true`, `FLUX_OBSER
 ### Context Propagation
 
 - **Server → Worker:** inject `traceparent`/`tracestate` (W3C format) into SSE event JSON data as a `trace_context` dict
-- **Worker → Server:** standard HTTP header propagation on checkpoint/claim POSTs (OTel httpx instrumentation handles this automatically)
+- **Worker → Server:** manual W3C trace context injection into HTTP headers on checkpoint/claim POSTs (using `opentelemetry.propagate`)
 
 ### Span Attributes
 
@@ -176,9 +176,8 @@ Custom attributes follow `flux.*` namespace:
 ## Logging Integration
 
 - On `setup()`, an `OTelLogHandler` is added to the root `"flux"` logger
-- The handler forwards log records to OTel's `LoggerProvider` for OTLP export
+- The handler injects `trace_id` and `span_id` into log records for correlation when emitted inside an active span
 - Existing console output is completely unchanged — the handler is additive
-- Log records automatically get `trace_id` and `span_id` injected when emitted inside an active span
 - When observability is enabled, the console log format is enriched with `%(otelTraceID)s %(otelSpanID)s` for manual correlation
 - When disabled: no handler added, no format changes, zero impact
 

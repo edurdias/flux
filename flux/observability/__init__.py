@@ -13,8 +13,10 @@ def is_enabled() -> bool:
 
 
 def setup(config: ObservabilityConfig) -> None:
-    """Initialize observability if enabled."""
+    """Initialize observability if enabled. Idempotent — subsequent calls are no-ops."""
     global _enabled
+    if _enabled:
+        return
     if not config.enabled:
         return
 

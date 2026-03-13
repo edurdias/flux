@@ -225,8 +225,10 @@ class Server:
 
             obs_config = Configuration.get().settings.observability
             setup_observability(obs_config)
+        except ImportError:
+            logger.debug("Observability packages not installed, skipping setup")
         except Exception:
-            logger.debug("Observability setup skipped or failed")
+            logger.warning("Observability setup failed", exc_info=True)
 
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
@@ -501,10 +503,16 @@ class Server:
         if not execution_ids:
             return
 
+        from flux.observability import get_metrics
+
         context_manager = ContextManager.create()
         for execution_id in execution_ids:
             try:
                 context_manager.unclaim(execution_id)
+                self._execution_queue_times[execution_id] = time.monotonic()
+                m = get_metrics()
+                if m:
+                    m.record_execution_queued()
                 logger.info(
                     f"Unclaimed execution {execution_id} from evicted worker {worker_name}",
                 )
@@ -1137,7 +1145,7 @@ class Server:
 
                 m = get_metrics()
                 if m:
-                    m.record_worker_connected(registration.name)
+                    m.record_worker_registered(registration.name)
 
                 return result
             except HTTPException:
@@ -1182,6 +1190,13 @@ class Server:
                 self._worker_connection_gen[name] = gen
                 if name in self._worker_cache:
                     self._worker_cache[name].status = "online"
+
+                from flux.observability import get_metrics as _get_metrics
+
+                _m = _get_metrics()
+                if _m:
+                    _m.record_worker_connected(name)
+
                 logger.debug(
                     f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
                 )

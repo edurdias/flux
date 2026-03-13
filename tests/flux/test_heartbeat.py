@@ -56,6 +56,7 @@ class TestServerHeartbeatReaper:
             settings.workers.heartbeat_timeout = 5
             settings.workers.offline_ttl = 10
             settings.workers.eviction_grace_period = 10
+            settings.observability.enabled = False
             mock_conf.get.return_value.settings = settings
             s = Server(host="localhost", port=8000)
         return s
@@ -256,6 +257,7 @@ class TestWorkerCache:
             settings.workers.heartbeat_timeout = 30
             settings.workers.offline_ttl = 7200
             settings.workers.eviction_grace_period = 30
+            settings.observability.enabled = False
             mock_conf.get.return_value.settings = settings
             s = Server(host="localhost", port=8000)
         return s

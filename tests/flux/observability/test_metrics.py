@@ -65,12 +65,19 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_task_retries_total")
         assert metric is not None
 
+    def test_record_worker_registered(self):
+        m, reader = self._create_metrics()
+        m.record_worker_registered("worker-1")
+
+        registrations = self._get_metric(reader, "flux_worker_registrations_total")
+        assert registrations is not None
+
     def test_record_worker_connected(self):
         m, reader = self._create_metrics()
         m.record_worker_connected("worker-1")
 
-        registrations = self._get_metric(reader, "flux_worker_registrations_total")
-        assert registrations is not None
+        active = self._get_metric(reader, "flux_workers_active")
+        assert active is not None
 
     def test_record_worker_disconnected(self):
         m, reader = self._create_metrics()
@@ -136,16 +143,22 @@ class TestFluxMetrics:
 
 class TestNormalizePath:
     def test_normalizes_worker_paths(self):
-        assert _normalize_path("/workers/worker-abc123/claim/exec-456") == \
-            "/workers/{worker}/claim/{execution_id}"
+        assert (
+            _normalize_path("/workers/worker-abc123/claim/exec-456")
+            == "/workers/{worker}/claim/{execution_id}"
+        )
 
     def test_normalizes_checkpoint_path(self):
-        assert _normalize_path("/workers/worker-abc123/checkpoint/exec-456") == \
-            "/workers/{worker}/checkpoint/{execution_id}"
+        assert (
+            _normalize_path("/workers/worker-abc123/checkpoint/exec-456")
+            == "/workers/{worker}/checkpoint/{execution_id}"
+        )
 
     def test_normalizes_execution_path(self):
-        assert _normalize_path("/workflows/hello_world/executions/abc123") == \
-            "/workflows/hello_world/executions/{execution_id}"
+        assert (
+            _normalize_path("/workflows/hello_world/executions/abc123")
+            == "/workflows/hello_world/executions/{execution_id}"
+        )
 
     def test_preserves_simple_paths(self):
         assert _normalize_path("/workflows") == "/workflows"

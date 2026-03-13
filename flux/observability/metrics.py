@@ -125,7 +125,9 @@ class FluxMetrics:
         self.workflow_execution_duration.record(duration, {"workflow_name": workflow_name})
 
     def record_task_started(self, workflow_name: str, task_name: str):
-        self.task_executions.add(1, {"workflow_name": workflow_name, "task_name": task_name, "status": "started"})
+        self.task_executions.add(
+            1, {"workflow_name": workflow_name, "task_name": task_name, "status": "started"}
+        )
 
     def record_task_completed(
         self, workflow_name: str, task_name: str, status: str, duration: float
@@ -152,8 +154,10 @@ class FluxMetrics:
         if duration is not None:
             self.checkpoint_duration.record(duration, {"workflow_name": workflow_name})
 
-    def record_worker_connected(self, worker_name: str):
+    def record_worker_registered(self, worker_name: str):
         self.worker_registrations.add(1, {"worker_name": worker_name})
+
+    def record_worker_connected(self, worker_name: str):
         self.workers_active.add(1)
 
     def record_worker_disconnected(self, worker_name: str, reason: str):
