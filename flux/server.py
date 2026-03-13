@@ -531,7 +531,6 @@ class Server:
                 await asyncio.sleep(self.heartbeat_interval)
                 now = time.monotonic()
 
-                # Phase 1: detect newly stale workers
                 for name, last_pong in list(self._worker_last_pong.items()):
                     if (now - last_pong) > self.heartbeat_timeout:
                         if name not in self._worker_stale_since:
@@ -541,7 +540,6 @@ class Server:
                                 f"(grace period: {self.eviction_grace_period}s)",
                             )
 
-                # Phase 1b: recover workers that ponged during grace period
                 recovered = [
                     name
                     for name in list(self._worker_stale_since)
@@ -552,7 +550,6 @@ class Server:
                     self._worker_stale_since.pop(name, None)
                     logger.info(f"Worker {name} recovered from stale state")
 
-                # Phase 2: evict workers past the grace period
                 evicted = [
                     name
                     for name, since in list(self._worker_stale_since.items())
@@ -566,7 +563,6 @@ class Server:
                     self._disconnect_worker(name, reason="evicted")
                     self._unclaim_worker_executions(name)
 
-                # Prune offline cache
                 expired = [
                     name
                     for name, since in self._worker_offline_since.items()

@@ -79,7 +79,6 @@ class Worker:
         logger.debug(f"Worker name: {self.name}")
         logger.debug(f"Server URL: {self.base_url}")
 
-        # Initialize observability for the worker
         from flux.config import Configuration
 
         obs_config = Configuration().settings.observability
@@ -554,14 +553,12 @@ class Worker:
     async def _get_resources_info(self):
         logger.debug("Gathering system resource information")
 
-        # Get CPU information
         logger.debug("Getting CPU information")
         cpu_total = psutil.cpu_count(logical=True)
         cpu_percent = psutil.cpu_percent(interval=0.5)
         cpu_available = cpu_total * (100 - cpu_percent) / 100
         logger.debug(f"CPU: total={cpu_total}, usage={cpu_percent}%, available={cpu_available:.2f}")
 
-        # Get memory information
         logger.debug("Getting memory information")
         memory = psutil.virtual_memory()
         memory_total = memory.total
@@ -570,14 +567,12 @@ class Worker:
             f"Memory: total={memory_total}, available={memory_available}, percent={memory.percent}%",
         )
 
-        # Get disk information
         logger.debug("Getting disk information")
         disk = psutil.disk_usage("/")
         disk_total = disk.total
         disk_free = disk.free
         logger.debug(f"Disk: total={disk_total}, free={disk_free}, percent={disk.percent}%")
 
-        # Get GPU information
         logger.debug("Getting GPU information")
         gpus = await self._get_gpu_info()
 

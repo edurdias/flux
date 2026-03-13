@@ -28,7 +28,6 @@ class FluxMetrics:
     """Flux metric instruments."""
 
     def __init__(self, meter: Meter):
-        # Workflow metrics
         self.workflow_executions = meter.create_counter(
             "flux_workflow_executions_total",
             description="Workflow executions by status",
@@ -39,7 +38,6 @@ class FluxMetrics:
             unit="s",
         )
 
-        # Task metrics
         self.task_executions = meter.create_counter(
             "flux_task_executions_total",
             description="Task executions by status",
@@ -54,7 +52,6 @@ class FluxMetrics:
             description="Task retry attempts",
         )
 
-        # Execution pipeline metrics
         self.execution_queue_depth = meter.create_up_down_counter(
             "flux_execution_queue_depth",
             description="Executions waiting for workers",
@@ -74,7 +71,6 @@ class FluxMetrics:
             unit="s",
         )
 
-        # Worker metrics
         self.workers_active = meter.create_up_down_counter(
             "flux_workers_active",
             description="Currently connected workers",
@@ -92,13 +88,11 @@ class FluxMetrics:
             description="Concurrent executions per worker",
         )
 
-        # Schedule metrics
         self.schedule_triggers = meter.create_counter(
             "flux_schedule_triggers_total",
             description="Schedule trigger events",
         )
 
-        # HTTP metrics
         self.http_requests = meter.create_counter(
             "flux_http_requests_total",
             description="HTTP request count",
@@ -109,13 +103,10 @@ class FluxMetrics:
             unit="s",
         )
 
-        # Module cache metrics
         self.module_cache = meter.create_counter(
             "flux_module_cache_total",
             description="Module cache lookups by result",
         )
-
-    # --- Recording helpers ---
 
     def record_workflow_started(self, workflow_name: str):
         self.workflow_executions.add(1, {"workflow_name": workflow_name, "status": "started"})
@@ -126,16 +117,22 @@ class FluxMetrics:
 
     def record_task_started(self, workflow_name: str, task_name: str):
         self.task_executions.add(
-            1, {"workflow_name": workflow_name, "task_name": task_name, "status": "started"}
+            1,
+            {"workflow_name": workflow_name, "task_name": task_name, "status": "started"},
         )
 
     def record_task_completed(
-        self, workflow_name: str, task_name: str, status: str, duration: float
+        self,
+        workflow_name: str,
+        task_name: str,
+        status: str,
+        duration: float,
     ):
         attrs = {"workflow_name": workflow_name, "task_name": task_name, "status": status}
         self.task_executions.add(1, attrs)
         self.task_execution_duration.record(
-            duration, {"workflow_name": workflow_name, "task_name": task_name}
+            duration,
+            {"workflow_name": workflow_name, "task_name": task_name},
         )
 
     def record_task_retry(self, workflow_name: str, task_name: str):
