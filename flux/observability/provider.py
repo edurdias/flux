@@ -12,7 +12,6 @@ _meter_provider = None
 _tracer_provider = None
 _logger_provider = None
 _flux_metrics = None
-_log_handler = None
 
 
 def _check_dependencies():
@@ -22,7 +21,7 @@ def _check_dependencies():
     except ImportError:
         raise ImportError(
             "OpenTelemetry packages not installed. "
-            "Install with: pip install flux-core[observability]"
+            "Install with: pip install flux-core[observability]",
         )
 
 
@@ -60,7 +59,7 @@ def setup_providers(config: ObservabilityConfig):
             PeriodicExportingMetricReader(
                 otlp_exporter,
                 export_interval_millis=config.metric_export_interval * 1000,
-            )
+            ),
         )
 
     _meter_provider = MeterProvider(resource=resource, metric_readers=readers)
@@ -108,29 +107,24 @@ def setup_providers(config: ObservabilityConfig):
     meter = otel_metrics.get_meter("flux")
     _flux_metrics = FluxMetrics(meter)
 
-    # Attach OTel log handler to root "flux" logger
-    global _log_handler
-    from flux.observability.logging import setup_log_handler
+    from flux.observability.logging import setup_log_filter
 
-    _log_handler = setup_log_handler(logging.getLogger("flux"))
+    setup_log_filter(logging.getLogger("flux"))
 
     logger.info(
         f"Observability initialized (prometheus={config.prometheus_enabled}, "
         f"otlp={'enabled' if config.otlp_endpoint else 'disabled'}, "
-        f"sample_rate={config.trace_sample_rate})"
+        f"sample_rate={config.trace_sample_rate})",
     )
 
 
 def shutdown_providers():
     """Flush and shut down all providers."""
-    global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics, _log_handler
+    global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics
 
-    # Remove log handler before shutting down providers
-    if _log_handler:
-        from flux.observability.logging import teardown_log_handler
+    from flux.observability.logging import teardown_log_filter
 
-        teardown_log_handler(logging.getLogger("flux"), _log_handler)
-        _log_handler = None
+    teardown_log_filter(logging.getLogger("flux"))
 
     _flux_metrics = None
 

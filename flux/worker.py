@@ -265,37 +265,70 @@ class Worker:
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
 
     async def _handle_execution_resumed(self, e):
-        """Handle execution resumed event asynchronously.
-
-        This method is called as a separate task and should handle its own exceptions.
-        """
+        """Handle execution resumed event asynchronously."""
+        _span_cm = None
+        _span = None
         try:
             logger.debug("Received execution_resumed event")
-            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
+
+            from flux.observability import get_metrics, is_enabled
+
+            event_data = e.json()
+            request = WorkflowExecutionRequest.from_json(event_data, self._checkpoint)
+
+            if is_enabled():
+                from opentelemetry import trace as _trace
+
+                from flux.observability.tracing import extract_trace_context
+
+                trace_ctx = event_data.get("trace_context", {})
+                parent_context = extract_trace_context(trace_ctx) if trace_ctx else None
+
+                tracer = _trace.get_tracer("flux")
+                _span_cm = tracer.start_as_current_span(
+                    "flux.workflow.resume",
+                    context=parent_context,
+                    attributes={
+                        "flux.workflow.name": request.workflow.name,
+                        "flux.execution.id": request.context.execution_id,
+                        "flux.worker.name": self.name,
+                    },
+                )
+                _span = _span_cm.__enter__()
+
             logger.info(
                 f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
             )
-            logger.debug(f"Workflow input: {request.context.input}")
+
+            m = get_metrics() if is_enabled() else None
+            if m:
+                m.record_worker_execution_started(self.name)
+
             ctx = await self._execute_workflow(request)
-            logger.debug(
-                f"Workflow execution completed with state: {ctx.state.value}",
-            )
 
             if ctx.has_failed:
+                if _span:
+                    from opentelemetry.trace import StatusCode
+
+                    _span.set_status(StatusCode.ERROR, str(ctx.output))
                 logger.error(
                     f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                )
-                logger.debug(
-                    f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
                 )
             else:
                 logger.info(
                     f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
-                logger.debug(f"Execution output: {ctx.output}")
         except Exception as ex:
+            if _span:
+                from opentelemetry.trace import StatusCode
+
+                _span.set_status(StatusCode.ERROR, str(ex))
+                _span.record_exception(ex)
             logger.error(f"Error handling execution_resumed event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+        finally:
+            if _span_cm is not None:
+                _span_cm.__exit__(None, None, None)
 
     async def _handle_execution_scheduled(self, base_url, headers, e):
         """Handle execution scheduled event asynchronously.

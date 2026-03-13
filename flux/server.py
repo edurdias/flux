@@ -428,9 +428,7 @@ class Server:
             ),
         )
 
-        import time as _time
-
-        self._execution_queue_times[ctx.execution_id] = _time.monotonic()
+        self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
         from flux.observability import get_metrics
 
@@ -1356,14 +1354,12 @@ class Server:
                 self._worker_executions.setdefault(name, set()).add(execution_id)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
-                import time as _time
-
                 from flux.observability import get_metrics
 
                 m = get_metrics()
                 if m:
                     queued_at = self._execution_queue_times.pop(execution_id, None)
-                    schedule_to_start = _time.monotonic() - queued_at if queued_at else None
+                    schedule_to_start = time.monotonic() - queued_at if queued_at else None
                     m.record_execution_claimed(schedule_to_start)
 
                 # Notify any waiting sync/stream endpoint

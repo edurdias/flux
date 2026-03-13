@@ -11,7 +11,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from flux.observability.logging import setup_log_handler, teardown_log_handler
+from flux.observability.logging import setup_log_filter, teardown_log_filter
 
 
 @pytest.fixture
@@ -19,7 +19,6 @@ def tracer_setup():
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    # Reset global provider state so each test gets a fresh provider
     trace_api._TRACER_PROVIDER_SET_ONCE._done = False
     trace_api._TRACER_PROVIDER = None
     trace.set_tracer_provider(provider)
@@ -29,22 +28,22 @@ def tracer_setup():
 
 
 class TestLoggingIntegration:
-    def test_handler_attaches_to_logger(self):
+    def test_filter_attaches_to_logger(self):
         test_logger = logging.getLogger("flux.test_attach")
-        initial_count = len(test_logger.handlers)
+        initial_count = len(test_logger.filters)
 
-        handler = setup_log_handler(test_logger)
-        assert len(test_logger.handlers) == initial_count + 1
+        setup_log_filter(test_logger)
+        assert len(test_logger.filters) == initial_count + 1
 
-        teardown_log_handler(test_logger, handler)
-        assert len(test_logger.handlers) == initial_count
+        teardown_log_filter(test_logger)
+        assert len(test_logger.filters) == initial_count
 
     def test_log_includes_trace_context(self, tracer_setup):
         provider, _ = tracer_setup
         test_logger = logging.getLogger("flux.test_trace_ctx")
         test_logger.setLevel(logging.DEBUG)
 
-        handler = setup_log_handler(test_logger)
+        setup_log_filter(test_logger)
 
         records = []
         capture_handler = logging.Handler()
@@ -61,14 +60,14 @@ class TestLoggingIntegration:
         assert hasattr(record, "otelTraceID")
         assert record.otelTraceID == expected_trace_id
 
-        teardown_log_handler(test_logger, handler)
+        teardown_log_filter(test_logger)
         test_logger.removeHandler(capture_handler)
 
     def test_log_without_span_has_empty_trace(self):
         test_logger = logging.getLogger("flux.test_no_span")
         test_logger.setLevel(logging.DEBUG)
 
-        handler = setup_log_handler(test_logger)
+        setup_log_filter(test_logger)
 
         records = []
         capture_handler = logging.Handler()
@@ -82,9 +81,9 @@ class TestLoggingIntegration:
         assert hasattr(record, "otelTraceID")
         assert record.otelTraceID == "0" * 32
 
-        teardown_log_handler(test_logger, handler)
+        teardown_log_filter(test_logger)
         test_logger.removeHandler(capture_handler)
 
     def test_teardown_without_setup_is_safe(self):
         test_logger = logging.getLogger("flux.test_safe_teardown")
-        teardown_log_handler(test_logger, None)  # Should not raise
+        teardown_log_filter(test_logger)

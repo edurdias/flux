@@ -53,7 +53,6 @@ class ObservabilityConfig(BaseModel):
 
     # Exporters
     otlp_endpoint: str | None = None        # e.g. "http://localhost:4317"
-    otlp_protocol: str = "grpc"             # "grpc" or "http/protobuf"
     prometheus_enabled: bool = True          # /metrics endpoint
 
     # Tracing
@@ -75,22 +74,21 @@ Env vars follow existing pattern: `FLUX_OBSERVABILITY_ENABLED=true`, `FLUX_OBSER
 
 ---
 
-## Metrics (14 Instruments)
+## Metrics (18 Instruments)
 
 ### Workflow Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `flux_workflow_executions_total` | Counter | `workflow_name`, `status` | Completed/failed/cancelled executions |
-| `flux_workflow_duration_seconds` | Histogram | `workflow_name` | End-to-end workflow execution time |
-| `flux_active_executions` | UpDownCounter | `workflow_name` | Currently running executions |
+| `flux_workflow_execution_duration_seconds` | Histogram | `workflow_name` | End-to-end workflow execution time |
 
 ### Task Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `flux_task_executions_total` | Counter | `workflow_name`, `task_name`, `status` | Completed/failed tasks |
-| `flux_task_duration_seconds` | Histogram | `workflow_name`, `task_name` | Per-task execution time |
+| `flux_task_execution_duration_seconds` | Histogram | `workflow_name`, `task_name` | Per-task execution time |
 | `flux_task_retries_total` | Counter | `workflow_name`, `task_name` | Retry attempts |
 
 ### Worker Metrics
@@ -100,6 +98,7 @@ Env vars follow existing pattern: `FLUX_OBSERVABILITY_ENABLED=true`, `FLUX_OBSER
 | `flux_workers_active` | UpDownCounter | — | Connected workers |
 | `flux_worker_registrations_total` | Counter | `worker_name` | Registration events |
 | `flux_worker_disconnections_total` | Counter | `worker_name`, `reason` | Disconnection/eviction events |
+| `flux_worker_executions_active` | UpDownCounter | `worker_name` | Concurrent executions per worker |
 
 ### Schedule Metrics
 
@@ -118,8 +117,16 @@ Env vars follow existing pattern: `FLUX_OBSERVABILITY_ENABLED=true`, `FLUX_OBSER
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `flux_checkpoint_total` | Counter | `workflow_name` | Worker checkpoint events |
+| `flux_checkpoints_total` | Counter | `workflow_name` | Worker checkpoint events |
+| `flux_checkpoint_duration_seconds` | Histogram | `workflow_name` | Checkpoint HTTP round-trip duration |
 | `flux_execution_queue_depth` | UpDownCounter | — | Pending executions waiting for workers |
+| `flux_execution_schedule_to_start_seconds` | Histogram | — | Time from queued to worker claim |
+
+### Module Cache Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `flux_module_cache_total` | Counter | `result` | Module cache lookups by result (hit/miss) |
 
 ### Recording Points
 
@@ -167,7 +174,6 @@ Custom attributes follow `flux.*` namespace:
 ### Instrumentation API
 
 - `@traced("span.name")` decorator for functions
-- `start_span("name")` async context manager for blocks
 - `inject_trace_context() -> dict` and `extract_trace_context(data: dict) -> Context` for propagation
 - All become no-ops when disabled
 
@@ -175,8 +181,8 @@ Custom attributes follow `flux.*` namespace:
 
 ## Logging Integration
 
-- On `setup()`, an `OTelLogHandler` is added to the root `"flux"` logger
-- The handler injects `trace_id` and `span_id` into log records for correlation when emitted inside an active span
+- On `setup()`, an `OTelTraceLogFilter` is added to the root `"flux"` logger
+- The filter injects `trace_id` and `span_id` into log records for correlation when emitted inside an active span
 - Existing console output is completely unchanged — the handler is additive
 - When observability is enabled, the console log format is enriched with `%(otelTraceID)s %(otelSpanID)s` for manual correlation
 - When disabled: no handler added, no format changes, zero impact
