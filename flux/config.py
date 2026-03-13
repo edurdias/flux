@@ -47,6 +47,10 @@ class WorkersConfig(BaseConfig):
         default=60,
         description="Max backoff cap in seconds for worker reconnect",
     )
+    eviction_grace_period: int = Field(
+        default=30,
+        description="Seconds to wait after marking worker stale before evicting",
+    )
     offline_ttl: int = Field(
         default=7200,
         description="Seconds to keep offline workers in memory before pruning",

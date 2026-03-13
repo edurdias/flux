@@ -71,6 +71,8 @@ class Worker:
         self._reconnect_max_delay = config.reconnect_max_delay
         self._module_cache: dict[str, tuple[ModuleType, float]] = {}
         self._module_cache_ttl = config.module_cache_ttl
+        self._registered = False
+        self.session_token: str | None = None
 
     def start(self):
         logger.info("Worker starting up...")
@@ -99,12 +101,31 @@ class Worker:
             logger.info("Worker shutting down...")
 
     async def _run(self):
-        """Main worker loop: register, connect, reconnect on failure."""
+        """Main worker loop: register, connect, reconnect on failure.
+
+        On first run, performs full registration (gathers runtime, resources, packages).
+        On reconnect, skips registration and reuses the existing session token.
+        If the server rejects the token (401/403), falls back to full re-registration.
+        """
         backoff = 1
         while True:
             try:
-                await self._register()
-                await self._connect()
+                if not self._registered:
+                    await self._register()
+                else:
+                    logger.info("Reconnecting with existing session...")
+
+                try:
+                    await self._connect()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (401, 403) and self._registered:
+                        logger.warning("Session token rejected, re-registering...")
+                        self._registered = False
+                        await self._register()
+                        await self._connect()
+                    else:
+                        raise
+
                 logger.info("SSE connection closed, reconnecting...")
                 backoff = 1
             except KeyboardInterrupt:
@@ -149,6 +170,7 @@ class Worker:
             response.raise_for_status()
             data = response.json()
             self.session_token = data["session_token"]
+            self._registered = True
             logger.debug("Registration successful, received session token")
             logger.info("OK")
         except Exception as e:
@@ -231,6 +253,12 @@ class Worker:
                     await task
                 except asyncio.CancelledError:
                     logger.info(f"Execution {context.execution_id} cancelled successfully")
+                    from flux.observability import get_metrics
+
+                    m = get_metrics()
+                    if m:
+                        m.record_workflow_completed(context.workflow_name, "cancelled", 0)
+                        m.record_worker_execution_ended(self.name)
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
         except Exception as ex:
@@ -283,14 +311,22 @@ class Worker:
             _span_cm = None
             _span = None
 
-            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
+            event_data = e.json()
+            request = WorkflowExecutionRequest.from_json(event_data, self._checkpoint)
 
             if is_enabled():
+                from opentelemetry import context as otel_context
                 from opentelemetry import trace as _trace
+
+                from flux.observability.tracing import extract_trace_context
+
+                trace_ctx = event_data.get("trace_context", {})
+                parent_context = extract_trace_context(trace_ctx) if trace_ctx else None
 
                 tracer = _trace.get_tracer("flux")
                 _span_cm = tracer.start_as_current_span(
                     "flux.workflow.execute",
+                    context=parent_context,
                     attributes={
                         "flux.workflow.name": request.workflow.name,
                         "flux.execution.id": request.context.execution_id,

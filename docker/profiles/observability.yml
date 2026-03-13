@@ -68,10 +68,10 @@ services:
       args:
         EXTRA_PACKAGES: "flux-core[observability]"
     environment:
-      - FLUX_OBSERVABILITY_ENABLED=true
-      - FLUX_OBSERVABILITY_PROMETHEUS_ENABLED=true
-      - FLUX_OBSERVABILITY_OTLP_ENDPOINT=http://otel-collector:4317
-      - FLUX_OBSERVABILITY_SERVICE_NAME=flux-server
+      - FLUX_OBSERVABILITY__ENABLED=true
+      - FLUX_OBSERVABILITY__PROMETHEUS_ENABLED=true
+      - FLUX_OBSERVABILITY__OTLP_ENDPOINT=http://otel-collector:4317
+      - FLUX_OBSERVABILITY__SERVICE_NAME=flux-server
 
 volumes:
   prometheus-data:

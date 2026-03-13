@@ -23,6 +23,7 @@ retry_attempts = 0                                          # Default number of 
 retry_delay = 1                                             # Initial delay between retries in seconds
 retry_backoff = 2                                           # Multiplier for subsequent retry delays
 module_cache_ttl = 300                                      # Seconds to cache compiled workflow modules (0 to disable)
+eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security]
 encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P
@@ -35,9 +36,9 @@ server_url = "http://localhost:8000"    # Default server URL to connect to
 transport = "streamable-http"           # Transport protocol for MCP ("stdio", "streamable-http", "sse")
 
 [flux.observability]
-enabled = true                          # Enable OpenTelemetry observability (requires flux-core[observability])
+enabled = false                         # Enable OpenTelemetry observability (requires flux-core[observability])
 service_name = "flux"                   # OTel service name
 prometheus_enabled = true               # Expose Prometheus /metrics endpoint
-otlp_endpoint = "http://localhost:4317" # OTLP collector endpoint (uncomment to enable push export)
+# otlp_endpoint = "http://localhost:4317" # OTLP collector endpoint (uncomment to enable push export)
 trace_sample_rate = 1.0                 # Trace sampling rate (0.0 to 1.0)
 metric_export_interval = 60             # OTLP metric push interval in seconds

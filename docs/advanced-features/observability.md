@@ -27,12 +27,12 @@ metric_export_interval = 60
 Or use environment variables:
 
 ```bash
-FLUX_OBSERVABILITY_ENABLED=true
-FLUX_OBSERVABILITY_SERVICE_NAME=flux
-FLUX_OBSERVABILITY_PROMETHEUS_ENABLED=true
-FLUX_OBSERVABILITY_OTLP_ENDPOINT=http://localhost:4317
-FLUX_OBSERVABILITY_TRACE_SAMPLE_RATE=1.0
-FLUX_OBSERVABILITY_METRIC_EXPORT_INTERVAL=60
+FLUX_OBSERVABILITY__ENABLED=true
+FLUX_OBSERVABILITY__SERVICE_NAME=flux
+FLUX_OBSERVABILITY__PROMETHEUS_ENABLED=true
+FLUX_OBSERVABILITY__OTLP_ENDPOINT=http://localhost:4317
+FLUX_OBSERVABILITY__TRACE_SAMPLE_RATE=1.0
+FLUX_OBSERVABILITY__METRIC_EXPORT_INTERVAL=60
 ```
 
 ### Configuration Reference
@@ -112,13 +112,10 @@ When enabled, Flux creates spans for workflow executions, task executions, and H
 
 ```
 [Server] HTTP POST /workflows/{name}/run/async
-  +-- [Server] flux.execution.create
-  +-- [Server] flux.execution.dispatch
-        -- (trace context propagated via SSE event) --
-        +-- [Worker] flux.workflow.execute
-              +-- [Worker] flux.task.execute {task_name}
-              +-- [Worker] flux.task.execute {task_name}
-        +-- [Worker] flux.execution.checkpoint
+  -- (trace context propagated via SSE event) --
+  +-- [Worker] flux.workflow.execute
+        +-- [Worker] flux.task.execute {task_name}
+        +-- [Worker] flux.task.execute {task_name}
 ```
 
 ### Span Attributes
@@ -161,10 +158,10 @@ This starts:
 rate(flux_workflow_executions_total[5m]) * 60
 
 # Average workflow duration
-rate(flux_workflow_duration_seconds_sum[5m]) / rate(flux_workflow_duration_seconds_count[5m])
+rate(flux_workflow_execution_duration_seconds_sum[5m]) / rate(flux_workflow_execution_duration_seconds_count[5m])
 
-# Active executions
-flux_active_executions
+# Execution queue depth
+flux_execution_queue_depth
 
 # Task failure rate
 rate(flux_task_executions_total{status="failed"}[5m])
