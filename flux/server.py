@@ -202,10 +202,14 @@ class Server:
         self._worker_names: list[str] = []
         self._worker_rr_index = 0
         self._execution_events: dict[str, asyncio.Event] = {}
+        self._execution_queue_times: dict[str, float] = {}
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
+        self._worker_stale_since: dict[str, float] = {}
+        self._worker_executions: dict[str, set[str]] = {}
+        self._worker_connection_gen: dict[str, int] = {}
 
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
@@ -214,6 +218,17 @@ class Server:
         self.heartbeat_interval = workers_config.heartbeat_interval
         self.heartbeat_timeout = workers_config.heartbeat_timeout
         self.offline_ttl = workers_config.offline_ttl
+        self.eviction_grace_period = workers_config.eviction_grace_period
+
+        try:
+            from flux.observability import setup as setup_observability
+
+            obs_config = Configuration.get().settings.observability
+            setup_observability(obs_config)
+        except ImportError:
+            logger.debug("Observability packages not installed, skipping setup")
+        except Exception:
+            logger.warning("Observability setup failed", exc_info=True)
 
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
@@ -412,6 +427,16 @@ class Server:
                 requests=workflow.requests,
             ),
         )
+
+        self._execution_queue_times[ctx.execution_id] = time.monotonic()
+
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            m.record_workflow_started(workflow_name)
+            m.record_execution_queued()
+
         return ctx
 
     # ===========================================
@@ -451,7 +476,7 @@ class Server:
                 pass
             logger.info("Heartbeat reaper stopped")
 
-    def _disconnect_worker(self, name: str) -> None:
+    def _disconnect_worker(self, name: str, reason: str = "disconnect") -> None:
         """Remove a worker from the connected set and mark it offline in cache."""
         self._worker_events.pop(name, None)
         self._worker_last_pong.pop(name, None)
@@ -464,22 +489,77 @@ class Server:
         if evicted:
             evicted.set()
 
+        from flux.observability import get_metrics
+
+        m = get_metrics()
+        if m:
+            m.record_worker_disconnected(name, reason)
+
+    def _unclaim_worker_executions(self, worker_name: str) -> None:
+        """Reset all executions assigned to an evicted worker for rescheduling."""
+        execution_ids = self._worker_executions.pop(worker_name, set())
+        if not execution_ids:
+            return
+
+        from flux.observability import get_metrics
+
+        context_manager = ContextManager.create()
+        for execution_id in execution_ids:
+            try:
+                context_manager.unclaim(execution_id)
+                self._execution_queue_times[execution_id] = time.monotonic()
+                m = get_metrics()
+                if m:
+                    m.record_execution_queued()
+                logger.info(
+                    f"Unclaimed execution {execution_id} from evicted worker {worker_name}",
+                )
+                event = self._execution_events.get(execution_id)
+                if event:
+                    event.set()
+            except Exception as e:
+                logger.error(f"Failed to unclaim execution {execution_id}: {e}")
+
+        self._work_available.set()
+
     async def _run_heartbeat_reaper(self):
-        """Background task that evicts stale workers and prunes offline cache."""
+        """Background task: two-phase eviction (stale → grace → evict) and offline cache pruning."""
         try:
             while True:
                 await asyncio.sleep(self.heartbeat_interval)
                 now = time.monotonic()
 
-                stale = [
+                for name, last_pong in list(self._worker_last_pong.items()):
+                    if (now - last_pong) > self.heartbeat_timeout:
+                        if name not in self._worker_stale_since:
+                            self._worker_stale_since[name] = now
+                            logger.warning(
+                                f"Worker {name} missed heartbeat, marked STALE "
+                                f"(grace period: {self.eviction_grace_period}s)",
+                            )
+
+                recovered = [
                     name
-                    for name, last_pong in self._worker_last_pong.items()
-                    if (now - last_pong) > self.heartbeat_timeout
+                    for name in list(self._worker_stale_since)
+                    if name in self._worker_last_pong
+                    and (now - self._worker_last_pong[name]) <= self.heartbeat_timeout
                 ]
-                for name in stale:
-                    logger.warning(f"Worker {name} missed heartbeat, evicting")
-                    self._disconnect_worker(name)
-                    logger.info(f"Worker {name} evicted (remaining: {len(self._worker_names)})")
+                for name in recovered:
+                    self._worker_stale_since.pop(name, None)
+                    logger.info(f"Worker {name} recovered from stale state")
+
+                evicted = [
+                    name
+                    for name, since in list(self._worker_stale_since.items())
+                    if (now - since) > self.eviction_grace_period
+                ]
+                for name in evicted:
+                    self._worker_stale_since.pop(name, None)
+                    logger.warning(
+                        f"Worker {name} evicted (stale for >{self.eviction_grace_period}s)",
+                    )
+                    self._disconnect_worker(name, reason="evicted")
+                    self._unclaim_worker_executions(name)
 
                 expired = [
                     name
@@ -546,9 +626,22 @@ class Server:
                 f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",
             )
 
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_schedule_trigger(schedule.name, "success")
+
         except Exception as e:
             schedule.mark_failure()
             logger.error(f"Failed to trigger scheduled workflow: {str(e)}", exc_info=True)
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_schedule_trigger(schedule.name, "failure")
+
             raise
 
     # ===========================================
@@ -564,6 +657,10 @@ class Server:
             await self._stop_scheduler()
             await self._stop_reaper()
 
+            from flux.observability import shutdown as shutdown_observability
+
+            shutdown_observability()
+
         api = FastAPI(
             title="Flux",
             version=self._get_version(),
@@ -578,6 +675,29 @@ class Server:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+
+        from flux.observability import get_metrics, is_enabled
+
+        if is_enabled():
+            from flux.observability.middleware import MetricsMiddleware
+
+            metrics = get_metrics()
+            if metrics:
+                api.add_middleware(MetricsMiddleware, metrics=metrics)
+
+            # Prometheus /metrics endpoint
+            obs_config = Configuration.get().settings.observability
+            if obs_config.prometheus_enabled:
+                from prometheus_client import REGISTRY, generate_latest
+
+                @api.get("/metrics")
+                async def metrics_endpoint():
+                    from starlette.responses import Response
+
+                    return Response(
+                        content=generate_latest(REGISTRY),
+                        media_type="text/plain; version=0.0.4; charset=utf-8",
+                    )
 
         @api.post("/workflows")
         async def workflows_save(file: UploadFile = File(...)):
@@ -901,6 +1021,13 @@ class Server:
 
                 ctx.start_cancel()
                 manager.save(ctx)
+                self._execution_queue_times.pop(execution_id, None)
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_workflow_completed(workflow_name, "cancel_requested", 0)
 
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.
@@ -1013,6 +1140,13 @@ class Server:
                     f"Resources: CPU: {registration.resources.cpu_total}, "
                     f"Memory: {registration.resources.memory_total}",
                 )
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_worker_registered(registration.name)
+
                 return result
             except HTTPException:
                 raise
@@ -1028,6 +1162,7 @@ class Server:
             try:
                 self._get_worker(name, authorization)
                 self._worker_last_pong[name] = time.monotonic()
+                self._worker_stale_since.pop(name, None)
                 logger.debug(f"Pong received from worker {name}")
                 return {"status": "ok"}
             except HTTPException:
@@ -1049,9 +1184,19 @@ class Server:
                 if name not in self._worker_names:
                     self._worker_names.append(name)
                 self._worker_last_pong[name] = time.monotonic()
+                self._worker_stale_since.pop(name, None)
                 self._worker_offline_since.pop(name, None)
+                gen = self._worker_connection_gen.get(name, 0) + 1
+                self._worker_connection_gen[name] = gen
                 if name in self._worker_cache:
                     self._worker_cache[name].status = "online"
+
+                from flux.observability import get_metrics as _get_metrics
+
+                _m = _get_metrics()
+                if _m:
+                    _m.record_worker_connected(name)
+
                 logger.debug(
                     f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
                 )
@@ -1086,10 +1231,29 @@ class Server:
                                     logger.debug(
                                         f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
+
+                                    data_payload = to_json(
+                                        {"workflow": workflow, "context": ctx},
+                                    )
+
+                                    from flux.observability import is_enabled
+
+                                    if is_enabled():
+                                        import json as _json
+
+                                        from flux.observability.tracing import inject_trace_context
+
+                                        try:
+                                            event_data = _json.loads(data_payload)
+                                            event_data["trace_context"] = inject_trace_context()
+                                            data_payload = _json.dumps(event_data)
+                                        except Exception:
+                                            pass
+
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_scheduled",
-                                        "data": to_json({"workflow": workflow, "context": ctx}),
+                                        "data": data_payload,
                                     }
                                     logger.debug(
                                         f"Execution {ctx.execution_id} scheduled for worker {name}",
@@ -1164,10 +1328,15 @@ class Server:
                                     "data": str(e),
                                 }
                     finally:
-                        self._disconnect_worker(name)
-                        logger.info(
-                            f"Worker {name} disconnected (remaining: {len(self._worker_names)})",
-                        )
+                        if self._worker_connection_gen.get(name) == gen:
+                            self._disconnect_worker(name)
+                            logger.info(
+                                f"Worker {name} disconnected (remaining: {len(self._worker_names)})",
+                            )
+                        else:
+                            logger.debug(
+                                f"Stale SSE for {name} closed (superseded by newer connection)",
+                            )
 
                 return EventSourceResponse(
                     check_for_new_executions(),
@@ -1188,7 +1357,16 @@ class Server:
                 worker = self._get_worker(name, authorization)
                 context_manager = ContextManager.create()
                 ctx = context_manager.claim(execution_id, worker)
+                self._worker_executions.setdefault(name, set()).add(execution_id)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    queued_at = self._execution_queue_times.pop(execution_id, None)
+                    schedule_to_start = time.monotonic() - queued_at if queued_at else None
+                    m.record_execution_claimed(schedule_to_start)
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)
@@ -1225,6 +1403,12 @@ class Server:
                     logger.warning(f"Execution context not found: {execution_id}")
                     raise HTTPException(status_code=404, detail="Execution context not found.")
                 logger.debug(f"Checkpoint saved for {execution_id}, state: {ctx.state.value}")
+
+                if ctx.has_finished:
+                    self._execution_queue_times.pop(execution_id, None)
+                    worker_execs = self._worker_executions.get(name)
+                    if worker_execs:
+                        worker_execs.discard(execution_id)
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)
