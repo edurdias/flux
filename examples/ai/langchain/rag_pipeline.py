@@ -126,27 +126,20 @@ async def split_documents(
 
 
 @task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
-async def generate_embeddings(
-    chunks: list[Document],
+async def validate_embeddings(
     model: str = "nomic-embed-text",
     ollama_url: str = "http://localhost:11434",
-) -> tuple[list[Document], OllamaEmbeddings]:
+) -> None:
     """
-    Initialize OllamaEmbeddings and validate connectivity with a test embed.
+    Validate that the embedding model is available by running a test embed.
 
     Args:
-        chunks: List of chunked Document objects
         model: Ollama embedding model to use
         ollama_url: Ollama server URL
-
-    Returns:
-        Tuple of (chunks, validated OllamaEmbeddings instance)
     """
     try:
         embeddings = OllamaEmbeddings(model=model, base_url=ollama_url)
         await embeddings.aembed_query("connectivity check")
-        return chunks, embeddings
-
     except Exception as e:
         raise RuntimeError(
             f"Failed to initialize embeddings: {str(e)}. "
@@ -155,27 +148,30 @@ async def generate_embeddings(
         ) from e
 
 
-@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=180)
+@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=300)
 async def build_vector_store(
-    chunks_and_embeddings: tuple[list[Document], OllamaEmbeddings],
+    chunks: list[Document],
     collection_name: str,
+    embedding_model: str = "nomic-embed-text",
+    ollama_url: str = "http://localhost:11434",
 ) -> str:
     """
     Build and persist a Chroma vector store from document chunks.
 
     Args:
-        chunks_and_embeddings: Tuple of (chunks, OllamaEmbeddings instance)
+        chunks: List of chunked Document objects
         collection_name: Name for the Chroma collection
+        embedding_model: Ollama embedding model to use
+        ollama_url: Ollama server URL
 
     Returns:
         Path to the persisted Chroma vector store directory
     """
-    chunks, embeddings = chunks_and_embeddings
-
     persist_dir = Path.home() / ".flux" / "rag_indexes" / collection_name
     persist_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        embeddings = OllamaEmbeddings(model=embedding_model, base_url=ollama_url)
         Chroma.from_documents(
             documents=chunks,
             embedding=embeddings,
@@ -356,8 +352,8 @@ async def rag_index_langchain(ctx: ExecutionContext[dict[str, Any]]):
             "execution_id": ctx.execution_id,
         }
 
-    chunks_and_embeddings = await generate_embeddings(chunks, embedding_model, ollama_url)
-    persist_path = await build_vector_store(chunks_and_embeddings, collection_name)
+    await validate_embeddings(embedding_model, ollama_url)
+    persist_path = await build_vector_store(chunks, collection_name, embedding_model, ollama_url)
 
     return {
         "status": "indexed",
