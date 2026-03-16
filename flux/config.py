@@ -14,6 +14,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from flux.observability.config import ObservabilityConfig
+
 
 class BaseConfig(BaseModel):
     def to_dict(self) -> dict[str, Any]:
@@ -45,9 +47,17 @@ class WorkersConfig(BaseConfig):
         default=60,
         description="Max backoff cap in seconds for worker reconnect",
     )
+    eviction_grace_period: int = Field(
+        default=30,
+        description="Seconds to wait after marking worker stale before evicting",
+    )
     offline_ttl: int = Field(
         default=7200,
         description="Seconds to keep offline workers in memory before pruning",
+    )
+    module_cache_ttl: int = Field(
+        default=300,
+        description="Seconds to cache compiled workflow modules (0 to disable)",
     )
 
 
@@ -160,6 +170,7 @@ class FluxConfig(BaseSettings):
     security: EncryptionConfig = Field(default_factory=EncryptionConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:

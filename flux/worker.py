@@ -6,7 +6,9 @@ import importlib
 import platform
 import random
 import sys
+import time
 from collections.abc import Awaitable
+from types import ModuleType
 from typing import Callable
 
 import httpx
@@ -67,25 +69,62 @@ class Worker:
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._pending_checkpoints: dict[str, asyncio.Task] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
+        self._module_cache: dict[str, tuple[ModuleType, float]] = {}
+        self._module_cache_ttl = config.module_cache_ttl
+        self._registered = False
+        self.session_token: str | None = None
 
     def start(self):
         logger.info("Worker starting up...")
         logger.debug(f"Worker name: {self.name}")
         logger.debug(f"Server URL: {self.base_url}")
+
+        obs_config = Configuration.get().settings.observability
+        if obs_config.enabled:
+            from flux.observability import setup as setup_observability
+
+            setup_observability(obs_config)
+            logger.info("Worker observability initialized")
+
         try:
             asyncio.run(self._run())
         except KeyboardInterrupt:
             logger.info("Worker interrupted by user")
         finally:
+            try:
+                from flux.observability import shutdown as shutdown_observability
+
+                shutdown_observability()
+            except Exception:
+                pass
             logger.info("Worker shutting down...")
 
     async def _run(self):
-        """Main worker loop: register, connect, reconnect on failure."""
+        """Main worker loop: register, connect, reconnect on failure.
+
+        On first run, performs full registration (gathers runtime, resources, packages).
+        On reconnect, skips registration and reuses the existing session token.
+        If the server rejects the token (401/403), falls back to full re-registration.
+        """
         backoff = 1
         while True:
             try:
-                await self._register()
-                await self._connect()
+                if not self._registered:
+                    await self._register()
+                else:
+                    logger.info("Reconnecting with existing session...")
+
+                try:
+                    await self._connect()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (401, 403) and self._registered:
+                        logger.warning("Session token rejected, re-registering...")
+                        self._registered = False
+                        await self._register()
+                        await self._connect()
+                    else:
+                        raise
+
                 logger.info("SSE connection closed, reconnecting...")
                 backoff = 1
             except KeyboardInterrupt:
@@ -130,6 +169,7 @@ class Worker:
             response.raise_for_status()
             data = response.json()
             self.session_token = data["session_token"]
+            self._registered = True
             logger.debug("Registration successful, received session token")
             logger.info("OK")
         except Exception as e:
@@ -212,6 +252,11 @@ class Worker:
                     await task
                 except asyncio.CancelledError:
                     logger.info(f"Execution {context.execution_id} cancelled successfully")
+                    from flux.observability import get_metrics
+
+                    m = get_metrics()
+                    if m:
+                        m.record_workflow_completed(context.workflow_name, "cancelled", 0)
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
         except Exception as ex:
@@ -219,34 +264,62 @@ class Worker:
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
 
     async def _handle_execution_resumed(self, e):
-        """Handle execution resumed event asynchronously.
+        """Handle execution resumed event asynchronously."""
+        import contextlib
 
-        This method is called as a separate task and should handle its own exceptions.
-        """
+        from flux.observability import get_metrics, is_enabled
+
+        event_data = e.json()
+        request = WorkflowExecutionRequest.from_json(event_data, self._checkpoint)
+        m = get_metrics()
+
+        span_cm = contextlib.nullcontext()
+        if is_enabled():
+            from opentelemetry import trace as _trace
+
+            from flux.observability.tracing import extract_trace_context
+
+            trace_ctx = event_data.get("trace_context", {})
+            parent_context = extract_trace_context(trace_ctx) if trace_ctx else None
+
+            tracer = _trace.get_tracer("flux")
+            span_cm = tracer.start_as_current_span(
+                "flux.workflow.resume",
+                context=parent_context,
+                attributes={
+                    "flux.workflow.name": request.workflow.name,
+                    "flux.execution.id": request.context.execution_id,
+                    "flux.worker.name": self.name,
+                },
+            )
+
         try:
-            logger.debug("Received execution_resumed event")
-            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
-            logger.info(
-                f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-            )
-            logger.debug(f"Workflow input: {request.context.input}")
-            ctx = await self._execute_workflow(request)
-            logger.debug(
-                f"Workflow execution completed with state: {ctx.state.value}",
-            )
-
-            if ctx.has_failed:
-                logger.error(
-                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                )
-                logger.debug(
-                    f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
-                )
-            else:
+            with span_cm as span:
                 logger.info(
-                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
-                logger.debug(f"Execution output: {ctx.output}")
+
+                if m:
+                    m.record_worker_execution_started(self.name)
+
+                try:
+                    ctx = await self._execute_workflow(request)
+                finally:
+                    if m:
+                        m.record_worker_execution_ended(self.name)
+
+                if ctx.has_failed:
+                    if span:
+                        from opentelemetry.trace import StatusCode
+
+                        span.set_status(StatusCode.ERROR, str(ctx.output))
+                    logger.error(
+                        f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    )
+                else:
+                    logger.info(
+                        f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    )
         except Exception as ex:
             logger.error(f"Error handling execution_resumed event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
@@ -256,46 +329,83 @@ class Worker:
 
         This method is called as a separate task and should handle its own exceptions.
         """
+        import contextlib
+
+        from flux.observability import get_metrics, is_enabled
+
+        event_data = e.json()
+        request = WorkflowExecutionRequest.from_json(event_data, self._checkpoint)
+        m = get_metrics()
+
+        span_cm = contextlib.nullcontext()
+        if is_enabled():
+            from opentelemetry import trace as _trace
+
+            from flux.observability.tracing import extract_trace_context
+
+            trace_ctx = event_data.get("trace_context", {})
+            parent_context = extract_trace_context(trace_ctx) if trace_ctx else None
+
+            tracer = _trace.get_tracer("flux")
+            span_cm = tracer.start_as_current_span(
+                "flux.workflow.execute",
+                context=parent_context,
+                attributes={
+                    "flux.workflow.name": request.workflow.name,
+                    "flux.execution.id": request.context.execution_id,
+                    "flux.worker.name": self.name,
+                },
+            )
+
         try:
-            logger.debug("Received execution_scheduled event")
-            request = WorkflowExecutionRequest.from_json(e.json(), self._checkpoint)
-
-            logger.info(
-                f"Execution Scheduled - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-            )
-            logger.debug(f"Workflow input: {request.context.input}")
-
-            logger.debug(f"Claiming execution: {request.context.execution_id}")
-            response = await self.client.post(
-                f"{base_url}/claim/{request.context.execution_id}",
-                headers=headers,
-            )
-            response.raise_for_status()
-            claim_data = response.json()
-            logger.debug(f"Claim response: {claim_data}")
-
-            logger.info(
-                f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-            )
-
-            logger.debug(f"Starting workflow execution: {request.workflow.name}")
-            ctx = await self._execute_workflow(request)
-            logger.debug(
-                f"Workflow execution completed with state: {ctx.state.value}",
-            )
-
-            if ctx.has_failed:
-                logger.error(
-                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
-                )
-                logger.debug(
-                    f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
-                )
-            else:
+            with span_cm as span:
                 logger.info(
-                    f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    f"Execution Scheduled - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
-                logger.debug(f"Execution output: {ctx.output}")
+                logger.debug(f"Workflow input: {request.context.input}")
+
+                logger.debug(f"Claiming execution: {request.context.execution_id}")
+                response = await self.client.post(
+                    f"{base_url}/claim/{request.context.execution_id}",
+                    headers=headers,
+                )
+                response.raise_for_status()
+                claim_data = response.json()
+                logger.debug(f"Claim response: {claim_data}")
+
+                logger.info(
+                    f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+
+                if m:
+                    m.record_worker_execution_started(self.name)
+
+                try:
+                    logger.debug(f"Starting workflow execution: {request.workflow.name}")
+                    ctx = await self._execute_workflow(request)
+                    logger.debug(
+                        f"Workflow execution completed with state: {ctx.state.value}",
+                    )
+                finally:
+                    if m:
+                        m.record_worker_execution_ended(self.name)
+
+                if ctx.has_failed:
+                    if span:
+                        from opentelemetry.trace import StatusCode
+
+                        span.set_status(StatusCode.ERROR, str(ctx.output))
+                    logger.error(
+                        f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    )
+                    logger.debug(
+                        f"Failure details: {ctx.events[-1].value if ctx.events else 'No details'}",
+                    )
+                else:
+                    logger.info(
+                        f"Execution {ctx.state.value} - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                    )
+                    logger.debug(f"Execution output: {ctx.output}")
         except Exception as ex:
             logger.error(f"Error handling execution_scheduled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
@@ -313,25 +423,47 @@ class Worker:
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
 
-        # Decode the source code
-        source_code = base64.b64decode(request.workflow.source).decode("utf-8")
-        logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
+        cache_key = f"{request.workflow.name}:{request.workflow.version}"
+        module = None
+        wfunc = None
 
-        # Create a dynamic module for the workflow
-        module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
-        logger.debug(f"Creating module: {module_name}")
-        module_spec = importlib.util.spec_from_loader(module_name, loader=None)
-        module = importlib.util.module_from_spec(module_spec)  # type: ignore
-        sys.modules[module_name] = module
+        from flux.observability import get_metrics
 
-        # Execute the workflow code in the module context
-        logger.debug("Executing workflow source code")
-        exec(source_code, module.__dict__)
+        m = get_metrics()
+
+        if self._module_cache_ttl > 0:
+            cached = self._module_cache.get(cache_key)
+            if cached:
+                cached_module, cached_at = cached
+                if time.monotonic() - cached_at < self._module_cache_ttl:
+                    module = cached_module
+                    logger.debug(f"Module cache hit for {cache_key}")
+                    if m:
+                        m.record_module_cache("hit")
+                else:
+                    del self._module_cache[cache_key]
+
+        if module is None:
+            if m and self._module_cache_ttl > 0:
+                m.record_module_cache("miss")
+
+            source_code = base64.b64decode(request.workflow.source).decode("utf-8")
+            logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
+
+            module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+            logger.debug(f"Creating module: {module_name}")
+            module_spec = importlib.util.spec_from_loader(module_name, loader=None)
+            module = importlib.util.module_from_spec(module_spec)  # type: ignore
+            sys.modules[module_name] = module
+
+            logger.debug("Executing workflow source code")
+            exec(source_code, module.__dict__)
+
+            if self._module_cache_ttl > 0:
+                self._module_cache[cache_key] = (module, time.monotonic())
 
         ctx = request.context
 
-        # Find the workflow by searching for a workflow object with matching name
-        wfunc = None
         for obj in module.__dict__.values():
             if isinstance(obj, workflow) and obj.name == request.workflow.name:
                 wfunc = obj
@@ -353,6 +485,11 @@ class Worker:
 
             execution_time = asyncio.get_event_loop().time() - start_time
             logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
+
+            m = get_metrics()
+            if m:
+                status = "completed" if not ctx.has_failed else "failed"
+                m.record_workflow_completed(request.workflow.name, status, execution_time)
         else:
             logger.warning(f"Workflow {request.workflow.name} not found in module")
             raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
@@ -362,17 +499,16 @@ class Worker:
     async def _checkpoint(self, ctx: ExecutionContext):
         pending = self._pending_checkpoints.pop(ctx.execution_id, None)
 
+        if pending and not pending.done():
+            pending.cancel()
+            try:
+                await pending
+            except (asyncio.CancelledError, Exception):
+                pass
+
         if ctx.has_finished:
-            if pending and not pending.done():
-                pending.cancel()
-                try:
-                    await pending
-                except (asyncio.CancelledError, Exception):
-                    pass
             await self._send_checkpoint(ctx)
         else:
-            if pending and not pending.done():
-                await pending
             task = asyncio.create_task(self._send_checkpoint(ctx))
             task.add_done_callback(self._handle_checkpoint_error)
             self._pending_checkpoints[ctx.execution_id] = task
@@ -396,12 +532,14 @@ class Worker:
             ctx_dict = ctx.to_dict()
             logger.debug(f"Sending checkpoint data ({len(str(ctx_dict))} bytes)")
 
+            checkpoint_start = time.monotonic()
             response = await self.client.post(
                 f"{base_url}/checkpoint/{ctx.execution_id}",
                 json=ctx_dict,
                 headers=headers,
             )
             response.raise_for_status()
+            checkpoint_duration = time.monotonic() - checkpoint_start
             response_data = response.json()
 
             logger.debug(f"Checkpoint response: {response.status_code}")
@@ -409,6 +547,12 @@ class Worker:
             logger.info(
                 f"Checkpoint for execution '{ctx.workflow_name}' ({ctx.execution_id}) completed successfully",
             )
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_checkpoint(ctx.workflow_name, checkpoint_duration)
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")
@@ -427,14 +571,12 @@ class Worker:
     async def _get_resources_info(self):
         logger.debug("Gathering system resource information")
 
-        # Get CPU information
         logger.debug("Getting CPU information")
         cpu_total = psutil.cpu_count(logical=True)
         cpu_percent = psutil.cpu_percent(interval=0.5)
         cpu_available = cpu_total * (100 - cpu_percent) / 100
         logger.debug(f"CPU: total={cpu_total}, usage={cpu_percent}%, available={cpu_available:.2f}")
 
-        # Get memory information
         logger.debug("Getting memory information")
         memory = psutil.virtual_memory()
         memory_total = memory.total
@@ -443,14 +585,12 @@ class Worker:
             f"Memory: total={memory_total}, available={memory_available}, percent={memory.percent}%",
         )
 
-        # Get disk information
         logger.debug("Getting disk information")
         disk = psutil.disk_usage("/")
         disk_total = disk.total
         disk_free = disk.free
         logger.debug(f"Disk: total={disk_total}, free={disk_free}, percent={disk.percent}%")
 
-        # Get GPU information
         logger.debug("Getting GPU information")
         gpus = await self._get_gpu_info()
 
