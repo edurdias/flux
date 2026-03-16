@@ -280,7 +280,7 @@ async def generate_rag_response(
                     "If the context doesn't contain relevant information, say so clearly. "
                     "Be concise and accurate.",
                 ),
-            ]
+            ],
         )
 
         llm = ChatOllama(model=model, base_url=ollama_url)
@@ -514,5 +514,5 @@ if __name__ == "__main__":  # pragma: no cover
         print("   ollama pull nomic-embed-text")
         print("3. Dependencies are installed:")
         print(
-            "   pip install langchain-core langchain-ollama langchain-chroma langchain-community langchain-text-splitters"
+            "   pip install langchain-core langchain-ollama langchain-chroma langchain-community langchain-text-splitters",
         )
