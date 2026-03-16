@@ -61,6 +61,10 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def unclaim(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def list(
         self,
         workflow_name: str | None = None,
@@ -270,6 +274,24 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
                 session.commit()
                 return ctx
             raise ExecutionContextNotFoundError(execution_id)
+
+    def unclaim(self, execution_id: str) -> ExecutionContext:
+        """Reset an active execution back to CREATED for rescheduling."""
+        reclaimable = {
+            ExecutionState.SCHEDULED,
+            ExecutionState.CLAIMED,
+            ExecutionState.RUNNING,
+        }
+        with self.session() as session:
+            model = session.get(ExecutionContextModel, execution_id)
+            if not model:
+                raise ExecutionContextNotFoundError(execution_id)
+            if model.state not in reclaimable:
+                return model.to_plain()
+            model.state = ExecutionState.CREATED
+            model.worker_name = None
+            session.commit()
+            return model.to_plain()
 
     def _get_additional_events(
         self,

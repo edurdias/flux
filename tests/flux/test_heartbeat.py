@@ -55,6 +55,8 @@ class TestServerHeartbeatReaper:
             settings.workers.heartbeat_interval = 2
             settings.workers.heartbeat_timeout = 5
             settings.workers.offline_ttl = 10
+            settings.workers.eviction_grace_period = 10
+            settings.observability.enabled = False
             mock_conf.get.return_value.settings = settings
             s = Server(host="localhost", port=8000)
         return s
@@ -63,13 +65,15 @@ class TestServerHeartbeatReaper:
         assert server._worker_last_pong == {}
         assert server._worker_cache == {}
         assert server._worker_offline_since == {}
+        assert server._worker_stale_since == {}
         assert server.heartbeat_interval == 2
         assert server.heartbeat_timeout == 5
         assert server.offline_ttl == 10
+        assert server.eviction_grace_period == 10
 
     @pytest.mark.asyncio
-    async def test_reaper_evicts_stale_worker(self, server):
-        """Reaper should evict a worker whose last pong exceeds timeout."""
+    async def test_reaper_marks_stale_then_evicts(self, server):
+        """Reaper should first mark a worker as stale, then evict after grace period."""
         server._worker_names.append("w1")
         server._worker_events["w1"] = asyncio.Event()
         server._worker_last_pong["w1"] = time.monotonic() - 10  # 10s ago, timeout is 5
@@ -81,7 +85,33 @@ class TestServerHeartbeatReaper:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return  # Let first iteration run
+                return  # First iteration: marks stale
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
+
+        # After one iteration: worker should be stale but NOT evicted yet
+        assert "w1" in server._worker_stale_since
+        assert "w1" in server._worker_names  # Still connected during grace period
+
+    @pytest.mark.asyncio
+    async def test_reaper_evicts_after_grace_period(self, server):
+        """Reaper should evict a worker after the grace period expires."""
+        server._worker_names.append("w1")
+        server._worker_events["w1"] = asyncio.Event()
+        server._worker_last_pong["w1"] = time.monotonic() - 20  # 20s ago
+        server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
+        # Already stale for longer than grace period
+        server._worker_stale_since["w1"] = time.monotonic() - 15
+
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
             raise asyncio.CancelledError()
 
         with patch("asyncio.sleep", side_effect=sleep_then_cancel):
@@ -90,8 +120,34 @@ class TestServerHeartbeatReaper:
         assert "w1" not in server._worker_names
         assert "w1" not in server._worker_last_pong
         assert "w1" not in server._worker_events
+        assert "w1" not in server._worker_stale_since
         assert "w1" in server._worker_offline_since
         assert server._worker_cache["w1"].status == "offline"
+
+    @pytest.mark.asyncio
+    async def test_reaper_recovers_worker_that_pongs(self, server):
+        """Worker that pongs during grace period should be recovered."""
+        server._worker_names.append("w1")
+        server._worker_events["w1"] = asyncio.Event()
+        server._worker_last_pong["w1"] = time.monotonic()  # Just ponged
+        server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
+        server._worker_stale_since["w1"] = time.monotonic() - 5  # Was stale 5s ago
+
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=sleep_then_cancel):
+            await server._run_heartbeat_reaper()
+
+        assert "w1" in server._worker_names
+        assert "w1" not in server._worker_stale_since
+        assert server._worker_cache["w1"].status == "online"
 
     @pytest.mark.asyncio
     async def test_reaper_does_not_evict_healthy_worker(self, server):
@@ -158,6 +214,36 @@ class TestServerHeartbeatReaper:
         assert "recent" in server._worker_offline_since
         assert "recent" in server._worker_cache
 
+    @pytest.mark.asyncio
+    async def test_reaper_unclaims_executions_on_eviction(self, server):
+        """Reaper should unclaim executions when evicting a worker."""
+        server._worker_names.append("w1")
+        server._worker_events["w1"] = asyncio.Event()
+        server._worker_last_pong["w1"] = time.monotonic() - 20
+        server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
+        server._worker_stale_since["w1"] = time.monotonic() - 15
+        server._worker_executions["w1"] = {"exec-1", "exec-2"}
+
+        call_count = 0
+
+        async def sleep_then_cancel(delay):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        with (
+            patch("asyncio.sleep", side_effect=sleep_then_cancel),
+            patch("flux.server.ContextManager") as mock_cm,
+        ):
+            mock_manager = MagicMock()
+            mock_cm.create.return_value = mock_manager
+            await server._run_heartbeat_reaper()
+
+        assert "w1" not in server._worker_executions
+        assert mock_manager.unclaim.call_count == 2
+
 
 class TestWorkerCache:
     """Tests for the in-memory worker cache."""
@@ -170,6 +256,8 @@ class TestWorkerCache:
             settings.workers.heartbeat_interval = 10
             settings.workers.heartbeat_timeout = 30
             settings.workers.offline_ttl = 7200
+            settings.workers.eviction_grace_period = 30
+            settings.observability.enabled = False
             mock_conf.get.return_value.settings = settings
             s = Server(host="localhost", port=8000)
         return s
@@ -257,6 +345,7 @@ class TestWorkerReconnect:
         mock_settings.workers.server_url = "http://localhost:8000"
         mock_settings.workers.default_timeout = 0
         mock_settings.workers.reconnect_max_delay = 4
+        mock_settings.workers.module_cache_ttl = 300
 
         with patch("flux.config.Configuration.get") as mock_get:
             mock_get.return_value.settings = mock_settings
@@ -274,6 +363,8 @@ class TestWorkerReconnect:
             register_count += 1
             if register_count < 3:
                 raise ConnectionError("Server down")
+            worker._registered = True
+            worker.session_token = "token"
 
         connect_count = 0
 
@@ -291,6 +382,7 @@ class TestWorkerReconnect:
             with pytest.raises(KeyboardInterrupt):
                 await worker._run()
 
+        # First call registers (fails), second call registers (fails), third registers (succeeds) then connects
         assert register_count == 3
         assert mock_sleep.call_count == 2
 

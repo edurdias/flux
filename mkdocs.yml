@@ -85,6 +85,7 @@ nav:
   - Advanced Features:
       - Task Patterns: advanced-features/task-patterns.md
       - Workflow Controls: advanced-features/workflow-controls.md
+      - Observability: advanced-features/observability.md
     # - Output Storage: advanced-features/output-storage.md
     # - Secrets Management: advanced-features/secrets-management.md
   # - Examples:

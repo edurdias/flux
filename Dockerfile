@@ -1,5 +1,6 @@
 ARG PYTHON_IMAGE_VERSION=3.12
 ARG FLUX_VERSION=latest
+# Extra packages to install (e.g. "flux-core[observability]" for OpenTelemetry support)
 ARG EXTRA_PACKAGES=""
 
 FROM python:${PYTHON_IMAGE_VERSION}-slim AS runtime
