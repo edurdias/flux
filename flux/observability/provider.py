@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from flux.observability.config import ObservabilityConfig
 
 logger = logging.getLogger("flux.observability")
 
+_lock = threading.Lock()
 _meter_provider = None
 _tracer_provider = None
 _logger_provider = None
@@ -27,6 +29,13 @@ def _check_dependencies():
 
 def setup_providers(config: ObservabilityConfig):
     """Initialize MeterProvider, TracerProvider, and LoggerProvider."""
+    global _meter_provider, _tracer_provider, _logger_provider
+
+    with _lock:
+        _setup_providers_unlocked(config)
+
+
+def _setup_providers_unlocked(config: ObservabilityConfig):
     global _meter_provider, _tracer_provider, _logger_provider
 
     _check_dependencies()
@@ -112,9 +121,10 @@ def setup_providers(config: ObservabilityConfig):
     setup_log_filter(logging.getLogger("flux"))
 
     logger.info(
-        f"Observability initialized (prometheus={config.prometheus_enabled}, "
-        f"otlp={'enabled' if config.otlp_endpoint else 'disabled'}, "
-        f"sample_rate={config.trace_sample_rate})",
+        "Observability initialized (prometheus=%s, otlp=%s, sample_rate=%s)",
+        config.prometheus_enabled,
+        "enabled" if config.otlp_endpoint else "disabled",
+        config.trace_sample_rate,
     )
 
 
@@ -122,25 +132,26 @@ def shutdown_providers():
     """Flush and shut down all providers."""
     global _meter_provider, _tracer_provider, _logger_provider, _flux_metrics
 
-    from flux.observability.logging import teardown_log_filter
+    with _lock:
+        from flux.observability.logging import teardown_log_filter
 
-    teardown_log_filter(logging.getLogger("flux"))
+        teardown_log_filter(logging.getLogger("flux"))
 
-    _flux_metrics = None
+        _flux_metrics = None
 
-    if _meter_provider:
-        _meter_provider.shutdown()
-        _meter_provider = None
+        if _meter_provider:
+            _meter_provider.shutdown()
+            _meter_provider = None
 
-    if _tracer_provider:
-        _tracer_provider.shutdown()
-        _tracer_provider = None
+        if _tracer_provider:
+            _tracer_provider.shutdown()
+            _tracer_provider = None
 
-    if _logger_provider:
-        _logger_provider.shutdown()
-        _logger_provider = None
+        if _logger_provider:
+            _logger_provider.shutdown()
+            _logger_provider = None
 
-    logger.info("Observability shut down")
+        logger.info("Observability shut down")
 
 
 def get_meter_provider():

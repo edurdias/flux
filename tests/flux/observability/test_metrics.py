@@ -30,6 +30,10 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_name"] == "my_workflow"
+        assert dp.attributes["status"] == "started"
+        assert dp.value == 1
 
     def test_record_workflow_completed(self):
         m, reader = self._create_metrics()
@@ -37,9 +41,26 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_name"] == "my_workflow"
+        assert dp.attributes["status"] == "completed"
+        assert dp.value == 1
 
         duration = self._get_metric(reader, "flux_workflow_execution_duration_seconds")
         assert duration is not None
+        assert duration.data.data_points[0].sum == 1.5
+
+    def test_record_workflow_completed_zero_duration_skips_histogram(self):
+        m, reader = self._create_metrics()
+        m.record_workflow_completed("my_workflow", "cancelled", 0)
+
+        metric = self._get_metric(reader, "flux_workflow_executions_total")
+        assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["status"] == "cancelled"
+
+        duration = self._get_metric(reader, "flux_workflow_execution_duration_seconds")
+        assert duration is None
 
     def test_record_task_started(self):
         m, reader = self._create_metrics()
@@ -47,6 +68,10 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_name"] == "wf"
+        assert dp.attributes["task_name"] == "my_task"
+        assert dp.attributes["status"] == "started"
 
     def test_record_task_completed(self):
         m, reader = self._create_metrics()
@@ -54,9 +79,12 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["status"] == "completed"
 
         duration = self._get_metric(reader, "flux_task_execution_duration_seconds")
         assert duration is not None
+        assert duration.data.data_points[0].sum == 0.5
 
     def test_record_task_retry(self):
         m, reader = self._create_metrics()
@@ -64,6 +92,10 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_task_retries_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_name"] == "wf"
+        assert dp.attributes["task_name"] == "my_task"
+        assert dp.value == 1
 
     def test_record_worker_registered(self):
         m, reader = self._create_metrics()
@@ -71,6 +103,9 @@ class TestFluxMetrics:
 
         registrations = self._get_metric(reader, "flux_worker_registrations_total")
         assert registrations is not None
+        dp = registrations.data.data_points[0]
+        assert dp.attributes["worker_name"] == "worker-1"
+        assert dp.value == 1
 
     def test_record_worker_connected(self):
         m, reader = self._create_metrics()
@@ -85,6 +120,10 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_worker_disconnections_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["worker_name"] == "worker-1"
+        assert dp.attributes["reason"] == "evicted"
+        assert dp.value == 1
 
     def test_record_worker_execution_lifecycle(self):
         m, reader = self._create_metrics()
@@ -100,6 +139,9 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_schedule_triggers_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["schedule_name"] == "nightly"
+        assert dp.attributes["outcome"] == "success"
 
     def test_record_http_request(self):
         m, reader = self._create_metrics()
@@ -107,9 +149,14 @@ class TestFluxMetrics:
 
         count = self._get_metric(reader, "flux_http_requests_total")
         assert count is not None
+        dp = count.data.data_points[0]
+        assert dp.attributes["method"] == "GET"
+        assert dp.attributes["endpoint"] == "/workflows"
+        assert dp.attributes["status_code"] == "200"
 
         duration = self._get_metric(reader, "flux_http_request_duration_seconds")
         assert duration is not None
+        assert duration.data.data_points[0].sum == 0.05
 
     def test_record_checkpoint_with_duration(self):
         m, reader = self._create_metrics()
@@ -117,9 +164,12 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_checkpoints_total")
         assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_name"] == "my_workflow"
 
         duration = self._get_metric(reader, "flux_checkpoint_duration_seconds")
         assert duration is not None
+        assert duration.data.data_points[0].sum == 0.15
 
     def test_queue_depth_and_schedule_to_start(self):
         m, reader = self._create_metrics()
@@ -139,6 +189,15 @@ class TestFluxMetrics:
 
         metric = self._get_metric(reader, "flux_module_cache_total")
         assert metric is not None
+        hit_dp = None
+        miss_dp = None
+        for dp in metric.data.data_points:
+            if dp.attributes["result"] == "hit":
+                hit_dp = dp
+            elif dp.attributes["result"] == "miss":
+                miss_dp = dp
+        assert hit_dp is not None and hit_dp.value == 1
+        assert miss_dp is not None and miss_dp.value == 1
 
 
 class TestNormalizePath:
@@ -154,10 +213,18 @@ class TestNormalizePath:
             == "/workers/{worker}/checkpoint/{execution_id}"
         )
 
-    def test_normalizes_execution_path(self):
+    def test_normalizes_workflow_name_in_paths(self):
         assert (
             _normalize_path("/workflows/hello_world/executions/abc123")
-            == "/workflows/hello_world/executions/{execution_id}"
+            == "/workflows/{workflow_name}/executions/{execution_id}"
+        )
+        assert (
+            _normalize_path("/workflows/my_pipeline/run/async")
+            == "/workflows/{workflow_name}/run/async"
+        )
+        assert (
+            _normalize_path("/workflows/my_pipeline/cancel/exec-123")
+            == "/workflows/{workflow_name}/cancel/exec-123"
         )
 
     def test_preserves_simple_paths(self):

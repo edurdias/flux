@@ -23,6 +23,7 @@ def mock_config():
     mock_settings = MagicMock()
     mock_settings.workers.bootstrap_token = "test-bootstrap-token"
     mock_settings.workers.server_url = "http://localhost:8000"
+    mock_settings.observability.enabled = False
 
     with patch.object(Configuration, "get") as mock_get:
         mock_config = MagicMock()

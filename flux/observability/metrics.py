@@ -13,6 +13,7 @@ _PATH_PATTERNS = [
     (re.compile(r"/workers/[^/]+/"), "/workers/{worker}/"),
     (re.compile(r"/claim/[^/]+"), "/claim/{execution_id}"),
     (re.compile(r"/checkpoint/[^/]+"), "/checkpoint/{execution_id}"),
+    (re.compile(r"/workflows/[^/]+/"), "/workflows/{workflow_name}/"),
     (re.compile(r"/executions/[^/]+"), "/executions/{execution_id}"),
     (re.compile(r"/schedules/[^/]+"), "/schedules/{schedule_id}"),
 ]
@@ -113,7 +114,8 @@ class FluxMetrics:
 
     def record_workflow_completed(self, workflow_name: str, status: str, duration: float):
         self.workflow_executions.add(1, {"workflow_name": workflow_name, "status": status})
-        self.workflow_execution_duration.record(duration, {"workflow_name": workflow_name})
+        if duration > 0:
+            self.workflow_execution_duration.record(duration, {"workflow_name": workflow_name})
 
     def record_task_started(self, workflow_name: str, task_name: str):
         self.task_executions.add(

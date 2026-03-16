@@ -1,6 +1,4 @@
 # Observability profile - adds OpenTelemetry Collector, Prometheus, Grafana, and Jaeger
-version: '3.8'
-
 services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest

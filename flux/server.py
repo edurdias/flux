@@ -1023,6 +1023,12 @@ class Server:
                 manager.save(ctx)
                 self._execution_queue_times.pop(execution_id, None)
 
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_workflow_completed(workflow_name, "cancel_requested", 0)
+
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.
                 if mode == "sync":
@@ -1399,6 +1405,7 @@ class Server:
                 logger.debug(f"Checkpoint saved for {execution_id}, state: {ctx.state.value}")
 
                 if ctx.has_finished:
+                    self._execution_queue_times.pop(execution_id, None)
                     worker_execs = self._worker_executions.get(name)
                     if worker_execs:
                         worker_execs.discard(execution_id)

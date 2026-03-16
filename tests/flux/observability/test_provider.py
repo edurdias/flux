@@ -9,16 +9,23 @@ import pytest
 from flux.observability.config import ObservabilityConfig
 
 
+@pytest.fixture(autouse=True)
+def clean_observability_state():
+    """Ensure observability is shut down after each test to prevent state leakage."""
+    yield
+    from flux.observability import shutdown
+
+    shutdown()
+
+
 class TestProviderLifecycle:
     def test_setup_sets_enabled_flag(self):
-        from flux.observability import is_enabled, setup, shutdown
+        from flux.observability import is_enabled, setup
 
         assert is_enabled() is False
         config = ObservabilityConfig(enabled=True)
         setup(config)
         assert is_enabled() is True
-        shutdown()
-        assert is_enabled() is False
 
     def test_setup_disabled_is_noop(self):
         from flux.observability import is_enabled, setup
@@ -40,22 +47,20 @@ class TestProviderLifecycle:
         shutdown()  # Should not raise
 
     def test_get_meter_returns_meter(self):
-        from flux.observability import get_meter, setup, shutdown
+        from flux.observability import get_meter, setup
 
         config = ObservabilityConfig(enabled=True)
         setup(config)
         meter = get_meter("test")
         assert meter is not None
-        shutdown()
 
     def test_get_tracer_returns_tracer(self):
-        from flux.observability import get_tracer, setup, shutdown
+        from flux.observability import get_tracer, setup
 
         config = ObservabilityConfig(enabled=True)
         setup(config)
         tracer = get_tracer("test")
         assert tracer is not None
-        shutdown()
 
     def test_get_meter_returns_none_when_disabled(self):
         from flux.observability import get_meter
@@ -71,3 +76,12 @@ class TestProviderLifecycle:
         from flux.observability import get_metrics
 
         assert get_metrics() is None
+
+    def test_shutdown_resets_enabled_flag(self):
+        from flux.observability import is_enabled, setup, shutdown
+
+        config = ObservabilityConfig(enabled=True)
+        setup(config)
+        assert is_enabled() is True
+        shutdown()
+        assert is_enabled() is False
