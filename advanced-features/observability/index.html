@@ -11,6 +11,8 @@
       
       
       
+        <link rel="prev" href="../workflow-controls/">
+      
       
       
         
@@ -21,7 +23,7 @@
     
     
       
-        <title>Flux Workflow Cancellation - Flux Documentation</title>
+        <title>Observability - Flux Documentation</title>
       
     
     
@@ -74,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#flux-workflow-cancellation" class="md-skip">
+        <a href="#observability" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Flux Workflow Cancellation
+              Observability
             
           </span>
         </div>
@@ -771,8 +773,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -791,13 +795,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -818,7 +820,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -889,10 +891,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../observability/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -908,6 +937,259 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workflow-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-pipeline-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Pipeline Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worker-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedule-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#http-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributed Tracing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributed Tracing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#span-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Span Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#span-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Span Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#log-correlation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log Correlation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker-compose-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Compose Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-prometheus-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Prometheus Queries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#grafana-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Grafana Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jaeger-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jaeger Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -947,10 +1229,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Installation
       
     </span>
   </a>
@@ -958,33 +1240,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cancellation-states" class="md-nav__link">
+  <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Cancellation States
+        Configuration
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How to Use
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How to Use">
+    <nav class="md-nav" aria-label="Configuration">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#api-endpoint" class="md-nav__link">
+  <a href="#configuration-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API Endpoint
+        Configuration Reference
       
     </span>
   </a>
@@ -992,10 +1263,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#command-line-interface" class="md-nav__link">
+  <a href="#behavior" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Command Line Interface
+        Behavior
       
     </span>
   </a>
@@ -1008,10 +1279,132 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example
+        Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workflow-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#execution-pipeline-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Pipeline Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#worker-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedule-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#http-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributed-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributed Tracing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributed Tracing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#span-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Span Hierarchy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#span-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Span Attributes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#log-correlation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Log Correlation
       
     </span>
   </a>
@@ -1019,24 +1412,52 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#testing" class="md-nav__link">
+  <a href="#docker-compose-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Testing
+        Docker Compose Setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Compose Setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-prometheus-queries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example Prometheus Queries
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#implementation-details" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#grafana-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Implementation Details
+        Grafana Setup
       
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jaeger-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jaeger Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1060,64 +1481,361 @@
   
 
 
-<h1 id="flux-workflow-cancellation">Flux Workflow Cancellation<a class="headerlink" href="#flux-workflow-cancellation" title="Permanent link">&para;</a></h1>
-<p>This document provides information about the cancellation feature in Flux.</p>
-<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>The cancellation feature allows you to cancel workflows that are currently running. This is useful for long-running workflows that you want to stop before they complete.</p>
-<h2 id="cancellation-states">Cancellation States<a class="headerlink" href="#cancellation-states" title="Permanent link">&para;</a></h2>
-<p>A workflow can be in one of the following cancellation-related states:</p>
+<h1 id="observability">Observability<a class="headerlink" href="#observability" title="Permanent link">&para;</a></h1>
+<p>Flux provides built-in observability through <a href="https://opentelemetry.io/">OpenTelemetry</a> — metrics, distributed tracing, and log correlation. The feature is <strong>opt-in</strong> with zero overhead when disabled.</p>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<p>Observability requires optional dependencies:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>flux-core<span class="o">[</span>observability<span class="o">]</span>
+</code></pre></div>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Add the <code>[flux.observability]</code> section to your <code>flux.toml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[flux.observability]</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">service_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux&quot;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">prometheus_enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">otlp_endpoint</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:4317&quot;</span><span class="w">  </span><span class="c1"># Optional: OTLP collector</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">trace_sample_rate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">metric_export_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
+</code></pre></div>
+<p>Or use environment variables:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">FLUX_OBSERVABILITY__ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nv">FLUX_OBSERVABILITY__SERVICE_NAME</span><span class="o">=</span>flux
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nv">FLUX_OBSERVABILITY__PROMETHEUS_ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nv">FLUX_OBSERVABILITY__OTLP_ENDPOINT</span><span class="o">=</span>http://localhost:4317
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nv">FLUX_OBSERVABILITY__TRACE_SAMPLE_RATE</span><span class="o">=</span><span class="m">1</span>.0
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nv">FLUX_OBSERVABILITY__METRIC_EXPORT_INTERVAL</span><span class="o">=</span><span class="m">60</span>
+</code></pre></div>
+<h3 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td><code>false</code></td>
+<td>Enable observability</td>
+</tr>
+<tr>
+<td><code>service_name</code></td>
+<td><code>"flux"</code></td>
+<td>OpenTelemetry service name</td>
+</tr>
+<tr>
+<td><code>prometheus_enabled</code></td>
+<td><code>true</code></td>
+<td>Expose <code>/metrics</code> endpoint</td>
+</tr>
+<tr>
+<td><code>otlp_endpoint</code></td>
+<td><code>null</code></td>
+<td>OTLP collector gRPC endpoint</td>
+</tr>
+<tr>
+<td><code>trace_sample_rate</code></td>
+<td><code>1.0</code></td>
+<td>Trace sampling rate (0.0 to 1.0)</td>
+</tr>
+<tr>
+<td><code>metric_export_interval</code></td>
+<td><code>60</code></td>
+<td>OTLP push interval in seconds</td>
+</tr>
+<tr>
+<td><code>resource_attributes</code></td>
+<td><code>{}</code></td>
+<td>Additional OTel resource attributes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="behavior">Behavior<a class="headerlink" href="#behavior" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>CANCELLING</code> - The workflow is in the process of being cancelled</li>
-<li><code>CANCELLED</code> - The workflow has been successfully cancelled</li>
+<li><strong><code>enabled: false</code></strong> (default) — nothing initializes, no overhead</li>
+<li><strong><code>enabled: true</code></strong>, no <code>otlp_endpoint</code> — Prometheus <code>/metrics</code> only</li>
+<li><strong><code>enabled: true</code></strong> with <code>otlp_endpoint</code> — both Prometheus and OTLP push</li>
 </ul>
-<h2 id="how-to-use">How to Use<a class="headerlink" href="#how-to-use" title="Permanent link">&para;</a></h2>
-<h3 id="api-endpoint">API Endpoint<a class="headerlink" href="#api-endpoint" title="Permanent link">&para;</a></h3>
-<p>You can cancel a workflow using the API endpoint:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>GET /workflows/{workflow_name}/cancel/{execution_id}?mode=async
+<h2 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h2>
+<p>Flux exposes 18 metric instruments accessible via the Prometheus <code>/metrics</code> endpoint at <code>http://localhost:8000/metrics</code>.</p>
+<h3 id="workflow-metrics">Workflow Metrics<a class="headerlink" href="#workflow-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_workflow_executions_total</code></td>
+<td>Counter</td>
+<td><code>workflow_name</code>, <code>status</code></td>
+<td>Workflow executions by status (<code>started</code>, <code>completed</code>, <code>failed</code>, <code>cancelled</code>)</td>
+</tr>
+<tr>
+<td><code>flux_workflow_execution_duration_seconds</code></td>
+<td>Histogram</td>
+<td><code>workflow_name</code></td>
+<td>Worker-side workflow execution duration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="task-metrics">Task Metrics<a class="headerlink" href="#task-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_task_executions_total</code></td>
+<td>Counter</td>
+<td><code>workflow_name</code>, <code>task_name</code>, <code>status</code></td>
+<td>Task executions by status (<code>started</code>, <code>completed</code>, <code>failed</code>)</td>
+</tr>
+<tr>
+<td><code>flux_task_execution_duration_seconds</code></td>
+<td>Histogram</td>
+<td><code>workflow_name</code>, <code>task_name</code></td>
+<td>Per-task execution duration</td>
+</tr>
+<tr>
+<td><code>flux_task_retries_total</code></td>
+<td>Counter</td>
+<td><code>workflow_name</code>, <code>task_name</code></td>
+<td>Task retry attempts</td>
+</tr>
+</tbody>
+</table>
+<h3 id="execution-pipeline-metrics">Execution Pipeline Metrics<a class="headerlink" href="#execution-pipeline-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_execution_queue_depth</code></td>
+<td>UpDownCounter</td>
+<td>—</td>
+<td>Executions waiting for workers</td>
+</tr>
+<tr>
+<td><code>flux_execution_schedule_to_start_seconds</code></td>
+<td>Histogram</td>
+<td>—</td>
+<td>Time from queued to worker claim</td>
+</tr>
+<tr>
+<td><code>flux_checkpoints_total</code></td>
+<td>Counter</td>
+<td><code>workflow_name</code></td>
+<td>Checkpoint events</td>
+</tr>
+<tr>
+<td><code>flux_checkpoint_duration_seconds</code></td>
+<td>Histogram</td>
+<td><code>workflow_name</code></td>
+<td>Checkpoint HTTP round-trip duration</td>
+</tr>
+</tbody>
+</table>
+<h3 id="worker-metrics">Worker Metrics<a class="headerlink" href="#worker-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_workers_active</code></td>
+<td>UpDownCounter</td>
+<td>—</td>
+<td>Connected workers</td>
+</tr>
+<tr>
+<td><code>flux_worker_registrations_total</code></td>
+<td>Counter</td>
+<td><code>worker_name</code></td>
+<td>Registration events</td>
+</tr>
+<tr>
+<td><code>flux_worker_disconnections_total</code></td>
+<td>Counter</td>
+<td><code>worker_name</code>, <code>reason</code></td>
+<td>Disconnection events</td>
+</tr>
+<tr>
+<td><code>flux_worker_executions_active</code></td>
+<td>UpDownCounter</td>
+<td><code>worker_name</code></td>
+<td>Concurrent executions per worker</td>
+</tr>
+<tr>
+<td><code>flux_module_cache_total</code></td>
+<td>Counter</td>
+<td><code>result</code></td>
+<td>Module cache lookups (<code>hit</code>, <code>miss</code>)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="schedule-metrics">Schedule Metrics<a class="headerlink" href="#schedule-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_schedule_triggers_total</code></td>
+<td>Counter</td>
+<td><code>schedule_name</code>, <code>outcome</code></td>
+<td>Schedule trigger outcomes</td>
+</tr>
+</tbody>
+</table>
+<h3 id="http-metrics">HTTP Metrics<a class="headerlink" href="#http-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux_http_requests_total</code></td>
+<td>Counter</td>
+<td><code>method</code>, <code>endpoint</code>, <code>status_code</code></td>
+<td>HTTP request count (paths normalized)</td>
+</tr>
+<tr>
+<td><code>flux_http_request_duration_seconds</code></td>
+<td>Histogram</td>
+<td><code>method</code>, <code>endpoint</code></td>
+<td>HTTP request latency</td>
+</tr>
+</tbody>
+</table>
+<h2 id="distributed-tracing">Distributed Tracing<a class="headerlink" href="#distributed-tracing" title="Permanent link">&para;</a></h2>
+<p>When enabled, Flux creates spans for workflow executions, task executions, and HTTP requests. Trace context is automatically propagated between the server and workers using W3C <code>traceparent</code>/<code>tracestate</code> headers.</p>
+<h3 id="span-hierarchy">Span Hierarchy<a class="headerlink" href="#span-hierarchy" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>[Server] HTTP POST /workflows/{name}/run/async
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>  -- (trace context propagated via SSE event) --
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>  +-- [Worker] flux.workflow.execute
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>        +-- [Worker] flux.task.execute {task_name}
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>        +-- [Worker] flux.task.execute {task_name}
 </code></pre></div>
-<p>Parameters:
-- <code>workflow_name</code> - The name of the workflow
-- <code>execution_id</code> - The ID of the workflow execution
-- <code>mode</code> - Either <code>sync</code> or <code>async</code> (defaults to <code>async</code>)
-  - <code>sync</code> - Waits for the cancellation to complete before responding
-  - <code>async</code> - Initiates the cancellation and returns immediately</p>
-<h3 id="command-line-interface">Command Line Interface<a class="headerlink" href="#command-line-interface" title="Permanent link">&para;</a></h3>
-<p>You can also cancel workflows using the Flux CLI:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Asynchronous cancellation (returns immediately)</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>workflow<span class="w"> </span>cancel<span class="w"> </span>&lt;workflow_name&gt;<span class="w"> </span>&lt;execution_id&gt;
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Synchronous cancellation (waits for the cancellation to complete)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>flux<span class="w"> </span>workflow<span class="w"> </span>cancel<span class="w"> </span>&lt;workflow_name&gt;<span class="w"> </span>&lt;execution_id&gt;<span class="w"> </span>--sync
+<h3 id="span-attributes">Span Attributes<a class="headerlink" href="#span-attributes" title="Permanent link">&para;</a></h3>
+<p>All custom attributes use the <code>flux.*</code> namespace:</p>
+<ul>
+<li><code>flux.workflow.name</code> — Workflow name</li>
+<li><code>flux.execution.id</code> — Execution ID</li>
+<li><code>flux.task.name</code> — Task name</li>
+<li><code>flux.worker.name</code> — Worker name</li>
+</ul>
+<h2 id="log-correlation">Log Correlation<a class="headerlink" href="#log-correlation" title="Permanent link">&para;</a></h2>
+<p>When observability is enabled, an OTel log handler is added to the root <code>flux</code> logger. Log records emitted inside an active span automatically include <code>otelTraceID</code> and <code>otelSpanID</code> attributes, allowing you to correlate logs with traces.</p>
+<h2 id="docker-compose-setup">Docker Compose Setup<a class="headerlink" href="#docker-compose-setup" title="Permanent link">&para;</a></h2>
+<p>The easiest way to run Flux with full observability is using the Docker Compose observability profile:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker-compose.yml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-f<span class="w"> </span>docker/profiles/observability.yml<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>up<span class="w"> </span>-d
 </code></pre></div>
-<p>This command will send a cancellation request to the server and display the current status of the workflow.</p>
-<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<p>See <code>examples/cancellation.py</code> for a complete example of how to cancel a workflow.</p>
-<p>Run the example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>examples/cancellation.py
+<p>This starts:</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>URL</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Flux Server</td>
+<td><code>http://localhost:8000</code></td>
+<td>Workflow engine with <code>/metrics</code></td>
+</tr>
+<tr>
+<td>Prometheus</td>
+<td><code>http://localhost:9090</code></td>
+<td>Metrics storage and queries</td>
+</tr>
+<tr>
+<td>Grafana</td>
+<td><code>http://localhost:3000</code></td>
+<td>Dashboards (admin/admin)</td>
+</tr>
+<tr>
+<td>Jaeger</td>
+<td><code>http://localhost:16686</code></td>
+<td>Trace visualization</td>
+</tr>
+<tr>
+<td>OTel Collector</td>
+<td><code>localhost:4317</code></td>
+<td>Receives OTLP data</td>
+</tr>
+</tbody>
+</table>
+<h3 id="example-prometheus-queries">Example Prometheus Queries<a class="headerlink" href="#example-prometheus-queries" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Workflow execution rate (per minute)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kr">rate</span><span class="o">(</span><span class="nv">flux_workflow_executions_total</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">60</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Average workflow duration</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="kr">rate</span><span class="o">(</span><span class="nv">flux_workflow_execution_duration_seconds_sum</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">flux_workflow_execution_duration_seconds_count</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Execution queue depth</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="nv">flux_execution_queue_depth</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="c1"># Task failure rate</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="kr">rate</span><span class="o">(</span><span class="nv">flux_task_executions_total</span><span class="p">{</span><span class="nl">status</span><span class="o">=</span><span class="p">&quot;</span><span class="s">failed</span><span class="p">&quot;}[</span><span class="s">5m</span><span class="p">]</span><span class="o">)</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="c1"># HTTP request latency (p95)</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="kr">histogram_quantile</span><span class="o">(</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="kr">rate</span><span class="o">(</span><span class="nv">flux_http_request_duration_seconds_bucket</span><span class="p">[</span><span class="s">5m</span><span class="p">]</span><span class="o">))</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="c1"># Connected workers</span>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="nv">flux_workers_active</span>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="c1"># Execution queue depth</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="nv">flux_execution_queue_depth</span>
 </code></pre></div>
-<p>This example demonstrates:
-1. Starting a long-running workflow
-2. Requesting cancellation after 5 seconds
-3. Handling the cancellation in the workflow</p>
-<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
-<p>To run the tests for the cancellation feature:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pytest<span class="w"> </span>tests/flux/test_cancellation_integration.py
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>pytest<span class="w"> </span>tests/flux/domain/test_execution_context.py
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>pytest<span class="w"> </span>tests/flux/test_context_manager_cancellation.py
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>pytest<span class="w"> </span>tests/flux/test_worker_cancellation.py
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>pytest<span class="w"> </span>tests/flux/test_server_cancellation.py
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>pytest<span class="w"> </span>tests/examples/test_cancellation.py
-</code></pre></div>
-<h2 id="implementation-details">Implementation Details<a class="headerlink" href="#implementation-details" title="Permanent link">&para;</a></h2>
-<p>The cancellation feature works as follows:</p>
+<h3 id="grafana-setup">Grafana Setup<a class="headerlink" href="#grafana-setup" title="Permanent link">&para;</a></h3>
 <ol>
-<li>When a cancellation is requested, the execution context is put into the <code>CANCELLING</code> state</li>
-<li>The server notifies the worker that is executing the workflow</li>
-<li>The worker cancels the asyncio task that is running the workflow</li>
-<li>The workflow catches the <code>asyncio.CancelledError</code> and updates its state to <code>CANCELLED</code></li>
-<li>The worker sends a checkpoint back to the server with the final state</li>
+<li>Open Grafana at <code>http://localhost:3000</code> (login: admin/admin)</li>
+<li>Add Prometheus data source: <code>http://prometheus:9090</code></li>
+<li>Create dashboards using the queries above</li>
 </ol>
-<p>This approach ensures that the workflow is cancelled cleanly and all resources are properly released.</p>
+<h3 id="jaeger-setup">Jaeger Setup<a class="headerlink" href="#jaeger-setup" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Open Jaeger at <code>http://localhost:16686</code></li>
+<li>Select service <code>flux</code> from the dropdown</li>
+<li>Search for traces to see distributed execution flow</li>
+</ol>
 
 
 
