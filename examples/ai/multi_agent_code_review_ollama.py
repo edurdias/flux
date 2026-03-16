@@ -1,13 +1,13 @@
 """
-Multi-Agent Code Review System using Ollama and Flux Parallel Execution.
+Multi-Agent Code Review System using Ollama and Flux Graph.
 
 This example demonstrates a production-ready multi-agent system where specialized
-AI agents review code in parallel. Each agent focuses on a specific aspect
-(security, performance, style, testing) and their findings are aggregated into
-a comprehensive review report.
+AI agents review code using a DAG-based Graph orchestration. Each agent focuses
+on a specific aspect (security, performance, style, testing) and their findings
+are aggregated into a comprehensive review report.
 
 Key Features:
-- **Parallel Execution**: Uses flux.tasks.parallel() for concurrent agent execution
+- **Graph Orchestration**: Uses flux.tasks.Graph for DAG-based fan-out/fan-in
 - **Specialized Agents**: 4 agents with domain-specific expertise
 - **Error Handling**: Per-agent retry logic, timeouts, and graceful degradation
 - **Production Ready**: Structured output, priority scoring, CI/CD integration
@@ -75,7 +75,7 @@ from typing import Any
 from ollama import AsyncClient
 
 from flux import ExecutionContext, task, workflow
-from flux.tasks import parallel
+from flux.tasks import Graph
 
 
 # =============================================================================
@@ -687,6 +687,60 @@ async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
 
 
 # =============================================================================
+# Graph Node Wrappers
+# =============================================================================
+
+
+@task
+async def run_security_review(input_data: dict[str, Any]) -> dict[str, Any]:
+    return await security_review(
+        input_data["code"],
+        input_data["model"],
+        input_data["ollama_url"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+    )
+
+
+@task
+async def run_performance_review(input_data: dict[str, Any]) -> dict[str, Any]:
+    return await performance_review(
+        input_data["code"],
+        input_data["model"],
+        input_data["ollama_url"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+    )
+
+
+@task
+async def run_style_review(input_data: dict[str, Any]) -> dict[str, Any]:
+    return await style_review(
+        input_data["code"],
+        input_data["model"],
+        input_data["ollama_url"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+    )
+
+
+@task
+async def run_testing_review(input_data: dict[str, Any]) -> dict[str, Any]:
+    return await testing_review(
+        input_data["code"],
+        input_data["model"],
+        input_data["ollama_url"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+    )
+
+
+@task
+async def collect_reviews(*review_outputs: dict[str, Any]) -> dict[str, Any]:
+    return await aggregate_reviews(list(review_outputs))
+
+
+# =============================================================================
 # Main Workflow
 # =============================================================================
 
@@ -694,9 +748,12 @@ async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
 @workflow.with_options(name="multi_agent_code_review_ollama")
 async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
-    Multi-agent code review system using parallel AI agents.
+    Multi-agent code review system using a Flux Graph DAG.
 
-    Four specialized agents review code concurrently:
+    Four specialized agents review code via fan-out/fan-in Graph orchestration.
+    Graph executes nodes sequentially (not concurrently) — this is an intentional
+    tradeoff for structural parity with LangGraph's StateGraph DAG model.
+
     - Security: Finds vulnerabilities and security issues
     - Performance: Identifies optimization opportunities
     - Style: Reviews code quality and maintainability
@@ -716,24 +773,38 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     start_time = datetime.now()
 
-    code = ctx.input.get("code")
-    if not code:
+    input_data = {
+        "code": ctx.input.get("code"),
+        "model": ctx.input.get("model", "llama3.2"),
+        "ollama_url": ctx.input.get("ollama_url", "http://localhost:11434"),
+        "file_path": ctx.input.get("file_path"),
+        "context": ctx.input.get("context"),
+    }
+
+    if not input_data["code"]:
         return {"error": "No code provided", "execution_id": ctx.execution_id}
 
-    file_path = ctx.input.get("file_path")
-    context = ctx.input.get("context")
-    model = ctx.input.get("model", "llama3.2")
-    ollama_url = ctx.input.get("ollama_url", "http://localhost:11434")
-
-    reviews = await parallel(
-        security_review(code, model, ollama_url, file_path, context),
-        performance_review(code, model, ollama_url, file_path, context),
-        style_review(code, model, ollama_url, file_path, context),
-        testing_review(code, model, ollama_url, file_path, context),
+    graph = (
+        Graph("code_review")
+        .add_node("security", run_security_review)
+        .add_node("performance", run_performance_review)
+        .add_node("style", run_style_review)
+        .add_node("testing", run_testing_review)
+        .add_node("aggregate", collect_reviews)
+        .add_node("report", generate_summary_report)
+        .start_with("security")
+        .start_with("performance")
+        .start_with("style")
+        .start_with("testing")
+        .add_edge("security", "aggregate")
+        .add_edge("performance", "aggregate")
+        .add_edge("style", "aggregate")
+        .add_edge("testing", "aggregate")
+        .add_edge("aggregate", "report")
+        .end_with("report")
     )
 
-    aggregated = await aggregate_reviews(reviews)
-    report = await generate_summary_report(aggregated)
+    report = await graph(input_data)
 
     end_time = datetime.now()
     execution_time = (end_time - start_time).total_seconds()
@@ -741,9 +812,9 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     report["metadata"] = {
         "execution_id": ctx.execution_id,
         "execution_time": execution_time,
-        "model_used": model,
-        "code_length": len(code),
-        "file_path": file_path,
+        "model_used": input_data["model"],
+        "code_length": len(input_data["code"]),
+        "file_path": input_data["file_path"],
     }
 
     return report
@@ -801,7 +872,7 @@ def process_file(user_input):
 
         print("\n" + "=" * 80)
         print("✓ Multi-agent code review completed successfully!")
-        print("✓ All agents executed in parallel!")
+        print("✓ All agents executed via Graph DAG!")
         print("✓ Security vulnerabilities detected!")
         print("=" * 80)
 
