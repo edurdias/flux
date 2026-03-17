@@ -65,6 +65,7 @@
    - [Pipeline Processing](advanced-features/task-patterns.md#pipeline-processing)
    - [Task Mapping](advanced-features/task-patterns.md#task-mapping)
    - [Graph](advanced-features/task-patterns.md#graph)
+   - [AI Agents](advanced-features/task-patterns.md#ai-agents)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
 ### [Workflow Controls](advanced-features/workflow-controls.md)

@@ -170,6 +170,197 @@ Key features:
 - Clear visualization of workflow logic
 - Flexible error handling paths
 
+## AI Agents
+
+The `agent()` factory creates Flux tasks that call LLMs. Each agent is a regular `@task` — it composes with `parallel()`, `Graph`, `pause()`, and all other Flux primitives.
+
+### Basic Agent
+
+```python
+from flux import workflow, ExecutionContext
+from flux.tasks.ai import agent
+
+researcher = agent(
+    "You are a research analyst. Find key findings and trends.",
+    model="ollama/llama3",
+    name="researcher",
+)
+
+@workflow
+async def research_workflow(ctx: ExecutionContext[dict]):
+    return await researcher(ctx.input["topic"])
+```
+
+### Agent Pipeline with Context
+
+Agents can pass output between stages using the `context` parameter:
+
+```python
+researcher = agent("You are a researcher.", model="ollama/llama3", name="researcher")
+writer = agent("You are a writer.", model="ollama/llama3", name="writer")
+editor = agent("You are an editor.", model="ollama/llama3", name="editor")
+
+@workflow
+async def blog_pipeline(ctx: ExecutionContext[dict]):
+    topic = ctx.input["topic"]
+    research = await researcher(f"Research: {topic}")
+    draft = await writer(f"Write about: {topic}", context=research)
+    return await editor(f"Edit:", context=draft)
+```
+
+Each agent appears as a named task in the execution event history:
+
+```
+TASK_STARTED    researcher     {"instruction": "Research: AI Agents"}
+TASK_COMPLETED  researcher     "Key findings: ..."
+TASK_STARTED    writer         {"instruction": "Write about: AI Agents"}
+TASK_COMPLETED  writer         "Blog post draft: ..."
+TASK_STARTED    editor         {"instruction": "Edit:"}
+TASK_COMPLETED  editor         "Final polished post: ..."
+```
+
+### Provider Support
+
+The model string selects the LLM provider:
+
+```python
+# Local (Ollama)
+agent("...", model="ollama/llama3")
+agent("...", model="ollama/llama3.2")
+
+# OpenAI (requires OPENAI_API_KEY env var)
+agent("...", model="openai/gpt-4o")
+
+# Anthropic (requires ANTHROPIC_API_KEY env var)
+agent("...", model="anthropic/claude-sonnet-4-20250514")
+```
+
+### Tool Use
+
+Existing `@task` functions can be used as agent tools. The agent inspects the function signature and docstring to build tool schemas automatically:
+
+```python
+from flux import task
+from flux.tasks.ai import agent
+
+@task.with_options(timeout=30)
+async def search_web(query: str) -> str:
+    """Search the web and return relevant results."""
+    ...
+
+@task.with_options(timeout=10)
+async def get_weather(city: str) -> str:
+    """Get the current weather for a city."""
+    ...
+
+assistant = agent(
+    "You are a helpful assistant. Use tools when needed.",
+    model="ollama/llama3",
+    tools=[search_web, get_weather],
+)
+```
+
+Tool calls appear as child tasks in the execution trace:
+
+```
+TASK_STARTED    assistant
+TASK_STARTED    search_web       {"query": "AI agents 2026"}
+TASK_COMPLETED  search_web       "Results: ..."
+TASK_COMPLETED  assistant        "Based on my research: ..."
+```
+
+### Structured Output
+
+Use `response_format` with a Pydantic model for typed responses:
+
+```python
+from pydantic import BaseModel
+
+class ResearchFindings(BaseModel):
+    topic: str
+    key_points: list[str]
+    sources: list[str]
+
+researcher = agent(
+    "You are a researcher. Return structured findings.",
+    model="ollama/llama3",
+    response_format=ResearchFindings,
+)
+
+# Returns a ResearchFindings instance, not a string
+result = await researcher("Research AI agents")
+print(result.key_points)
+```
+
+### Stateful Conversations
+
+With `stateful=True`, the agent accumulates message history across invocations within a workflow execution:
+
+```python
+chatbot = agent(
+    "You are a helpful assistant.",
+    model="ollama/llama3",
+    stateful=True,
+)
+
+@workflow
+async def conversation(ctx: ExecutionContext[dict]):
+    r1 = await chatbot("What is Python?")        # standalone message
+    r2 = await chatbot("What about asyncio?")     # knows about the Python context
+    return r2
+```
+
+Note: stateful history is in-memory. If the workflow crashes, history is lost on resume. For crash-durable conversations, manage history at the workflow level using `pause()`/`resume()`.
+
+### Task Options
+
+Agents return regular Flux tasks. Use `with_instance_options()` to customize retries, timeouts, and other task behavior:
+
+```python
+researcher = agent(
+    "You are a researcher.",
+    model="ollama/llama3",
+    name="researcher",
+).with_instance_options(
+    retry_max_attempts=5,
+    timeout=300,
+)
+```
+
+### Agent Composition
+
+Since agents are tasks, they compose with all Flux primitives:
+
+```python
+from flux.tasks import parallel, Graph
+
+# Parallel agents
+reviews = await parallel(
+    security_reviewer("Review:\n" + code),
+    performance_reviewer("Review:\n" + code),
+)
+
+# Graph-based agent pipeline
+graph = (
+    Graph("review")
+    .add_node("security", security_reviewer)
+    .add_node("performance", performance_reviewer)
+    .add_node("aggregate", aggregate_results)
+    .start_with("security")
+    .start_with("performance")
+    .add_edge("security", "aggregate")
+    .add_edge("performance", "aggregate")
+    .end_with("aggregate")
+)
+
+# Human-in-the-loop with agents
+from flux.tasks import pause
+
+research = await researcher("Research AI")
+feedback = await pause("human_review")
+final = await writer("Revise based on feedback", context=f"{research}\n\n{feedback}")
+```
+
 ## Pattern Selection Guidelines
 
 Choose the appropriate pattern based on your needs:
@@ -193,6 +384,12 @@ Choose the appropriate pattern based on your needs:
    - You have complex task dependencies
    - You need conditional execution paths
    - Workflow has multiple possible paths
+
+5. **AI Agent** when:
+   - Your task needs to call an LLM
+   - You want provider abstraction (switch between Ollama/OpenAI/Anthropic)
+   - You need tool use, structured output, or conversation history
+   - You want LLM calls as observable, retryable Flux tasks
 
 ## Performance Considerations
 
