@@ -230,6 +230,41 @@ class task:
         await ctx.checkpoint()
         return output
 
+    @property
+    def func(self) -> Callable:
+        """The wrapped function."""
+        return self._func
+
+    def with_instance_options(
+        self,
+        name: str | None = None,
+        fallback: Callable | None = None,
+        rollback: Callable | None = None,
+        retry_max_attempts: int | None = None,
+        retry_delay: int | None = None,
+        retry_backoff: int | None = None,
+        timeout: int | None = None,
+        secret_requests: list[str] | None = None,
+        output_storage: OutputStorage | None = None,
+        cache: bool | None = None,
+        metadata: bool | None = None,
+    ) -> task:
+        """Return a new task with merged options. Values not provided inherit from this task."""
+        return task(
+            func=self._func,
+            name=name if name is not None else self.name,
+            fallback=fallback if fallback is not None else self.fallback,
+            rollback=rollback if rollback is not None else self.rollback,
+            retry_max_attempts=retry_max_attempts if retry_max_attempts is not None else self.retry_max_attempts,
+            retry_delay=retry_delay if retry_delay is not None else self.retry_delay,
+            retry_backoff=retry_backoff if retry_backoff is not None else self.retry_backoff,
+            timeout=timeout if timeout is not None else self.timeout,
+            secret_requests=secret_requests if secret_requests is not None else self.secret_requests,
+            output_storage=output_storage if output_storage is not None else self.output_storage,
+            cache=cache if cache is not None else self.cache,
+            metadata=metadata if metadata is not None else self.metadata,
+        )
+
     async def map(self, args):
         return await asyncio.gather(*(self(arg) for arg in args))
 
