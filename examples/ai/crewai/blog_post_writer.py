@@ -233,8 +233,6 @@ async def blog_post_writer_crewai(ctx: ExecutionContext[dict[str, Any]]):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    import json
-
     topic = "The Future of AI Agents in Software Development"
 
     try:
