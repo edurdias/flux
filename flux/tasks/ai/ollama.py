@@ -51,7 +51,9 @@ def build_ollama_agent(
 
         if response_format and not tools:
             schema_json = json.dumps(response_format.model_json_schema())
-            call_messages[-1]["content"] += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
+            call_messages[-1][
+                "content"
+            ] += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
 
         kwargs: dict[str, Any] = {"model": model_name, "messages": call_messages}
         if ollama_tools:
@@ -84,10 +86,12 @@ def build_ollama_agent(
 
         if response_message.get("tool_calls") and tool_call_count >= max_tool_calls:
             call_messages.append(response_message)
-            call_messages.append({
-                "role": "user",
-                "content": "You must provide your final answer now. Do not call any more tools.",
-            })
+            call_messages.append(
+                {
+                    "role": "user",
+                    "content": "You must provide your final answer now. Do not call any more tools.",
+                },
+            )
             response = await client.chat(model=model_name, messages=call_messages)
             response_message = response["message"]
 

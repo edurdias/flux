@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -80,6 +79,5 @@ def agent(
         )
     else:
         raise ValueError(
-            f"Unknown provider: '{provider}'. "
-            "Supported providers: ollama, openai, anthropic",
+            f"Unknown provider: '{provider}'. " "Supported providers: ollama, openai, anthropic",
         )

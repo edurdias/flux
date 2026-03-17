@@ -255,11 +255,15 @@ class task:
             name=name if name is not None else self.name,
             fallback=fallback if fallback is not None else self.fallback,
             rollback=rollback if rollback is not None else self.rollback,
-            retry_max_attempts=retry_max_attempts if retry_max_attempts is not None else self.retry_max_attempts,
+            retry_max_attempts=retry_max_attempts
+            if retry_max_attempts is not None
+            else self.retry_max_attempts,
             retry_delay=retry_delay if retry_delay is not None else self.retry_delay,
             retry_backoff=retry_backoff if retry_backoff is not None else self.retry_backoff,
             timeout=timeout if timeout is not None else self.timeout,
-            secret_requests=secret_requests if secret_requests is not None else self.secret_requests,
+            secret_requests=secret_requests
+            if secret_requests is not None
+            else self.secret_requests,
             output_storage=output_storage if output_storage is not None else self.output_storage,
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,

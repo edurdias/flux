@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from flux import task
 from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools

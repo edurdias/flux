@@ -46,11 +46,13 @@ def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
             if param.default is inspect.Parameter.empty and param.kind != param.KEYWORD_ONLY:
                 parameters["required"].append(param_name)
 
-        schemas.append({
-            "name": func.__name__,
-            "description": (func.__doc__ or "").strip(),
-            "parameters": parameters,
-        })
+        schemas.append(
+            {
+                "name": func.__name__,
+                "description": (func.__doc__ or "").strip(),
+                "parameters": parameters,
+            },
+        )
 
     return schemas
 
@@ -75,6 +77,7 @@ async def execute_tools(
         args = call.get("arguments", {})
         if isinstance(args, str):
             import json
+
             args = json.loads(args)
 
         tool_fn = tool_map.get(name)
