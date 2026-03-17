@@ -773,12 +773,13 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     start_time = datetime.now()
 
+    raw_input = ctx.input or {}
     input_data = {
-        "code": ctx.input.get("code"),
-        "model": ctx.input.get("model", "llama3.2"),
-        "ollama_url": ctx.input.get("ollama_url", "http://localhost:11434"),
-        "file_path": ctx.input.get("file_path"),
-        "context": ctx.input.get("context"),
+        "code": raw_input.get("code"),
+        "model": raw_input.get("model", "llama3.2"),
+        "ollama_url": raw_input.get("ollama_url", "http://localhost:11434"),
+        "file_path": raw_input.get("file_path"),
+        "context": raw_input.get("context"),
     }
 
     if not input_data["code"]:

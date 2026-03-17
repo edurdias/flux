@@ -167,7 +167,8 @@ async def build_vector_store(
     Returns:
         Path to the persisted Chroma vector store directory
     """
-    persist_dir = Path.home() / ".flux" / "rag_indexes" / collection_name
+    safe_name = collection_name.replace("/", "_").replace("\\", "_").replace("..", "_")
+    persist_dir = Path.home() / ".flux" / "rag_indexes" / safe_name
     persist_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -208,7 +209,8 @@ async def retrieve_relevant_chunks(
     Returns:
         List of most relevant LangChain Document objects
     """
-    persist_dir = Path.home() / ".flux" / "rag_indexes" / collection_name
+    safe_name = collection_name.replace("/", "_").replace("\\", "_").replace("..", "_")
+    persist_dir = Path.home() / ".flux" / "rag_indexes" / safe_name
 
     if not persist_dir.exists():
         raise ValueError(
