@@ -3,11 +3,12 @@ from __future__ import annotations
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.errors import ExecutionError
-import flux
+from flux.task import task
+from flux.workflow import workflow as workflow_cls
 
 
-@flux.task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: flux.workflow | str, *args):
+@task.with_options(name="call_workflow_{workflow}")
+async def call(workflow: workflow_cls | str, *args):
     """Call a workflow directly or via the HTTP API in sync mode.
 
     Args:
@@ -25,7 +26,7 @@ async def call(workflow: flux.workflow | str, *args):
     from flux.errors import WorkflowNotFoundError
     from flux.domain.execution_context import ExecutionContext
 
-    if isinstance(workflow, flux.workflow):
+    if isinstance(workflow, workflow_cls):
         workflow = workflow.name
 
     import httpx

@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-import flux
+from flux.task import task
 from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools
 
 
@@ -16,7 +16,7 @@ def build_openai_agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
-) -> flux.task:
+) -> task:
     """Build a Flux @task that calls OpenAI's chat API."""
     try:
         from openai import AsyncOpenAI
@@ -31,7 +31,7 @@ def build_openai_agent(
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
-    @flux.task.with_options(name=task_name)
+    @task.with_options(name=task_name)
     async def openai_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
         client = AsyncOpenAI()
 

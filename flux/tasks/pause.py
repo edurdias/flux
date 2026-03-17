@@ -6,12 +6,11 @@ from flux import ExecutionContext
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.errors import PauseRequested
-import flux
-
 from flux.task import TaskMetadata
+from flux.task import task
 
 
-@flux.task.with_options(metadata=True)
+@task.with_options(metadata=True)
 async def pause(name: str, output: Any = None, *, metadata: TaskMetadata):
     ctx = await ExecutionContext.get()
 

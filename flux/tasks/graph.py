@@ -7,7 +7,7 @@ from typing import Any
 from typing import Callable
 from typing import Literal
 
-import flux
+from flux.task import task
 
 
 async def default_action(arg: Any) -> Any:
@@ -92,7 +92,7 @@ class Graph:
 
         return self
 
-    @flux.task.with_options(name="graph_{self._name}")
+    @task.with_options(name="graph_{self._name}")
     async def __call__(self, input: Any | None = None):
         self.validate()
         await self.__execute_node(Graph.START.name, input)

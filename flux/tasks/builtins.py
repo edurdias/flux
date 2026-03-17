@@ -9,41 +9,41 @@ from datetime import timedelta
 from typing import Any
 from typing import Callable
 
-import flux
+from flux.task import task
 
 
-@flux.task
+@task
 async def now() -> datetime:
     return datetime.now()
 
 
-@flux.task
+@task
 async def uuid4() -> uuid.UUID:
     return uuid.uuid4()
 
 
-@flux.task
+@task
 async def choice(options: list[Any]) -> int:
     return random.choice(options)
 
 
-@flux.task
+@task
 async def randint(a: int, b: int) -> int:
     return random.randint(a, b)
 
 
-@flux.task
+@task
 async def randrange(start: int, stop: int | None = None, step: int = 1):
     return random.randrange(start, stop, step)
 
 
-@flux.task
+@task
 async def parallel(*functions: Coroutine[Any, Any, Any]) -> list[Any]:
     tasks: list[asyncio.Task] = [asyncio.create_task(f) for f in functions]
     return await asyncio.gather(*tasks)
 
 
-@flux.task
+@task
 async def sleep(duration: float | timedelta):
     """
     Pauses the execution of the workflow for a given duration.
@@ -59,9 +59,9 @@ async def sleep(duration: float | timedelta):
     await asyncio.sleep(duration)
 
 
-@flux.task
+@task
 async def pipeline(*tasks: Callable, input: Any):
     result = input
-    for task in tasks:
-        result = await task(result)
+    for t in tasks:
+        result = await t(result)
     return result

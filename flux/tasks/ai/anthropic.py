@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-import flux
+from flux.task import task
 from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools
 
 
@@ -17,7 +17,7 @@ def build_anthropic_agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
-) -> flux.task:
+) -> task:
     """Build a Flux @task that calls Anthropic's messages API."""
     try:
         from anthropic import AsyncAnthropic
@@ -32,7 +32,7 @@ def build_anthropic_agent(
 
     messages: list[dict[str, Any]] = []
 
-    @flux.task.with_options(name=task_name)
+    @task.with_options(name=task_name)
     async def anthropic_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
         client = AsyncAnthropic()
 
