@@ -18,7 +18,7 @@ CrewAI makes it easy to define role-based agent teams that collaborate on tasks.
 | Example | CrewAI + Flux | Pure Flux Equivalent | Pattern |
 |---------|---------------|----------------------|---------|
 | Multi-Agent Code Review | [`multi_agent_code_review.py`](multi_agent_code_review.py) | [`../multi_agent_code_review_ollama.py`](../multi_agent_code_review_ollama.py) | CrewAI Crew (sequential) vs Flux Graph |
-| Blog Post Writer | [`blog_post_writer.py`](blog_post_writer.py) | *(no equivalent)* | CrewAI sequential pipeline: Researcher → Writer → Editor |
+| Blog Post Writer | [`blog_post_writer.py`](blog_post_writer.py) | [`../blog_post_writer_ollama.py`](../blog_post_writer_ollama.py) | CrewAI sequential pipeline vs Flux task pipeline |
 
 ## Setup
 
