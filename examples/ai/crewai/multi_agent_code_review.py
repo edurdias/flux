@@ -22,7 +22,7 @@ this variant delegates multi-agent orchestration to CrewAI's Crew with Process.s
 showing how CrewAI's role-based agents integrate with Flux workflow orchestration.
 
 Dependencies:
-    pip install crewai
+    pip install crewai litellm
 
 Prerequisites:
     1. Install Ollama: https://ollama.ai

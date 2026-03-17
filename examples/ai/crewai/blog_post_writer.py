@@ -23,7 +23,7 @@ Prerequisites:
     1. Install Ollama: https://ollama.ai
     2. Pull a model: ollama pull llama3
     3. Start Ollama service: ollama serve
-    4. Install dependencies: pip install crewai
+    4. Install dependencies: pip install crewai litellm
 
 Usage:
     # Write a blog post about a topic

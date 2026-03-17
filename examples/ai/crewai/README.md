@@ -34,8 +34,10 @@ ollama serve
 ### 2. Install Dependencies
 
 ```bash
-pip install crewai
+pip install crewai litellm
 ```
+
+> **Note:** `litellm` is required for CrewAI's Ollama integration. CrewAI uses LiteLLM under the hood to connect to local LLM providers.
 
 ### 3. Run Examples
 
