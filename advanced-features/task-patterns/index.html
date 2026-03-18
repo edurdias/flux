@@ -1034,6 +1034,111 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ai-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Agents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AI Agents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-pipeline-with-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Pipeline with Context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structured-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stateful-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful Conversations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Composition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pattern-selection-guidelines" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1366,6 +1471,111 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#ai-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AI Agents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AI Agents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-pipeline-with-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Pipeline with Context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structured-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stateful-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful Conversations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Composition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pattern-selection-guidelines" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1632,6 +1842,159 @@
 - Automatic validation of graph structure
 - Clear visualization of workflow logic
 - Flexible error handling paths</p>
+<h2 id="ai-agents">AI Agents<a class="headerlink" href="#ai-agents" title="Permanent link">&para;</a></h2>
+<p>The <code>agent()</code> factory creates Flux tasks that call LLMs. Each agent is a regular <code>@task</code> — it composes with <code>parallel()</code>, <code>Graph</code>, <code>pause()</code>, and all other Flux primitives.</p>
+<h3 id="basic-agent">Basic Agent<a class="headerlink" href="#basic-agent" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks.ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">agent</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">researcher</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="s2">&quot;You are a research analyst. Find key findings and trends.&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="p">)</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="nd">@workflow</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">research_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">researcher</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">[</span><span class="s2">&quot;topic&quot;</span><span class="p">])</span>
+</code></pre></div>
+<h3 id="agent-pipeline-with-context">Agent Pipeline with Context<a class="headerlink" href="#agent-pipeline-with-context" title="Permanent link">&para;</a></h3>
+<p>Agents can pass output between stages using the <code>context</code> parameter:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">researcher</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span><span class="s2">&quot;You are a researcher.&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;researcher&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">writer</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span><span class="s2">&quot;You are a writer.&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;writer&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">editor</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span><span class="s2">&quot;You are an editor.&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;editor&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="nd">@workflow</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">blog_pipeline</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">topic</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">[</span><span class="s2">&quot;topic&quot;</span><span class="p">]</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">research</span> <span class="o">=</span> <span class="k">await</span> <span class="n">researcher</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Research: </span><span class="si">{</span><span class="n">topic</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">draft</span> <span class="o">=</span> <span class="k">await</span> <span class="n">writer</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Write about: </span><span class="si">{</span><span class="n">topic</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="n">research</span><span class="p">)</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">editor</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Edit:&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="n">draft</span><span class="p">)</span>
+</code></pre></div>
+<p>Each agent appears as a named task in the execution event history:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>TASK_STARTED    researcher     {&quot;instruction&quot;: &quot;Research: AI Agents&quot;}
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>TASK_COMPLETED  researcher     &quot;Key findings: ...&quot;
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>TASK_STARTED    writer         {&quot;instruction&quot;: &quot;Write about: AI Agents&quot;}
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>TASK_COMPLETED  writer         &quot;Blog post draft: ...&quot;
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>TASK_STARTED    editor         {&quot;instruction&quot;: &quot;Edit:&quot;}
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>TASK_COMPLETED  editor         &quot;Final polished post: ...&quot;
+</code></pre></div>
+<h3 id="provider-support">Provider Support<a class="headerlink" href="#provider-support" title="Permanent link">&para;</a></h3>
+<p>The model string selects the LLM provider:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Local (Ollama)</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">agent</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">agent</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3.2&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># OpenAI (requires OPENAI_API_KEY env var)</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">agent</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="c1"># Anthropic (requires ANTHROPIC_API_KEY env var)</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="n">agent</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">&quot;anthropic/claude-sonnet-4-20250514&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="tool-use">Tool Use<a class="headerlink" href="#tool-use" title="Permanent link">&para;</a></h3>
+<p>Existing <code>@task</code> functions can be used as agent tools. The agent inspects the function signature and docstring to build tool schemas automatically:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">task</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks.ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">agent</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nd">@task</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">search_web</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Search the web and return relevant results.&quot;&quot;&quot;</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    <span class="o">...</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="nd">@task</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_weather</span><span class="p">(</span><span class="n">city</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Get the current weather for a city.&quot;&quot;&quot;</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>    <span class="o">...</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="n">assistant</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="s2">&quot;You are a helpful assistant. Use tools when needed.&quot;</span><span class="p">,</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>    <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="n">search_web</span><span class="p">,</span> <span class="n">get_weather</span><span class="p">],</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="p">)</span>
+</code></pre></div>
+<p>Tool calls appear as child tasks in the execution trace:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>TASK_STARTED    assistant
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>TASK_STARTED    search_web       {&quot;query&quot;: &quot;AI agents 2026&quot;}
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>TASK_COMPLETED  search_web       &quot;Results: ...&quot;
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>TASK_COMPLETED  assistant        &quot;Based on my research: ...&quot;
+</code></pre></div>
+<h3 id="structured-output">Structured Output<a class="headerlink" href="#structured-output" title="Permanent link">&para;</a></h3>
+<p>Use <code>response_format</code> with a Pydantic model for typed responses:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">ResearchFindings</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">topic</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">key_points</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">sources</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">researcher</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="s2">&quot;You are a researcher. Return structured findings.&quot;</span><span class="p">,</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    <span class="n">response_format</span><span class="o">=</span><span class="n">ResearchFindings</span><span class="p">,</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="p">)</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="c1"># Returns a ResearchFindings instance, not a string</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">researcher</span><span class="p">(</span><span class="s2">&quot;Research AI agents&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">key_points</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="stateful-conversations">Stateful Conversations<a class="headerlink" href="#stateful-conversations" title="Permanent link">&para;</a></h3>
+<p>With <code>stateful=True</code>, the agent accumulates message history across invocations within a workflow execution:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">chatbot</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>    <span class="s2">&quot;You are a helpful assistant.&quot;</span><span class="p">,</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">stateful</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="p">)</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="nd">@workflow</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">conversation</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    <span class="n">r1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">chatbot</span><span class="p">(</span><span class="s2">&quot;What is Python?&quot;</span><span class="p">)</span>        <span class="c1"># standalone message</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>    <span class="n">r2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">chatbot</span><span class="p">(</span><span class="s2">&quot;What about asyncio?&quot;</span><span class="p">)</span>     <span class="c1"># knows about the Python context</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>    <span class="k">return</span> <span class="n">r2</span>
+</code></pre></div>
+<p><strong>Caveats:</strong>
+- Stateful history is in-memory. If the workflow crashes, history is lost on resume. For crash-durable conversations, manage history at the workflow level using <code>pause()</code>/<code>resume()</code>.
+- Stateful agents must not be called concurrently (e.g., via <code>parallel()</code>). Concurrent invocations share the same message list and will corrupt the history. Use separate <code>agent()</code> instances for concurrent use.</p>
+<h3 id="task-options">Task Options<a class="headerlink" href="#task-options" title="Permanent link">&para;</a></h3>
+<p>Agents return regular Flux tasks. Use <code>with_options()</code> to customize retries, timeouts, and other task behavior:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">researcher</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    <span class="s2">&quot;You are a researcher.&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;ollama/llama3&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;researcher&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="p">)</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="n">retry_max_attempts</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>    <span class="n">timeout</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="p">)</span>
+</code></pre></div>
+<h3 id="agent-composition">Agent Composition<a class="headerlink" href="#agent-composition" title="Permanent link">&para;</a></h3>
+<p>Since agents are tasks, they compose with all Flux primitives:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">parallel</span><span class="p">,</span> <span class="n">Graph</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="c1"># Parallel agents</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">reviews</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="n">security_reviewer</span><span class="p">(</span><span class="s2">&quot;Review:</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="n">code</span><span class="p">),</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    <span class="n">performance_reviewer</span><span class="p">(</span><span class="s2">&quot;Review:</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">+</span> <span class="n">code</span><span class="p">),</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="p">)</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="c1"># Graph-based agent pipeline</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="n">graph</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>    <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;review&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;security&quot;</span><span class="p">,</span> <span class="n">security_reviewer</span><span class="p">)</span>
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;performance&quot;</span><span class="p">,</span> <span class="n">performance_reviewer</span><span class="p">)</span>
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;aggregate&quot;</span><span class="p">,</span> <span class="n">aggregate_results</span><span class="p">)</span>
+<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>    <span class="o">.</span><span class="n">start_with</span><span class="p">(</span><span class="s2">&quot;security&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>    <span class="o">.</span><span class="n">start_with</span><span class="p">(</span><span class="s2">&quot;performance&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;security&quot;</span><span class="p">,</span> <span class="s2">&quot;aggregate&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;performance&quot;</span><span class="p">,</span> <span class="s2">&quot;aggregate&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a>    <span class="o">.</span><span class="n">end_with</span><span class="p">(</span><span class="s2">&quot;aggregate&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a><span class="p">)</span>
+<a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a>
+<a id="__codelineno-15-22" name="__codelineno-15-22" href="#__codelineno-15-22"></a><span class="c1"># Human-in-the-loop with agents</span>
+<a id="__codelineno-15-23" name="__codelineno-15-23" href="#__codelineno-15-23"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">pause</span>
+<a id="__codelineno-15-24" name="__codelineno-15-24" href="#__codelineno-15-24"></a>
+<a id="__codelineno-15-25" name="__codelineno-15-25" href="#__codelineno-15-25"></a><span class="n">research</span> <span class="o">=</span> <span class="k">await</span> <span class="n">researcher</span><span class="p">(</span><span class="s2">&quot;Research AI&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-26" name="__codelineno-15-26" href="#__codelineno-15-26"></a><span class="n">feedback</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pause</span><span class="p">(</span><span class="s2">&quot;human_review&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-27" name="__codelineno-15-27" href="#__codelineno-15-27"></a><span class="n">final</span> <span class="o">=</span> <span class="k">await</span> <span class="n">writer</span><span class="p">(</span><span class="s2">&quot;Revise based on feedback&quot;</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">research</span><span class="si">}</span><span class="se">\n\n</span><span class="si">{</span><span class="n">feedback</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
 <h2 id="pattern-selection-guidelines">Pattern Selection Guidelines<a class="headerlink" href="#pattern-selection-guidelines" title="Permanent link">&para;</a></h2>
 <p>Choose the appropriate pattern based on your needs:</p>
 <ol>
@@ -1662,22 +2025,31 @@
 </li>
 <li>You have complex task dependencies</li>
 <li>You need conditional execution paths</li>
-<li>Workflow has multiple possible paths</li>
+<li>
+<p>Workflow has multiple possible paths</p>
+</li>
+<li>
+<p><strong>AI Agent</strong> when:</p>
+</li>
+<li>Your task needs to call an LLM</li>
+<li>You want provider abstraction (switch between Ollama/OpenAI/Anthropic)</li>
+<li>You need tool use, structured output, or conversation history</li>
+<li>You want LLM calls as observable, retryable Flux tasks</li>
 </ol>
 <h2 id="performance-considerations">Performance Considerations<a class="headerlink" href="#performance-considerations" title="Permanent link">&para;</a></h2>
 <h3 id="parallel-execution-performance">Parallel Execution Performance<a class="headerlink" href="#parallel-execution-performance" title="Permanent link">&para;</a></h3>
 <h4 id="thread-pool-management">Thread Pool Management<a class="headerlink" href="#thread-pool-management" title="Permanent link">&para;</a></h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">parallel</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nd">@workflow</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">parallel_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="c1"># Tasks are executed using ThreadPoolExecutor</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="c1"># Number of workers = CPU cores available</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>        <span class="n">task1</span><span class="p">(),</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>        <span class="n">task2</span><span class="p">(),</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>        <span class="n">task3</span><span class="p">()</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    <span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">parallel</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="nd">@workflow</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">parallel_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    <span class="c1"># Tasks are executed using ThreadPoolExecutor</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    <span class="c1"># Number of workers = CPU cores available</span>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>        <span class="n">task1</span><span class="p">(),</span>
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>        <span class="n">task2</span><span class="p">(),</span>
+<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>        <span class="n">task3</span><span class="p">()</span>
+<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>    <span class="p">)</span>
 </code></pre></div>
 <p>Key considerations:
 - Uses Python's asyncio for concurrent task execution
@@ -1685,49 +2057,49 @@
 - All tasks start simultaneously, consuming resources immediately</p>
 <p>Optimization tips:
 1. Group tasks appropriately:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Less efficient (too granular)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item3</span><span class="p">),</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="p">)</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="c1"># More efficient (better grouping)</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="n">group1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
-<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="p">)</span>
-<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="n">group2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
-<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
-<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
-<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
-<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Less efficient (too granular)</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item3</span><span class="p">),</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="p">)</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>
+<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="c1"># More efficient (better grouping)</span>
+<a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a><span class="n">group1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
+<a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
+<a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>    <span class="n">task1</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
+<a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="p">)</span>
+<a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a><span class="n">group2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item1</span><span class="p">),</span>
+<a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item2</span><span class="p">),</span>
+<a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>    <span class="n">task2</span><span class="p">(</span><span class="n">item3</span><span class="p">)</span>
+<a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a><span class="p">)</span>
 </code></pre></div></p>
 <ol>
 <li>Consider resource constraints:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Resource-intensive tasks should be grouped appropriately</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">heavy_task1</span><span class="p">(),</span>  <span class="c1"># Uses significant memory</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">light_task</span><span class="p">(),</span>   <span class="c1"># Minimal resource usage</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">heavy_task2</span><span class="p">()</span>   <span class="c1"># Uses significant memory</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Resource-intensive tasks should be grouped appropriately</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">parallel</span><span class="p">(</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">heavy_task1</span><span class="p">(),</span>  <span class="c1"># Uses significant memory</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">light_task</span><span class="p">(),</span>   <span class="c1"># Minimal resource usage</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>    <span class="k">lambda</span><span class="p">:</span> <span class="n">heavy_task2</span><span class="p">()</span>   <span class="c1"># Uses significant memory</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="p">)</span>
 </code></pre></div></li>
 </ol>
 <h3 id="pipeline-performance">Pipeline Performance<a class="headerlink" href="#pipeline-performance" title="Permanent link">&para;</a></h3>
 <p>Pipeline execution is sequential, making performance dependent on the slowest task.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nd">@workflow</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">pipeline_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>        <span class="n">fast_task</span><span class="p">,</span>      <span class="c1"># 0.1s</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>        <span class="n">slow_task</span><span class="p">,</span>      <span class="c1"># 2.0s</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>        <span class="n">medium_task</span><span class="p">,</span>    <span class="c1"># 0.5s</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>        <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="p">)</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    <span class="c1"># Total time ≈ 2.6s</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nd">@workflow</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">pipeline_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>        <span class="n">fast_task</span><span class="p">,</span>      <span class="c1"># 0.1s</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>        <span class="n">slow_task</span><span class="p">,</span>      <span class="c1"># 2.0s</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>        <span class="n">medium_task</span><span class="p">,</span>    <span class="c1"># 0.5s</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>        <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>    <span class="p">)</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>    <span class="c1"># Total time ≈ 2.6s</span>
 </code></pre></div>
 <p>Optimization tips:
 1. Order tasks efficiently:
@@ -1736,36 +2108,36 @@
    - Place heavy processing tasks last</p>
 <ol>
 <li>Balance task granularity:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Less efficient (too granular)</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">validate_input</span><span class="p">,</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">transform_data</span><span class="p">,</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="n">process_part1</span><span class="p">,</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    <span class="n">process_part2</span><span class="p">,</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>    <span class="n">process_part3</span><span class="p">,</span>
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>    <span class="n">save_result</span><span class="p">,</span>
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>    <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
-<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="p">)</span>
-<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>
-<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="c1"># More efficient (better grouping)</span>
-<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
-<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>    <span class="n">validate_and_transform</span><span class="p">,</span>  <span class="c1"># Combined validation and transformation</span>
-<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="n">process_all_parts</span><span class="p">,</span>      <span class="c1"># Combined processing</span>
-<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>    <span class="n">save_result</span><span class="p">,</span>
-<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a>    <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
-<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Less efficient (too granular)</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>    <span class="n">validate_input</span><span class="p">,</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>    <span class="n">transform_data</span><span class="p">,</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>    <span class="n">process_part1</span><span class="p">,</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>    <span class="n">process_part2</span><span class="p">,</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>    <span class="n">process_part3</span><span class="p">,</span>
+<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>    <span class="n">save_result</span><span class="p">,</span>
+<a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>    <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
+<a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="p">)</span>
+<a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>
+<a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a><span class="c1"># More efficient (better grouping)</span>
+<a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">pipeline</span><span class="p">(</span>
+<a id="__codelineno-20-14" name="__codelineno-20-14" href="#__codelineno-20-14"></a>    <span class="n">validate_and_transform</span><span class="p">,</span>  <span class="c1"># Combined validation and transformation</span>
+<a id="__codelineno-20-15" name="__codelineno-20-15" href="#__codelineno-20-15"></a>    <span class="n">process_all_parts</span><span class="p">,</span>      <span class="c1"># Combined processing</span>
+<a id="__codelineno-20-16" name="__codelineno-20-16" href="#__codelineno-20-16"></a>    <span class="n">save_result</span><span class="p">,</span>
+<a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a>    <span class="nb">input</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
+<a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="p">)</span>
 </code></pre></div></li>
 </ol>
 <h3 id="task-mapping-performance">Task Mapping Performance<a class="headerlink" href="#task-mapping-performance" title="Permanent link">&para;</a></h3>
 <p>Task mapping parallelizes the same operation across multiple inputs.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nd">@task</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_item</span><span class="p">(</span><span class="n">item</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="k">return</span> <span class="n">item</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="nd">@workflow</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">mapping_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    <span class="c1"># Be mindful of the input size</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">large_input_list</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nd">@task</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_item</span><span class="p">(</span><span class="n">item</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>    <span class="k">return</span> <span class="n">item</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="nd">@workflow</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">mapping_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>    <span class="c1"># Be mindful of the input size</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a>    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">large_input_list</span><span class="p">)</span>
 </code></pre></div>
 <p>Key considerations:
 - Built on top of asyncio.gather for concurrent execution
@@ -1773,45 +2145,45 @@
 - All results are collected in memory</p>
 <p>Optimization tips:
 1. Batch processing for large datasets:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nd">@workflow</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">optimized_mapping</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="c1"># Process in smaller batches</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">batch_size</span> <span class="o">=</span> <span class="mi">1000</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">),</span> <span class="n">batch_size</span><span class="p">):</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>        <span class="n">batch</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">batch_size</span><span class="p">]</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>        <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">batch_results</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nd">@workflow</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">optimized_mapping</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>    <span class="c1"># Process in smaller batches</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>    <span class="n">batch_size</span> <span class="o">=</span> <span class="mi">1000</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">),</span> <span class="n">batch_size</span><span class="p">):</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>        <span class="n">batch</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="n">batch_size</span><span class="p">]</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a>        <span class="n">results</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">batch_results</span><span class="p">)</span>
 </code></pre></div></p>
 <ol>
 <li>Memory-efficient processing:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nd">@workflow</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">memory_efficient_mapping</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>    <span class="c1"># Process and store results incrementally</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">chunk_generator</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>        <span class="c1"># Process or store results before next batch</span>
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>        <span class="k">await</span> <span class="n">store_results</span><span class="p">(</span><span class="n">batch_results</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="nd">@workflow</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">memory_efficient_mapping</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>    <span class="c1"># Process and store results incrementally</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>    <span class="k">for</span> <span class="n">batch</span> <span class="ow">in</span> <span class="n">chunk_generator</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">1000</span><span class="p">):</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_item</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>        <span class="c1"># Process or store results before next batch</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>        <span class="k">await</span> <span class="n">store_results</span><span class="p">(</span><span class="n">batch_results</span><span class="p">)</span>
 </code></pre></div></li>
 </ol>
 <h3 id="graph-performance">Graph Performance<a class="headerlink" href="#graph-performance" title="Permanent link">&para;</a></h3>
 <p>Graph execution performance depends on task dependencies and conditions.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nd">@workflow</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">graph_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="n">workflow</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>        <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;optimized_flow&quot;</span><span class="p">)</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="n">quick_validation</span><span class="p">)</span>
-<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;process&quot;</span><span class="p">,</span> <span class="n">heavy_processing</span><span class="p">)</span>
-<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">handle_error</span><span class="p">)</span>
-<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>        <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="s2">&quot;process&quot;</span><span class="p">,</span>
-<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>                 <span class="n">condition</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid&quot;</span><span class="p">))</span>
-<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>        <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>                 <span class="n">condition</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="ow">not</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid&quot;</span><span class="p">))</span>
-<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>        <span class="o">.</span><span class="n">start_with</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">)</span>
-<a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>        <span class="o">.</span><span class="n">end_with</span><span class="p">(</span><span class="s2">&quot;process&quot;</span><span class="p">)</span>
-<a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>        <span class="o">.</span><span class="n">end_with</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">)</span>
-<a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a>    <span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nd">@workflow</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">graph_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>    <span class="n">workflow</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>        <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;optimized_flow&quot;</span><span class="p">)</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="n">quick_validation</span><span class="p">)</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;process&quot;</span><span class="p">,</span> <span class="n">heavy_processing</span><span class="p">)</span>
+<a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a>        <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="n">handle_error</span><span class="p">)</span>
+<a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a>        <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="s2">&quot;process&quot;</span><span class="p">,</span>
+<a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a>                 <span class="n">condition</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid&quot;</span><span class="p">))</span>
+<a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a>        <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a>                 <span class="n">condition</span><span class="o">=</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="ow">not</span> <span class="n">r</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;valid&quot;</span><span class="p">))</span>
+<a id="__codelineno-24-12" name="__codelineno-24-12" href="#__codelineno-24-12"></a>        <span class="o">.</span><span class="n">start_with</span><span class="p">(</span><span class="s2">&quot;validate&quot;</span><span class="p">)</span>
+<a id="__codelineno-24-13" name="__codelineno-24-13" href="#__codelineno-24-13"></a>        <span class="o">.</span><span class="n">end_with</span><span class="p">(</span><span class="s2">&quot;process&quot;</span><span class="p">)</span>
+<a id="__codelineno-24-14" name="__codelineno-24-14" href="#__codelineno-24-14"></a>        <span class="o">.</span><span class="n">end_with</span><span class="p">(</span><span class="s2">&quot;error&quot;</span><span class="p">)</span>
+<a id="__codelineno-24-15" name="__codelineno-24-15" href="#__codelineno-24-15"></a>    <span class="p">)</span>
 </code></pre></div>
 <p>Optimization tips:
 1. Optimize graph structure:
@@ -1820,24 +2192,24 @@
    - Use conditions to skip unnecessary tasks</p>
 <ol>
 <li>Balance between complexity and performance:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Less efficient (too many edges)</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="n">graph</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;complex&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="n">task_a</span><span class="p">)</span>
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="n">task_b</span><span class="p">)</span>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;C&quot;</span><span class="p">,</span> <span class="n">task_c</span><span class="p">)</span>
-<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="p">)</span>
-<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>
-<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="c1"># More efficient (simplified structure)</span>
-<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="n">graph</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>    <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;optimized&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="n">task_a</span><span class="p">)</span>
-<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;BC&quot;</span><span class="p">,</span> <span class="n">combined_task_bc</span><span class="p">)</span>
-<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;BC&quot;</span><span class="p">)</span>
-<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Less efficient (too many edges)</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="n">graph</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>    <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;complex&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="n">task_a</span><span class="p">)</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="n">task_b</span><span class="p">)</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;C&quot;</span><span class="p">,</span> <span class="n">task_c</span><span class="p">)</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="s2">&quot;C&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="p">)</span>
+<a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a>
+<a id="__codelineno-25-12" name="__codelineno-25-12" href="#__codelineno-25-12"></a><span class="c1"># More efficient (simplified structure)</span>
+<a id="__codelineno-25-13" name="__codelineno-25-13" href="#__codelineno-25-13"></a><span class="n">graph</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-25-14" name="__codelineno-25-14" href="#__codelineno-25-14"></a>    <span class="n">Graph</span><span class="p">(</span><span class="s2">&quot;optimized&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-15" name="__codelineno-25-15" href="#__codelineno-25-15"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="n">task_a</span><span class="p">)</span>
+<a id="__codelineno-25-16" name="__codelineno-25-16" href="#__codelineno-25-16"></a>    <span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="s2">&quot;BC&quot;</span><span class="p">,</span> <span class="n">combined_task_bc</span><span class="p">)</span>
+<a id="__codelineno-25-17" name="__codelineno-25-17" href="#__codelineno-25-17"></a>    <span class="o">.</span><span class="n">add_edge</span><span class="p">(</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;BC&quot;</span><span class="p">)</span>
+<a id="__codelineno-25-18" name="__codelineno-25-18" href="#__codelineno-25-18"></a><span class="p">)</span>
 </code></pre></div></li>
 </ol>
 <h3 id="general-performance-tips">General Performance Tips<a class="headerlink" href="#general-performance-tips" title="Permanent link">&para;</a></h3>
