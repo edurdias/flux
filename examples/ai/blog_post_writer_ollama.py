@@ -8,7 +8,7 @@ in a sequential pipeline, each building on the previous output:
 3. Content Editor — reviews and polishes the draft for publication
 
 Each agent is a Flux @task with independent retry boundaries, full observability,
-and crash-durable execution — no external agent framework needed.
+and crash-durable execution.
 
 Compare with:
 - examples/ai/crewai/blog_post_writer.py (CrewAI + Flux variant)

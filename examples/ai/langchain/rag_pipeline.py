@@ -1,7 +1,7 @@
 """
 RAG (Retrieval Augmented Generation) Pipeline using LangChain + Ollama + Chroma.
 
-This example demonstrates a fully local RAG implementation using LangChain's ecosystem:
+This example demonstrates a RAG implementation using LangChain's ecosystem:
 - LangChain Community DirectoryLoader + TextLoader for document ingestion
 - RecursiveCharacterTextSplitter for chunking
 - OllamaEmbeddings (nomic-embed-text) for vector embeddings

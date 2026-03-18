@@ -26,7 +26,7 @@ LangChain provides a rich ecosystem for LLM interaction — prompt templates, ch
 
 ### Ollama
 
-All examples use Ollama for local LLM inference. No API keys required.
+All examples use Ollama for LLM inference.
 
 ```bash
 # Install Ollama

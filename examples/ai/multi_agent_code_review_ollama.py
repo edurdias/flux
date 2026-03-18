@@ -11,7 +11,6 @@ Key Features:
 - **agent() Primitive**: Each reviewer is a Flux agent() task with retries and observability
 - **Specialized Agents**: 4 agents with domain-specific system prompts
 - **Production Ready**: Structured output, priority scoring, CI/CD integration
-- **Fully Local**: Runs with Ollama - no API costs, works offline
 - **Observable**: Full execution tracing in Flux workflow events
 
 Prerequisites:
