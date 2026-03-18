@@ -35,11 +35,15 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .venv
-        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-extras-observability-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install dependencies
       if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      run: poetry install --no-interaction
+      run: poetry install --no-interaction --extras observability
+
+    - name: Ensure dependencies are available
+      if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root --extras observability
 
     - name: Linting and code quality
       run: |
