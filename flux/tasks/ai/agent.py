@@ -15,6 +15,7 @@ def agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
+    max_tokens: int = 4096,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -29,6 +30,7 @@ def agent(
         response_format: Pydantic BaseModel subclass for structured JSON output.
         stateful: If True, accumulate message history across invocations.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
+        max_tokens: Maximum tokens in the LLM response (used by Anthropic, ignored by others).
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
@@ -76,6 +78,7 @@ def agent(
             response_format=response_format,
             stateful=stateful,
             max_tool_calls=max_tool_calls,
+            max_tokens=max_tokens,
         )
     else:
         raise ValueError(

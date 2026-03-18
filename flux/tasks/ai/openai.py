@@ -29,12 +29,11 @@ def build_openai_agent(
     tool_schemas = build_tool_schemas(tools) if tools else None
     openai_tools = _to_openai_tools(tool_schemas) if tool_schemas else None
 
+    client = AsyncOpenAI()
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
     @task.with_options(name=task_name)
     async def openai_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
-        client = AsyncOpenAI()
-
         user_content = instruction
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"

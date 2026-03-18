@@ -1,15 +1,15 @@
 """
-Multi-Agent Code Review System using Ollama and Flux Graph.
+Multi-Agent Code Review System using Flux agent() and Graph.
 
-This example demonstrates a production-ready multi-agent system where specialized
-AI agents review code using a DAG-based Graph orchestration. Each agent focuses
-on a specific aspect (security, performance, style, testing) and their findings
-are aggregated into a comprehensive review report.
+This example demonstrates a multi-agent code review system where specialized
+AI agents review code via a DAG-based Graph orchestration. Each agent is created
+with the agent() primitive and focuses on a specific aspect (security, performance,
+style, testing). Their findings are aggregated into a comprehensive review report.
 
 Key Features:
 - **Graph Orchestration**: Uses flux.tasks.Graph for DAG-based fan-out/fan-in
-- **Specialized Agents**: 4 agents with domain-specific expertise
-- **Error Handling**: Per-agent retry logic, timeouts, and graceful degradation
+- **agent() Primitive**: Each reviewer is a Flux agent() task with retries and observability
+- **Specialized Agents**: 4 agents with domain-specific system prompts
 - **Production Ready**: Structured output, priority scoring, CI/CD integration
 - **Fully Local**: Runs with Ollama - no API costs, works offline
 - **Observable**: Full execution tracing in Flux workflow events
@@ -18,19 +18,11 @@ Prerequisites:
     1. Install Ollama: https://ollama.ai
     2. Pull a capable model: ollama pull llama3.2
     3. Start Ollama service: ollama serve
-    4. Start Flux server: poetry run flux start server
-    5. Start Flux worker: poetry run flux start worker worker-1
 
 Usage:
     # Review a simple function
     flux workflow run multi_agent_code_review_ollama '{
         "code": "def unsafe_query(user_input):\\n    return db.execute(f\\"SELECT * FROM users WHERE name={user_input}\\")"
-    }'
-
-    # Review with specific model
-    flux workflow run multi_agent_code_review_ollama '{
-        "code": "def process(data):\\n    return [x*2 for x in data]",
-        "model": "llama3.2"
     }'
 
     # Review with context
@@ -39,30 +31,6 @@ Usage:
         "file_path": "api/auth.py",
         "context": "Authentication endpoint for user login"
     }'
-
-Example Output:
-    {
-        "summary": {
-            "total_issues": 8,
-            "critical": 1,
-            "high": 2,
-            "medium": 4,
-            "low": 1,
-            "agents_completed": 4,
-            "execution_time": 12.5
-        },
-        "by_agent": {
-            "security": {"findings": [...]},
-            "performance": {"findings": [...]},
-            "style": {"findings": [...]},
-            "testing": {"suggestions": [...]}
-        },
-        "recommendations": [
-            "Fix critical SQL injection vulnerability (line 42)",
-            "Optimize database query with indexing",
-            "Add input validation for user_input parameter"
-        ]
-    }
 """
 
 from __future__ import annotations
@@ -72,231 +40,13 @@ import re
 from datetime import datetime
 from typing import Any
 
-from ollama import AsyncClient
-
 from flux import ExecutionContext, task, workflow
 from flux.tasks import Graph
+from flux.tasks.ai import agent
 
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def parse_llm_json_response(content: str) -> list[dict[str, Any]]:
-    """
-    Parse JSON from LLM response with robust error handling.
-
-    Handles common issues:
-    - Markdown code fences
-    - Invalid control characters
-    - Extra whitespace
-    - Partial responses
-
-    Args:
-        content: Raw LLM response content
-
-    Returns:
-        Parsed JSON as list of dictionaries
-
-    Raises:
-        json.JSONDecodeError: If JSON cannot be parsed after cleanup attempts
-    """
-    # Remove markdown code fences if present
-    content = content.strip()
-    if content.startswith("```"):
-        lines = content.split("\n")
-        # Remove first line (```json or ```) and last line (```)
-        if len(lines) > 2:
-            content = "\n".join(lines[1:-1])
-        elif len(lines) > 1:
-            content = "\n".join(lines[1:])
-
-    # Remove any remaining backticks
-    content = content.replace("```", "").strip()
-
-    # Try to parse directly first
-    try:
-        result = json.loads(content)
-        return result if isinstance(result, list) else [result]
-    except json.JSONDecodeError:
-        pass
-
-    # Try fixing common control character issues
-    # Replace problematic control characters
-    content = content.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-
-    # Try parsing again
-    try:
-        result = json.loads(content)
-        return result if isinstance(result, list) else [result]
-    except json.JSONDecodeError:
-        pass
-
-    # Try extracting JSON from text using regex
-    json_pattern = r"\[[\s\S]*\]|\{[\s\S]*\}"
-    matches = re.findall(json_pattern, content)
-
-    for match in matches:
-        try:
-            result = json.loads(match)
-            return result if isinstance(result, list) else [result]
-        except json.JSONDecodeError:
-            continue
-
-    # If all else fails, raise the original error
-    raise json.JSONDecodeError(
-        "Could not parse JSON from LLM response after multiple attempts",
-        content,
-        0,
-    )
-
-
-# =============================================================================
-# Agent System Prompts
-# =============================================================================
-
-SECURITY_AGENT_PROMPT = """You are a security code reviewer with expertise in finding vulnerabilities.
-
-Analyze the provided code for:
-- SQL injection vulnerabilities
-- XSS (Cross-Site Scripting) vulnerabilities
-- Authentication and authorization issues
-- Hardcoded secrets, API keys, or credentials
-- Input validation problems
-- Command injection risks
-- Path traversal vulnerabilities
-- Insecure cryptography usage
-- Race conditions and TOCTOU issues
-- Sensitive data exposure
-
-For each finding, provide:
-1. Severity (critical/high/medium/low)
-2. Issue description
-3. Line number if identifiable
-4. Specific recommendation to fix
-
-Be concise but thorough. Focus on real security issues, not theoretical concerns."""
-
-PERFORMANCE_AGENT_PROMPT = """You are a performance optimization expert.
-
-Review the code for:
-- Algorithm efficiency issues (e.g., O(n²) when O(n log n) is possible)
-- Unnecessary loops or iterations
-- Inefficient data structures
-- Memory leaks or excessive memory usage
-- Database query optimization opportunities
-- Missing indexes or caching opportunities
-- Redundant computations
-- I/O bottlenecks
-- Blocking operations that could be async
-
-For each finding, provide:
-1. Severity (high/medium/low based on performance impact)
-2. Issue description
-3. Line number if identifiable
-4. Specific optimization recommendation
-
-Focus on impactful optimizations, not micro-optimizations."""
-
-STYLE_AGENT_PROMPT = """You are a code quality and style expert.
-
-Review the code for:
-- Code readability and clarity
-- Naming conventions (variables, functions, classes)
-- Code organization and structure
-- Documentation and comments
-- DRY (Don't Repeat Yourself) violations
-- Function length and complexity
-- Magic numbers or strings
-- Error handling quality
-- Type hints and type safety
-- PEP 8 compliance (for Python)
-
-For each finding, provide:
-1. Severity (medium/low - style issues are rarely critical)
-2. Issue description
-3. Line number if identifiable
-4. Specific improvement recommendation
-
-Be practical - focus on issues that affect maintainability."""
-
-TESTING_AGENT_PROMPT = """You are a testing and quality assurance expert.
-
-Analyze the code and suggest:
-- Critical test cases that should be written
-- Edge cases that need coverage
-- Error conditions to test
-- Integration test scenarios
-- Mock or fixture requirements
-- Test data needed
-- Areas with missing test coverage
-- Regression test recommendations
-
-For each suggestion, provide:
-1. Priority (high/medium/low)
-2. Test case description
-3. What it would verify
-4. Why it's important
-
-Focus on tests that provide real value and catch likely bugs."""
-
-
-# =============================================================================
-# Specialized Agent Tasks
-# =============================================================================
-
-
-@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-async def security_review(
-    code: str,
-    model: str,
-    ollama_url: str,
-    file_path: str | None = None,
-    context: str | None = None,
-) -> dict[str, Any]:
-    """
-    Security-focused code review agent.
-
-    Analyzes code for vulnerabilities, authentication issues, and security risks.
-
-    Args:
-        code: The source code to review
-        model: Ollama model to use
-        ollama_url: Ollama server URL
-        file_path: Optional file path for context
-        context: Optional additional context about the code
-
-    Returns:
-        Dictionary with security findings
-    """
-    try:
-        client = AsyncClient(host=ollama_url)
-
-        # Build context message
-        context_parts = []
-        if file_path:
-            context_parts.append(f"File: {file_path}")
-        if context:
-            context_parts.append(f"Context: {context}")
-
-        context_str = (
-            "\n".join(context_parts) if context_parts else "No additional context provided."
-        )
-
-        # Prepare messages
-        messages = [
-            {"role": "system", "content": SECURITY_AGENT_PROMPT},
-            {
-                "role": "user",
-                "content": f"""{context_str}
-
-Code to review:
-```
-{code}
-```
-
-Provide your security review as a JSON array of findings. Each finding should have:
+REVIEW_OUTPUT_FORMAT = """
+Provide your review as a JSON array of findings. Each finding should have:
 - severity: "critical" | "high" | "medium" | "low"
 - issue: string (description)
 - line: number | null
@@ -304,296 +54,181 @@ Provide your security review as a JSON array of findings. Each finding should ha
 
 Example: [{{"severity": "high", "issue": "SQL injection", "line": 42, "recommendation": "Use parameterized queries"}}]
 
-Respond with ONLY the JSON array, no other text.""",
-            },
-        ]
+Respond with ONLY the JSON array, no other text."""
 
-        # Call Ollama
-        response = await client.chat(model=model, messages=messages)
-        content = response["message"]["content"].strip()
-
-        # Parse JSON with robust error handling
-        findings = parse_llm_json_response(content)
-
-        return {
-            "agent": "security",
-            "status": "success",
-            "findings": findings,
-            "model_used": model,
-        }
-
-    except json.JSONDecodeError as e:
-        return {
-            "agent": "security",
-            "status": "parse_error",
-            "error": f"Failed to parse LLM response as JSON: {str(e)}",
-            "findings": [],
-        }
-    except Exception as e:
-        raise RuntimeError(f"Security review failed: {str(e)}") from e
-
-
-@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-async def performance_review(
-    code: str,
-    model: str,
-    ollama_url: str,
-    file_path: str | None = None,
-    context: str | None = None,
-) -> dict[str, Any]:
-    """
-    Performance-focused code review agent.
-
-    Analyzes code for efficiency issues, optimization opportunities, and bottlenecks.
-
-    Args:
-        code: The source code to review
-        model: Ollama model to use
-        ollama_url: Ollama server URL
-        file_path: Optional file path for context
-        context: Optional additional context about the code
-
-    Returns:
-        Dictionary with performance findings
-    """
-    try:
-        client = AsyncClient(host=ollama_url)
-
-        context_parts = []
-        if file_path:
-            context_parts.append(f"File: {file_path}")
-        if context:
-            context_parts.append(f"Context: {context}")
-
-        context_str = (
-            "\n".join(context_parts) if context_parts else "No additional context provided."
-        )
-
-        messages = [
-            {"role": "system", "content": PERFORMANCE_AGENT_PROMPT},
-            {
-                "role": "user",
-                "content": f"""{context_str}
-
-Code to review:
-```
-{code}
-```
-
-Provide your performance review as a JSON array of findings. Each finding should have:
-- severity: "high" | "medium" | "low"
-- issue: string (description)
-- line: number | null
-- recommendation: string
-
-Respond with ONLY the JSON array, no other text.""",
-            },
-        ]
-
-        response = await client.chat(model=model, messages=messages)
-        content = response["message"]["content"].strip()
-
-        # Parse JSON with robust error handling
-        findings = parse_llm_json_response(content)
-
-        return {
-            "agent": "performance",
-            "status": "success",
-            "findings": findings,
-            "model_used": model,
-        }
-
-    except json.JSONDecodeError as e:
-        return {
-            "agent": "performance",
-            "status": "parse_error",
-            "error": f"Failed to parse LLM response as JSON: {str(e)}",
-            "findings": [],
-        }
-    except Exception as e:
-        raise RuntimeError(f"Performance review failed: {str(e)}") from e
-
-
-@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-async def style_review(
-    code: str,
-    model: str,
-    ollama_url: str,
-    file_path: str | None = None,
-    context: str | None = None,
-) -> dict[str, Any]:
-    """
-    Style and quality-focused code review agent.
-
-    Analyzes code for readability, maintainability, and adherence to best practices.
-
-    Args:
-        code: The source code to review
-        model: Ollama model to use
-        ollama_url: Ollama server URL
-        file_path: Optional file path for context
-        context: Optional additional context about the code
-
-    Returns:
-        Dictionary with style findings
-    """
-    try:
-        client = AsyncClient(host=ollama_url)
-
-        context_parts = []
-        if file_path:
-            context_parts.append(f"File: {file_path}")
-        if context:
-            context_parts.append(f"Context: {context}")
-
-        context_str = (
-            "\n".join(context_parts) if context_parts else "No additional context provided."
-        )
-
-        messages = [
-            {"role": "system", "content": STYLE_AGENT_PROMPT},
-            {
-                "role": "user",
-                "content": f"""{context_str}
-
-Code to review:
-```
-{code}
-```
-
-Provide your style review as a JSON array of findings. Each finding should have:
-- severity: "medium" | "low"
-- issue: string (description)
-- line: number | null
-- recommendation: string
-
-Respond with ONLY the JSON array, no other text.""",
-            },
-        ]
-
-        response = await client.chat(model=model, messages=messages)
-        content = response["message"]["content"].strip()
-
-        # Parse JSON with robust error handling
-        findings = parse_llm_json_response(content)
-
-        return {
-            "agent": "style",
-            "status": "success",
-            "findings": findings,
-            "model_used": model,
-        }
-
-    except json.JSONDecodeError as e:
-        return {
-            "agent": "style",
-            "status": "parse_error",
-            "error": f"Failed to parse LLM response as JSON: {str(e)}",
-            "findings": [],
-        }
-    except Exception as e:
-        raise RuntimeError(f"Style review failed: {str(e)}") from e
-
-
-@task.with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-async def testing_review(
-    code: str,
-    model: str,
-    ollama_url: str,
-    file_path: str | None = None,
-    context: str | None = None,
-) -> dict[str, Any]:
-    """
-    Testing-focused code review agent.
-
-    Suggests test cases, edge cases, and coverage improvements.
-
-    Args:
-        code: The source code to review
-        model: Ollama model to use
-        ollama_url: Ollama server URL
-        file_path: Optional file path for context
-        context: Optional additional context about the code
-
-    Returns:
-        Dictionary with testing suggestions
-    """
-    try:
-        client = AsyncClient(host=ollama_url)
-
-        context_parts = []
-        if file_path:
-            context_parts.append(f"File: {file_path}")
-        if context:
-            context_parts.append(f"Context: {context}")
-
-        context_str = (
-            "\n".join(context_parts) if context_parts else "No additional context provided."
-        )
-
-        messages = [
-            {"role": "system", "content": TESTING_AGENT_PROMPT},
-            {
-                "role": "user",
-                "content": f"""{context_str}
-
-Code to review:
-```
-{code}
-```
-
-Provide your testing suggestions as a JSON array. Each suggestion should have:
+TESTING_OUTPUT_FORMAT = """
+Provide your suggestions as a JSON array. Each suggestion should have:
 - priority: "high" | "medium" | "low"
 - test_case: string (description)
 - verifies: string (what it tests)
 - importance: string (why it matters)
 
-Respond with ONLY the JSON array, no other text.""",
-            },
-        ]
+Respond with ONLY the JSON array, no other text."""
 
-        response = await client.chat(model=model, messages=messages)
-        content = response["message"]["content"].strip()
 
-        # Parse JSON with robust error handling
-        suggestions = parse_llm_json_response(content)
+security_reviewer = agent(
+    "You are a security code reviewer with expertise in finding vulnerabilities. "
+    "Analyze code for: SQL injection, XSS, authentication issues, hardcoded secrets, "
+    "input validation, command injection, path traversal, insecure cryptography, "
+    "race conditions, and sensitive data exposure.",
+    model="ollama/llama3.2",
+    name="security_review",
+).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
-        return {
-            "agent": "testing",
-            "status": "success",
-            "suggestions": suggestions,
-            "model_used": model,
-        }
+performance_reviewer = agent(
+    "You are a performance optimization expert. "
+    "Review code for: algorithm efficiency, unnecessary loops, inefficient data structures, "
+    "memory leaks, database query optimization, missing caching, redundant computations, "
+    "I/O bottlenecks, and blocking operations.",
+    model="ollama/llama3.2",
+    name="performance_review",
+).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
+style_reviewer = agent(
+    "You are a code quality and style expert. "
+    "Review code for: readability, naming conventions, organization, documentation, "
+    "DRY violations, function complexity, magic numbers, error handling, type hints, "
+    "and PEP 8 compliance.",
+    model="ollama/llama3.2",
+    name="style_review",
+).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+
+testing_reviewer = agent(
+    "You are a testing and quality assurance expert. "
+    "Suggest: critical test cases, edge cases, error conditions, integration tests, "
+    "mock requirements, test data, missing coverage, and regression tests.",
+    model="ollama/llama3.2",
+    name="testing_review",
+).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+
+
+def parse_llm_json_response(content: str) -> list[dict[str, Any]]:
+    """Parse JSON from LLM response with robust error handling."""
+    content = content.strip()
+    if content.startswith("```"):
+        lines = content.split("\n")
+        if len(lines) > 2:
+            content = "\n".join(lines[1:-1])
+        elif len(lines) > 1:
+            content = "\n".join(lines[1:])
+
+    content = content.replace("```", "").strip()
+
+    try:
+        result = json.loads(content)
+        return result if isinstance(result, list) else [result]
+    except json.JSONDecodeError:
+        pass
+
+    content = content.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    try:
+        result = json.loads(content)
+        return result if isinstance(result, list) else [result]
+    except json.JSONDecodeError:
+        pass
+
+    for match in re.findall(r"\[[\s\S]*\]|\{[\s\S]*\}", content):
+        try:
+            result = json.loads(match)
+            return result if isinstance(result, list) else [result]
+        except json.JSONDecodeError:
+            continue
+
+    raise json.JSONDecodeError(
+        "Could not parse JSON from LLM response after multiple attempts",
+        content,
+        0,
+    )
+
+
+def _build_review_prompt(
+    code: str,
+    file_path: str | None,
+    context: str | None,
+    output_format: str,
+) -> str:
+    parts = []
+    if file_path:
+        parts.append(f"File: {file_path}")
+    if context:
+        parts.append(f"Context: {context}")
+
+    context_str = "\n".join(parts) if parts else "No additional context provided."
+
+    return f"""{context_str}
+
+Code to review:
+```
+{code}
+```
+
+{output_format}"""
+
+
+def _parse_review(agent_name: str, raw_output: str, key: str = "findings") -> dict[str, Any]:
+    try:
+        items = parse_llm_json_response(raw_output)
+        return {"agent": agent_name, "status": "success", key: items}
     except json.JSONDecodeError as e:
-        return {
-            "agent": "testing",
-            "status": "parse_error",
-            "error": f"Failed to parse LLM response as JSON: {str(e)}",
-            "suggestions": [],
-        }
-    except Exception as e:
-        raise RuntimeError(f"Testing review failed: {str(e)}") from e
-
-
-# =============================================================================
-# Aggregation and Reporting
-# =============================================================================
+        return {"agent": agent_name, "status": "parse_error", "error": str(e), key: []}
 
 
 @task
-async def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Aggregate findings from all agents into a unified structure.
+async def run_security(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Graph node: run security review agent."""
+    prompt = _build_review_prompt(
+        input_data["code"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+        REVIEW_OUTPUT_FORMAT,
+    )
+    raw = await security_reviewer(prompt)
+    return _parse_review("security", raw)
 
-    Combines results, counts issues by severity, and prepares for reporting.
 
-    Args:
-        reviews: List of agent review results
+@task
+async def run_performance(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Graph node: run performance review agent."""
+    prompt = _build_review_prompt(
+        input_data["code"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+        REVIEW_OUTPUT_FORMAT,
+    )
+    raw = await performance_reviewer(prompt)
+    return _parse_review("performance", raw)
 
-    Returns:
-        Aggregated findings with counts and categorization
-    """
+
+@task
+async def run_style(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Graph node: run style review agent."""
+    prompt = _build_review_prompt(
+        input_data["code"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+        REVIEW_OUTPUT_FORMAT,
+    )
+    raw = await style_reviewer(prompt)
+    return _parse_review("style", raw)
+
+
+@task
+async def run_testing(input_data: dict[str, Any]) -> dict[str, Any]:
+    """Graph node: run testing review agent."""
+    prompt = _build_review_prompt(
+        input_data["code"],
+        input_data.get("file_path"),
+        input_data.get("context"),
+        TESTING_OUTPUT_FORMAT,
+    )
+    raw = await testing_reviewer(prompt)
+    return _parse_review("testing", raw, key="suggestions")
+
+
+@task
+async def collect_reviews(*review_outputs: dict[str, Any]) -> dict[str, Any]:
+    """Graph fan-in node: aggregate all review results."""
+    reviews = list(review_outputs)
     by_agent: dict[str, Any] = {}
     all_findings: list[dict[str, Any]] = []
     all_suggestions: list[dict[str, Any]] = []
@@ -604,28 +239,18 @@ async def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
     for review in reviews:
         agent_name = review.get("agent", "unknown")
         status = review.get("status", "unknown")
-
-        # Store agent results
         by_agent[agent_name] = review
 
         if status == "success":
             agents_completed += 1
-
-            # Aggregate findings
             if "findings" in review:
                 for finding in review["findings"]:
                     severity = finding.get("severity", "low")
                     counts[severity] = counts.get(severity, 0) + 1
-                    all_findings.append(
-                        {"agent": agent_name, **finding},
-                    )
-
-            # Aggregate test suggestions
+                    all_findings.append({"agent": agent_name, **finding})
             if "suggestions" in review:
                 for suggestion in review["suggestions"]:
-                    all_suggestions.append(
-                        {"agent": agent_name, **suggestion},
-                    )
+                    all_suggestions.append({"agent": agent_name, **suggestion})
         else:
             agents_failed += 1
 
@@ -641,21 +266,10 @@ async def aggregate_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
 
 @task
 async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate final summary report from aggregated findings.
-
-    Creates a structured report with summary statistics and top recommendations.
-
-    Args:
-        aggregated: Aggregated findings from all agents
-
-    Returns:
-        Final review report with summary and recommendations
-    """
+    """Generate final summary report from aggregated findings."""
     counts = aggregated["counts"]
     total_issues = sum(counts.values())
 
-    # Extract top recommendations (critical and high severity issues)
     recommendations = []
     for finding in aggregated["all_findings"]:
         severity = finding.get("severity", "low")
@@ -665,10 +279,7 @@ async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
             line_info = f" (line {line})" if line else ""
             recommendations.append(f"{severity.upper()}: {issue}{line_info}")
 
-    # Limit to top 10 recommendations
-    recommendations = recommendations[:10]
-
-    report = {
+    return {
         "summary": {
             "total_issues": total_issues,
             "critical": counts.get("critical", 0),
@@ -679,93 +290,31 @@ async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
             "agents_failed": aggregated["agents_failed"],
         },
         "by_agent": aggregated["by_agent"],
-        "recommendations": recommendations,
+        "recommendations": recommendations[:10],
         "test_suggestions_count": len(aggregated["all_suggestions"]),
     }
-
-    return report
-
-
-# =============================================================================
-# Graph Node Wrappers
-# =============================================================================
-
-
-@task
-async def run_security_review(input_data: dict[str, Any]) -> dict[str, Any]:
-    return await security_review(
-        input_data["code"],
-        input_data["model"],
-        input_data["ollama_url"],
-        input_data.get("file_path"),
-        input_data.get("context"),
-    )
-
-
-@task
-async def run_performance_review(input_data: dict[str, Any]) -> dict[str, Any]:
-    return await performance_review(
-        input_data["code"],
-        input_data["model"],
-        input_data["ollama_url"],
-        input_data.get("file_path"),
-        input_data.get("context"),
-    )
-
-
-@task
-async def run_style_review(input_data: dict[str, Any]) -> dict[str, Any]:
-    return await style_review(
-        input_data["code"],
-        input_data["model"],
-        input_data["ollama_url"],
-        input_data.get("file_path"),
-        input_data.get("context"),
-    )
-
-
-@task
-async def run_testing_review(input_data: dict[str, Any]) -> dict[str, Any]:
-    return await testing_review(
-        input_data["code"],
-        input_data["model"],
-        input_data["ollama_url"],
-        input_data.get("file_path"),
-        input_data.get("context"),
-    )
-
-
-@task
-async def collect_reviews(*review_outputs: dict[str, Any]) -> dict[str, Any]:
-    return await aggregate_reviews(list(review_outputs))
-
-
-# =============================================================================
-# Main Workflow
-# =============================================================================
 
 
 @workflow.with_options(name="multi_agent_code_review_ollama")
 async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
-    Multi-agent code review system using a Flux Graph DAG.
+    Multi-agent code review system using Flux agent() and Graph.
 
-    Four specialized agents review code via fan-out/fan-in Graph orchestration.
-    Graph executes nodes sequentially (not concurrently) — this is an intentional
-    tradeoff for structural parity with LangGraph's StateGraph DAG model.
+    Four agent() tasks review code via a Graph DAG:
+    - security_review: Finds vulnerabilities and security issues
+    - performance_review: Identifies optimization opportunities
+    - style_review: Reviews code quality and maintainability
+    - testing_review: Suggests test cases and coverage improvements
 
-    - Security: Finds vulnerabilities and security issues
-    - Performance: Identifies optimization opportunities
-    - Style: Reviews code quality and maintainability
-    - Testing: Suggests test cases and coverage improvements
+    Graph executes nodes sequentially following the DAG topology.
 
     Input format:
     {
         "code": "Source code as string (required)",
         "file_path": "Optional file path for context",
         "context": "Optional additional context",
-        "model": "llama3.2",  # Optional, default: llama3.2
-        "ollama_url": "http://localhost:11434"  # Optional
+        "model": "llama3.2",
+        "ollama_url": "http://localhost:11434"
     }
 
     Returns:
@@ -774,23 +323,15 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     start_time = datetime.now()
 
     raw_input = ctx.input or {}
-    input_data = {
-        "code": raw_input.get("code"),
-        "model": raw_input.get("model", "llama3.2"),
-        "ollama_url": raw_input.get("ollama_url", "http://localhost:11434"),
-        "file_path": raw_input.get("file_path"),
-        "context": raw_input.get("context"),
-    }
-
-    if not input_data["code"]:
+    if not raw_input.get("code"):
         return {"error": "No code provided", "execution_id": ctx.execution_id}
 
     graph = (
         Graph("code_review")
-        .add_node("security", run_security_review)
-        .add_node("performance", run_performance_review)
-        .add_node("style", run_style_review)
-        .add_node("testing", run_testing_review)
+        .add_node("security", run_security)
+        .add_node("performance", run_performance)
+        .add_node("style", run_style)
+        .add_node("testing", run_testing)
         .add_node("aggregate", collect_reviews)
         .add_node("report", generate_summary_report)
         .start_with("security")
@@ -805,7 +346,7 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
         .end_with("report")
     )
 
-    report = await graph(input_data)
+    report = await graph(raw_input)
 
     end_time = datetime.now()
     execution_time = (end_time - start_time).total_seconds()
@@ -813,21 +354,19 @@ async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     report["metadata"] = {
         "execution_id": ctx.execution_id,
         "execution_time": execution_time,
-        "model_used": input_data["model"],
-        "code_length": len(input_data["code"]),
-        "file_path": input_data["file_path"],
+        "model_used": raw_input.get("model", "llama3.2"),
+        "code_length": len(raw_input["code"]),
+        "file_path": raw_input.get("file_path"),
     }
 
     return report
 
 
 if __name__ == "__main__":  # pragma: no cover
-    # Quick test of the workflow
     print("=" * 80)
     print("Multi-Agent Code Review Demo - Security Focus")
     print("=" * 80 + "\n")
 
-    # Test code with known security issue
     test_code = '''
 def login_user(username, password):
     """Authenticate user - INSECURE EXAMPLE"""
@@ -872,9 +411,7 @@ def process_file(user_input):
             print(f"  {i}. {rec}")
 
         print("\n" + "=" * 80)
-        print("✓ Multi-agent code review completed successfully!")
-        print("✓ All agents executed via Graph DAG!")
-        print("✓ Security vulnerabilities detected!")
+        print("Multi-agent code review completed!")
         print("=" * 80)
 
     except Exception as e:
@@ -882,5 +419,3 @@ def process_file(user_input):
         print("\nMake sure:")
         print("1. Ollama is running: ollama serve")
         print("2. Model is available: ollama pull llama3.2")
-        print("3. Flux server is running: poetry run flux start server")
-        print("4. Flux worker is running: poetry run flux start worker worker-1")

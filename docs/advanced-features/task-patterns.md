@@ -310,7 +310,9 @@ async def conversation(ctx: ExecutionContext[dict]):
     return r2
 ```
 
-Note: stateful history is in-memory. If the workflow crashes, history is lost on resume. For crash-durable conversations, manage history at the workflow level using `pause()`/`resume()`.
+**Caveats:**
+- Stateful history is in-memory. If the workflow crashes, history is lost on resume. For crash-durable conversations, manage history at the workflow level using `pause()`/`resume()`.
+- Stateful agents must not be called concurrently (e.g., via `parallel()`). Concurrent invocations share the same message list and will corrupt the history. Use separate `agent()` instances for concurrent use.
 
 ### Task Options
 

@@ -17,6 +17,7 @@ def build_anthropic_agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
+    max_tokens: int = 4096,
 ) -> task:
     """Build a Flux @task that calls Anthropic's messages API."""
     try:
@@ -30,12 +31,11 @@ def build_anthropic_agent(
     tool_schemas = build_tool_schemas(tools) if tools else None
     anthropic_tools = _to_anthropic_tools(tool_schemas) if tool_schemas else None
 
+    client = AsyncAnthropic()
     messages: list[dict[str, Any]] = []
 
     @task.with_options(name=task_name)
     async def anthropic_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
-        client = AsyncAnthropic()
-
         user_content = instruction
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
@@ -55,7 +55,7 @@ def build_anthropic_agent(
             "model": model_name,
             "messages": call_messages,
             "system": sys_prompt,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         }
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools

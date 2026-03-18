@@ -30,12 +30,11 @@ def build_ollama_agent(
     tool_schemas = build_tool_schemas(tools) if tools else None
     ollama_tools = _to_ollama_tools(tool_schemas) if tool_schemas else None
 
+    client = AsyncClient()
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
     @task.with_options(name=task_name)
     async def ollama_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
-        client = AsyncClient()
-
         user_content = instruction
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
@@ -92,7 +91,8 @@ def build_ollama_agent(
                     "content": "You must provide your final answer now. Do not call any more tools.",
                 },
             )
-            response = await client.chat(model=model_name, messages=call_messages)
+            kwargs_no_tools = {k: v for k, v in kwargs.items() if k != "tools"}
+            response = await client.chat(**{**kwargs_no_tools, "messages": call_messages})
             response_message = response["message"]
 
         content = response_message["content"]

@@ -2,7 +2,35 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, get_type_hints
+import logging
+import typing
+from typing import Any, Callable, Union, get_type_hints
+
+logger = logging.getLogger("flux.agent")
+
+
+def _resolve_json_type(hint: Any) -> str:
+    """Map a Python type hint to a JSON Schema type string."""
+    if hint is str:
+        return "string"
+    if hint is int:
+        return "integer"
+    if hint is float:
+        return "number"
+    if hint is bool:
+        return "boolean"
+    if hint is list or typing.get_origin(hint) is list:
+        return "array"
+    if hint is dict or typing.get_origin(hint) is dict:
+        return "object"
+
+    origin = typing.get_origin(hint)
+    if origin is Union:
+        args = [a for a in typing.get_args(hint) if a is not type(None)]
+        if args:
+            return _resolve_json_type(args[0])
+
+    return "string"
 
 
 def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
@@ -25,22 +53,8 @@ def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
             if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
                 continue
 
-            prop: dict[str, Any] = {}
             hint = hints.get(param_name)
-            if hint is str:
-                prop["type"] = "string"
-            elif hint is int:
-                prop["type"] = "integer"
-            elif hint is float:
-                prop["type"] = "number"
-            elif hint is bool:
-                prop["type"] = "boolean"
-            else:
-                prop["type"] = "string"
-
-            if param_name in hints:
-                prop["description"] = param_name
-
+            prop: dict[str, Any] = {"type": _resolve_json_type(hint)}
             parameters["properties"][param_name] = prop
 
             if param.default is inspect.Parameter.empty and param.kind != param.KEYWORD_ONLY:
@@ -82,12 +96,14 @@ async def execute_tools(
 
         tool_fn = tool_map.get(name)
         if not tool_fn:
+            logger.warning("Agent requested unknown tool: %s", name)
             return {"tool_call_id": call.get("id", name), "output": f"Error: Unknown tool '{name}'"}
 
         try:
             result = await tool_fn(**args)
             return {"tool_call_id": call.get("id", name), "output": str(result)}
         except Exception as e:
+            logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
     results = await asyncio.gather(*[_run_one(call) for call in tool_calls])
