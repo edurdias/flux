@@ -39,7 +39,11 @@ jobs:
 
     - name: Install dependencies
       if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      run: poetry install --no-interaction
+      run: poetry install --no-interaction --extras observability
+
+    - name: Ensure dependencies are available
+      if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root --extras observability
 
     - name: Linting and code quality
       run: |
