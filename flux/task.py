@@ -26,9 +26,16 @@ class TaskMetadata:
         return f"TaskMetadata(task_id={self.task_id}, task_name={self.task_name})"
 
 
-class task:
+class _WithOptions:
+    """Descriptor enabling task.with_options() on both the class and instances."""
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self._as_decorator
+        return obj._with_options
+
     @staticmethod
-    def with_options(
+    def _as_decorator(
         name: str | None = None,
         fallback: Callable | None = None,
         rollback: Callable | None = None,
@@ -58,6 +65,10 @@ class task:
             )
 
         return wrapper
+
+
+class task:
+    with_options = _WithOptions()
 
     def __init__(
         self,
@@ -235,7 +246,7 @@ class task:
         """The wrapped function."""
         return self._func
 
-    def with_instance_options(
+    def _with_options(
         self,
         name: str | None = None,
         fallback: Callable | None = None,

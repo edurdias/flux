@@ -316,14 +316,14 @@ async def conversation(ctx: ExecutionContext[dict]):
 
 ### Task Options
 
-Agents return regular Flux tasks. Use `with_instance_options()` to customize retries, timeouts, and other task behavior:
+Agents return regular Flux tasks. Use `with_options()` to customize retries, timeouts, and other task behavior:
 
 ```python
 researcher = agent(
     "You are a researcher.",
     model="ollama/llama3",
     name="researcher",
-).with_instance_options(
+).with_options(
     retry_max_attempts=5,
     timeout=300,
 )

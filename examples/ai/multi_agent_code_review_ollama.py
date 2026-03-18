@@ -73,7 +73,7 @@ security_reviewer = agent(
     "race conditions, and sensitive data exposure.",
     model="ollama/llama3.2",
     name="security_review",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 performance_reviewer = agent(
     "You are a performance optimization expert. "
@@ -82,7 +82,7 @@ performance_reviewer = agent(
     "I/O bottlenecks, and blocking operations.",
     model="ollama/llama3.2",
     name="performance_review",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 style_reviewer = agent(
     "You are a code quality and style expert. "
@@ -91,7 +91,7 @@ style_reviewer = agent(
     "and PEP 8 compliance.",
     model="ollama/llama3.2",
     name="style_review",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 testing_reviewer = agent(
     "You are a testing and quality assurance expert. "
@@ -99,7 +99,7 @@ testing_reviewer = agent(
     "mock requirements, test data, missing coverage, and regression tests.",
     model="ollama/llama3.2",
     name="testing_review",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 
 def parse_llm_json_response(content: str) -> list[dict[str, Any]]:

@@ -43,7 +43,7 @@ researcher = agent(
     "Organize your findings with clear headings and bullet points.",
     model="ollama/llama3",
     name="researcher",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 writer = agent(
     "You are a skilled content writer. Transform research into compelling blog posts "
@@ -51,7 +51,7 @@ writer = agent(
     "sections with clear headings, and a strong conclusion. Target 800-1200 words.",
     model="ollama/llama3",
     name="writer",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 editor = agent(
     "You are an experienced content editor. Polish drafts for clarity, grammar, flow, "
@@ -59,7 +59,7 @@ editor = agent(
     "no editorial notes.",
     model="ollama/llama3",
     name="editor",
-).with_instance_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
+).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 
 @workflow.with_options(name="blog_post_writer_ollama")

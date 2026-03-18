@@ -138,7 +138,7 @@ weather_assistant = agent(
     model="ollama/llama3.2",
     name="weather_assistant",
     tools=[get_current_weather, get_weather_forecast],
-).with_instance_options(retry_max_attempts=2, timeout=120)
+).with_options(retry_max_attempts=2, timeout=120)
 
 
 @workflow.with_options(name="weather_agent_ollama")

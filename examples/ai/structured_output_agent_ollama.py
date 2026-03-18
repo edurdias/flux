@@ -57,7 +57,7 @@ extractor = agent(
     model="ollama/llama3",
     name="extractor",
     response_format=PersonInfo,
-).with_instance_options(retry_max_attempts=3, timeout=60)
+).with_options(retry_max_attempts=3, timeout=60)
 
 classifier = agent(
     "You are a sentiment analysis specialist. Analyze the sentiment of the given text. "
@@ -66,7 +66,7 @@ classifier = agent(
     model="ollama/llama3",
     name="classifier",
     response_format=SentimentResult,
-).with_instance_options(retry_max_attempts=3, timeout=60)
+).with_options(retry_max_attempts=3, timeout=60)
 
 planner = agent(
     "You are a content planning specialist. Create a structured blog outline. "
@@ -75,13 +75,13 @@ planner = agent(
     model="ollama/llama3",
     name="planner",
     response_format=BlogOutline,
-).with_instance_options(retry_max_attempts=3, timeout=60)
+).with_options(retry_max_attempts=3, timeout=60)
 
 writer = agent(
     "You are a content writer. Write a blog post based on the outline provided.",
     model="ollama/llama3",
     name="writer",
-).with_instance_options(timeout=300)
+).with_options(timeout=300)
 
 
 @workflow.with_options(name="structured_output_demo")
