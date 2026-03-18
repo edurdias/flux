@@ -68,7 +68,7 @@ class _WithOptions:
 
 
 class task:
-    with_options = _WithOptions()
+    with_options: _WithOptions = _WithOptions()
 
     def __init__(
         self,
