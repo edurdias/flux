@@ -45,8 +45,7 @@ async def mcp_tool_call(ctx: ExecutionContext):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    import json
-
     print("Calling MCP tools with retry and timeout...")
     ctx = mcp_tool_call.run(input={"workflow_name": "hello_world"})
-    print(f"\nWorkflow details:\n{json.dumps(ctx.output, indent=2)}")
+    print(f"\nWorkflow details:\n{ctx.output['workflow']}")
+    print(f"\nRecent executions:\n{ctx.output['recent_executions']}")
