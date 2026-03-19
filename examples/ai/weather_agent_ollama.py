@@ -141,7 +141,7 @@ weather_assistant = agent(
 ).with_options(retry_max_attempts=2, timeout=120)
 
 
-@workflow.with_options(name="weather_agent_ollama")
+@workflow
 async def weather_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     Weather agent using Flux agent() with tool calling.

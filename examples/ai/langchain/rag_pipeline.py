@@ -301,7 +301,7 @@ async def generate_rag_response(
         ) from e
 
 
-@workflow.with_options(name="rag_index_langchain")
+@workflow
 async def rag_index_langchain(ctx: ExecutionContext[dict[str, Any]]):
     """
     Index documents into a Chroma vector store for later querying.
@@ -368,7 +368,7 @@ async def rag_index_langchain(ctx: ExecutionContext[dict[str, Any]]):
     }
 
 
-@workflow.with_options(name="rag_query_langchain")
+@workflow
 async def rag_query_langchain(ctx: ExecutionContext[dict[str, Any]]):
     """
     Query a pre-indexed Chroma vector store using RAG.

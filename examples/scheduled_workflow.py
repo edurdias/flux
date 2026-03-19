@@ -51,7 +51,7 @@ async def data_sync_workflow(ctx: ExecutionContext[dict]):
 
 
 # Example 3: Workflow without schedule (manual execution)
-@workflow.with_options(name="manual_workflow")
+@workflow
 async def manual_workflow(ctx: ExecutionContext[str]):
     """Manual workflow for on-demand execution"""
     message = ctx.input or "Manual execution"

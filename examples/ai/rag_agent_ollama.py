@@ -329,7 +329,7 @@ Answer the question based on the context provided above. If the context doesn't 
         ) from e
 
 
-@workflow.with_options(name="rag_index_documents")
+@workflow
 async def rag_index_documents(ctx: ExecutionContext[dict[str, Any]]):
     """
     Index documents and save to disk for later querying.
@@ -440,7 +440,7 @@ async def rag_index_documents(ctx: ExecutionContext[dict[str, Any]]):
     }
 
 
-@workflow.with_options(name="rag_query_documents")
+@workflow
 async def rag_query_documents(ctx: ExecutionContext[dict[str, Any]]):
     """
     Query pre-indexed documents using RAG.

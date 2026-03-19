@@ -212,7 +212,7 @@ async def call_ollama_with_mcp_tools(
 # =============================================================================
 
 
-@workflow.with_options(name="mcp_workflow_assistant_ollama")
+@workflow
 async def mcp_workflow_assistant_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     AI assistant that manages Flux workflows via MCP protocol.
