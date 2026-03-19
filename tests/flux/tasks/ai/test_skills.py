@@ -150,6 +150,14 @@ def test_skill_from_file_empty_body():
         Skill.from_file(path)
 
 
+def test_skill_from_file_invalid_frontmatter(tmp_path):
+    skill_dir = tmp_path / "bad-fm"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\n- a list\n---\nBody.\n")
+    with pytest.raises(SkillValidationError, match="mapping"):
+        Skill.from_file(str(skill_dir / "SKILL.md"))
+
+
 def test_skill_from_file_not_found():
     with pytest.raises(FileNotFoundError):
         Skill.from_file("/nonexistent/path/SKILL.md")

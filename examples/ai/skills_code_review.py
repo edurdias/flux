@@ -87,7 +87,7 @@ async def run_linter(code: str) -> str:
     issues = []
     if "eval(" in code:
         issues.append("WARNING: Use of eval() detected — potential code injection.")
-    if "SELECT" in code and "f'" in code or 'f"' in code:
+    if "SELECT" in code and ("f'" in code or 'f"' in code):
         issues.append("WARNING: Possible SQL injection — string formatting in query.")
     if "password" in code.lower() and "hash" not in code.lower():
         issues.append("WARNING: Password handling without hashing detected.")
@@ -159,10 +159,12 @@ def login(username, password):
         print("=" * 80 + "\n")
 
         print("Requesting security review...\n")
-        result = skills_code_review_ollama.run({
-            "code": sample_code,
-            "review_type": "security",
-        })
+        result = skills_code_review_ollama.run(
+            {
+                "code": sample_code,
+                "review_type": "security",
+            },
+        )
 
         if result.has_failed:
             raise Exception(f"Workflow failed: {result.output}")

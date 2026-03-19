@@ -89,6 +89,10 @@ class Skill:
             )
 
         frontmatter = yaml.safe_load(parts[1])
+        if not isinstance(frontmatter, dict):
+            raise SkillValidationError(
+                "Skill frontmatter must be a YAML mapping.",
+            )
         body = parts[2].strip()
 
         name = frontmatter.get("name", "")
