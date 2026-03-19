@@ -114,3 +114,27 @@ class Skill:
             allowed_tools=allowed_tools,
             metadata=metadata,
         )
+
+
+class SkillCatalog:
+    def __init__(self, skills: list[Skill] | None = None):
+        self._skills: dict[str, Skill] = {}
+        for skill in skills or []:
+            self.register(skill)
+
+    def register(self, skill: Skill) -> None:
+        if skill.name in self._skills:
+            raise SkillCatalogError(f"Skill '{skill.name}' is already registered.")
+        self._skills[skill.name] = skill
+
+    def get(self, name: str) -> Skill:
+        skill = self._skills.get(name)
+        if skill is None:
+            raise SkillNotFoundError(name)
+        return skill
+
+    def find(self, names: list[str]) -> list[Skill]:
+        return [self.get(name) for name in names]
+
+    def list(self) -> list[Skill]:
+        return list(self._skills.values())

@@ -8,6 +8,7 @@ import pytest
 
 from flux.tasks.ai.skills import (
     Skill,
+    SkillCatalog,
     SkillCatalogError,
     SkillNotFoundError,
     SkillValidationError,
@@ -150,3 +151,70 @@ def test_skill_from_file_empty_body():
 def test_skill_from_file_not_found():
     with pytest.raises(FileNotFoundError):
         Skill.from_file("/nonexistent/path/SKILL.md")
+
+
+def _make_skill(name: str) -> Skill:
+    return Skill(name=name, description=f"Skill {name}.", instructions=f"Do {name}.")
+
+
+def test_catalog_from_list():
+    s1 = _make_skill("alpha")
+    s2 = _make_skill("beta")
+    catalog = SkillCatalog([s1, s2])
+    assert len(catalog.list()) == 2
+
+
+def test_catalog_empty():
+    catalog = SkillCatalog([])
+    assert catalog.list() == []
+
+
+def test_catalog_get():
+    s1 = _make_skill("alpha")
+    catalog = SkillCatalog([s1])
+    assert catalog.get("alpha") is s1
+
+
+def test_catalog_get_not_found():
+    catalog = SkillCatalog([])
+    with pytest.raises(SkillNotFoundError):
+        catalog.get("missing")
+
+
+def test_catalog_find():
+    s1 = _make_skill("alpha")
+    s2 = _make_skill("beta")
+    s3 = _make_skill("gamma")
+    catalog = SkillCatalog([s1, s2, s3])
+    found = catalog.find(["alpha", "gamma"])
+    assert len(found) == 2
+    assert found[0].name == "alpha"
+    assert found[1].name == "gamma"
+
+
+def test_catalog_find_missing():
+    s1 = _make_skill("alpha")
+    catalog = SkillCatalog([s1])
+    with pytest.raises(SkillNotFoundError):
+        catalog.find(["alpha", "missing"])
+
+
+def test_catalog_register():
+    catalog = SkillCatalog([])
+    s1 = _make_skill("alpha")
+    catalog.register(s1)
+    assert catalog.get("alpha") is s1
+
+
+def test_catalog_register_duplicate():
+    s1 = _make_skill("alpha")
+    catalog = SkillCatalog([s1])
+    with pytest.raises(SkillCatalogError):
+        catalog.register(_make_skill("alpha"))
+
+
+def test_catalog_init_duplicate():
+    s1 = _make_skill("alpha")
+    s2 = _make_skill("alpha")
+    with pytest.raises(SkillCatalogError):
+        SkillCatalog([s1, s2])
