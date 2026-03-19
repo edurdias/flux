@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from flux.tasks.mcp.auth import bearer, oauth, BearerAuthConfig, OAuthConfig
 from flux.tasks.mcp.client import MCPClient
@@ -9,7 +9,7 @@ from flux.tasks.mcp.errors import ToolExecutionError
 
 
 def mcp(
-    server: Any,
+    server: str | object,
     *,
     auth: BearerAuthConfig | OAuthConfig | None = None,
     name: str | None = None,

@@ -78,7 +78,6 @@ async def execute_tools(
 
     Each tool call is a dict with 'name' and 'arguments'.
     Tools are Flux @task functions — each invocation produces task events.
-    Multiple calls execute concurrently via asyncio.gather.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:

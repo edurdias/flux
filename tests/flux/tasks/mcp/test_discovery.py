@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
+
 from flux.task import task
 from flux.tasks.mcp.discovery import ToolSet, ToolSetOutputStorage
 from flux.tasks.mcp.tool_builder import build_tools
@@ -44,11 +46,8 @@ def test_toolset_attribute_access():
 
 def test_toolset_attribute_error():
     ts = _make_toolset()
-    try:
+    with pytest.raises(AttributeError):
         _ = ts.nonexistent
-        assert False, "Should have raised AttributeError"
-    except AttributeError:
-        pass
 
 
 def test_toolset_iteration():
