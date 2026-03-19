@@ -17,6 +17,7 @@ def build_ollama_agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
+    stream: bool = True,
 ) -> task:
     """Build a Flux @task that calls Ollama's chat API."""
     try:

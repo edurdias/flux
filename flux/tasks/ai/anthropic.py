@@ -18,6 +18,7 @@ def build_anthropic_agent(
     stateful: bool = False,
     max_tool_calls: int = 10,
     max_tokens: int = 4096,
+    stream: bool = True,
 ) -> task:
     """Build a Flux @task that calls Anthropic's messages API."""
     try:
