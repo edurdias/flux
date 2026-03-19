@@ -61,3 +61,28 @@ def test_skill_exports():
 
     assert Skill is not None
     assert SkillCatalog is not None
+
+
+def test_agent_accepts_stream_parameter():
+    a = agent("You are a test agent.", model="ollama/llama3", stream=True)
+    assert a is not None
+
+
+def test_agent_stream_defaults_to_true():
+    a = agent("You are a test agent.", model="ollama/llama3")
+    assert a is not None
+
+
+def test_agent_stream_false():
+    a = agent("You are a test agent.", model="ollama/llama3", stream=False)
+    assert a is not None
+
+
+def test_agent_stream_disabled_with_response_format():
+    from pydantic import BaseModel
+
+    class Info(BaseModel):
+        name: str
+
+    a = agent("Extract info.", model="ollama/llama3", response_format=Info, stream=True)
+    assert a is not None

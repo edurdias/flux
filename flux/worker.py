@@ -68,6 +68,8 @@ class Worker:
         self.client = httpx.AsyncClient(timeout=config.default_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._pending_checkpoints: dict[str, asyncio.Task] = {}
+        self._progress_queues: dict[str, asyncio.Queue] = {}
+        self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
         self._module_cache: dict[str, tuple[ModuleType, float]] = {}
         self._module_cache_ttl = config.module_cache_ttl
@@ -463,6 +465,7 @@ class Worker:
                 self._module_cache[cache_key] = (module, time.monotonic())
 
         ctx = request.context
+        self._setup_progress(ctx)
 
         for obj in module.__dict__.values():
             if isinstance(obj, workflow) and obj.name == request.workflow.name:
@@ -481,6 +484,7 @@ class Worker:
                 ctx = await task
             finally:
                 self._running_workflows.pop(request.context.execution_id, None)
+                await self._teardown_progress(request.context.execution_id)
                 logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
 
             execution_time = asyncio.get_event_loop().time() - start_time
@@ -557,6 +561,84 @@ class Worker:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")
             raise
+
+    async def _flush_progress(self, queue: asyncio.Queue, execution_id: str):
+        base_url = f"{self.base_url}/{self.name}"
+        headers = {"Authorization": f"Bearer {self.session_token}"}
+        try:
+            while True:
+                batch = []
+                try:
+                    item = await queue.get()
+                    batch.append(item)
+                    while not queue.empty() and len(batch) < 50:
+                        batch.append(queue.get_nowait())
+                except asyncio.CancelledError:
+                    while not queue.empty():
+                        batch.append(queue.get_nowait())
+                    if batch:
+                        try:
+                            await self.client.post(
+                                f"{base_url}/progress/{execution_id}",
+                                json=batch,
+                                headers=headers,
+                            )
+                        except Exception:
+                            pass
+                    return
+
+                try:
+                    await self.client.post(
+                        f"{base_url}/progress/{execution_id}",
+                        json=batch,
+                        headers=headers,
+                    )
+                except Exception:
+                    logger.debug(f"Failed to flush progress for {execution_id}")
+        except Exception:
+            pass
+
+    def _setup_progress(self, ctx):
+        queue = asyncio.Queue(maxsize=1000)
+        self._progress_queues[ctx.execution_id] = queue
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            self._progress_flushers[ctx.execution_id] = asyncio.create_task(
+                self._flush_progress(queue, ctx.execution_id),
+            )
+        else:
+            self._progress_flushers[ctx.execution_id] = None
+
+        def on_progress(execution_id, task_id, task_name, value):
+            q = self._progress_queues.get(execution_id)
+            if q:
+                try:
+                    q.put_nowait(
+                        {
+                            "task_id": task_id,
+                            "task_name": task_name,
+                            "value": value,
+                        },
+                    )
+                except asyncio.QueueFull:
+                    pass
+
+        ctx.set_progress_callback(on_progress)
+
+    async def _teardown_progress(self, execution_id: str):
+        flusher = self._progress_flushers.pop(execution_id, None)
+        if flusher and not flusher.done():
+            flusher.cancel()
+            try:
+                await flusher
+            except asyncio.CancelledError:
+                pass
+        self._progress_queues.pop(execution_id, None)
 
     async def _get_runtime_info(self):
         logger.debug("Gathering runtime information")
