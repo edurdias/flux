@@ -65,7 +65,7 @@ def test_ollama_no_streaming_when_disabled():
         with patch("ollama.AsyncClient") as MockClient:
             mock_client = MagicMock()
             mock_client.chat = AsyncMock(
-                return_value={"message": {"content": "Hello world!", "tool_calls": None}}
+                return_value={"message": {"content": "Hello world!", "tool_calls": None}},
             )
             MockClient.return_value = mock_client
 
@@ -121,10 +121,10 @@ def test_ollama_streaming_with_tools_streams_final_response():
                                 "function": {
                                     "name": "get_weather",
                                     "arguments": {"city": "London"},
-                                }
-                            }
+                                },
+                            },
                         ],
-                    }
+                    },
                 }
             else:
                 return {"message": {"content": "Sunny", "tool_calls": None}}

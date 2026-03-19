@@ -22,14 +22,10 @@ def test_progress_events_not_in_event_log():
         finally:
             ExecutionContext.reset(token)
 
-        progress_events = [
-            e for e in ctx.events if e.type == ExecutionEventType.TASK_PROGRESS
-        ]
+        progress_events = [e for e in ctx.events if e.type == ExecutionEventType.TASK_PROGRESS]
         assert len(progress_events) == 0
 
-        completed_events = [
-            e for e in ctx.events if e.type == ExecutionEventType.TASK_COMPLETED
-        ]
+        completed_events = [e for e in ctx.events if e.type == ExecutionEventType.TASK_COMPLETED]
         assert len(completed_events) == 1
 
     asyncio.run(run())

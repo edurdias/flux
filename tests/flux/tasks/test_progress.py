@@ -6,6 +6,7 @@ from flux.task import task, _CURRENT_TASK
 
 def test_progress_import():
     from flux.tasks import progress
+
     assert callable(progress)
 
 
@@ -13,7 +14,14 @@ def test_progress_calls_emit_progress_on_context():
     captured = []
 
     def on_progress(execution_id, task_id, task_name, value):
-        captured.append({"execution_id": execution_id, "task_id": task_id, "task_name": task_name, "value": value})
+        captured.append(
+            {
+                "execution_id": execution_id,
+                "task_id": task_id,
+                "task_name": task_name,
+                "value": value,
+            },
+        )
 
     async def run():
         from flux.tasks.progress import progress
