@@ -56,18 +56,24 @@ def build_tool_task(
 
     sig = inspect.Signature(params)
 
-    async def tool_func(**kwargs: Any) -> Any:
+    param_names = list(properties.keys())
+
+    async def tool_func(*args: Any, **kwargs: Any) -> Any:
         from flux.tasks.mcp.errors import ToolExecutionError
+
+        for i, val in enumerate(args):
+            if i < len(param_names):
+                kwargs[param_names[i]] = val
 
         connection = await client._get_connection()
         try:
             result = await connection.call_tool(tool_name, kwargs)
         except Exception:
-            client._discard_connection()
+            await client._discard_connection()
             raise
         finally:
             if client._connection == "per-call":
-                await client._close_connection()
+                await client._close_connection(connection)
 
         if isinstance(result, list):
             content = result

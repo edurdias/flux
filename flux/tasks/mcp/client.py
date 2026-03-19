@@ -134,7 +134,18 @@ class MCPClient:
 
             return client
 
-    async def _close_connection(self) -> None:
+    async def _close_connection(self, client: Any | None = None) -> None:
+        async with self._lock:
+            target = client or self._fastmcp_client
+            if target is not None:
+                try:
+                    await target.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                if target is self._fastmcp_client:
+                    self._fastmcp_client = None
+
+    async def _discard_connection(self) -> None:
         async with self._lock:
             if self._fastmcp_client is not None:
                 try:
@@ -142,9 +153,6 @@ class MCPClient:
                 except Exception:
                     pass
                 self._fastmcp_client = None
-
-    def _discard_connection(self) -> None:
-        self._fastmcp_client = None
 
     async def __aenter__(self) -> MCPClient:
         return self
@@ -154,19 +162,24 @@ class MCPClient:
 
     async def _discover_impl(self) -> ToolSet:
         connection = await self._get_connection()
-        tools_result = await connection.list_tools()
-        schemas = [
-            {
-                "name": tool.name,
-                "description": tool.description or "",
-                "inputSchema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
-            }
-            for tool in tools_result
-        ]
-        tools_dict = build_tools(schemas, self, self._name, **self._task_options)
-        if self._connection == "per-call":
-            await self._close_connection()
-        return ToolSet(tools_dict, schemas)
+        try:
+            tools_result = await connection.list_tools()
+            schemas = [
+                {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "inputSchema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+                }
+                for tool in tools_result
+            ]
+            tools_dict = build_tools(schemas, self, self._name, **self._task_options)
+            return ToolSet(tools_dict, schemas)
+        except Exception:
+            await self._discard_connection()
+            raise
+        finally:
+            if self._connection == "per-call":
+                await self._close_connection(connection)
 
     async def discover(self) -> ToolSet:
         if self._discover_task is None:
