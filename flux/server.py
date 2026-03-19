@@ -817,10 +817,16 @@ class Server:
 
                                     done, pending = await asyncio.wait(
                                         {progress_task, checkpoint_task},
+                                        timeout=30.0,
                                         return_when=asyncio.FIRST_COMPLETED,
                                     )
                                     for t in pending:
                                         t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
 
                                     if progress_task in done:
                                         item = progress_task.result()
@@ -985,10 +991,16 @@ class Server:
 
                                     done, pending = await asyncio.wait(
                                         {progress_task, checkpoint_task},
+                                        timeout=30.0,
                                         return_when=asyncio.FIRST_COMPLETED,
                                     )
                                     for t in pending:
                                         t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
 
                                     if progress_task in done:
                                         item = progress_task.result()
@@ -1525,19 +1537,24 @@ class Server:
             events: list = Body(...),
             authorization: str = Header(None),
         ):
+            self._get_worker(name, authorization)
+            self._worker_last_pong[name] = time.monotonic()
+
             buffer = self._progress_buffers.get(execution_id)
-            if buffer:
-                for event in events:
-                    progress_event = ExecutionEvent(
-                        type=ExecutionEventType.TASK_PROGRESS,
-                        source_id=event.get("task_id", ""),
-                        name=event.get("task_name", ""),
-                        value=event.get("value"),
-                    )
-                    try:
-                        buffer.put_nowait(progress_event)
-                    except asyncio.QueueFull:
-                        pass
+            if not buffer:
+                return {"status": "ok"}
+
+            for event in events:
+                progress_event = ExecutionEvent(
+                    type=ExecutionEventType.TASK_PROGRESS,
+                    source_id=event.get("task_id", ""),
+                    name=event.get("task_name", ""),
+                    value=event.get("value"),
+                )
+                try:
+                    buffer.put_nowait(progress_event)
+                except asyncio.QueueFull:
+                    pass
             return {"status": "ok"}
 
         # Admin API - Secrets Management

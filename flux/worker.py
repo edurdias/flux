@@ -69,7 +69,7 @@ class Worker:
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._pending_checkpoints: dict[str, asyncio.Task] = {}
         self._progress_queues: dict[str, asyncio.Queue] = {}
-        self._progress_flushers: dict[str, asyncio.Task] = {}
+        self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
         self._module_cache: dict[str, tuple[ModuleType, float]] = {}
         self._module_cache_ttl = config.module_cache_ttl

@@ -14,8 +14,9 @@ from flux.tasks import progress
 
 @task
 async def process_data(items: list):
+    results = []
     for i, item in enumerate(items):
-        result = await transform(item)
+        results.append(item * 2)
         await progress({"processed": i + 1, "total": len(items)})
     return results
 
