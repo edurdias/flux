@@ -19,8 +19,8 @@ from flux import ExecutionContext, workflow
 from flux.tasks.mcp import mcp
 
 
-@workflow.with_options(name="mcp_tool_call")
-async def tool_call(ctx: ExecutionContext):
+@workflow
+async def mcp_tool_call(ctx: ExecutionContext):
     workflow_name = ctx.input.get("workflow_name", "hello_world")
 
     async with mcp(

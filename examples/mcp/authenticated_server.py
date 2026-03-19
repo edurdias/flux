@@ -20,8 +20,8 @@ from flux import ExecutionContext, workflow
 from flux.tasks.mcp import bearer, mcp
 
 
-@workflow.with_options(name="mcp_authenticated")
-async def authenticated(ctx: ExecutionContext):
+@workflow
+async def mcp_authenticated(ctx: ExecutionContext):
     async with mcp(
         "https://api.example.com/mcp",
         name="external",

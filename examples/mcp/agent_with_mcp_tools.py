@@ -25,8 +25,8 @@ from flux.tasks.ai import agent
 from flux.tasks.mcp import mcp
 
 
-@workflow.with_options(name="mcp_agent_assistant")
-async def agent_assistant(ctx: ExecutionContext):
+@workflow
+async def mcp_agent_assistant(ctx: ExecutionContext):
     question = ctx.input.get("question", "What workflows are available?")
 
     async with mcp("http://localhost:8080/mcp", name="flux") as client:

@@ -22,8 +22,8 @@ from flux.tasks import pause
 from flux.tasks.mcp import mcp
 
 
-@workflow.with_options(name="mcp_interactive")
-async def interactive(ctx: ExecutionContext):
+@workflow
+async def mcp_interactive(ctx: ExecutionContext):
     async with mcp("http://localhost:8080/mcp", name="flux") as client:
         tools = await client.discover()
 

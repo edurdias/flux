@@ -20,8 +20,8 @@ from flux import ExecutionContext, workflow
 from flux.tasks.mcp import mcp
 
 
-@workflow.with_options(name="mcp_tool_override")
-async def tool_override(ctx: ExecutionContext):
+@workflow
+async def mcp_tool_override(ctx: ExecutionContext):
     async with mcp("http://localhost:8080/mcp", name="flux", timeout=10) as client:
         tools = await client.discover()
 
