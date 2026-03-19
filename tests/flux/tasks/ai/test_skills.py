@@ -218,3 +218,20 @@ def test_catalog_init_duplicate():
     s2 = _make_skill("alpha")
     with pytest.raises(SkillCatalogError):
         SkillCatalog([s1, s2])
+
+
+def test_catalog_from_directory():
+    catalog = SkillCatalog.from_directory(FIXTURES_DIR)
+    names = {s.name for s in catalog.list()}
+    assert "researcher" in names
+    assert "minimal" in names
+
+
+def test_catalog_from_directory_not_found():
+    with pytest.raises(FileNotFoundError):
+        SkillCatalog.from_directory("/nonexistent/path")
+
+
+def test_catalog_from_directory_empty(tmp_path):
+    catalog = SkillCatalog.from_directory(str(tmp_path))
+    assert catalog.list() == []

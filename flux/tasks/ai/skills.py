@@ -138,3 +138,24 @@ class SkillCatalog:
 
     def list(self) -> list[Skill]:
         return list(self._skills.values())
+
+    @classmethod
+    def from_directory(cls, path: str) -> SkillCatalog:
+        from pathlib import Path
+
+        dir_path = Path(path)
+        if not dir_path.exists():
+            raise FileNotFoundError(f"Skills directory not found: {path}")
+
+        skills = []
+        for skill_dir in sorted(dir_path.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                try:
+                    skills.append(Skill.from_file(str(skill_file)))
+                except SkillValidationError as e:
+                    logger.warning("Skipping invalid skill in %s: %s", skill_dir, e)
+
+        return cls(skills)
