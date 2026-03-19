@@ -102,3 +102,44 @@ class TestExecutionContext:
             in (ExecutionEventType.WORKFLOW_CANCELLING, ExecutionEventType.WORKFLOW_CANCELLED)
         ]
         assert len(cancel_events) == 2
+
+
+import asyncio
+
+
+def test_emit_progress_default_callback_is_noop():
+    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+    asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", {"step": 1}))
+
+
+def test_emit_progress_calls_callback():
+    captured = []
+
+    def on_progress(execution_id, task_id, task_name, value):
+        captured.append((execution_id, task_id, task_name, value))
+
+    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+    ctx.set_progress_callback(on_progress)
+    asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", {"step": 1}))
+
+    assert len(captured) == 1
+    assert captured[0] == ("exec_1", "task_1", "my_task", {"step": 1})
+
+
+def test_emit_progress_does_not_add_to_events():
+    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+    ctx.set_progress_callback(lambda *_: None)
+    asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", {"data": "x"}))
+    assert len(ctx.events) == 0
+
+
+def test_emit_progress_supports_async_callback():
+    captured = []
+
+    async def on_progress(execution_id, task_id, task_name, value):
+        captured.append(value)
+
+    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+    ctx.set_progress_callback(on_progress)
+    asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", "hello"))
+    assert captured == ["hello"]

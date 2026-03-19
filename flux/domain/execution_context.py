@@ -36,6 +36,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
         requests: ResourceRequest | None = None,
         current_worker: str | None = None,
+        progress_callback: Callable | None = None,
     ):
         self._workflow_id = workflow_id
         self._workflow_name = workflow_name
@@ -46,6 +47,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None
         self._current_worker = current_worker or ""
+        self._progress_callback = progress_callback or (lambda *_: None)
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -334,6 +336,15 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
     def set_checkpoint(self, checkpoint: Callable[[ExecutionContext], Awaitable]) -> Self:
         self._checkpoint = checkpoint
+        return self
+
+    async def emit_progress(self, task_id: str, task_name: str, value: Any) -> None:
+        await maybe_awaitable(
+            self._progress_callback(self.execution_id, task_id, task_name, value)
+        )
+
+    def set_progress_callback(self, callback: Callable) -> Self:
+        self._progress_callback = callback
         return self
 
     def summary(self):
