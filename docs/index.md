@@ -66,6 +66,7 @@
    - [Task Mapping](advanced-features/task-patterns.md#task-mapping)
    - [Graph](advanced-features/task-patterns.md#graph)
    - [AI Agents](advanced-features/task-patterns.md#ai-agents)
+   - [Agent Skills](advanced-features/task-patterns.md#agent-skills)
    - [MCP Client](advanced-features/task-patterns.md#mcp-client)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 

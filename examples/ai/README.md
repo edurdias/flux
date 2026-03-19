@@ -63,6 +63,15 @@ AI agents that analyze structured data (CSV, JSON) using pandas and provide natu
 |---------|-------------|----------|
 | **data_analysis_agent_ollama.py** | Local LLM + pandas for data analysis | Business analytics, data exploration, automated insights |
 
+### Agent Skills
+
+Agents with reusable, composable skills following the [Agent Skills](https://agentskills.io) open standard.
+
+| Example | Description | Use Case |
+|---------|-------------|----------|
+| **skills_agent.py** | Multi-skill agent with SKILL.md discovery | Research assistants, task routing, modular agent behaviors |
+| **skills_code_review.py** | Code review agent with Python-defined skills | Security/performance reviews, specialized analysis |
+
 ### Streaming Responses
 
 AI agents that stream tokens in real-time for better user experience.
@@ -674,6 +683,74 @@ Each token batch generates automatic Flux events:
 ```bash
 # Get execution with all events
 curl http://localhost:8000/workflows/streaming_with_task_events_ollama/executions/<execution_id>?detailed=true
+```
+
+### 12. Agent Skills (Agent Skills Standard)
+
+Agents with reusable skills following the [Agent Skills](https://agentskills.io) open standard. Skills are instruction bundles that agents discover and activate on demand.
+
+**Two approaches:**
+
+**A. SKILL.md files (portable, shareable):**
+
+```bash
+# Skills are SKILL.md files in a directory
+examples/ai/skills/
+├── researcher/SKILL.md    # Research skill with allowed-tools
+└── summarizer/SKILL.md    # Summarization skill
+
+# Register and run
+flux workflow register examples/ai/skills_agent.py
+flux workflow run skills_agent_ollama '{"topic": "quantum computing"}'
+
+# Or run directly
+python examples/ai/skills_agent.py
+```
+
+**B. Python-defined skills (type-safe, IDE-friendly):**
+
+```bash
+# Skills defined in code — no SKILL.md files needed
+flux workflow register examples/ai/skills_code_review.py
+flux workflow run skills_code_review_ollama '{"code": "def login(u, p): db.query(f\"SELECT * WHERE user={u}\")", "review_type": "security"}'
+
+# Or run directly
+python examples/ai/skills_code_review.py
+```
+
+**How it works:**
+
+1. `SkillCatalog` discovers skills from a directory or explicit registration
+2. `agent()` receives the catalog and injects skill descriptions into the system prompt
+3. A `use_skill` tool is added — the LLM calls it to load a skill's full instructions
+4. The LLM follows the skill's instructions using the agent's available tools
+5. Multiple skills can be activated sequentially in a single run
+
+**SKILL.md format** (per the Agent Skills standard):
+
+```yaml
+---
+name: researcher
+description: Deep research on a topic using web sources.
+allowed-tools: search_web read_url
+metadata:
+  author: acme-corp
+  version: "1.0"
+---
+
+Research the given topic thoroughly.
+
+1. Use search_web to find relevant sources
+2. Analyze and cross-reference the results
+3. Synthesize findings into a comprehensive summary
+```
+
+**Input format:**
+```json
+{
+  "topic": "Your research topic",
+  "model": "llama3.2"
+}
 ```
 
 ## How It Works
