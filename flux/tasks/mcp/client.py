@@ -112,12 +112,21 @@ class MCPClient:
 
             from fastmcp import Client
 
+            import inspect
+
+            client_params = inspect.signature(Client.__init__).parameters
+            kwargs: dict[str, Any] = {}
+
             auth = await self._resolve_auth()
-            client = Client(
-                self._server,
-                auth=auth,
-                init_timeout=self._connect_timeout,
-            )
+            if auth is not None:
+                if "auth" in client_params:
+                    kwargs["auth"] = auth
+            if "init_timeout" in client_params:
+                kwargs["init_timeout"] = self._connect_timeout
+            elif "timeout" in client_params:
+                kwargs["timeout"] = self._connect_timeout
+
+            client = Client(self._server, **kwargs)
             await client.__aenter__()
 
             if self._connection == "session":

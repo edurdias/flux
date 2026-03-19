@@ -69,11 +69,16 @@ def build_tool_task(
             if client._connection == "per-call":
                 await client._close_connection()
 
-        if result.is_error:
-            texts = [c.text for c in result.content if hasattr(c, "text")]
-            raise ToolExecutionError(tool_name, "; ".join(texts) or "Unknown error")
-        if result.content:
-            first = result.content[0]
+        if isinstance(result, list):
+            content = result
+        else:
+            if result.is_error:
+                texts = [c.text for c in result.content if hasattr(c, "text")]
+                raise ToolExecutionError(tool_name, "; ".join(texts) or "Unknown error")
+            content = result.content
+
+        if content:
+            first = content[0]
             return first.text if hasattr(first, "text") else str(first)
         return None
 
