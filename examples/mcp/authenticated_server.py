@@ -30,3 +30,11 @@ async def mcp_authenticated(ctx: ExecutionContext):
     ) as client:
         tools = await client.discover()
         return [t.name for t in tools]
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import json
+
+    print("Connecting to authenticated MCP server...")
+    ctx = mcp_authenticated.run()
+    print(f"\nDiscovered tools:\n{json.dumps(ctx.output, indent=2)}")

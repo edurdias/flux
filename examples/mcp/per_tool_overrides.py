@@ -34,3 +34,11 @@ async def mcp_tool_override(ctx: ExecutionContext):
         )
 
         return {"workflows": list_wf, "execution": result}
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import json
+
+    print("Running with per-tool option overrides...")
+    ctx = mcp_tool_override.run()
+    print(f"\nResult:\n{json.dumps(ctx.output, indent=2)}")

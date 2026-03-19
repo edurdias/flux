@@ -27,3 +27,14 @@ async def mcp_tool_discovery(ctx: ExecutionContext):
             "tool_count": len(tools),
             "tools": [t.name for t in tools],
         }
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import json
+
+    print("Discovering MCP tools...")
+    ctx = mcp_tool_discovery.run()
+    print(f"\nFound {ctx.output['tool_count']} tools:")
+    for name in ctx.output["tools"]:
+        print(f"  - {name}")
+    print(f"\nFull output:\n{json.dumps(ctx.output, indent=2)}")

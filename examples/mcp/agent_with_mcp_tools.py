@@ -45,3 +45,29 @@ async def mcp_agent_assistant(ctx: ExecutionContext):
 
         response = await assistant(question)
         return {"question": question, "response": response}
+
+
+if __name__ == "__main__":  # pragma: no cover
+    questions = [
+        "What workflows are available?",
+        "Run the hello_world workflow",
+    ]
+
+    for question in questions:
+        try:
+            print("=" * 80)
+            print(f"Q: {question}")
+            print("=" * 80)
+
+            result = mcp_agent_assistant.run({"question": question})
+
+            if result.has_failed:
+                raise Exception(f"Workflow failed: {result.output}")
+
+            print(f"\nA: {result.output['response']}\n")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            print("Make sure Ollama is running: ollama serve")
+            print("And model is pulled: ollama pull llama3.2")
+            print("And Flux MCP server is running: flux start mcp\n")

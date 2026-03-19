@@ -40,3 +40,18 @@ async def mcp_interactive(ctx: ExecutionContext):
         )
 
         return {"workflow": workflow_name, "result": result}
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import json
+
+    print("Starting interactive MCP workflow — will pause for input...")
+    ctx = mcp_interactive.run()
+    print(f"\nPaused. Available workflows:\n{json.dumps(ctx.output, indent=2)}")
+
+    print("\nResuming with hello_world...")
+    ctx = mcp_interactive.run(
+        execution_id=ctx.execution_id,
+        input={"workflow_name": "hello_world"},
+    )
+    print(f"\nResult:\n{json.dumps(ctx.output, indent=2)}")
