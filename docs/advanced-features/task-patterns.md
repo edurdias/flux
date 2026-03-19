@@ -329,6 +329,86 @@ researcher = agent(
 )
 ```
 
+### Agent Skills
+
+Skills are reusable instruction bundles that agents can discover and activate on demand, following the [Agent Skills](https://agentskills.io) open standard. Skills are defined as `SKILL.md` files with YAML frontmatter or constructed directly in Python.
+
+#### Loading Skills from SKILL.md Files
+
+```python
+from flux.tasks.ai import agent, SkillCatalog
+
+# Discover skills from a directory
+catalog = SkillCatalog.from_directory("./skills")
+
+assistant = agent(
+    "You are a helpful assistant.",
+    model="ollama/llama3.2",
+    tools=[search_web, read_url],
+    skills=catalog,
+)
+```
+
+A `SKILL.md` file follows the Agent Skills standard:
+
+```yaml
+---
+name: researcher
+description: Deep research on a topic using web sources.
+allowed-tools: search_web read_url
+---
+
+Research the given topic thoroughly.
+
+1. Use search_web to find relevant sources
+2. Use read_url to extract content from promising results
+3. Synthesize findings into a comprehensive summary
+```
+
+#### Defining Skills in Python
+
+```python
+from flux.tasks.ai import Skill, SkillCatalog
+
+reviewer = Skill(
+    name="security-reviewer",
+    description="Reviews code for security vulnerabilities.",
+    instructions="Check for SQL injection, XSS, auth flaws...",
+    allowed_tools=["run_linter"],
+)
+
+catalog = SkillCatalog([reviewer])
+```
+
+#### How Skill Selection Works
+
+When `agent()` receives a `SkillCatalog`:
+
+1. Skill **descriptions** are appended to the system prompt (lightweight, ~20 tokens each)
+2. A `use_skill` tool is added to the agent's tool list
+3. The LLM reads the instruction and calls `use_skill(name="researcher")` to load a skill's full instructions
+4. The full instructions arrive as a tool result — the LLM follows them
+5. The LLM can activate **multiple skills** sequentially in a single run (stacking)
+
+```
+LLM turn 1:  → calls use_skill("researcher")  → gets full instructions
+LLM turn 2:  → calls search_web("AI agents")  → gets results (following skill instructions)
+LLM turn 3:  → returns synthesized response
+```
+
+#### Mixed Catalogs
+
+Directory discovery and explicit registration can be combined:
+
+```python
+catalog = SkillCatalog.from_directory("./skills")
+catalog.register(Skill(
+    name="custom-reviewer",
+    description="Custom review logic.",
+    instructions="Review using these criteria...",
+))
+```
+
 ### Agent Composition
 
 Since agents are tasks, they compose with all Flux primitives:
