@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from flux.errors import ExecutionError
+import pytest
+
 from flux.tasks.ai.skills import (
+    Skill,
     SkillCatalogError,
     SkillNotFoundError,
     SkillValidationError,
@@ -27,3 +30,69 @@ def test_skill_not_found_error_message():
     err = SkillNotFoundError("my-skill")
     assert err.message == "Skill 'my-skill' not found."
     assert err._skill_name == "my-skill"
+
+
+def test_skill_construction():
+    skill = Skill(name="my-skill", description="A skill.", instructions="Do the thing.")
+    assert skill.name == "my-skill"
+    assert skill.description == "A skill."
+    assert skill.instructions == "Do the thing."
+    assert skill.allowed_tools == []
+    assert skill.metadata == {}
+
+
+def test_skill_with_all_fields():
+    skill = Skill(
+        name="my-skill",
+        description="A skill.",
+        instructions="Do the thing.",
+        allowed_tools=["tool-a", "tool-b"],
+        metadata={"author": "acme"},
+    )
+    assert skill.allowed_tools == ["tool-a", "tool-b"]
+    assert skill.metadata == {"author": "acme"}
+
+
+def test_skill_rejects_missing_name():
+    with pytest.raises(SkillValidationError):
+        Skill(name="", description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_rejects_missing_description():
+    with pytest.raises(SkillValidationError):
+        Skill(name="my-skill", description="", instructions="Do the thing.")
+
+
+def test_skill_rejects_missing_instructions():
+    with pytest.raises(SkillValidationError):
+        Skill(name="my-skill", description="A skill.", instructions="")
+
+
+def test_skill_rejects_uppercase_name():
+    with pytest.raises(SkillValidationError):
+        Skill(name="MySkill", description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_rejects_name_starting_with_hyphen():
+    with pytest.raises(SkillValidationError):
+        Skill(name="-my-skill", description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_rejects_name_ending_with_hyphen():
+    with pytest.raises(SkillValidationError):
+        Skill(name="my-skill-", description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_rejects_consecutive_hyphens():
+    with pytest.raises(SkillValidationError):
+        Skill(name="my--skill", description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_rejects_name_over_64_chars():
+    with pytest.raises(SkillValidationError):
+        Skill(name="a" * 65, description="A skill.", instructions="Do the thing.")
+
+
+def test_skill_repr():
+    skill = Skill(name="my-skill", description="A skill.", instructions="Do the thing.")
+    assert repr(skill) == "Skill(name='my-skill')"
