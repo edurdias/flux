@@ -1,6 +1,7 @@
 import asyncio
 
-from flux.task import task, _CURRENT_TASK
+from flux._task_context import _CURRENT_TASK
+from flux.task import task
 from flux.domain.execution_context import ExecutionContext
 
 

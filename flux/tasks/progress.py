@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from flux import ExecutionContext
-from flux.task import _CURRENT_TASK
+from flux._task_context import _CURRENT_TASK
 
 
 async def progress(value: Any) -> None:

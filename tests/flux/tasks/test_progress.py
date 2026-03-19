@@ -1,7 +1,8 @@
 import asyncio
 
 from flux.domain.execution_context import ExecutionContext
-from flux.task import task, _CURRENT_TASK
+from flux._task_context import _CURRENT_TASK
+from flux.task import task
 
 
 def test_progress_import():

@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from flux.domain.execution_context import ExecutionContext
-from flux.task import _CURRENT_TASK
+from flux._task_context import _CURRENT_TASK
 
 
 def test_ollama_streaming_emits_progress():

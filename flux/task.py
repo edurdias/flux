@@ -11,13 +11,10 @@ from flux.utils import get_func_args, make_hashable, maybe_awaitable
 
 import asyncio
 import time
-from contextvars import ContextVar
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
-
-_CURRENT_TASK: ContextVar[tuple[str, str] | None] = ContextVar("current_task", default=None)
 
 
 class TaskMetadata:
@@ -146,6 +143,8 @@ class task:
                         f"Original error: {ex}",
                     ) from ex
             return self.output_storage.retrieve(reference)
+
+        from flux._task_context import _CURRENT_TASK
 
         task_token = _CURRENT_TASK.set((task_id, full_name))
         try:
