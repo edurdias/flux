@@ -32,6 +32,16 @@ async def mcp_agent_assistant(ctx: ExecutionContext):
     async with mcp("http://localhost:8080/mcp", name="flux") as client:
         tools = await client.discover()
 
+        # Pass a subset of tools to keep the LLM prompt manageable.
+        # Passing all 26 tools works but significantly slows down inference.
+        tool_subset = [
+            tools.list_workflows,
+            tools.get_workflow_details,
+            tools.execute_workflow_async,
+            tools.get_execution_status,
+            tools.health_check,
+        ]
+
         assistant = agent(
             system_prompt=(
                 "You are a Flux workflow management assistant. "
@@ -39,8 +49,8 @@ async def mcp_agent_assistant(ctx: ExecutionContext):
                 "Be concise and helpful."
             ),
             model="ollama/llama3.2",
-            tools=list(tools),
-            max_tool_calls=5,
+            tools=tool_subset,
+            max_tool_calls=3,
         )
 
         response = await assistant(question)
