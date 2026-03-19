@@ -7,6 +7,11 @@ from pydantic import BaseModel
 from flux.task import task
 from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools
 
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None  # type: ignore[assignment,misc]
+
 
 def build_openai_agent(
     system_prompt: str,
@@ -19,12 +24,10 @@ def build_openai_agent(
     stream: bool = True,
 ) -> task:
     """Build a Flux @task that calls OpenAI's chat API."""
-    try:
-        from openai import AsyncOpenAI
-    except ImportError:
+    if AsyncOpenAI is None:
         raise ImportError(
             "To use openai models, install the openai package: pip install openai",
-        ) from None
+        )
 
     task_name = name or f"agent_openai_{model_name.replace('-', '_').replace('.', '_')}"
     tool_schemas = build_tool_schemas(tools) if tools else None
@@ -35,6 +38,8 @@ def build_openai_agent(
 
     @task.with_options(name=task_name)
     async def openai_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
+        from flux.tasks.progress import progress
+
         user_content = instruction
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
@@ -60,50 +65,73 @@ def build_openai_agent(
                 },
             }
 
-        response = await client.chat.completions.create(**kwargs)
-        message = response.choices[0].message
+        if stream and not openai_tools:
+            content = ""
+            async for chunk in await client.chat.completions.create(**kwargs, stream=True):
+                token = chunk.choices[0].delta.content
+                if token:
+                    content += token
+                    await progress({"token": token})
+        else:
+            response = await client.chat.completions.create(**kwargs)
+            message = response.choices[0].message
 
-        tool_call_count = 0
-        while message.tool_calls and tools and tool_call_count < max_tool_calls:
-            tool_calls = [
-                {
-                    "id": tc.id,
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments,
-                }
-                for tc in message.tool_calls
-            ]
-            tool_call_count += len(tool_calls)
+            tool_call_count = 0
+            while message.tool_calls and tools and tool_call_count < max_tool_calls:
+                tool_calls = [
+                    {
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    }
+                    for tc in message.tool_calls
+                ]
+                tool_call_count += len(tool_calls)
 
-            call_messages.append(message.model_dump())
-            results = await execute_tools(tool_calls, tools)
-            for tc, result in zip(tool_calls, results):
+                call_messages.append(message.model_dump())
+                results = await execute_tools(tool_calls, tools)
+                for tc, result in zip(tool_calls, results):
+                    call_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result["output"],
+                        },
+                    )
+
+                response = await client.chat.completions.create(
+                    **{**kwargs, "messages": call_messages},
+                )
+                message = response.choices[0].message
+
+            if message.tool_calls and tool_call_count >= max_tool_calls:
+                call_messages.append(message.model_dump())
                 call_messages.append(
                     {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": result["output"],
+                        "role": "user",
+                        "content": "You must provide your final answer now. Do not call any more tools.",
                     },
                 )
+                kwargs_no_tools = {k: v for k, v in kwargs.items() if k != "tools"}
+                response = await client.chat.completions.create(
+                    **{**kwargs_no_tools, "messages": call_messages},
+                )
+                message = response.choices[0].message
 
-            response = await client.chat.completions.create(**{**kwargs, "messages": call_messages})
-            message = response.choices[0].message
-
-        if message.tool_calls and tool_call_count >= max_tool_calls:
-            call_messages.append(message.model_dump())
-            call_messages.append(
-                {
-                    "role": "user",
-                    "content": "You must provide your final answer now. Do not call any more tools.",
-                },
-            )
-            kwargs_no_tools = {k: v for k, v in kwargs.items() if k != "tools"}
-            response = await client.chat.completions.create(
-                **{**kwargs_no_tools, "messages": call_messages},
-            )
-            message = response.choices[0].message
-
-        content = message.content or ""
+            if stream and not message.tool_calls:
+                kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
+                kwargs_stream["messages"] = call_messages
+                content = ""
+                async for chunk in await client.chat.completions.create(
+                    **kwargs_stream,
+                    stream=True,
+                ):
+                    token = chunk.choices[0].delta.content
+                    if token:
+                        content += token
+                        await progress({"token": token})
+            else:
+                content = message.content or ""
 
         if stateful:
             messages.append({"role": "assistant", "content": content})
