@@ -79,7 +79,7 @@ async def call_langchain_chat(
         ) from e
 
 
-@workflow.with_options(name="conversational_agent_langchain")
+@workflow
 async def conversational_agent_langchain(ctx: ExecutionContext[dict[str, Any]]):
     """
     A conversational AI agent using LangChain + ChatOllama for local LLM inference.

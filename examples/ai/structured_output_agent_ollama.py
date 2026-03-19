@@ -84,7 +84,7 @@ writer = agent(
 ).with_options(timeout=300)
 
 
-@workflow.with_options(name="structured_output_demo")
+@workflow
 async def structured_output_demo(ctx: ExecutionContext[dict[str, Any]]):
     """
     Demonstrates structured output with agent() in three use cases.

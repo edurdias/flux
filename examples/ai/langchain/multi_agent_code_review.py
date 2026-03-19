@@ -543,7 +543,7 @@ async def build_report(
 # =============================================================================
 
 
-@workflow.with_options(name="multi_agent_code_review_langgraph")
+@workflow
 async def multi_agent_code_review_langgraph(ctx: ExecutionContext[dict[str, Any]]):
     """
     Multi-agent code review system using LangGraph StateGraph + Flux orchestration.

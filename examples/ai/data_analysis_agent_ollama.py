@@ -244,7 +244,7 @@ async def process_question(
     return conversation_history, assistant_response
 
 
-@workflow.with_options(name="data_analysis_agent_ollama")
+@workflow
 async def data_analysis_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     An AI agent that analyzes structured data using pandas and Ollama.

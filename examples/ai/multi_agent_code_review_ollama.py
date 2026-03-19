@@ -294,7 +294,7 @@ async def generate_summary_report(aggregated: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@workflow.with_options(name="multi_agent_code_review_ollama")
+@workflow
 async def multi_agent_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     Multi-agent code review system using Flux agent() and Graph.

@@ -1,0 +1,40 @@
+"""
+MCP Tool Discovery.
+
+Discovers and lists all available tools from an MCP server using the mcp()
+task. Each tool is automatically exposed as a Flux @task.
+
+Prerequisites:
+    1. Start Flux server: flux start server
+    2. Start Flux worker: flux start worker worker-1
+    3. Start Flux MCP server: flux start mcp
+
+Usage:
+    flux workflow run mcp_tool_discovery
+"""
+
+from __future__ import annotations
+
+from flux import ExecutionContext, workflow
+from flux.tasks.mcp import mcp
+
+
+@workflow
+async def mcp_tool_discovery(ctx: ExecutionContext):
+    async with mcp("http://localhost:8080/mcp", name="flux") as client:
+        tools = await client.discover()
+        return {
+            "tool_count": len(tools),
+            "tools": [t.name for t in tools],
+        }
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import json
+
+    print("Discovering MCP tools...")
+    ctx = mcp_tool_discovery.run()
+    print(f"\nFound {ctx.output['tool_count']} tools:")
+    for name in ctx.output["tools"]:
+        print(f"  - {name}")
+    print(f"\nFull output:\n{json.dumps(ctx.output, indent=2)}")

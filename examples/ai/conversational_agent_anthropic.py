@@ -131,7 +131,7 @@ async def conversation_turn(
     return messages, assistant_response, input_tokens, output_tokens
 
 
-@workflow.with_options(name="conversational_agent_anthropic")
+@workflow
 async def conversational_agent_anthropic(ctx: ExecutionContext[dict[str, Any]]):
     """
     A conversational AI agent using Anthropic's Claude models.
