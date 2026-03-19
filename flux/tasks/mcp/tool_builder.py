@@ -68,9 +68,13 @@ def build_tool_task(
         connection = await client._get_connection()
         try:
             result = await connection.call_tool(tool_name, kwargs)
-        except Exception:
-            await client._discard_connection()
+        except ToolExecutionError:
             raise
+        except Exception as e:
+            is_connection_error = "connect" in str(e).lower() or "timeout" in str(e).lower()
+            if is_connection_error:
+                await client._discard_connection()
+            raise ToolExecutionError(tool_name, str(e), inner_exception=e)
         finally:
             if client._connection == "per-call":
                 await client._close_connection(connection)
