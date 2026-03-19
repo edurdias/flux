@@ -4001,6 +4001,18 @@ files = [
 ]
 
 [[package]]
+name = "types-pyyaml"
+version = "6.0.12.20250915"
+description = "Typing stubs for PyYAML"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "types_pyyaml-6.0.12.20250915-py3-none-any.whl", hash = "sha256:e7d4d9e064e89a3b3cae120b4990cd370874d2bf12fa5f46c97018dd5d3c9ab6"},
+    {file = "types_pyyaml-6.0.12.20250915.tar.gz", hash = "sha256:0f8b54a528c303f0e6f7165687dd33fafa81c807fcac23f632b63aa624ced1d3"},
+]
+
+[[package]]
 name = "types-setuptools"
 version = "80.8.0.20250521"
 description = "Typing stubs for setuptools"
@@ -4379,4 +4391,4 @@ postgresql = ["psycopg2-binary"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "1cd55130de97691909c7d40704d96d2078b07ec1378366c005020ec3ad77a14d"
+content-hash = "e12995c38087bff3afbefb0ce436be3edebebe9363040636eb38bdd67a652400"

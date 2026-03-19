@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+
 from flux.errors import ExecutionError
 import pytest
 
@@ -96,3 +99,54 @@ def test_skill_rejects_name_over_64_chars():
 def test_skill_repr():
     skill = Skill(name="my-skill", description="A skill.", instructions="Do the thing.")
     assert repr(skill) == "Skill(name='my-skill')"
+
+
+FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "skills_fixtures")
+
+
+def test_skill_from_file():
+    path = os.path.join(FIXTURES_DIR, "researcher", "SKILL.md")
+    skill = Skill.from_file(path)
+    assert skill.name == "researcher"
+    assert skill.description == "Deep research on a topic using web sources."
+    assert "search_web" in skill.allowed_tools
+    assert "read_url" in skill.allowed_tools
+    assert skill.metadata["author"] == "acme-corp"
+    assert skill.metadata["version"] == "1.0"
+    assert "Research the given topic thoroughly." in skill.instructions
+
+
+def test_skill_from_file_minimal():
+    path = os.path.join(FIXTURES_DIR, "minimal", "SKILL.md")
+    skill = Skill.from_file(path)
+    assert skill.name == "minimal"
+    assert skill.description == "A minimal skill."
+    assert skill.allowed_tools == []
+    assert skill.metadata == {}
+    assert "Do the thing." in skill.instructions
+
+
+def test_skill_from_file_name_mismatch_warns(caplog):
+    path = os.path.join(FIXTURES_DIR, "bad-name", "SKILL.md")
+    with caplog.at_level(logging.WARNING, logger="flux.skills"):
+        skill = Skill.from_file(path)
+    assert skill.name == "wrong-name-here"
+    assert "wrong-name-here" in caplog.text
+    assert "bad-name" in caplog.text
+
+
+def test_skill_from_file_missing_description():
+    path = os.path.join(FIXTURES_DIR, "missing-desc", "SKILL.md")
+    with pytest.raises(SkillValidationError):
+        Skill.from_file(path)
+
+
+def test_skill_from_file_empty_body():
+    path = os.path.join(FIXTURES_DIR, "empty-body", "SKILL.md")
+    with pytest.raises(SkillValidationError):
+        Skill.from_file(path)
+
+
+def test_skill_from_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        Skill.from_file("/nonexistent/path/SKILL.md")

@@ -63,3 +63,54 @@ class Skill:
 
     def __repr__(self) -> str:
         return f"Skill(name='{self.name}')"
+
+    @classmethod
+    def from_file(cls, path: str) -> Skill:
+        from pathlib import Path
+
+        import yaml
+
+        file_path = Path(path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Skill file not found: {path}")
+
+        content = file_path.read_text(encoding="utf-8")
+
+        if not content.startswith("---"):
+            raise SkillValidationError(
+                "Skill file must contain YAML frontmatter delimited by '---'.",
+            )
+
+        parts = content.split("---", 2)
+        if len(parts) < 3:
+            raise SkillValidationError(
+                "Skill file must contain YAML frontmatter delimited by '---'.",
+            )
+
+        frontmatter = yaml.safe_load(parts[1])
+        body = parts[2].strip()
+
+        name = frontmatter.get("name", "")
+        description = frontmatter.get("description", "")
+
+        allowed_tools_raw = frontmatter.get("allowed-tools", "")
+        allowed_tools = allowed_tools_raw.split() if allowed_tools_raw else []
+
+        raw_metadata = frontmatter.get("metadata", {})
+        metadata = {k: str(v) for k, v in raw_metadata.items()} if raw_metadata else {}
+
+        dir_name = file_path.parent.name
+        if name and name != dir_name:
+            logger.warning(
+                "Skill name '%s' does not match directory name '%s'.",
+                name,
+                dir_name,
+            )
+
+        return cls(
+            name=name,
+            description=description,
+            instructions=body,
+            allowed_tools=allowed_tools,
+            metadata=metadata,
+        )
