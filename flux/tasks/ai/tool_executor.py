@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
 import typing
@@ -106,5 +105,4 @@ async def execute_tools(
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    results = await asyncio.gather(*[_run_one(call) for call in tool_calls])
-    return list(results)
+    return [await _run_one(call) for call in tool_calls]
