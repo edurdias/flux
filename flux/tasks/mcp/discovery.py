@@ -36,6 +36,17 @@ class ToolSet:
     def __contains__(self, name: str) -> bool:
         return name in self._tools
 
+    def __getitem__(self, name: str) -> task:
+        try:
+            return self._tools[name]
+        except KeyError:
+            raise KeyError(
+                f"ToolSet has no tool '{name}'. Available: {list(self._tools.keys())}",
+            )
+
+    def get(self, name: str, default: task | None = None) -> task | None:
+        return self._tools.get(name, default)
+
 
 class ToolSetOutputStorage(OutputStorage):
     def __init__(self, client: Any, server_name: str, **task_options: Any):

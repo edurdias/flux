@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any
 
 from flux.task import task
@@ -14,6 +15,15 @@ JSON_TYPE_MAP: dict[str, type] = {
     "object": dict,
     "array": list,
 }
+
+_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _sanitize_name(name: str) -> str:
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    if sanitized and sanitized[0].isdigit():
+        sanitized = f"_{sanitized}"
+    return sanitized or "_unknown"
 
 
 def build_tool_task(
@@ -30,16 +40,25 @@ def build_tool_task(
 
     params = []
     annotations = {}
+    param_names: list[str] = []
+    param_name_to_original: dict[str, str] = {}
 
-    for param_name, param_schema in properties.items():
+    for original_name, param_schema in properties.items():
         json_type = param_schema.get("type", "string")
         python_type = JSON_TYPE_MAP.get(json_type, str)
-        annotations[param_name] = python_type
 
-        if param_name in required:
+        safe_name = (
+            original_name if _IDENTIFIER_RE.match(original_name) else _sanitize_name(original_name)
+        )
+        annotations[safe_name] = python_type
+        param_names.append(safe_name)
+        if safe_name != original_name:
+            param_name_to_original[safe_name] = original_name
+
+        if original_name in required:
             params.append(
                 inspect.Parameter(
-                    param_name,
+                    safe_name,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
                     annotation=python_type,
                 ),
@@ -47,7 +66,7 @@ def build_tool_task(
         else:
             params.append(
                 inspect.Parameter(
-                    param_name,
+                    safe_name,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
                     default=None,
                     annotation=python_type,
@@ -56,18 +75,22 @@ def build_tool_task(
 
     sig = inspect.Signature(params)
 
-    param_names = list(properties.keys())
-
     async def tool_func(*args: Any, **kwargs: Any) -> Any:
         from flux.tasks.mcp.errors import ToolExecutionError
 
+        if len(args) > len(param_names):
+            raise TypeError(
+                f"{tool_name}() takes {len(param_names)} positional argument(s) but {len(args)} were given",
+            )
+
         for i, val in enumerate(args):
-            if i < len(param_names):
-                kwargs[param_names[i]] = val
+            kwargs[param_names[i]] = val
+
+        call_kwargs = {param_name_to_original.get(k, k): v for k, v in kwargs.items()}
 
         connection = await client._get_connection()
         try:
-            result = await connection.call_tool(tool_name, kwargs)
+            result = await connection.call_tool(tool_name, call_kwargs)
         except ToolExecutionError:
             raise
         except (ConnectionError, OSError, TimeoutError) as e:
@@ -92,13 +115,14 @@ def build_tool_task(
             return first.text if hasattr(first, "text") else str(first)
         return None
 
-    tool_func.__name__ = tool_name
-    tool_func.__qualname__ = tool_name
+    safe_func_name = _sanitize_name(tool_name)
+    tool_func.__name__ = safe_func_name
+    tool_func.__qualname__ = safe_func_name
     tool_func.__doc__ = description
     setattr(tool_func, "__signature__", sig)  # noqa: B010
     tool_func.__annotations__ = annotations
 
-    task_name = f"mcp_{server_name}_{tool_name}"
+    task_name = f"mcp_{_sanitize_name(server_name)}_{safe_func_name}"
     return task(
         func=tool_func,
         name=task_name,
