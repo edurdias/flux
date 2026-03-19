@@ -1,7 +1,7 @@
 """
 AI Agent with MCP Tools.
 
-Combines the mcp() and agent() primitives — MCP tools are discovered at
+Combines the mcp() and agent() tasks — MCP tools are discovered at
 runtime and passed directly to the LLM agent, which autonomously decides
 which tools to call.
 

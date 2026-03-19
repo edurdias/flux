@@ -2,7 +2,7 @@
 MCP Tool Discovery.
 
 Discovers and lists all available tools from an MCP server using the mcp()
-primitive. Each tool is automatically exposed as a Flux @task.
+task. Each tool is automatically exposed as a Flux @task.
 
 Prerequisites:
     1. Start Flux server: flux start server

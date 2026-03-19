@@ -1,6 +1,6 @@
 # MCP Client
 
-The `mcp()` primitive connects workflows to external [Model Context Protocol](https://modelcontextprotocol.io) servers. Each discovered MCP tool becomes a Flux `@task` with retry, timeout, caching, event tracking, and pause/resume support.
+The `mcp()` task connects workflows to external [Model Context Protocol](https://modelcontextprotocol.io) servers. Each discovered MCP tool becomes a Flux `@task` with retry, timeout, caching, event tracking, and pause/resume support.
 
 ## Basic Usage
 
@@ -146,7 +146,7 @@ OAuth is delegated to FastMCP, which handles server discovery, PKCE, token excha
 
 ## Agent Integration
 
-MCP tools work directly with the `agent()` primitive:
+MCP tools work directly with the `agent()` task:
 
 ```python
 from flux.tasks.ai import agent

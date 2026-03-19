@@ -365,7 +365,7 @@ final = await writer("Revise based on feedback", context=f"{research}\n\n{feedba
 
 ## MCP Client
 
-The `mcp()` primitive connects workflows to external MCP servers. Each discovered tool becomes a Flux `@task` with full primitive support:
+The `mcp()` task connects workflows to external MCP servers. Each discovered tool becomes a Flux `@task`:
 
 ```python
 from flux.tasks.mcp import mcp
@@ -375,7 +375,7 @@ async with mcp("http://localhost:8080/mcp", name="server") as client:
     result = await tools.list_workflows()
 ```
 
-MCP tools work with `agent()`, `parallel()`, `Graph`, `pause()`/`resume()`, and all other Flux primitives. See [MCP Client](mcp-client.md) for full documentation.
+MCP tools work with `agent()`, `parallel()`, `Graph`, `pause()`/`resume()`, and all other Flux tasks. See [MCP Client](mcp-client.md) for full documentation.
 
 ## Pattern Selection Guidelines
 
