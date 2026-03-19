@@ -12,6 +12,7 @@ packages = [{ include = "flux" }]
 [tool.poetry.dependencies]
 python = "^3.12"
 pydantic = "^2.9.2"
+pyyaml = "^6.0"
 sqlalchemy = "^2.0.35"
 fastapi = "^0.115.2"
 uvicorn = "^0.31.1"
