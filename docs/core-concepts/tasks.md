@@ -301,6 +301,38 @@ graph = (
 - Guaranteed execution order
 - Built-in validation
 
+### AI Agent Tasks
+
+The `agent()` factory creates tasks that call LLMs. Each agent is a regular `@task` with retry, timeout, and observability support:
+
+```python
+from flux.tasks.ai import agent
+
+assistant = agent(
+    "You are a helpful assistant.",
+    model="ollama/llama3.2",
+    tools=[search_web, get_weather],
+)
+
+result = await assistant("What's the weather in London?")
+```
+
+Agents support tool calling, structured output, stateful conversations, and reusable skills. See [AI Agents](../advanced-features/task-patterns.md#ai-agents) and [Agent Skills](../advanced-features/agent-skills.md) for details.
+
+### MCP Client Tasks
+
+The `mcp()` task connects workflows to external MCP servers. Each discovered tool becomes a Flux `@task`:
+
+```python
+from flux.tasks.mcp import mcp
+
+async with mcp("http://localhost:8080/mcp") as client:
+    tools = await client.discover()
+    result = await tools.list_workflows()
+```
+
+See [MCP Client](../advanced-features/mcp-client.md) for full documentation.
+
 #### Error Handling in Graphs
 ```python
 def check_condition(result):
