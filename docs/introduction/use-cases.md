@@ -25,3 +25,16 @@ Flux is particularly well-suited for:
    - Data preparation workflows
    - Feature engineering
    - Model deployment processes
+
+### **AI Agent Workflows**
+   - Multi-agent pipelines (research → write → edit)
+   - Conversational agents with stateful pause/resume
+   - Code review with specialized skills (security, performance)
+   - RAG (Retrieval Augmented Generation) systems
+   - Function-calling agents with real-time tool use
+
+### **MCP Tool Integration**
+   - Dynamic tool discovery from MCP servers
+   - LLM-driven workflow management assistants
+   - Multi-server tool orchestration
+   - Authenticated external service integration

@@ -10,3 +10,6 @@ Flux is a Python-based workflow orchestration system that allows you to:
 - Handle failures and retries automatically
 - Maintain state across workflow executions
 - Scale from local development to distributed systems
+- Build AI-powered agents with LLM integration (Ollama, OpenAI, Anthropic)
+- Compose agents with reusable skills following the [Agent Skills](https://agentskills.io) open standard
+- Connect to external tools via the [Model Context Protocol](https://modelcontextprotocol.io) (MCP)

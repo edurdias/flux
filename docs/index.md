@@ -70,6 +70,13 @@
    - [MCP Client](advanced-features/task-patterns.md#mcp-client)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
+### [Agent Skills](advanced-features/agent-skills.md)
+   - [Defining Skills](advanced-features/agent-skills.md#defining-skills)
+   - [SkillCatalog](advanced-features/agent-skills.md#skillcatalog)
+   - [Agent Integration](advanced-features/agent-skills.md#agent-integration)
+   - [Event Tracking](advanced-features/agent-skills.md#event-tracking)
+   - [Error Handling](advanced-features/agent-skills.md#error-handling)
+
 ### [MCP Client](advanced-features/mcp-client.md)
    - [Tool Discovery](advanced-features/mcp-client.md#tool-discovery)
    - [Task Options](advanced-features/mcp-client.md#task-options)
@@ -83,6 +90,15 @@
    - [Workflow Pause Points](advanced-features/workflow-controls.md#workflow-pause-points)
    - [Workflow Replay](advanced-features/workflow-controls.md#workflow-replay)
    - [Subworkflow Support](advanced-features/workflow-controls.md#subworkflows)
+
+### [Cancellation](advanced-features/cancellation.md)
+   - [Cancellation States](advanced-features/cancellation.md#cancellation-states)
+   - [API and CLI](advanced-features/cancellation.md#cancellation-api)
+
+### [Observability](advanced-features/observability.md)
+   - [OpenTelemetry Integration](advanced-features/observability.md#opentelemetry-integration)
+   - [Metrics](advanced-features/observability.md#metrics)
+   - [Distributed Tracing](advanced-features/observability.md#distributed-tracing)
 
 ## Appendix
 - [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
