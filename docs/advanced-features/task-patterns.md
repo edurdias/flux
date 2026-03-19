@@ -363,6 +363,20 @@ feedback = await pause("human_review")
 final = await writer("Revise based on feedback", context=f"{research}\n\n{feedback}")
 ```
 
+## MCP Client
+
+The `mcp()` primitive connects workflows to external MCP servers. Each discovered tool becomes a Flux `@task` with full primitive support:
+
+```python
+from flux.tasks.mcp import mcp
+
+async with mcp("http://localhost:8080/mcp", name="server") as client:
+    tools = await client.discover()
+    result = await tools.list_workflows()
+```
+
+MCP tools work with `agent()`, `parallel()`, `Graph`, `pause()`/`resume()`, and all other Flux primitives. See [MCP Client](mcp-client.md) for full documentation.
+
 ## Pattern Selection Guidelines
 
 Choose the appropriate pattern based on your needs:
@@ -392,6 +406,12 @@ Choose the appropriate pattern based on your needs:
    - You want provider abstraction (switch between Ollama/OpenAI/Anthropic)
    - You need tool use, structured output, or conversation history
    - You want LLM calls as observable, retryable Flux tasks
+
+6. **MCP Client** when:
+   - You need to consume tools from external MCP servers
+   - You want dynamic tool discovery at runtime
+   - You need MCP tools as first-class Flux tasks (retry, timeout, caching)
+   - You want to combine MCP tools with AI agents
 
 ## Performance Considerations
 
