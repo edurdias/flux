@@ -144,102 +144,108 @@ class task:
                     ) from ex
             return self.output_storage.retrieve(reference)
 
-        if not ctx.is_resuming and not ctx.has_resumed:
+        from flux._task_context import _CURRENT_TASK
+
+        task_token = _CURRENT_TASK.set((task_id, full_name))
+        try:
+            if not ctx.is_resuming and not ctx.has_resumed:
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_STARTED,
+                        source_id=task_id,
+                        name=full_name,
+                        value=task_args,
+                    ),
+                )
+
+            import contextlib
+
+            from flux.observability import get_metrics, is_enabled
+
+            m = get_metrics()
+            if m:
+                m.record_task_started(ctx.workflow_name, self.name)
+
+            task_failed = False
+            task_start_time = time.monotonic()
+
+            span_cm = contextlib.nullcontext()
+            if is_enabled():
+                from opentelemetry import trace as _trace
+
+                tracer = _trace.get_tracer("flux")
+                span_cm = tracer.start_as_current_span(
+                    "flux.task.execute",
+                    attributes={
+                        "flux.task.name": full_name,
+                        "flux.workflow.name": ctx.workflow_name,
+                    },
+                )
+
+            with span_cm:
+                try:
+                    output = None
+                    if self.cache:
+                        output = CacheManager.get(task_id)
+
+                    if not output:
+                        if self.secret_requests:
+                            secrets = SecretManager.current().get(self.secret_requests)
+                            kwargs = {**kwargs, "secrets": secrets}
+
+                        if self.metadata:
+                            kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
+
+                        if self.timeout > 0:
+                            try:
+                                output = await asyncio.wait_for(
+                                    maybe_awaitable(self._func(*args, **kwargs)),
+                                    timeout=self.timeout,
+                                )
+                            except asyncio.TimeoutError as ex:
+                                raise ExecutionTimeoutError(
+                                    "Task",
+                                    self.name,
+                                    task_id,
+                                    self.timeout,
+                                ) from ex
+                        else:
+                            output = await maybe_awaitable(self._func(*args, **kwargs))
+
+                        if self.cache:
+                            CacheManager.set(task_id, output)
+
+                except Exception as ex:
+                    task_failed = True
+                    output = await self.__handle_exception(
+                        ctx,
+                        ex,
+                        task_id,
+                        full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
+
+            task_duration = time.monotonic() - task_start_time
+
+            if m:
+                status = "completed" if not task_failed else "failed"
+                m.record_task_completed(ctx.workflow_name, self.name, status, task_duration)
+
             ctx.events.append(
                 ExecutionEvent(
-                    type=ExecutionEventType.TASK_STARTED,
+                    type=ExecutionEventType.TASK_COMPLETED,
                     source_id=task_id,
                     name=full_name,
-                    value=task_args,
+                    value=self.output_storage.store(task_id, output),
                 ),
             )
 
-        import contextlib
-
-        from flux.observability import get_metrics, is_enabled
-
-        m = get_metrics()
-        if m:
-            m.record_task_started(ctx.workflow_name, self.name)
-
-        task_failed = False
-        task_start_time = time.monotonic()
-
-        span_cm = contextlib.nullcontext()
-        if is_enabled():
-            from opentelemetry import trace as _trace
-
-            tracer = _trace.get_tracer("flux")
-            span_cm = tracer.start_as_current_span(
-                "flux.task.execute",
-                attributes={
-                    "flux.task.name": full_name,
-                    "flux.workflow.name": ctx.workflow_name,
-                },
-            )
-
-        with span_cm:
-            try:
-                output = None
-                if self.cache:
-                    output = CacheManager.get(task_id)
-
-                if not output:
-                    if self.secret_requests:
-                        secrets = SecretManager.current().get(self.secret_requests)
-                        kwargs = {**kwargs, "secrets": secrets}
-
-                    if self.metadata:
-                        kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
-
-                    if self.timeout > 0:
-                        try:
-                            output = await asyncio.wait_for(
-                                maybe_awaitable(self._func(*args, **kwargs)),
-                                timeout=self.timeout,
-                            )
-                        except asyncio.TimeoutError as ex:
-                            raise ExecutionTimeoutError(
-                                "Task",
-                                self.name,
-                                task_id,
-                                self.timeout,
-                            ) from ex
-                    else:
-                        output = await maybe_awaitable(self._func(*args, **kwargs))
-
-                    if self.cache:
-                        CacheManager.set(task_id, output)
-
-            except Exception as ex:
-                task_failed = True
-                output = await self.__handle_exception(
-                    ctx,
-                    ex,
-                    task_id,
-                    full_name,
-                    task_args,
-                    args,
-                    kwargs,
-                )
-
-        task_duration = time.monotonic() - task_start_time
-
-        if m:
-            status = "completed" if not task_failed else "failed"
-            m.record_task_completed(ctx.workflow_name, self.name, status, task_duration)
-
-        ctx.events.append(
-            ExecutionEvent(
-                type=ExecutionEventType.TASK_COMPLETED,
-                source_id=task_id,
-                name=full_name,
-                value=self.output_storage.store(task_id, output),
-            ),
-        )
-
-        await ctx.checkpoint()
-        return output
+            await ctx.checkpoint()
+            return output
+        finally:
+            _CURRENT_TASK.reset(task_token)
 
     @property
     def func(self) -> Callable:

@@ -24,6 +24,7 @@ def agent(
     stateful: bool = False,
     max_tool_calls: int = 10,
     max_tokens: int = 4096,
+    stream: bool = True,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -40,6 +41,7 @@ def agent(
         stateful: If True, accumulate message history across invocations.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic, ignored by others).
+        stream: If True, enable streaming responses. Automatically disabled when response_format is set.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
@@ -65,6 +67,8 @@ def agent(
                         allowed,
                     )
 
+    effective_stream = stream and response_format is None
+
     if "/" not in model:
         raise ValueError(
             f"Model must be in 'provider/model_name' format, got: '{model}'. "
@@ -84,6 +88,7 @@ def agent(
             response_format=response_format,
             stateful=stateful,
             max_tool_calls=max_tool_calls,
+            stream=effective_stream,
         )
     elif provider == "openai":
         from flux.tasks.ai.openai import build_openai_agent
@@ -96,6 +101,7 @@ def agent(
             response_format=response_format,
             stateful=stateful,
             max_tool_calls=max_tool_calls,
+            stream=effective_stream,
         )
     elif provider == "anthropic":
         from flux.tasks.ai.anthropic import build_anthropic_agent
@@ -109,6 +115,7 @@ def agent(
             stateful=stateful,
             max_tool_calls=max_tool_calls,
             max_tokens=max_tokens,
+            stream=effective_stream,
         )
     else:
         raise ValueError(

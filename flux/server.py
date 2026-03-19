@@ -23,6 +23,7 @@ from flux.catalogs import WorkflowCatalog, WorkflowInfo
 from flux.config import Configuration
 from flux.workflow import workflow
 from flux.context_managers import ContextManager
+from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionContextNotFoundError, WorkerNotFoundError, WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.secret_managers import SecretManager
@@ -202,6 +203,7 @@ class Server:
         self._worker_names: list[str] = []
         self._worker_rr_index = 0
         self._execution_events: dict[str, asyncio.Event] = {}
+        self._progress_buffers: dict[str, asyncio.Queue] = {}
         self._execution_queue_times: dict[str, float] = {}
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
@@ -801,30 +803,83 @@ class Server:
                         self._execution_events.pop(ctx.execution_id, None)
 
                 if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
 
                     async def check_for_new_executions():
                         nonlocal ctx
                         event = self._execution_events[ctx.execution_id]
+                        progress_buffer = self._progress_buffers.get(ctx.execution_id)
                         try:
                             while not ctx.has_finished:
-                                try:
-                                    await asyncio.wait_for(event.wait(), timeout=30.0)
-                                except asyncio.TimeoutError:
-                                    pass
-                                event.clear()
-                                new_ctx = manager.get(ctx.execution_id)
+                                if progress_buffer:
+                                    progress_task = asyncio.create_task(progress_buffer.get())
+                                    checkpoint_task = asyncio.create_task(event.wait())
 
-                                if new_ctx.events and (
-                                    not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
-                                ):
-                                    ctx = new_ctx
-                                    dto = ExecutionContextDTO.from_domain(ctx)
-                                    yield {
-                                        "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                        "data": to_json(dto if detailed else dto.summary()),
-                                    }
+                                    done, pending = await asyncio.wait(
+                                        {progress_task, checkpoint_task},
+                                        timeout=30.0,
+                                        return_when=asyncio.FIRST_COMPLETED,
+                                    )
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
+
+                                    if progress_task in done:
+                                        item = progress_task.result()
+                                        items = [item]
+                                        while not progress_buffer.empty():
+                                            items.append(progress_buffer.get_nowait())
+                                        for p in items:
+                                            yield {
+                                                "event": "task.progress",
+                                                "data": to_json(
+                                                    {
+                                                        "type": p.type.value,
+                                                        "source_id": p.source_id,
+                                                        "name": p.name,
+                                                        "value": p.value,
+                                                        "time": str(p.time),
+                                                    },
+                                                ),
+                                            }
+
+                                    if checkpoint_task in done or event.is_set():
+                                        event.clear()
+                                        new_ctx = manager.get(ctx.execution_id)
+                                        if new_ctx.events and (
+                                            not ctx.events
+                                            or new_ctx.events[-1].time > ctx.events[-1].time
+                                        ):
+                                            ctx = new_ctx
+                                            dto = ExecutionContextDTO.from_domain(ctx)
+                                            yield {
+                                                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                                "data": to_json(dto if detailed else dto.summary()),
+                                            }
+                                else:
+                                    try:
+                                        await asyncio.wait_for(event.wait(), timeout=30.0)
+                                    except asyncio.TimeoutError:
+                                        pass
+                                    event.clear()
+                                    new_ctx = manager.get(ctx.execution_id)
+                                    if new_ctx.events and (
+                                        not ctx.events
+                                        or new_ctx.events[-1].time > ctx.events[-1].time
+                                    ):
+                                        ctx = new_ctx
+                                        dto = ExecutionContextDTO.from_domain(ctx)
+                                        yield {
+                                            "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                            "data": to_json(dto if detailed else dto.summary()),
+                                        }
                         finally:
                             self._execution_events.pop(ctx.execution_id, None)
+                            self._progress_buffers.pop(ctx.execution_id, None)
 
                     return EventSourceResponse(
                         check_for_new_executions(),
@@ -922,30 +977,83 @@ class Server:
                         self._execution_events.pop(ctx.execution_id, None)
 
                 if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
 
                     async def check_for_new_executions():
                         nonlocal ctx
                         event = self._execution_events[ctx.execution_id]
+                        progress_buffer = self._progress_buffers.get(ctx.execution_id)
                         try:
                             while not ctx.has_finished:
-                                try:
-                                    await asyncio.wait_for(event.wait(), timeout=30.0)
-                                except asyncio.TimeoutError:
-                                    pass
-                                event.clear()
-                                new_ctx = manager.get(ctx.execution_id)
+                                if progress_buffer:
+                                    progress_task = asyncio.create_task(progress_buffer.get())
+                                    checkpoint_task = asyncio.create_task(event.wait())
 
-                                if new_ctx.events and (
-                                    not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
-                                ):
-                                    ctx = new_ctx
-                                    dto = ExecutionContextDTO.from_domain(ctx)
-                                    yield {
-                                        "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                        "data": to_json(dto if detailed else dto.summary()),
-                                    }
+                                    done, pending = await asyncio.wait(
+                                        {progress_task, checkpoint_task},
+                                        timeout=30.0,
+                                        return_when=asyncio.FIRST_COMPLETED,
+                                    )
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
+
+                                    if progress_task in done:
+                                        item = progress_task.result()
+                                        items = [item]
+                                        while not progress_buffer.empty():
+                                            items.append(progress_buffer.get_nowait())
+                                        for p in items:
+                                            yield {
+                                                "event": "task.progress",
+                                                "data": to_json(
+                                                    {
+                                                        "type": p.type.value,
+                                                        "source_id": p.source_id,
+                                                        "name": p.name,
+                                                        "value": p.value,
+                                                        "time": str(p.time),
+                                                    },
+                                                ),
+                                            }
+
+                                    if checkpoint_task in done or event.is_set():
+                                        event.clear()
+                                        new_ctx = manager.get(ctx.execution_id)
+                                        if new_ctx.events and (
+                                            not ctx.events
+                                            or new_ctx.events[-1].time > ctx.events[-1].time
+                                        ):
+                                            ctx = new_ctx
+                                            dto = ExecutionContextDTO.from_domain(ctx)
+                                            yield {
+                                                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                                "data": to_json(dto if detailed else dto.summary()),
+                                            }
+                                else:
+                                    try:
+                                        await asyncio.wait_for(event.wait(), timeout=30.0)
+                                    except asyncio.TimeoutError:
+                                        pass
+                                    event.clear()
+                                    new_ctx = manager.get(ctx.execution_id)
+                                    if new_ctx.events and (
+                                        not ctx.events
+                                        or new_ctx.events[-1].time > ctx.events[-1].time
+                                    ):
+                                        ctx = new_ctx
+                                        dto = ExecutionContextDTO.from_domain(ctx)
+                                        yield {
+                                            "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                            "data": to_json(dto if detailed else dto.summary()),
+                                        }
                         finally:
                             self._execution_events.pop(ctx.execution_id, None)
+                            self._progress_buffers.pop(ctx.execution_id, None)
 
                     return EventSourceResponse(
                         check_for_new_executions(),
@@ -1421,6 +1529,33 @@ class Server:
             except Exception as e:
                 logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
+
+        @api.post("/workers/{name}/progress/{execution_id}")
+        async def workers_progress(
+            name: str,
+            execution_id: str,
+            events: list = Body(...),
+            authorization: str = Header(None),
+        ):
+            self._get_worker(name, authorization)
+            self._worker_last_pong[name] = time.monotonic()
+
+            buffer = self._progress_buffers.get(execution_id)
+            if not buffer:
+                return {"status": "ok"}
+
+            for event in events:
+                progress_event = ExecutionEvent(
+                    type=ExecutionEventType.TASK_PROGRESS,
+                    source_id=event.get("task_id", ""),
+                    name=event.get("task_name", ""),
+                    value=event.get("value"),
+                )
+                try:
+                    buffer.put_nowait(progress_event)
+                except asyncio.QueueFull:
+                    pass
+            return {"status": "ok"}
 
         # Admin API - Secrets Management
         @api.get("/admin/secrets")

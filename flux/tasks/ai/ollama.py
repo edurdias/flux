@@ -17,6 +17,7 @@ def build_ollama_agent(
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
+    stream: bool = True,
 ) -> task:
     """Build a Flux @task that calls Ollama's chat API."""
     try:
@@ -60,42 +61,62 @@ def build_ollama_agent(
         if response_format and not tools:
             kwargs["format"] = "json"
 
-        response = await client.chat(**kwargs)
-        response_message = response["message"]
+        from flux.tasks.progress import progress
 
-        tool_call_count = 0
-        while response_message.get("tool_calls") and tools and tool_call_count < max_tool_calls:
-            tool_calls = [
-                {
-                    "id": f"call_{i}",
-                    "name": tc["function"]["name"],
-                    "arguments": tc["function"]["arguments"],
-                }
-                for i, tc in enumerate(response_message["tool_calls"])
-            ]
-            tool_call_count += len(tool_calls)
-
-            call_messages.append(response_message)
-            results = await execute_tools(tool_calls, tools)
-            for result in results:
-                call_messages.append({"role": "tool", "content": result["output"]})
-
-            response = await client.chat(**{**kwargs, "messages": call_messages})
+        if stream and not ollama_tools:
+            content = ""
+            async for chunk in await client.chat(**{**kwargs, "stream": True}):
+                token = chunk["message"]["content"]
+                if token:
+                    content += token
+                    await progress({"token": token})
+        else:
+            response = await client.chat(**kwargs)
             response_message = response["message"]
 
-        if response_message.get("tool_calls") and tool_call_count >= max_tool_calls:
-            call_messages.append(response_message)
-            call_messages.append(
-                {
-                    "role": "user",
-                    "content": "You must provide your final answer now. Do not call any more tools.",
-                },
-            )
-            kwargs_no_tools = {k: v for k, v in kwargs.items() if k != "tools"}
-            response = await client.chat(**{**kwargs_no_tools, "messages": call_messages})
-            response_message = response["message"]
+            tool_call_count = 0
+            while response_message.get("tool_calls") and tools and tool_call_count < max_tool_calls:
+                tool_calls = [
+                    {
+                        "id": f"call_{i}",
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    }
+                    for i, tc in enumerate(response_message["tool_calls"])
+                ]
+                tool_call_count += len(tool_calls)
 
-        content = response_message["content"]
+                call_messages.append(response_message)
+                results = await execute_tools(tool_calls, tools)
+                for result in results:
+                    call_messages.append({"role": "tool", "content": result["output"]})
+
+                response = await client.chat(**{**kwargs, "messages": call_messages})
+                response_message = response["message"]
+
+            if response_message.get("tool_calls") and tool_call_count >= max_tool_calls:
+                call_messages.append(response_message)
+                call_messages.append(
+                    {
+                        "role": "user",
+                        "content": "You must provide your final answer now. Do not call any more tools.",
+                    },
+                )
+                kwargs_no_tools = {k: v for k, v in kwargs.items() if k != "tools"}
+                response = await client.chat(**{**kwargs_no_tools, "messages": call_messages})
+                response_message = response["message"]
+
+            if stream and not response_message.get("tool_calls"):
+                kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
+                kwargs_stream["messages"] = call_messages
+                content = ""
+                async for chunk in await client.chat(**{**kwargs_stream, "stream": True}):
+                    token = chunk["message"]["content"]
+                    if token:
+                        content += token
+                        await progress({"token": token})
+            else:
+                content = response_message["content"]
 
         if stateful:
             messages.append({"role": "assistant", "content": content})
