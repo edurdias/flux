@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 from flux.domain.execution_context import ExecutionContext
@@ -104,9 +105,6 @@ class TestExecutionContext:
         assert len(cancel_events) == 2
 
 
-import asyncio
-
-
 def test_emit_progress_default_callback_is_noop():
     ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
     asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", {"step": 1}))
@@ -129,7 +127,9 @@ def test_emit_progress_calls_callback():
 def test_emit_progress_does_not_add_to_events():
     ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
     ctx.set_progress_callback(lambda *_: None)
-    asyncio.get_event_loop().run_until_complete(ctx.emit_progress("task_1", "my_task", {"data": "x"}))
+    asyncio.get_event_loop().run_until_complete(
+        ctx.emit_progress("task_1", "my_task", {"data": "x"}),
+    )
     assert len(ctx.events) == 0
 
 
