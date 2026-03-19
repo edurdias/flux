@@ -54,3 +54,10 @@ def test_agent_skills_warns_missing_allowed_tools(caplog):
     with caplog.at_level(logging.WARNING, logger="flux.agent"):
         agent("You are a test agent.", model="ollama/llama3", skills=catalog)
     assert "search_web" in caplog.text
+
+
+def test_skill_exports():
+    from flux.tasks.ai import Skill, SkillCatalog
+
+    assert Skill is not None
+    assert SkillCatalog is not None
