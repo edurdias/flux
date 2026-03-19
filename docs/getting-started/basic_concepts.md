@@ -81,6 +81,34 @@ Task features:
 - Can be composed and nested
 - Support for parallel execution and mapping operations
 
+## AI Agents
+
+The `agent()` factory creates Flux tasks that call LLMs. Agents are regular `@task` functions — they compose with `parallel()`, `Graph`, `pause()`, and all other Flux primitives.
+
+```python
+from flux import workflow, ExecutionContext
+from flux.tasks.ai import agent
+
+researcher = agent(
+    "You are a research analyst.",
+    model="ollama/llama3.2",
+    name="researcher",
+)
+
+@workflow
+async def research_workflow(ctx: ExecutionContext):
+    return await researcher(ctx.input["topic"])
+```
+
+Agents support:
+- **Multiple providers**: `ollama/`, `openai/`, `anthropic/` model prefixes
+- **Tool use**: Pass `@task` functions as tools the LLM can call
+- **Structured output**: Return Pydantic models via `response_format`
+- **Skills**: Reusable instruction bundles via `SkillCatalog`
+- **Stateful conversations**: Accumulate message history with `stateful=True`
+
+See [AI Agents](../advanced-features/task-patterns.md#ai-agents), [Agent Skills](../advanced-features/agent-skills.md), and [MCP Client](../advanced-features/mcp-client.md) for full documentation.
+
 ## Execution Context
 
 The `ExecutionContext` is a container that maintains the state and information about a workflow execution.
