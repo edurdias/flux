@@ -28,3 +28,29 @@ def test_agent_rejects_invalid_model_format():
 def test_agent_rejects_unknown_provider():
     with pytest.raises(ValueError, match="Unknown provider"):
         agent("test", model="unknown/model")
+
+
+def test_agent_accepts_skills():
+    from flux.tasks.ai.skills import Skill, SkillCatalog
+
+    s1 = Skill(name="researcher", description="Researches.", instructions="Research.")
+    catalog = SkillCatalog([s1])
+    a = agent("You are a test agent.", model="ollama/llama3", skills=catalog)
+    assert a is not None
+
+
+def test_agent_skills_warns_missing_allowed_tools(caplog):
+    import logging
+
+    from flux.tasks.ai.skills import Skill, SkillCatalog
+
+    s1 = Skill(
+        name="researcher",
+        description="Researches.",
+        instructions="Research.",
+        allowed_tools=["search_web"],
+    )
+    catalog = SkillCatalog([s1])
+    with caplog.at_level(logging.WARNING, logger="flux.agent"):
+        agent("You are a test agent.", model="ollama/llama3", skills=catalog)
+    assert "search_web" in caplog.text

@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from flux.task import task
+
+if TYPE_CHECKING:
+    from flux.tasks.ai.skills import SkillCatalog
+
+logger = logging.getLogger("flux.agent")
 
 
 def agent(
@@ -12,6 +19,7 @@ def agent(
     model: str,
     name: str | None = None,
     tools: list[task] | None = None,
+    skills: SkillCatalog | None = None,
     response_format: type[BaseModel] | None = None,
     stateful: bool = False,
     max_tool_calls: int = 10,
@@ -27,6 +35,7 @@ def agent(
         model: Provider and model in "provider/model_name" format.
         name: Task name for events/traces. Defaults to "agent_{provider}_{model}".
         tools: List of Flux @task functions the agent can call as tools.
+        skills: SkillCatalog providing Agent Skills the LLM can activate.
         response_format: Pydantic BaseModel subclass for structured JSON output.
         stateful: If True, accumulate message history across invocations.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
@@ -35,6 +44,27 @@ def agent(
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
     """
+    if skills is not None:
+        from flux.tasks.ai.skills import build_skills_preamble, build_use_skill
+
+        system_prompt = system_prompt + build_skills_preamble(skills)
+        use_skill_task = build_use_skill(skills)
+        tools = (tools or []) + [use_skill_task]
+
+        tool_names = {
+            getattr(getattr(t, "func", None), "__name__", None) or getattr(t, "__name__", "")
+            for t in tools
+        }
+        for skill in skills.list():
+            for allowed in skill.allowed_tools:
+                if allowed not in tool_names:
+                    logger.warning(
+                        "Skill '%s' declares allowed_tool '%s' which is not "
+                        "in the agent's tools list.",
+                        skill.name,
+                        allowed,
+                    )
+
     if "/" not in model:
         raise ValueError(
             f"Model must be in 'provider/model_name' format, got: '{model}'. "
