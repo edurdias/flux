@@ -339,13 +339,24 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     async def emit_progress(self, task_id: str, task_name: str, value: Any) -> None:
-        await maybe_awaitable(
-            self._progress_callback(self.execution_id, task_id, task_name, value)
-        )
+        await maybe_awaitable(self._progress_callback(self.execution_id, task_id, task_name, value))
 
     def set_progress_callback(self, callback: Callable) -> Self:
         self._progress_callback = callback
         return self
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_checkpoint"] = None
+        state["_progress_callback"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if self._checkpoint is None:
+            self._checkpoint = lambda _: maybe_awaitable(None)
+        if self._progress_callback is None:
+            self._progress_callback = lambda *_: None
 
     def summary(self):
         return {key: value for key, value in self.to_dict().items() if key != "events"}
