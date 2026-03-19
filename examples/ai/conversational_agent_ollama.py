@@ -98,7 +98,7 @@ async def conversation_turn(
     return messages, assistant_response
 
 
-@workflow.with_options(name="conversational_agent_ollama")
+@workflow
 async def conversational_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     A conversational AI agent using Ollama for local LLM inference.

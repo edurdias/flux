@@ -193,7 +193,7 @@ async def stream_llm_with_task_events(
         ) from e
 
 
-@workflow.with_options(name="streaming_with_task_events_ollama")
+@workflow
 async def streaming_with_task_events_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     Showcase Flux's event-based execution with LLM streaming.

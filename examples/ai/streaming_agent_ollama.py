@@ -152,7 +152,7 @@ async def generate_non_streaming_response(
         ) from e
 
 
-@workflow.with_options(name="streaming_agent_ollama")
+@workflow
 async def streaming_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     An AI agent that demonstrates streaming vs non-streaming responses.

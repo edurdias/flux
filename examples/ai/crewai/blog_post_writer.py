@@ -189,7 +189,7 @@ async def format_blog_output(topic: str, raw_output: str) -> dict[str, Any]:
     }
 
 
-@workflow.with_options(name="blog_post_writer_crewai")
+@workflow
 async def blog_post_writer_crewai(ctx: ExecutionContext[dict[str, Any]]):
     """
     A blog post writer using CrewAI's sequential multi-agent pipeline.

@@ -583,7 +583,7 @@ async def build_report(
 # =============================================================================
 
 
-@workflow.with_options(name="multi_agent_code_review_crewai")
+@workflow
 async def multi_agent_code_review_crewai(ctx: ExecutionContext[dict[str, Any]]):
     """
     Multi-agent code review system using CrewAI + Flux orchestration.

@@ -65,6 +65,8 @@ db.sqlite3-journal
 # Test databases
 *.db
 test.db
+*.db-shm
+*.db-wal
 
 # Flask stuff:
 instance/

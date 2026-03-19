@@ -227,7 +227,7 @@ async def call_ollama_with_tools(
 # =============================================================================
 
 
-@workflow.with_options(name="multi_turn_assistant_ollama")
+@workflow
 async def multi_turn_assistant_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     Multi-turn AI assistant with autonomous tool use via MCP.

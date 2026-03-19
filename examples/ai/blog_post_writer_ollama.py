@@ -62,7 +62,7 @@ editor = agent(
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 
-@workflow.with_options(name="blog_post_writer_ollama")
+@workflow
 async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     A blog post writer using Flux's agent() task primitive.

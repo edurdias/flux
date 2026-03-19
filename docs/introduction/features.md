@@ -29,6 +29,11 @@
 - **Encrypted Storage**: Protect sensitive data at rest
 - **Access Control**: Manage who can execute and modify workflows
 
+## AI & MCP Integration
+- **AI Agents**: LLM-powered tasks with tool use, structured output, and conversation history
+- **MCP Client**: Connect to external MCP servers, discover tools at runtime, and use them as Flux tasks
+- **Provider Support**: Ollama, OpenAI, and Anthropic for AI agents; any MCP-compliant server for tools
+
 ## API Integration
 - **HTTP API**: Built-in FastAPI server for HTTP access
 - **RESTful Endpoints**: Easy-to-use REST API for workflow management

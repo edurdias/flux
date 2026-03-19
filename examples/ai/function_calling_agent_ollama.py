@@ -370,7 +370,7 @@ async def call_ollama_with_tools(
 # =============================================================================
 
 
-@workflow.with_options(name="function_calling_agent_ollama")
+@workflow
 async def function_calling_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     A conversational AI agent that can use tools/functions to answer questions.

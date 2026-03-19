@@ -40,7 +40,7 @@ async def process_dataframe(df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-@workflow.with_options(name="dataframe_with_pause")
+@workflow
 async def dataframe_with_pause(ctx: ExecutionContext[dict[str, str]]):
     """
     Workflow that validates DataFrame integrity across pause/resume.

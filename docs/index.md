@@ -66,7 +66,17 @@
    - [Task Mapping](advanced-features/task-patterns.md#task-mapping)
    - [Graph](advanced-features/task-patterns.md#graph)
    - [AI Agents](advanced-features/task-patterns.md#ai-agents)
+   - [MCP Client](advanced-features/task-patterns.md#mcp-client)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
+
+### [MCP Client](advanced-features/mcp-client.md)
+   - [Tool Discovery](advanced-features/mcp-client.md#tool-discovery)
+   - [Task Options](advanced-features/mcp-client.md#task-options)
+   - [Connection Modes](advanced-features/mcp-client.md#connection-modes)
+   - [Authentication](advanced-features/mcp-client.md#authentication)
+   - [Agent Integration](advanced-features/mcp-client.md#agent-integration)
+   - [Multi-Server](advanced-features/mcp-client.md#multi-server)
+   - [Pause/Resume](advanced-features/mcp-client.md#pauseresume)
 
 ### [Workflow Controls](advanced-features/workflow-controls.md)
    - [Workflow Pause Points](advanced-features/workflow-controls.md#workflow-pause-points)

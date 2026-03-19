@@ -115,7 +115,7 @@ async def conversation_turn(
     return messages, assistant_response, tokens_used
 
 
-@workflow.with_options(name="conversational_agent_openai")
+@workflow
 async def conversational_agent_openai(ctx: ExecutionContext[dict[str, Any]]):
     """
     A conversational AI agent using OpenAI's GPT models.
