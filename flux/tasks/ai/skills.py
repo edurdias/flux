@@ -4,6 +4,7 @@ import logging
 import re
 
 from flux.errors import ExecutionError
+from flux.task import task
 
 logger = logging.getLogger("flux.skills")
 
@@ -159,3 +160,26 @@ class SkillCatalog:
                     logger.warning("Skipping invalid skill in %s: %s", skill_dir, e)
 
         return cls(skills)
+
+
+def build_skills_preamble(catalog: SkillCatalog) -> str:
+    skills = catalog.list()
+    lines = [
+        "\n\nYou have access to the following skills. To use a skill, "
+        "call the use_skill tool with the skill name. The skill will "
+        "provide detailed instructions for completing the task.\n\n"
+        "Available skills:",
+    ]
+    for skill in skills:
+        lines.append(f"- {skill.name}: {skill.description}")
+    return "\n".join(lines)
+
+
+def build_use_skill(catalog: SkillCatalog) -> task:
+    @task
+    async def use_skill(name: str) -> str:
+        """Activates a skill by name. Returns the skill's full instructions."""
+        skill = catalog.get(name)
+        return skill.instructions
+
+    return use_skill

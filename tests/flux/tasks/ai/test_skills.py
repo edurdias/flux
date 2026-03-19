@@ -12,6 +12,8 @@ from flux.tasks.ai.skills import (
     SkillCatalogError,
     SkillNotFoundError,
     SkillValidationError,
+    build_skills_preamble,
+    build_use_skill,
 )
 
 
@@ -235,3 +237,64 @@ def test_catalog_from_directory_not_found():
 def test_catalog_from_directory_empty(tmp_path):
     catalog = SkillCatalog.from_directory(str(tmp_path))
     assert catalog.list() == []
+
+
+def test_build_skills_preamble():
+    s1 = Skill(name="alpha", description="Does alpha.", instructions="Alpha instructions.")
+    s2 = Skill(name="beta", description="Does beta.", instructions="Beta instructions.")
+    catalog = SkillCatalog([s1, s2])
+    preamble = build_skills_preamble(catalog)
+    assert "use_skill" in preamble
+    assert "- alpha: Does alpha." in preamble
+    assert "- beta: Does beta." in preamble
+
+
+def test_build_use_skill_returns_task():
+    from flux.task import task as task_cls
+
+    s1 = Skill(name="alpha", description="Does alpha.", instructions="Alpha instructions.")
+    catalog = SkillCatalog([s1])
+    use_skill = build_use_skill(catalog)
+    assert isinstance(use_skill, task_cls)
+
+
+def test_build_use_skill_returns_instructions():
+    from flux import ExecutionContext, workflow
+
+    s1 = Skill(name="alpha", description="Does alpha.", instructions="Alpha instructions.")
+    catalog = SkillCatalog([s1])
+    use_skill_task = build_use_skill(catalog)
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await use_skill_task(name="alpha")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output == "Alpha instructions."
+
+
+def test_build_use_skill_not_found():
+    from flux import ExecutionContext, workflow
+
+    catalog = SkillCatalog([])
+    use_skill_task = build_use_skill(catalog)
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await use_skill_task(name="missing")
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
+
+
+def test_build_use_skill_schema():
+    from flux.tasks.ai.tool_executor import build_tool_schemas
+
+    s1 = Skill(name="alpha", description="Does alpha.", instructions="Alpha instructions.")
+    catalog = SkillCatalog([s1])
+    use_skill_task = build_use_skill(catalog)
+    schemas = build_tool_schemas([use_skill_task])
+    assert len(schemas) == 1
+    assert schemas[0]["name"] == "use_skill"
+    assert "name" in schemas[0]["parameters"]["properties"]
