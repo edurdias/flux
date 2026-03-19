@@ -93,10 +93,11 @@
 
 ### [Cancellation](advanced-features/cancellation.md)
    - [Cancellation States](advanced-features/cancellation.md#cancellation-states)
-   - [API and CLI](advanced-features/cancellation.md#cancellation-api)
+   - [API Endpoint](advanced-features/cancellation.md#api-endpoint)
+   - [Command Line Interface](advanced-features/cancellation.md#command-line-interface)
 
 ### [Observability](advanced-features/observability.md)
-   - [OpenTelemetry Integration](advanced-features/observability.md#opentelemetry-integration)
+   - [Configuration](advanced-features/observability.md#configuration)
    - [Metrics](advanced-features/observability.md#metrics)
    - [Distributed Tracing](advanced-features/observability.md#distributed-tracing)
 

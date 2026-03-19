@@ -86,6 +86,7 @@ Task features:
 The `agent()` factory creates Flux tasks that call LLMs. Agents are regular `@task` functions — they compose with `parallel()`, `Graph`, `pause()`, and all other Flux primitives.
 
 ```python
+from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
 
 researcher = agent(

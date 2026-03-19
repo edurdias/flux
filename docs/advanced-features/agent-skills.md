@@ -68,12 +68,12 @@ Research the given topic thoroughly.
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Skill identifier. Max 64 chars, lowercase letters, numbers, and hyphens. Must match the parent directory name. |
+| `name` | Yes | Skill identifier. Max 64 chars, lowercase letters, numbers, and hyphens. Should match the parent directory name (Flux warns on mismatch). |
 | `description` | Yes | What the skill does and when to use it. Max 1024 chars. The LLM uses this to decide which skill to activate. |
 | `allowed-tools` | No | Space-delimited list of tool names the skill expects to use. Validated against the agent's tools at construction time. |
-| `license` | No | License name or reference to a bundled license file. |
-| `compatibility` | No | Environment requirements (max 500 chars). |
 | `metadata` | No | Arbitrary key-value mapping for additional metadata (author, version, etc.). |
+| `license` | No | Part of the Agent Skills standard. Stored but not consumed by Flux. |
+| `compatibility` | No | Part of the Agent Skills standard. Stored but not consumed by Flux. |
 
 ### Python-Defined Skills
 
