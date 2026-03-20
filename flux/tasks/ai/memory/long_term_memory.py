@@ -9,7 +9,6 @@ class LongTermMemory:
     def __init__(self, provider: MemoryProvider, scope: str) -> None:
         self._provider = provider
         self._scope = scope
-        self._tool_counter = 0
 
     def _get_workflow(self) -> str:
         from flux.domain.execution_context import CURRENT_CONTEXT

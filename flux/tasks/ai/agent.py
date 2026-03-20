@@ -57,9 +57,14 @@ def agent(
         use_skill_task = build_use_skill(skills)
         tools = (tools or []) + [use_skill_task]
 
+    if long_term_memory is not None:
+        tools = (tools or []) + long_term_memory.as_tools()
+        system_prompt = system_prompt + long_term_memory.system_prompt_hint()
+
+    if skills is not None:
         tool_names = {
             getattr(getattr(t, "func", None), "__name__", None) or getattr(t, "__name__", "")
-            for t in tools
+            for t in (tools or [])
         }
         for skill in skills.list():
             for allowed in skill.allowed_tools:
@@ -70,10 +75,6 @@ def agent(
                         skill.name,
                         allowed,
                     )
-
-    if long_term_memory is not None:
-        tools = (tools or []) + long_term_memory.as_tools()
-        system_prompt = system_prompt + long_term_memory.system_prompt_hint()
 
     effective_stream = stream and response_format is None
 

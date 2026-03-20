@@ -14,6 +14,8 @@ from sqlalchemy import (
     distinct,
     select,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
 
 
@@ -40,36 +42,29 @@ class SqlAlchemyProvider:
             _metadata.create_all(self._engine)
         return self._engine
 
+    def _upsert_stmt(self, workflow: str, scope: str, key: str, serialized: str) -> Any:
+        """Build a dialect-aware atomic upsert statement."""
+        engine = self._get_engine()
+        values = {"workflow": workflow, "scope": scope, "key": key, "value": serialized}
+        dialect = engine.dialect.name
+        if dialect == "postgresql":
+            stmt = pg_insert(_memory_table).values(**values)
+            return stmt.on_conflict_do_update(
+                index_elements=["workflow", "scope", "key"],
+                set_={"value": stmt.excluded.value},
+            )
+        # SQLite and other dialects
+        stmt = sqlite_insert(_memory_table).values(**values)
+        return stmt.on_conflict_do_update(
+            index_elements=["workflow", "scope", "key"],
+            set_={"value": stmt.excluded.value},
+        )
+
     async def memorize(self, workflow: str, scope: str, key: str, value: Any) -> None:
         engine = self._get_engine()
         serialized = json.dumps(value)
         with engine.begin() as conn:
-            existing = conn.execute(
-                select(_memory_table).where(
-                    _memory_table.c.workflow == workflow,
-                    _memory_table.c.scope == scope,
-                    _memory_table.c.key == key,
-                ),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    _memory_table.update()
-                    .where(
-                        _memory_table.c.workflow == workflow,
-                        _memory_table.c.scope == scope,
-                        _memory_table.c.key == key,
-                    )
-                    .values(value=serialized),
-                )
-            else:
-                conn.execute(
-                    _memory_table.insert().values(
-                        workflow=workflow,
-                        scope=scope,
-                        key=key,
-                        value=serialized,
-                    ),
-                )
+            conn.execute(self._upsert_stmt(workflow, scope, key, serialized))
 
     async def recall(self, workflow: str, scope: str, key: str | None = None) -> Any:
         engine = self._get_engine()
