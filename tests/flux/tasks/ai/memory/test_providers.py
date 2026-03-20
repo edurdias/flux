@@ -5,13 +5,6 @@ import tempfile
 
 import pytest
 
-try:
-    import psycopg2  # noqa: F401
-
-    _has_psycopg2 = True
-except ImportError:
-    _has_psycopg2 = False
-
 
 @pytest.mark.asyncio
 async def test_provider_memorize_and_recall():
@@ -142,26 +135,24 @@ def test_memory_entry_fields():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_memorize_and_recall():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_memorize_and_recall():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "name", "Eduardo")
         result = await provider.recall("wf", "user:1", "name")
         assert result == "Eduardo"
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_recall_all():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_recall_all():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "name", "Eduardo")
         await provider.memorize("wf", "user:1", "role", "VP")
         result = await provider.recall("wf", "user:1")
@@ -169,13 +160,12 @@ async def test_sqlite_provider_recall_all():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_upsert():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_upsert():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "role", "Engineer")
         await provider.memorize("wf", "user:1", "role", "VP")
         result = await provider.recall("wf", "user:1", "role")
@@ -183,13 +173,12 @@ async def test_sqlite_provider_upsert():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_forget_key():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_forget_key():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "name", "Eduardo")
         await provider.forget("wf", "user:1", "name")
         result = await provider.recall("wf", "user:1", "name")
@@ -197,13 +186,12 @@ async def test_sqlite_provider_forget_key():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_forget_scope():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_forget_scope():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "name", "Eduardo")
         await provider.memorize("wf", "user:1", "role", "VP")
         await provider.forget("wf", "user:1")
@@ -212,13 +200,12 @@ async def test_sqlite_provider_forget_scope():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_keys_and_scopes():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_keys_and_scopes():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf", "user:1", "name", "Eduardo")
         await provider.memorize("wf", "user:2", "name", "Alice")
         assert sorted(await provider.keys("wf", "user:1")) == ["name"]
@@ -226,13 +213,12 @@ async def test_sqlite_provider_keys_and_scopes():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_workflow_isolation():
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+async def test_sqlalchemy_provider_workflow_isolation():
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider = SqliteProvider(db_path)
-        await provider.initialize()
+        provider = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider.memorize("wf_a", "user:1", "name", "Eduardo")
         await provider.memorize("wf_b", "user:1", "name", "Alice")
         assert await provider.recall("wf_a", "user:1", "name") == "Eduardo"
@@ -240,53 +226,14 @@ async def test_sqlite_provider_workflow_isolation():
 
 
 @pytest.mark.asyncio
-async def test_sqlite_provider_persists_across_instances():
+async def test_sqlalchemy_provider_persists_across_instances():
     """Data survives creating a new provider instance with same db."""
-    from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.db")
-        provider1 = SqliteProvider(db_path)
-        await provider1.initialize()
+        provider1 = SqlAlchemyProvider(f"sqlite:///{db_path}")
         await provider1.memorize("wf", "user:1", "name", "Eduardo")
-        provider2 = SqliteProvider(db_path)
-        await provider2.initialize()
+        provider2 = SqlAlchemyProvider(f"sqlite:///{db_path}")
         result = await provider2.recall("wf", "user:1", "name")
         assert result == "Eduardo"
-
-
-@pytest.mark.skipif(
-    not _has_psycopg2, reason="psycopg2 not installed"
-)
-@pytest.mark.postgresql
-@pytest.mark.asyncio
-async def test_postgresql_provider_memorize_and_recall():
-    from flux.tasks.ai.memory.providers.postgresql import PostgresqlProvider
-
-    provider = PostgresqlProvider("postgresql://localhost/flux_test")
-    await provider.initialize()
-    try:
-        await provider.memorize("wf", "test:pg", "name", "Eduardo")
-        result = await provider.recall("wf", "test:pg", "name")
-        assert result == "Eduardo"
-    finally:
-        await provider.forget("wf", "test:pg")
-
-
-@pytest.mark.skipif(
-    not _has_psycopg2, reason="psycopg2 not installed"
-)
-@pytest.mark.postgresql
-@pytest.mark.asyncio
-async def test_postgresql_provider_recall_all():
-    from flux.tasks.ai.memory.providers.postgresql import PostgresqlProvider
-
-    provider = PostgresqlProvider("postgresql://localhost/flux_test")
-    await provider.initialize()
-    try:
-        await provider.memorize("wf", "test:pg2", "name", "Eduardo")
-        await provider.memorize("wf", "test:pg2", "role", "VP")
-        result = await provider.recall("wf", "test:pg2")
-        assert result == {"name": "Eduardo", "role": "VP"}
-    finally:
-        await provider.forget("wf", "test:pg2")

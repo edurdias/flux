@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
-from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 from flux.tasks.ai.memory.working_memory import WorkingMemory
 
 
@@ -11,19 +11,17 @@ def in_memory() -> InMemoryProvider:
     return InMemoryProvider()
 
 
-def sqlite(db_path: str) -> SqliteProvider:
+def sqlite(db_path: str) -> SqlAlchemyProvider:
     """Create a SQLite provider."""
-    return SqliteProvider(db_path)
+    return SqlAlchemyProvider(f"sqlite:///{db_path}")
 
 
-def postgresql(connection_string: str):
+def postgresql(connection_string: str) -> SqlAlchemyProvider:
     """Create a PostgreSQL provider."""
-    from flux.tasks.ai.memory.providers.postgresql import PostgresqlProvider
-
-    return PostgresqlProvider(connection_string)
+    return SqlAlchemyProvider(connection_string)
 
 
-def long_term_memory(provider, scope: str) -> LongTermMemory:
+def long_term_memory(provider: InMemoryProvider | SqlAlchemyProvider, scope: str) -> LongTermMemory:
     """Create a long-term memory backed by a provider."""
     return LongTermMemory(provider=provider, scope=scope)
 

@@ -39,6 +39,7 @@ async def memory_shared_agents(ctx: ExecutionContext[dict[str, Any]]):
     initial_input = ctx.input or {}
     if isinstance(initial_input, str):
         import json
+
         initial_input = json.loads(initial_input)
     code = initial_input.get("code", "def add(a, b): return a + b  # TODO: add validation")
 

@@ -46,6 +46,7 @@ class LongTermMemory:
             if result is None:
                 return "No memory found for that key."
             import json
+
             return json.dumps(result) if isinstance(result, dict) else str(result)
 
         @task
@@ -65,6 +66,7 @@ class LongTermMemory:
             """List all keys stored in long-term memory."""
             keys = await ltm.keys()
             import json
+
             return json.dumps(keys)
 
         return [recall_memory, store_memory, forget_memory, list_memory_keys]
