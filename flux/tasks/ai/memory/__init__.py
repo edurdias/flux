@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
 
 
 def in_memory() -> InMemoryProvider:
@@ -8,4 +9,9 @@ def in_memory() -> InMemoryProvider:
     return InMemoryProvider()
 
 
-__all__ = ["in_memory"]
+def sqlite(db_path: str) -> SqliteProvider:
+    """Create a SQLite provider."""
+    return SqliteProvider(db_path)
+
+
+__all__ = ["in_memory", "sqlite"]
