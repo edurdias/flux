@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
 from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
 from flux.tasks.ai.memory.working_memory import WorkingMemory
@@ -22,6 +23,11 @@ def postgresql(connection_string: str):
     return PostgresqlProvider(connection_string)
 
 
+def long_term_memory(provider, scope: str) -> LongTermMemory:
+    """Create a long-term memory backed by a provider."""
+    return LongTermMemory(provider=provider, scope=scope)
+
+
 def working_memory(
     window: int | None = None,
     max_tokens: int | None = None,
@@ -30,4 +36,12 @@ def working_memory(
     return WorkingMemory(window=window, max_tokens=max_tokens)
 
 
-__all__ = ["in_memory", "postgresql", "sqlite", "working_memory", "WorkingMemory"]
+__all__ = [
+    "in_memory",
+    "long_term_memory",
+    "LongTermMemory",
+    "postgresql",
+    "sqlite",
+    "working_memory",
+    "WorkingMemory",
+]
