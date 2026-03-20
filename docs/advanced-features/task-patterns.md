@@ -294,13 +294,15 @@ print(result.key_points)
 
 ### Stateful Conversations
 
-With `stateful=True`, the agent accumulates message history across invocations within a workflow execution:
+Use `working_memory()` to accumulate message history across invocations within a workflow execution:
 
 ```python
+from flux.tasks.ai.memory import working_memory
+
 chatbot = agent(
     "You are a helpful assistant.",
     model="ollama/llama3",
-    stateful=True,
+    working_memory=working_memory(),
 )
 
 @workflow
@@ -310,9 +312,9 @@ async def conversation(ctx: ExecutionContext[dict]):
     return r2
 ```
 
-**Caveats:**
-- Stateful history is in-memory. If the workflow crashes, history is lost on resume. For crash-durable conversations, manage history at the workflow level using `pause()`/`resume()`.
-- Stateful agents must not be called concurrently (e.g., via `parallel()`). Concurrent invocations share the same message list and will corrupt the history. Use separate `agent()` instances for concurrent use.
+Working memory stores messages as task events — durable, replay-safe, and compatible with pause/resume. Use `working_memory(window=N)` to limit context to the N most recent messages.
+
+See [AI Memory](ai-memory.md) for full documentation including long-term memory and custom providers.
 
 ### Task Options
 
