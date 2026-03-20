@@ -31,14 +31,38 @@ class WorkingMemory:
     ) -> None:
         self._window = window
         self._max_tokens = max_tokens
-        self._counter = 0
+        self._counter: int | None = None
+
+    def _next_counter(self) -> int:
+        """Get the next counter value, initializing from existing events if needed."""
+        if self._counter is None:
+            ctx = CURRENT_CONTEXT.get()
+            if ctx is None:
+                self._counter = 0
+            else:
+                max_seen = -1
+                for event in ctx.events:
+                    if (
+                        event.type == ExecutionEventType.TASK_COMPLETED
+                        and event.name is not None
+                        and (
+                            event.name.startswith(_TASK_PREFIX)
+                            or event.name.startswith("wm_forget")
+                        )
+                    ):
+                        parts = event.name.rsplit("_", 1)
+                        if parts[-1].isdigit():
+                            max_seen = max(max_seen, int(parts[-1]))
+                self._counter = max_seen + 1
+        value = self._counter
+        self._counter += 1
+        return value
 
     async def memorize(self, role: str, content: str) -> None:
         """Store a message as a task event. Each call gets a unique task name."""
         from flux.task import task
 
-        task_name = f"{_TASK_PREFIX}_{self._counter}"
-        self._counter += 1
+        task_name = f"{_TASK_PREFIX}_{self._next_counter()}"
 
         @task.with_options(name=task_name)
         async def _store_message(role: str, content: str) -> dict[str, str]:
@@ -97,8 +121,7 @@ class WorkingMemory:
         """Mark a message at the given index as forgotten."""
         from flux.task import task
 
-        task_name = f"wm_forget_{self._counter}"
-        self._counter += 1
+        task_name = f"wm_forget_{self._next_counter()}"
 
         @task.with_options(name=task_name)
         async def _forget_message(index: int) -> dict[str, Any]:

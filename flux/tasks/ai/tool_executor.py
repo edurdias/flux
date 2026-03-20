@@ -98,8 +98,13 @@ async def execute_tools(
             return {"tool_call_id": call.get("id", name), "output": f"Error: Unknown tool '{name}'"}
 
         try:
+            call_id = call.get("id", name)
+            func = tool_fn.func if hasattr(tool_fn, "func") else tool_fn
+            sig = inspect.signature(func)
+            if "_call_id" in sig.parameters:
+                args["_call_id"] = call_id
             result = await tool_fn(**args)
-            return {"tool_call_id": call.get("id", name), "output": str(result)}
+            return {"tool_call_id": call_id, "output": str(result)}
         except Exception as e:
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}

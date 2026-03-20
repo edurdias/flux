@@ -189,7 +189,7 @@ provider = MyCustomProvider(...)
 memory = long_term_memory(provider=provider, scope="user:123")
 ```
 
-Both SQLite and PostgreSQL providers require initialization before first use. Flux calls `initialize()` automatically when the agent first accesses memory.
+Both SQLite and PostgreSQL providers use SQLAlchemy under the hood and lazily create their database connection and tables on first use. No manual initialization is needed.
 
 ## Shared Memory
 
@@ -254,7 +254,7 @@ Method semantics:
 | `keys` | Return all keys for the given `(workflow, scope)` |
 | `scopes` | Return all distinct scopes for the given workflow |
 
-Optionally implement `async def initialize(self) -> None` if the provider needs setup (e.g., creating tables). Flux calls `initialize()` before the first memory access.
+Custom providers should handle their own initialization lazily (e.g., connecting and creating tables on first use).
 
 ### Example: Redis Provider
 
