@@ -36,15 +36,15 @@ class LongTermMemory:
     def as_tools(self) -> list:
         """Create Flux @task tools for agent integration.
 
-        Each tool includes a hidden _call_id parameter (filtered by
-        build_tool_schemas) to ensure unique task IDs across invocations.
+        Tool uniqueness across iterations is handled by execute_tools()
+        which appends the iteration number to the task name.
         """
         from flux.task import task
 
         ltm = self
 
         @task
-        async def recall_memory(key: str = "", *, _call_id: str = "") -> str:
+        async def recall_memory(key: str = "") -> str:
             """Retrieve stored facts from long-term memory. Pass a key to get a specific fact, or leave empty to get all facts."""
             result = await ltm.recall(key if key else None)
             if result is None:
@@ -54,19 +54,19 @@ class LongTermMemory:
             return json.dumps(result) if isinstance(result, dict) else str(result)
 
         @task
-        async def store_memory(key: str, value: str, *, _call_id: str = "") -> str:
+        async def store_memory(key: str, value: str) -> str:
             """Store a fact in long-term memory for future recall."""
             await ltm.memorize(key, value)
             return f"Stored: {key}"
 
         @task
-        async def forget_memory(key: str = "", *, _call_id: str = "") -> str:
+        async def forget_memory(key: str = "") -> str:
             """Remove a fact from long-term memory. Pass a key to forget a specific fact, or leave empty to clear all."""
             await ltm.forget(key if key else None)
             return f"Forgotten: {key or 'all'}"
 
         @task
-        async def list_memory_keys(*, _call_id: str = "") -> str:
+        async def list_memory_keys() -> str:
             """List all keys stored in long-term memory."""
             keys = await ltm.keys()
             import json

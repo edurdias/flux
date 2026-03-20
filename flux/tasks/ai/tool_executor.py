@@ -91,7 +91,7 @@ async def execute_tools(
         func = tool.func if hasattr(tool, "func") else tool
         tool_map[func.__name__] = tool
 
-    async def _run_one(call: dict[str, Any], index: int) -> dict[str, Any]:
+    async def _run_one(call: dict[str, Any]) -> dict[str, Any]:
         name = call["name"]
         args = call.get("arguments", {})
         if isinstance(args, str):
@@ -106,14 +106,13 @@ async def execute_tools(
 
         try:
             call_id = call.get("id", name)
-            func = tool_fn.func if hasattr(tool_fn, "func") else tool_fn
-            sig = inspect.signature(func)
-            if "_call_id" in sig.parameters:
-                args["_call_id"] = f"{iteration}_{index}"
-            result = await tool_fn(**args)
+            effective_tool = tool_fn
+            if iteration > 0 and hasattr(tool_fn, "with_options"):
+                effective_tool = tool_fn.with_options(name=f"{name}_{iteration}")
+            result = await effective_tool(**args)
             return {"tool_call_id": call_id, "output": str(result)}
         except Exception as e:
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    return [await _run_one(call, i) for i, call in enumerate(tool_calls)]
+    return [await _run_one(call) for call in tool_calls]
