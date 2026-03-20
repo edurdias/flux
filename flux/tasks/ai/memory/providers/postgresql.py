@@ -13,7 +13,7 @@ class PostgresqlProvider:
     def __init__(self, connection_string: str) -> None:
         if psycopg2 is None:
             raise ImportError(
-                "To use PostgreSQL memory, install psycopg2: pip install flux-core[postgresql]"
+                "To use PostgreSQL memory, install psycopg2: pip install flux-core[postgresql]",
             )
         self._connection_string = connection_string
         self._conn = None
@@ -32,13 +32,28 @@ class PostgresqlProvider:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (workflow, scope, key)
                 )
-                """
+                """,
             )
         self._conn.commit()
 
     def _get_conn(self):
         if self._conn is None:
-            raise RuntimeError("PostgresqlProvider not initialized. Call await provider.initialize() first.")
+            self._conn = psycopg2.connect(self._connection_string)
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS memory (
+                        workflow   TEXT NOT NULL,
+                        scope      TEXT NOT NULL,
+                        key        TEXT NOT NULL,
+                        value      TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (workflow, scope, key)
+                    )
+                    """,
+                )
+            self._conn.commit()
         return self._conn
 
     async def memorize(self, workflow: str, scope: str, key: str, value: Any) -> None:

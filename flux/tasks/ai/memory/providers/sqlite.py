@@ -29,9 +29,21 @@ class SqliteProvider:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            raise RuntimeError(
-                "SqliteProvider not initialized. Call await provider.initialize() first.",
+            self._conn = sqlite3.connect(self._db_path)
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory (
+                    workflow   TEXT NOT NULL,
+                    scope      TEXT NOT NULL,
+                    key        TEXT NOT NULL,
+                    value      TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (workflow, scope, key)
+                )
+                """,
             )
+            self._conn.commit()
         return self._conn
 
     async def memorize(self, workflow: str, scope: str, key: str, value: Any) -> None:
