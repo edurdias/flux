@@ -102,7 +102,9 @@ async def execute_tools(
             func = tool_fn.func if hasattr(tool_fn, "func") else tool_fn
             sig = inspect.signature(func)
             if "_call_id" in sig.parameters:
-                args["_call_id"] = call_id
+                from uuid import uuid4
+
+                args["_call_id"] = uuid4().hex
             result = await tool_fn(**args)
             return {"tool_call_id": call_id, "output": str(result)}
         except Exception as e:
