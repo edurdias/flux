@@ -23,13 +23,15 @@ class SqliteProvider:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (workflow, scope, key)
             )
-            """
+            """,
         )
         self._conn.commit()
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            raise RuntimeError("SqliteProvider not initialized. Call await provider.initialize() first.")
+            raise RuntimeError(
+                "SqliteProvider not initialized. Call await provider.initialize() first.",
+            )
         return self._conn
 
     async def memorize(self, workflow: str, scope: str, key: str, value: Any) -> None:

@@ -14,4 +14,11 @@ def sqlite(db_path: str) -> SqliteProvider:
     return SqliteProvider(db_path)
 
 
-__all__ = ["in_memory", "sqlite"]
+def postgresql(connection_string: str):
+    """Create a PostgreSQL provider."""
+    from flux.tasks.ai.memory.providers.postgresql import PostgresqlProvider
+
+    return PostgresqlProvider(connection_string)
+
+
+__all__ = ["in_memory", "postgresql", "sqlite"]
