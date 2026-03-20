@@ -7,8 +7,8 @@ from flux.domain.execution_context import ExecutionContext
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
 
 
-def _make_ctx(workflow_name: str = "test_workflow") -> tuple[ExecutionContext, any]:
-    ctx = ExecutionContext(
+def _make_ctx(workflow_name: str = "test_workflow"):  # type: ignore[no-untyped-def]
+    ctx: ExecutionContext = ExecutionContext(
         workflow_id="wf1",
         workflow_name=workflow_name,
         state=ExecutionState.RUNNING,

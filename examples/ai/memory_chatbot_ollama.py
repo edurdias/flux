@@ -13,7 +13,7 @@ from typing import Any
 from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
 from flux.tasks.ai.memory import working_memory
-from flux.tasks.builtins import pause
+from flux.tasks import pause
 
 chatbot = agent(
     system_prompt="You are a friendly assistant. Keep responses concise.",
