@@ -112,3 +112,20 @@ async def test_provider_workflow_isolation():
     await provider.memorize("wf_b", "user:1", "name", "Alice")
     assert await provider.recall("wf_a", "user:1", "name") == "Eduardo"
     assert await provider.recall("wf_b", "user:1", "name") == "Alice"
+
+
+def test_in_memory_provider_conforms_to_protocol():
+    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+    from flux.tasks.ai.memory.providers.protocol import MemoryProvider
+
+    assert isinstance(InMemoryProvider(), MemoryProvider)
+
+
+def test_memory_entry_fields():
+    from flux.tasks.ai.memory.types import MemoryEntry
+
+    entry = MemoryEntry(workflow="wf", scope="user:1", key="name", value="Eduardo")
+    assert entry.workflow == "wf"
+    assert entry.scope == "user:1"
+    assert entry.key == "name"
+    assert entry.value == "Eduardo"
