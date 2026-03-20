@@ -78,6 +78,7 @@ def build_anthropic_agent(
             response = await client.messages.create(**kwargs)
 
             tool_call_count = 0
+            tool_iteration = 0
             while _has_tool_use(response) and tools and tool_call_count < max_tool_calls:
                 tool_calls = [
                     {
@@ -93,7 +94,8 @@ def build_anthropic_agent(
                 call_messages.append(
                     {"role": "assistant", "content": _serialize_content(response.content)},
                 )
-                results = await execute_tools(tool_calls, tools)
+                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                tool_iteration += 1
                 tool_results = [
                     {
                         "type": "tool_result",

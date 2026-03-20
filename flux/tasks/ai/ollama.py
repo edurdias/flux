@@ -80,6 +80,7 @@ def build_ollama_agent(
             response_message = response["message"]
 
             tool_call_count = 0
+            tool_iteration = 0
             while response_message.get("tool_calls") and tools and tool_call_count < max_tool_calls:
                 tool_calls = [
                     {
@@ -92,7 +93,8 @@ def build_ollama_agent(
                 tool_call_count += len(tool_calls)
 
                 call_messages.append(response_message)
-                results = await execute_tools(tool_calls, tools)
+                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                tool_iteration += 1
                 for result in results:
                     call_messages.append({"role": "tool", "content": result["output"]})
 

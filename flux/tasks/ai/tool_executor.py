@@ -73,18 +73,25 @@ def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
 async def execute_tools(
     tool_calls: list[dict[str, Any]],
     tools: list[Any],
+    iteration: int = 0,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
 
     Each tool call is a dict with 'name' and 'arguments'.
     Tools are Flux @task functions — each invocation produces task events.
+
+    Args:
+        tool_calls: List of tool calls from the LLM.
+        tools: List of Flux @task functions.
+        iteration: The tool call iteration number within the agent call.
+            Used to generate deterministic _call_id values for replay safety.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
         func = tool.func if hasattr(tool, "func") else tool
         tool_map[func.__name__] = tool
 
-    async def _run_one(call: dict[str, Any]) -> dict[str, Any]:
+    async def _run_one(call: dict[str, Any], index: int) -> dict[str, Any]:
         name = call["name"]
         args = call.get("arguments", {})
         if isinstance(args, str):
@@ -102,13 +109,11 @@ async def execute_tools(
             func = tool_fn.func if hasattr(tool_fn, "func") else tool_fn
             sig = inspect.signature(func)
             if "_call_id" in sig.parameters:
-                from uuid import uuid4
-
-                args["_call_id"] = uuid4().hex
+                args["_call_id"] = f"{iteration}_{index}"
             result = await tool_fn(**args)
             return {"tool_call_id": call_id, "output": str(result)}
         except Exception as e:
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    return [await _run_one(call) for call in tool_calls]
+    return [await _run_one(call, i) for i, call in enumerate(tool_calls)]

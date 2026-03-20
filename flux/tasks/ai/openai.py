@@ -83,6 +83,7 @@ def build_openai_agent(
             message = response.choices[0].message
 
             tool_call_count = 0
+            tool_iteration = 0
             while message.tool_calls and tools and tool_call_count < max_tool_calls:
                 tool_calls = [
                     {
@@ -95,7 +96,8 @@ def build_openai_agent(
                 tool_call_count += len(tool_calls)
 
                 call_messages.append(message.model_dump())
-                results = await execute_tools(tool_calls, tools)
+                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                tool_iteration += 1
                 for tc, result in zip(tool_calls, results):
                     call_messages.append(
                         {
