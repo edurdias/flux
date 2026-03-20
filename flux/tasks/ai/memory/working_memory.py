@@ -70,13 +70,16 @@ class WorkingMemory:
 
         await _store_message(role, content)
 
-    def recall(self) -> list[dict[str, str]]:
-        """Read all memorized messages from execution events, filtering out forgotten indices."""
+    def _collect_messages(self) -> list[dict[str, str]]:
+        """Read all memorized messages from execution events, filtering out forgotten ones.
+
+        Returns messages with their stable ID (task name) under the "_id" key.
+        """
         ctx = CURRENT_CONTEXT.get()
         if ctx is None:
             return []
 
-        forgotten: set[int] = set()
+        forgotten: set[str] = set()
         for event in ctx.events:
             if (
                 event.type == ExecutionEventType.TASK_COMPLETED
@@ -84,22 +87,27 @@ class WorkingMemory:
                 and event.name.startswith("wm_forget")
             ):
                 value = _extract_value(event.value)
-                if isinstance(value, dict) and "forgotten_index" in value:
-                    forgotten.add(value["forgotten_index"])
+                if isinstance(value, dict) and "forgotten_id" in value:
+                    forgotten.add(value["forgotten_id"])
 
         messages: list[dict[str, str]] = []
-        msg_index = 0
         for event in ctx.events:
             if (
                 event.type == ExecutionEventType.TASK_COMPLETED
                 and event.name is not None
                 and event.name.startswith(_TASK_PREFIX)
             ):
+                if event.name in forgotten:
+                    continue
                 value = _extract_value(event.value)
                 if isinstance(value, dict) and "role" in value and "content" in value:
-                    if msg_index not in forgotten:
-                        messages.append({"role": value["role"], "content": value["content"]})
-                    msg_index += 1
+                    messages.append(
+                        {
+                            "_id": event.name,
+                            "role": value["role"],
+                            "content": value["content"],
+                        },
+                    )
 
         if self._window is not None and len(messages) > self._window:
             messages = messages[-self._window :]
@@ -117,19 +125,24 @@ class WorkingMemory:
 
         return messages
 
-    async def forget(self, index: int) -> None:
-        """Mark a message at the given index as forgotten."""
+    def recall(self) -> list[dict[str, str]]:
+        """Read all memorized messages from execution events, filtering out forgotten ones."""
+        return [
+            {"role": msg["role"], "content": msg["content"]} for msg in self._collect_messages()
+        ]
+
+    async def forget(self, message_id: str) -> None:
+        """Mark a message as forgotten by its stable ID (task name)."""
         from flux.task import task
 
         task_name = f"wm_forget_{self._next_counter()}"
 
         @task.with_options(name=task_name)
-        async def _forget_message(index: int) -> dict[str, Any]:
-            return {"forgotten_index": index}
+        async def _forget_message(forgotten_id: str) -> dict[str, Any]:
+            return {"forgotten_id": forgotten_id}
 
-        await _forget_message(index)
+        await _forget_message(message_id)
 
-    def keys(self) -> list[int]:
-        """Return indices of all messages."""
-        messages = self.recall()
-        return list(range(len(messages)))
+    def keys(self) -> list[str]:
+        """Return stable IDs of all messages in the current recall window."""
+        return [msg["_id"] for msg in self._collect_messages()]
