@@ -3,7 +3,17 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import Column, MetaData, String, Table, Text, create_engine, delete, distinct, select
+from sqlalchemy import (
+    Column,
+    MetaData,
+    String,
+    Table,
+    Text,
+    create_engine,
+    delete,
+    distinct,
+    select,
+)
 from sqlalchemy.engine import Engine
 
 
@@ -54,7 +64,10 @@ class SqlAlchemyProvider:
             else:
                 conn.execute(
                     _memory_table.insert().values(
-                        workflow=workflow, scope=scope, key=key, value=serialized,
+                        workflow=workflow,
+                        scope=scope,
+                        key=key,
+                        value=serialized,
                     ),
                 )
 

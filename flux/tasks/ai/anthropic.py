@@ -48,6 +48,7 @@ def build_anthropic_agent(
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
 
+        call_messages: list[dict[str, Any]]
         if working_memory:
             prior_messages = working_memory.recall()
             call_messages = prior_messages + [{"role": "user", "content": user_content}]
