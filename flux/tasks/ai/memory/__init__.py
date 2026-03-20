@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
 from flux.tasks.ai.memory.providers.sqlite import SqliteProvider
+from flux.tasks.ai.memory.working_memory import WorkingMemory
 
 
 def in_memory() -> InMemoryProvider:
@@ -21,4 +22,12 @@ def postgresql(connection_string: str):
     return PostgresqlProvider(connection_string)
 
 
-__all__ = ["in_memory", "postgresql", "sqlite"]
+def working_memory(
+    window: int | None = None,
+    max_tokens: int | None = None,
+) -> WorkingMemory:
+    """Create a working memory for conversation history."""
+    return WorkingMemory(window=window, max_tokens=max_tokens)
+
+
+__all__ = ["in_memory", "postgresql", "sqlite", "working_memory", "WorkingMemory"]
