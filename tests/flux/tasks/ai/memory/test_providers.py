@@ -5,6 +5,13 @@ import tempfile
 
 import pytest
 
+try:
+    import psycopg2  # noqa: F401
+
+    _has_psycopg2 = True
+except ImportError:
+    _has_psycopg2 = False
+
 
 @pytest.mark.asyncio
 async def test_provider_memorize_and_recall():
@@ -248,6 +255,9 @@ async def test_sqlite_provider_persists_across_instances():
         assert result == "Eduardo"
 
 
+@pytest.mark.skipif(
+    not _has_psycopg2, reason="psycopg2 not installed"
+)
 @pytest.mark.postgresql
 @pytest.mark.asyncio
 async def test_postgresql_provider_memorize_and_recall():
@@ -263,6 +273,9 @@ async def test_postgresql_provider_memorize_and_recall():
         await provider.forget("wf", "test:pg")
 
 
+@pytest.mark.skipif(
+    not _has_psycopg2, reason="psycopg2 not installed"
+)
 @pytest.mark.postgresql
 @pytest.mark.asyncio
 async def test_postgresql_provider_recall_all():
