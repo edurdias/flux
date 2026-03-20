@@ -31,6 +31,11 @@ assistant = agent(
 @workflow
 async def memory_long_term(ctx: ExecutionContext[dict[str, Any]]):
     initial_input = ctx.input or {}
-    message = initial_input.get("message", "Hi! My name is Eduardo and I work as a VP of Engineering.")
+    if isinstance(initial_input, str):
+        import json
+        initial_input = json.loads(initial_input)
+    message = initial_input.get(
+        "message", "Hi! My name is Eduardo and I work as a VP of Engineering.",
+    )
     response = await assistant(message)
     return response

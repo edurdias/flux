@@ -25,6 +25,9 @@ chatbot = agent(
 @workflow
 async def memory_chatbot(ctx: ExecutionContext[dict[str, Any]]):
     initial_input = ctx.input or {}
+    if isinstance(initial_input, str):
+        import json
+        initial_input = json.loads(initial_input)
     message = initial_input.get("message", "Hello!")
 
     response = await chatbot(message)
