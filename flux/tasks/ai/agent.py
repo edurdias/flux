@@ -44,7 +44,7 @@ def agent(
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
-        max_tokens: Maximum tokens in the LLM response (used by Anthropic, ignored by others).
+        max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
 
     Returns:
@@ -81,7 +81,8 @@ def agent(
     if "/" not in model:
         raise ValueError(
             f"Model must be in 'provider/model_name' format, got: '{model}'. "
-            "Examples: 'ollama/llama3', 'openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514'",
+            "Examples: 'ollama/llama3', 'openai/gpt-4o', 'anthropic/claude-sonnet-4-20250514', "
+            "'google/gemini-2.5-flash'",
         )
 
     provider, model_name = model.split("/", 1)
@@ -126,7 +127,22 @@ def agent(
             max_tokens=max_tokens,
             stream=effective_stream,
         )
+    elif provider == "google":
+        from flux.tasks.ai.gemini import build_gemini_agent
+
+        return build_gemini_agent(
+            system_prompt=system_prompt,
+            model_name=model_name,
+            name=name,
+            tools=tools,
+            response_format=response_format,
+            working_memory=working_memory,
+            max_tool_calls=max_tool_calls,
+            max_tokens=max_tokens,
+            stream=effective_stream,
+        )
     else:
         raise ValueError(
-            f"Unknown provider: '{provider}'. " "Supported providers: ollama, openai, anthropic",
+            f"Unknown provider: '{provider}'. "
+            "Supported providers: ollama, openai, anthropic, google",
         )
