@@ -32,10 +32,10 @@ The returned value is a regular Flux `@task`. Call it with an instruction string
 Install the SDK for the provider you want to use:
 
 ```bash
-pip install flux-core[ollama]
-pip install flux-core[openai]
-pip install flux-core[anthropic]
-pip install flux-core[google]
+pip install ollama           # for Ollama models
+pip install openai           # for OpenAI models
+pip install anthropic        # for Anthropic models
+pip install google-genai     # for Google Gemini models
 ```
 
 ## Quick Start by Provider
