@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from flux.task import task
 from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools
+
+if TYPE_CHECKING:
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
 
 try:
     from openai import AsyncOpenAI
@@ -19,7 +22,7 @@ def build_openai_agent(
     name: str | None = None,
     tools: list[Any] | None = None,
     response_format: type[BaseModel] | None = None,
-    stateful: bool = False,
+    working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
     stream: bool = True,
 ) -> task:
@@ -34,7 +37,6 @@ def build_openai_agent(
     openai_tools = _to_openai_tools(tool_schemas) if tool_schemas else None
 
     client = AsyncOpenAI()
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
 
     @task.with_options(name=task_name)
     async def openai_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
@@ -44,9 +46,13 @@ def build_openai_agent(
         if context:
             user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
 
-        if stateful:
-            messages.append({"role": "user", "content": user_content})
-            call_messages = list(messages)
+        if working_memory:
+            prior_messages = working_memory.recall()
+            call_messages = (
+                [{"role": "system", "content": system_prompt}]
+                + prior_messages
+                + [{"role": "user", "content": user_content}]
+            )
         else:
             call_messages = [
                 {"role": "system", "content": system_prompt},
@@ -77,6 +83,7 @@ def build_openai_agent(
             message = response.choices[0].message
 
             tool_call_count = 0
+            tool_iteration = 0
             while message.tool_calls and tools and tool_call_count < max_tool_calls:
                 tool_calls = [
                     {
@@ -89,7 +96,8 @@ def build_openai_agent(
                 tool_call_count += len(tool_calls)
 
                 call_messages.append(message.model_dump())
-                results = await execute_tools(tool_calls, tools)
+                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                tool_iteration += 1
                 for tc, result in zip(tool_calls, results):
                     call_messages.append(
                         {
@@ -133,8 +141,9 @@ def build_openai_agent(
             else:
                 content = message.content or ""
 
-        if stateful:
-            messages.append({"role": "assistant", "content": content})
+        if working_memory:
+            await working_memory.memorize("user", user_content)
+            await working_memory.memorize("assistant", content)
 
         if response_format:
             return response_format.model_validate_json(content)
