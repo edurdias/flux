@@ -890,6 +890,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -1036,6 +1042,90 @@
     
   
     Task Progress Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/mcp-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/ai-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Memory
   
 
     
@@ -1249,8 +1339,8 @@
 - <strong>Tool use</strong>: Pass <code>@task</code> functions as tools the LLM can call
 - <strong>Structured output</strong>: Return Pydantic models via <code>response_format</code>
 - <strong>Skills</strong>: Reusable instruction bundles via <code>SkillCatalog</code>
-- <strong>Stateful conversations</strong>: Accumulate message history with <code>stateful=True</code></p>
-<p>See <a href="../../advanced-features/task-patterns/#ai-agents">AI Agents</a>, <a href="../../advanced-features/agent-skills/">Agent Skills</a>, and <a href="../../advanced-features/mcp-client/">MCP Client</a> for full documentation.</p>
+- <strong>Stateful conversations</strong>: Accumulate message history with <code>working_memory()</code></p>
+<p>See <a href="../../advanced-features/task-patterns/#ai-agents">AI Agents</a>, <a href="../../advanced-features/agent-skills/">Agent Skills</a>, <a href="../../advanced-features/mcp-client/">MCP Client</a>, and <a href="../../advanced-features/ai-memory/">AI Memory</a> for full documentation.</p>
 <h2 id="execution-context">Execution Context<a class="headerlink" href="#execution-context" title="Permanent link">&para;</a></h2>
 <p>The <code>ExecutionContext</code> is a container that maintains the state and information about a workflow execution.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionContext</span>
