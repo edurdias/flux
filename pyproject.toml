@@ -38,6 +38,10 @@ opentelemetry-sdk = {version = "^1.28", optional = true}
 opentelemetry-exporter-otlp = {version = "^1.28", optional = true}
 opentelemetry-exporter-prometheus = {version = "^0.49b0", optional = true}
 prometheus-client = {version = ">=0.20", optional = true}
+ollama = {version = "^0.6.0", optional = true}
+openai = {version = "^2.6.0", optional = true}
+anthropic = {version = "^0.71.0", optional = true}
+google-genai = {version = "^1.0.0", optional = true}
 
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
@@ -131,6 +135,7 @@ observability = [
     "opentelemetry-exporter-prometheus",
     "prometheus-client",
 ]
+ai = ["ollama", "openai", "anthropic", "google-genai"]
 
 
 [tool.ruff]

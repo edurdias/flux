@@ -29,7 +29,13 @@ The returned value is a regular Flux `@task`. Call it with an instruction string
 | Anthropic | `anthropic/claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` | `anthropic` |
 | Google Gemini | `google/gemini-2.5-flash` | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `google-genai` |
 
-Install the SDK for the provider you want to use:
+Install all AI provider SDKs at once:
+
+```bash
+pip install flux-core[ai]
+```
+
+Or install only the provider you need:
 
 ```bash
 pip install ollama           # for Ollama models
