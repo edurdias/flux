@@ -40,10 +40,9 @@ def build_gemini_agent(
     tool_schemas = build_tool_schemas(tools) if tools else None
     gemini_tools = _to_gemini_tools(tool_schemas) if tool_schemas else None
 
-    client = genai.Client()
-
     @task.with_options(name=task_name)
     async def gemini_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
+        client = genai.Client()
         from flux.tasks.progress import progress
 
         user_content = instruction

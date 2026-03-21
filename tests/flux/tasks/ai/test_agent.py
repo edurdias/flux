@@ -86,3 +86,13 @@ def test_agent_stream_disabled_with_response_format():
 
     a = agent("Extract info.", model="ollama/llama3", response_format=Info, stream=True)
     assert a is not None
+
+
+def test_agent_parses_google_model():
+    a = agent("You are a test agent.", model="google/gemini-2.5-flash")
+    assert a.name == "agent_google_gemini_2_5_flash"
+
+
+def test_agent_parses_google_model_with_version():
+    a = agent("You are a test agent.", model="google/gemini-2.5-pro")
+    assert a.name == "agent_google_gemini_2_5_pro"
