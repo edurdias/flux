@@ -37,7 +37,7 @@ async def memory_long_term(ctx: ExecutionContext[dict[str, Any]]):
         initial_input = json.loads(initial_input)
     message = initial_input.get(
         "message",
-        "Hi! My name is Eduardo and I work as a VP of Engineering.",
+        "Hi! My name is Alice and I work as a software developer.",
     )
     response = await assistant(message)
     return response

@@ -25,9 +25,9 @@ async def test_ltm_memorize_and_recall():
     try:
         provider = InMemoryProvider()
         ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Eduardo")
+        await ltm.memorize("name", "Alice")
         result = await ltm.recall("name")
-        assert result == "Eduardo"
+        assert result == "Alice"
     finally:
         ExecutionContext.reset(token)
 
@@ -40,10 +40,10 @@ async def test_ltm_recall_all():
     try:
         provider = InMemoryProvider()
         ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Eduardo")
-        await ltm.memorize("role", "VP")
+        await ltm.memorize("name", "Alice")
+        await ltm.memorize("role", "developer")
         result = await ltm.recall()
-        assert result == {"name": "Eduardo", "role": "VP"}
+        assert result == {"name": "Alice", "role": "developer"}
     finally:
         ExecutionContext.reset(token)
 
@@ -56,7 +56,7 @@ async def test_ltm_forget():
     try:
         provider = InMemoryProvider()
         ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Eduardo")
+        await ltm.memorize("name", "Alice")
         await ltm.forget("name")
         result = await ltm.recall("name")
         assert result is None
@@ -72,8 +72,8 @@ async def test_ltm_keys():
     try:
         provider = InMemoryProvider()
         ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Eduardo")
-        await ltm.memorize("role", "VP")
+        await ltm.memorize("name", "Alice")
+        await ltm.memorize("role", "developer")
         keys = await ltm.keys()
         assert sorted(keys) == ["name", "role"]
     finally:
@@ -89,8 +89,8 @@ async def test_ltm_scopes():
         provider = InMemoryProvider()
         ltm1 = LongTermMemory(provider=provider, scope="user:1")
         ltm2 = LongTermMemory(provider=provider, scope="user:2")
-        await ltm1.memorize("name", "Eduardo")
-        await ltm2.memorize("name", "Alice")
+        await ltm1.memorize("name", "Alice")
+        await ltm2.memorize("name", "Bob")
         scopes = await ltm1.scopes()
         assert sorted(scopes) == ["user:1", "user:2"]
     finally:
@@ -106,9 +106,9 @@ async def test_ltm_workflow_auto_scoping():
     try:
         provider = InMemoryProvider()
         ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Eduardo")
+        await ltm.memorize("name", "Alice")
         result = await provider.recall("my_workflow", "user:1", "name")
-        assert result == "Eduardo"
+        assert result == "Alice"
     finally:
         ExecutionContext.reset(token)
 
