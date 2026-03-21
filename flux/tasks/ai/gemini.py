@@ -58,9 +58,7 @@ def build_gemini_agent(
         )
 
         if working_memory:
-            prior_messages = [
-                _to_content(m["role"], m["content"]) for m in working_memory.recall()
-            ]
+            prior_messages = [_to_content(m["role"], m["content"]) for m in working_memory.recall()]
             contents = prior_messages + [_to_content("user", user_content)]
         else:
             contents = [_to_content("user", user_content)]
@@ -121,10 +119,12 @@ def build_gemini_agent(
 
             if response.function_calls and tool_call_count >= max_tool_calls:
                 contents.append(response.candidates[0].content)
-                contents.append(_to_content(
-                    "user",
-                    "You must provide your final answer now. Do not call any more tools.",
-                ))
+                contents.append(
+                    _to_content(
+                        "user",
+                        "You must provide your final answer now. Do not call any more tools.",
+                    ),
+                )
                 config_no_tools = types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     max_output_tokens=max_tokens,

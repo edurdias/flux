@@ -17,7 +17,6 @@ class WeatherReport(BaseModel):
 
 
 class TestGeminiWorkflowIntegration:
-
     def test_gemini_agent_workflow_basic(self):
         mock_response = MagicMock()
         mock_response.text = "The sky is blue because of Rayleigh scattering."
