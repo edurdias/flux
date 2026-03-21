@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from flux.task import task
 
 if TYPE_CHECKING:
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
     from flux.tasks.ai.skills import SkillCatalog
 
 logger = logging.getLogger("flux.agent")
@@ -21,7 +23,8 @@ def agent(
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
     response_format: type[BaseModel] | None = None,
-    stateful: bool = False,
+    working_memory: WorkingMemory | None = None,
+    long_term_memory: LongTermMemory | None = None,
     max_tool_calls: int = 10,
     max_tokens: int = 4096,
     stream: bool = True,
@@ -38,7 +41,8 @@ def agent(
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
         response_format: Pydantic BaseModel subclass for structured JSON output.
-        stateful: If True, accumulate message history across invocations.
+        working_memory: WorkingMemory instance for conversation history across invocations.
+        long_term_memory: LongTermMemory instance for persistent fact storage.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
@@ -53,9 +57,14 @@ def agent(
         use_skill_task = build_use_skill(skills)
         tools = (tools or []) + [use_skill_task]
 
+    if long_term_memory is not None:
+        tools = (tools or []) + long_term_memory.as_tools()
+        system_prompt = system_prompt + long_term_memory.system_prompt_hint()
+
+    if skills is not None:
         tool_names = {
             getattr(getattr(t, "func", None), "__name__", None) or getattr(t, "__name__", "")
-            for t in tools
+            for t in (tools or [])
         }
         for skill in skills.list():
             for allowed in skill.allowed_tools:
@@ -86,7 +95,7 @@ def agent(
             name=name,
             tools=tools,
             response_format=response_format,
-            stateful=stateful,
+            working_memory=working_memory,
             max_tool_calls=max_tool_calls,
             stream=effective_stream,
         )
@@ -99,7 +108,7 @@ def agent(
             name=name,
             tools=tools,
             response_format=response_format,
-            stateful=stateful,
+            working_memory=working_memory,
             max_tool_calls=max_tool_calls,
             stream=effective_stream,
         )
@@ -112,7 +121,7 @@ def agent(
             name=name,
             tools=tools,
             response_format=response_format,
-            stateful=stateful,
+            working_memory=working_memory,
             max_tool_calls=max_tool_calls,
             max_tokens=max_tokens,
             stream=effective_stream,

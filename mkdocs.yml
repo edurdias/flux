@@ -87,6 +87,9 @@ nav:
       - Workflow Controls: advanced-features/workflow-controls.md
       - Observability: advanced-features/observability.md
       - Task Progress Streaming: advanced-features/task-progress.md
+      - Agent Skills: advanced-features/agent-skills.md
+      - MCP Client: advanced-features/mcp-client.md
+      - AI Memory: advanced-features/ai-memory.md
     # - Output Storage: advanced-features/output-storage.md
     # - Secrets Management: advanced-features/secrets-management.md
   # - Examples:

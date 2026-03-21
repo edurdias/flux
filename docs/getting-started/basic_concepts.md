@@ -105,9 +105,9 @@ Agents support:
 - **Tool use**: Pass `@task` functions as tools the LLM can call
 - **Structured output**: Return Pydantic models via `response_format`
 - **Skills**: Reusable instruction bundles via `SkillCatalog`
-- **Stateful conversations**: Accumulate message history with `stateful=True`
+- **Stateful conversations**: Accumulate message history with `working_memory()`
 
-See [AI Agents](../advanced-features/task-patterns.md#ai-agents), [Agent Skills](../advanced-features/agent-skills.md), and [MCP Client](../advanced-features/mcp-client.md) for full documentation.
+See [AI Agents](../advanced-features/task-patterns.md#ai-agents), [Agent Skills](../advanced-features/agent-skills.md), [MCP Client](../advanced-features/mcp-client.md), and [AI Memory](../advanced-features/ai-memory.md) for full documentation.
 
 ## Execution Context
 

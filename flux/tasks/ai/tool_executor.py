@@ -73,11 +73,18 @@ def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
 async def execute_tools(
     tool_calls: list[dict[str, Any]],
     tools: list[Any],
+    iteration: int = 0,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
 
     Each tool call is a dict with 'name' and 'arguments'.
     Tools are Flux @task functions — each invocation produces task events.
+
+    Args:
+        tool_calls: List of tool calls from the LLM.
+        tools: List of Flux @task functions.
+        iteration: The tool call iteration number within the agent call.
+            Used to generate deterministic _call_id values for replay safety.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
@@ -98,8 +105,12 @@ async def execute_tools(
             return {"tool_call_id": call.get("id", name), "output": f"Error: Unknown tool '{name}'"}
 
         try:
-            result = await tool_fn(**args)
-            return {"tool_call_id": call.get("id", name), "output": str(result)}
+            call_id = call.get("id", name)
+            effective_tool = tool_fn
+            if iteration > 0 and hasattr(tool_fn, "with_options"):
+                effective_tool = tool_fn.with_options(name=f"{name}_{iteration}")
+            result = await effective_tool(**args)
+            return {"tool_call_id": call_id, "output": str(result)}
         except Exception as e:
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
