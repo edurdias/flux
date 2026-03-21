@@ -348,6 +348,8 @@ class task:
                         value=ex,
                     ),
                 )
+                if isinstance(ex, RetryError):
+                    raise ExecutionError(ex)
                 if isinstance(ex, ExecutionError):
                     raise ex
                 raise ExecutionError(ex)
