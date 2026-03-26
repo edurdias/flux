@@ -4,9 +4,10 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
-from flux.errors import ExecutionError
+from flux.errors import ExecutionError, PauseRequested
+from flux.task import task
 
 logger = logging.getLogger("flux.delegation")
 
@@ -51,13 +52,11 @@ def _validate_agent_name(name: str) -> None:
     if len(name) > 64:
         raise AgentValidationError(f"Agent name '{name}' exceeds 64 characters.")
     if "--" in name:
-        raise AgentValidationError(
-            f"Agent name '{name}' must not contain consecutive hyphens."
-        )
+        raise AgentValidationError(f"Agent name '{name}' must not contain consecutive hyphens.")
     if not _NAME_PATTERN.match(name):
         raise AgentValidationError(
             f"Agent name '{name}' is invalid. Use lowercase letters, numbers, "
-            f"and single hyphens. Must not start or end with a hyphen."
+            f"and single hyphens. Must not start or end with a hyphen.",
         )
 
 
@@ -69,7 +68,7 @@ def _validate_agent(agent) -> None:
     if not hasattr(agent, "description") or not agent.description:
         raise AgentValidationError(
             f"Sub-agent '{getattr(agent, 'name', '?')}' must have a "
-            f"non-empty description attribute."
+            f"non-empty description attribute.",
         )
     _validate_agent_name(agent.name)
 
@@ -81,3 +80,108 @@ def _parse_input(input: str | None) -> Any:
         return json.loads(input)
     except (json.JSONDecodeError, TypeError):
         return input
+
+
+def build_agents_preamble(agents: list) -> str:
+    lines = [
+        "\n\nYou can delegate tasks to specialized agents using the delegate tool.",
+        "",
+        "Available agents:",
+    ]
+    for a in agents:
+        lines.append(f"- {a.name}: {a.description}")
+
+    lines.extend(
+        [
+            "",
+            "When delegating:",
+            "- Provide clear instructions describing what you need done",
+            "- Include relevant input data the agent needs",
+            "- Describe the expected output format so the agent knows what to return",
+            "",
+            "Delegation responses have a status field:",
+            "- completed: task is done, output contains the result",
+            "- paused: the agent needs more information. Read the output to "
+            "understand what is needed. Call delegate again with the same agent "
+            "name and execution_id, providing what was asked for",
+            "- failed: the agent encountered an error",
+        ],
+    )
+    return "\n".join(lines)
+
+
+def build_delegate(agents: list) -> task:
+    registry: dict[str, Callable] = {}
+    for a in agents:
+        _validate_agent(a)
+        if a.name in registry:
+            raise AgentValidationError(f"Duplicate agent name: '{a.name}'")
+        registry[a.name] = a
+
+    @task
+    async def delegate(
+        agent: str,
+        instruction: str,
+        input: str | None = None,
+        expected_output: str | None = None,
+        execution_id: str | None = None,
+    ) -> dict:
+        target = registry.get(agent)
+        if target is None:
+            available = ", ".join(registry.keys())
+            return DelegationResult(
+                agent=agent,
+                status="failed",
+                output=f"Agent '{agent}' not found. Available: {available}",
+            ).to_dict()
+
+        parsed_input = _parse_input(input)
+
+        full_instruction = instruction
+        if expected_output is not None:
+            full_instruction += f"\n\nExpected output format: {expected_output}"
+
+        try:
+            if execution_id is not None:
+                raw = await target(
+                    full_instruction,
+                    input=parsed_input,
+                    execution_id=execution_id,
+                )
+            else:
+                raw = await target(
+                    full_instruction,
+                    input=parsed_input,
+                )
+
+            if isinstance(raw, WorkflowAgentResult):
+                result = DelegationResult(
+                    agent=agent,
+                    status=raw.status,
+                    output=raw.output,
+                    execution_id=raw.execution_id,
+                )
+            else:
+                result = DelegationResult(
+                    agent=agent,
+                    status="completed",
+                    output=raw,
+                )
+
+        except PauseRequested as e:
+            result = DelegationResult(
+                agent=agent,
+                status="paused",
+                output=e.output,
+            )
+
+        except Exception as e:
+            result = DelegationResult(
+                agent=agent,
+                status="failed",
+                output=str(e),
+            )
+
+        return result.to_dict()
+
+    return delegate
