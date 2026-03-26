@@ -20,8 +20,10 @@ def agent(
     *,
     model: str,
     name: str | None = None,
+    description: str | None = None,
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
+    agents: list | None = None,
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
@@ -61,6 +63,12 @@ def agent(
         tools = (tools or []) + long_term_memory.as_tools()
         system_prompt = system_prompt + long_term_memory.system_prompt_hint()
 
+    if agents:
+        from flux.tasks.ai.delegation import build_agents_preamble, build_delegate
+
+        system_prompt = system_prompt + build_agents_preamble(agents)
+        tools = (tools or []) + [build_delegate(agents)]
+
     if skills is not None:
         tool_names = {
             getattr(getattr(t, "func", None), "__name__", None) or getattr(t, "__name__", "")
@@ -90,7 +98,7 @@ def agent(
     if provider == "ollama":
         from flux.tasks.ai.ollama import build_ollama_agent
 
-        return build_ollama_agent(
+        result = build_ollama_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -103,7 +111,7 @@ def agent(
     elif provider == "openai":
         from flux.tasks.ai.openai import build_openai_agent
 
-        return build_openai_agent(
+        result = build_openai_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -116,7 +124,7 @@ def agent(
     elif provider == "anthropic":
         from flux.tasks.ai.anthropic import build_anthropic_agent
 
-        return build_anthropic_agent(
+        result = build_anthropic_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -130,7 +138,7 @@ def agent(
     elif provider == "google":
         from flux.tasks.ai.gemini import build_gemini_agent
 
-        return build_gemini_agent(
+        result = build_gemini_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -146,3 +154,8 @@ def agent(
             f"Unknown provider: '{provider}'. "
             "Supported providers: ollama, openai, anthropic, google",
         )
+
+    if description is not None:
+        result.description = description
+
+    return result

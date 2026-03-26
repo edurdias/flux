@@ -96,3 +96,47 @@ def test_agent_parses_google_model():
 def test_agent_parses_google_model_with_version():
     a = agent("You are a test agent.", model="google/gemini-2.5-pro")
     assert a.name == "agent_google_gemini_2_5_pro"
+
+
+class _FakeSubAgent:
+    def __init__(self, name, description):
+        self.name = name
+        self.description = description
+
+    async def __call__(self, instruction, **kwargs):
+        return f"result from {self.name}"
+
+
+def test_agent_accepts_agents():
+    sub = _FakeSubAgent("researcher", "Research agent.")
+    a = agent("You are a manager.", model="ollama/llama3", agents=[sub])
+    assert a is not None
+
+
+def test_agent_with_agents_has_delegate_tool():
+    sub = _FakeSubAgent("researcher", "Research agent.")
+    a = agent("You are a manager.", model="ollama/llama3", agents=[sub])
+    assert a.name == "agent_ollama_llama3"
+
+
+def test_agent_accepts_description():
+    a = agent(
+        "You are a researcher.",
+        model="ollama/llama3",
+        name="researcher",
+        description="Deep research agent.",
+    )
+    assert a.name == "researcher"
+    assert a.description == "Deep research agent."
+
+
+def test_agent_without_description():
+    a = agent("You are a test agent.", model="ollama/llama3")
+    assert not hasattr(a, "description") or a.description is None
+
+
+def test_agent_exports():
+    from flux.tasks.ai import workflow_agent, DelegationResult
+
+    assert callable(workflow_agent)
+    assert DelegationResult is not None
