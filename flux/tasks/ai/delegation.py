@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import re
@@ -179,7 +180,13 @@ def build_delegate(agents: list) -> task:
             if context:
                 kwargs["context"] = context
             if execution_id is not None:
-                kwargs["execution_id"] = execution_id
+                target_func = target.func if hasattr(target, "func") else target
+                sig = inspect.signature(target_func)
+                accepts_execution_id = "execution_id" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if accepts_execution_id:
+                    kwargs["execution_id"] = execution_id
 
             raw = await target(full_instruction, **kwargs)
 
