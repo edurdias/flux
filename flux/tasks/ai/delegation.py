@@ -92,9 +92,8 @@ def build_agents_preamble(agents: list) -> str:
     lines = [
         "\n\n## Sub-Agents",
         "",
-        "You have sub-agents available. To use them, you MUST call the `delegate` "
-        "tool function. Do NOT describe or simulate delegation in text — actually "
-        "call the tool.",
+        "You have sub-agents available. To delegate work, call the `delegate` "
+        "tool — do not describe or simulate delegation in text.",
         "",
         "Available agents:",
     ]
@@ -104,17 +103,16 @@ def build_agents_preamble(agents: list) -> str:
     lines.extend(
         [
             "",
-            "To delegate, call the `delegate` tool with these parameters:",
-            "- agent (required): the agent name from the list above",
-            "- instruction (required): what you need done",
-            "- input: any data the agent needs (JSON string or plain text)",
-            "- expected_output: description of the desired response format",
-            "- execution_id: only when resuming a paused agent",
+            "Call `delegate` with:",
+            "- agent (required): agent name from the list above",
+            "- instruction (required): clear description of the task",
+            "- input: data the agent needs, such as output from a previous delegation",
+            "- expected_output: format you want back",
             "",
-            "The tool returns a JSON object with:",
-            '- status: "completed", "paused", or "failed"',
-            "- output: the agent's response",
-            "- execution_id: (only when paused) pass this back to resume",
+            "The tool returns a JSON object with status "
+            '("completed", "paused", or "failed") and the agent\'s output. '
+            "Use the output to inform your next step — pass it as input to "
+            "another agent or incorporate it into your final answer.",
         ],
     )
     return "\n".join(lines)

@@ -87,6 +87,11 @@ def agent(
                         allowed,
                     )
 
+    if tools:
+        from flux.tasks.ai.tool_executor import build_tools_preamble
+
+        system_prompt = system_prompt + build_tools_preamble(tools)
+
     effective_stream = stream and response_format is None
 
     if "/" not in model:

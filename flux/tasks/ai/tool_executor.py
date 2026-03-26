@@ -32,6 +32,46 @@ def _resolve_json_type(hint: Any) -> str:
     return "string"
 
 
+def build_tools_preamble(tools: list[Any]) -> str:
+    """Build a system-prompt section listing available tools.
+
+    Reinforces the API-level tool schema with a human-readable summary
+    in the system prompt. This improves tool calling reliability,
+    especially for open-source models that benefit from dual injection
+    (API schema + prompt description).
+    """
+    lines = [
+        "\n\n## Tools",
+        "",
+        "You have the following tools. Use them by calling the tool function "
+        "— never write tool calls as text in your response.",
+        "",
+    ]
+    for tool in tools:
+        func = tool.func if hasattr(tool, "func") else tool
+        name = func.__name__
+        doc = (func.__doc__ or "").strip().split("\n")[0]
+        sig = inspect.signature(func)
+        params = [
+            p.name
+            for p in sig.parameters.values()
+            if p.name not in ("self", "secrets", "metadata")
+            and not p.name.startswith("_")
+            and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
+        ]
+        params_str = ", ".join(params)
+        lines.append(f"- `{name}({params_str})`: {doc}")
+
+    lines.extend(
+        [
+            "",
+            "When you are done using tools and ready to respond, reply with "
+            "plain text. Do not include tool call JSON in your text response.",
+        ],
+    )
+    return "\n".join(lines)
+
+
 def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
     """Build neutral tool schemas from Flux @task functions.
 
