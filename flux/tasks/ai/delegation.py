@@ -135,7 +135,7 @@ def build_delegate(agents: list) -> task:
     @task
     async def delegate(
         agent: str,
-        instruction: str,
+        instruction: str = "",
         input: str | None = None,
         expected_output: str | None = None,
         execution_id: str | None = None,
