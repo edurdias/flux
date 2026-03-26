@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from flux.tasks.ai.delegation import (
     AgentNotFoundError,
@@ -11,6 +12,7 @@ from flux.tasks.ai.delegation import (
     _validate_agent_name,
     build_agents_preamble,
     build_delegate,
+    workflow_agent,
 )
 from flux.errors import ExecutionError
 
@@ -353,3 +355,126 @@ class TestBuildDelegate:
         assert result["status"] == "paused"
         assert result["output"] == "I need more context"
         assert "execution_id" not in result
+
+
+class TestWorkflowAgent:
+    def test_returns_callable_with_name_and_description(self):
+        wa = workflow_agent(
+            name="deployer",
+            description="Deploys things.",
+            workflow="deploy_pipeline",
+        )
+        assert callable(wa)
+        assert wa.name == "deployer"
+        assert wa.description == "Deploys things."
+
+    def test_validates_name(self):
+        with pytest.raises(AgentValidationError):
+            workflow_agent(name="Bad Name", description="Bad.", workflow="wf")
+
+    def test_run_workflow_completed(self):
+        from flux import ExecutionContext, workflow
+
+        wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
+
+        mock_client = MagicMock()
+        mock_client.run_workflow_sync = AsyncMock(
+            return_value={
+                "execution_id": "exec-1",
+                "state": "COMPLETED",
+                "output": "deployed",
+            },
+        )
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
+                return await wa("Deploy v2", input={"version": "2.0"})
+
+        ctx = test_wf.run()
+        assert ctx.has_succeeded
+        result = ctx.output
+        assert isinstance(result, WorkflowAgentResult)
+        assert result.status == "completed"
+        assert result.output == "deployed"
+        assert result.execution_id == "exec-1"
+        mock_client.run_workflow_sync.assert_called_once_with(
+            "deploy_pipeline",
+            {"instruction": "Deploy v2", "input": {"version": "2.0"}},
+        )
+
+    def test_run_workflow_paused(self):
+        from flux import ExecutionContext, workflow
+
+        wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
+
+        mock_client = MagicMock()
+        mock_client.run_workflow_sync = AsyncMock(
+            return_value={
+                "execution_id": "exec-1",
+                "state": "PAUSED",
+                "output": "need approval",
+            },
+        )
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
+                return await wa("Deploy v2")
+
+        ctx = test_wf.run()
+        assert ctx.has_succeeded
+        result = ctx.output
+        assert result.status == "paused"
+        assert result.output == "need approval"
+        assert result.execution_id == "exec-1"
+
+    def test_resume_workflow(self):
+        from flux import ExecutionContext, workflow
+
+        wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
+
+        mock_client = MagicMock()
+        mock_client.resume_execution_sync = AsyncMock(
+            return_value={
+                "execution_id": "exec-1",
+                "state": "COMPLETED",
+                "output": "done",
+            },
+        )
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
+                return await wa("Approved", input={"approved": True}, execution_id="exec-1")
+
+        ctx = test_wf.run()
+        assert ctx.has_succeeded
+        mock_client.resume_execution_sync.assert_called_once_with(
+            "deploy_pipeline",
+            "exec-1",
+            {"instruction": "Approved", "input": {"approved": True}},
+        )
+
+    def test_unexpected_state_maps_to_failed(self):
+        from flux import ExecutionContext, workflow
+
+        wa = workflow_agent(name="deployer", description="Deploys.", workflow="wf")
+
+        mock_client = MagicMock()
+        mock_client.run_workflow_sync = AsyncMock(
+            return_value={
+                "execution_id": "exec-1",
+                "state": "RUNNING",
+                "output": None,
+            },
+        )
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
+                return await wa("Deploy")
+
+        ctx = test_wf.run()
+        assert ctx.has_succeeded
+        assert ctx.output.status == "failed"

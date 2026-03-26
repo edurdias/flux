@@ -185,3 +185,61 @@ def build_delegate(agents: list) -> task:
         return result.to_dict()
 
     return delegate
+
+
+def workflow_agent(
+    name: str,
+    description: str,
+    workflow: str,
+) -> task:
+    _validate_agent_name(name)
+
+    @task.with_options(name=name)
+    async def _workflow_task(
+        instruction: str,
+        *,
+        input: Any | None = None,
+        execution_id: str | None = None,
+    ) -> WorkflowAgentResult:
+        client = _get_client()
+
+        if execution_id:
+            response = await client.resume_execution_sync(
+                workflow,
+                execution_id,
+                {"instruction": instruction, "input": input},
+            )
+        else:
+            response = await client.run_workflow_sync(
+                workflow,
+                {"instruction": instruction, "input": input},
+            )
+
+        return WorkflowAgentResult(
+            status=_map_execution_state(response),
+            output=response.get("output"),
+            execution_id=response.get("execution_id"),
+        )
+
+    _workflow_task.description = description
+    return _workflow_task
+
+
+def _get_client():
+    from flux.client import FluxClient
+    from flux.config import Configuration
+
+    config = Configuration.get()
+    return FluxClient(config.settings.workers.server_url, timeout=None)
+
+
+def _map_execution_state(response: dict) -> Literal["completed", "paused", "failed"]:
+    state = response.get("state", "").upper()
+    if state == "COMPLETED":
+        return "completed"
+    elif state == "PAUSED":
+        return "paused"
+    else:
+        if state not in ("FAILED",):
+            logger.warning("Unexpected execution state from server: %s", state)
+        return "failed"
