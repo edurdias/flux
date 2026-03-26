@@ -105,12 +105,18 @@ async def execute_tools(
             return {"tool_call_id": call.get("id", name), "output": f"Error: Unknown tool '{name}'"}
 
         try:
+            import json as _json
+
             call_id = call.get("id", name)
             effective_tool = tool_fn
             if iteration > 0 and hasattr(tool_fn, "with_options"):
                 effective_tool = tool_fn.with_options(name=f"{name}_{iteration}")
             result = await effective_tool(**args)
-            return {"tool_call_id": call_id, "output": str(result)}
+            if isinstance(result, (dict, list)):
+                output = _json.dumps(result)
+            else:
+                output = str(result)
+            return {"tool_call_id": call_id, "output": output}
         except Exception as e:
             logger.warning("Tool '%s' failed: %s", name, e)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
