@@ -70,6 +70,14 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
+    async def run_workflow_sync(self, name: str, input_data: Any = None) -> dict[str, Any]:
+        response = await self._http_client.post(
+            f"/workflows/{name}/run/sync",
+            json=input_data,
+        )
+        response.raise_for_status()
+        return response.json()
+
     # --- Executions ---
 
     async def list_executions(
@@ -109,6 +117,19 @@ class FluxClient:
     ) -> dict[str, Any]:
         response = await self._http_client.post(
             f"/workflows/{workflow_name}/resume/{execution_id}/async",
+            json=input_data,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def resume_execution_sync(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        input_data: Any = None,
+    ) -> dict[str, Any]:
+        response = await self._http_client.post(
+            f"/workflows/{workflow_name}/resume/{execution_id}/sync",
             json=input_data,
         )
         response.raise_for_status()
