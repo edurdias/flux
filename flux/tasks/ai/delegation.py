@@ -105,14 +105,18 @@ def build_agents_preamble(agents: list) -> str:
             "",
             "Call `delegate` with:",
             "- agent (required): agent name from the list above",
-            "- instruction (required): clear description of the task",
-            "- input: data the agent needs, such as output from a previous delegation",
+            "- instruction (required): clear description of the task. "
+            "Sub-agents cannot see your conversation, so include any "
+            "relevant context or data they need in the instruction",
+            "- input: additional data the agent needs (JSON string or plain text)",
             "- expected_output: format you want back",
             "",
             "The tool returns a JSON object with status "
-            '("completed", "paused", or "failed") and the agent\'s output. '
-            "Use the output to inform your next step — pass it as input to "
-            "another agent or incorporate it into your final answer.",
+            '("completed", "paused", or "failed") and the agent\'s output.',
+            "",
+            "Each agent starts with a blank context. When chaining agents, "
+            "consider passing relevant output from previous delegations "
+            "so the next agent has the context it needs.",
         ],
     )
     return "\n".join(lines)
