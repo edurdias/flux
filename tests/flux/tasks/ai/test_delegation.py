@@ -372,14 +372,22 @@ class TestWorkflowAgent:
         with pytest.raises(AgentValidationError):
             workflow_agent(name="Bad Name", description="Bad.", workflow="wf")
 
+    @staticmethod
+    def _mock_client(**methods):
+        client = MagicMock()
+        for name, return_value in methods.items():
+            setattr(client, name, AsyncMock(return_value=return_value))
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        return client
+
     def test_run_workflow_completed(self):
         from flux import ExecutionContext, workflow
 
         wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
 
-        mock_client = MagicMock()
-        mock_client.run_workflow_sync = AsyncMock(
-            return_value={
+        mock_client = self._mock_client(
+            run_workflow_sync={
                 "execution_id": "exec-1",
                 "state": "COMPLETED",
                 "output": "deployed",
@@ -408,9 +416,8 @@ class TestWorkflowAgent:
 
         wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
 
-        mock_client = MagicMock()
-        mock_client.run_workflow_sync = AsyncMock(
-            return_value={
+        mock_client = self._mock_client(
+            run_workflow_sync={
                 "execution_id": "exec-1",
                 "state": "PAUSED",
                 "output": "need approval",
@@ -434,9 +441,8 @@ class TestWorkflowAgent:
 
         wa = workflow_agent(name="deployer", description="Deploys.", workflow="deploy_pipeline")
 
-        mock_client = MagicMock()
-        mock_client.resume_execution_sync = AsyncMock(
-            return_value={
+        mock_client = self._mock_client(
+            resume_execution_sync={
                 "execution_id": "exec-1",
                 "state": "COMPLETED",
                 "output": "done",
@@ -461,9 +467,8 @@ class TestWorkflowAgent:
 
         wa = workflow_agent(name="deployer", description="Deploys.", workflow="wf")
 
-        mock_client = MagicMock()
-        mock_client.run_workflow_sync = AsyncMock(
-            return_value={
+        mock_client = self._mock_client(
+            run_workflow_sync={
                 "execution_id": "exec-1",
                 "state": "RUNNING",
                 "output": None,

@@ -83,10 +83,12 @@ async def sub_agents_mixed(ctx: ExecutionContext):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    result = sub_agents_mixed.run({
-        "pr_number": 42,
-        "code": 'def hello(): return "world"',
-    })
+    result = sub_agents_mixed.run(
+        {
+            "pr_number": 42,
+            "code": 'def hello(): return "world"',
+        },
+    )
     if result.has_succeeded:
         print(result.output)
     else:

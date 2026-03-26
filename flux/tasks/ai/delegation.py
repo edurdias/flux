@@ -27,6 +27,8 @@ class AgentValidationError(ValueError):
 
 @dataclass
 class DelegationResult:
+    """Wraps every delegation response with a uniform status envelope."""
+
     agent: str
     status: Literal["completed", "paused", "failed"]
     output: Any
@@ -41,6 +43,8 @@ class DelegationResult:
 
 @dataclass
 class WorkflowAgentResult:
+    """Internal result type returned by workflow agents before wrapping into DelegationResult."""
+
     status: Literal["completed", "paused", "failed"]
     output: Any
     execution_id: str
@@ -83,6 +87,7 @@ def _parse_input(input: str | None) -> Any:
 
 
 def build_agents_preamble(agents: list) -> str:
+    """Build a system-prompt section listing available agents and delegation semantics."""
     lines = [
         "\n\nYou can delegate tasks to specialized agents using the delegate tool.",
         "",
@@ -111,6 +116,11 @@ def build_agents_preamble(agents: list) -> str:
 
 
 def build_delegate(agents: list) -> task:
+    """Create a ``delegate`` @task that dispatches to agents by name.
+
+    Validates and indexes agents at construction time so dispatch is a
+    simple dict lookup at call time.
+    """
     registry: dict[str, Callable] = {}
     for a in agents:
         _validate_agent(a)
@@ -126,6 +136,19 @@ def build_delegate(agents: list) -> task:
         expected_output: str | None = None,
         execution_id: str | None = None,
     ) -> dict:
+        """Delegate a task to a specialized agent.
+
+        Args:
+            agent: Name of the agent to delegate to.
+            instruction: Natural language description of what to do.
+            input: Data the agent needs (JSON string or plain text).
+            expected_output: Description of the desired response format.
+            execution_id: Resume a previously paused agent. Pass the
+                          execution_id from the paused response.
+
+        Returns:
+            Dict with: agent, status, output, and optionally execution_id.
+        """
         target = registry.get(agent)
         if target is None:
             available = ", ".join(registry.keys())
@@ -192,6 +215,11 @@ def workflow_agent(
     description: str,
     workflow: str,
 ) -> task:
+    """Create an agent backed by a remote Flux workflow.
+
+    The returned task uses FluxClient to call the workflow synchronously
+    and returns a WorkflowAgentResult with status, output, and execution_id.
+    """
     _validate_agent_name(name)
 
     @task.with_options(name=name)
@@ -201,19 +229,18 @@ def workflow_agent(
         input: Any | None = None,
         execution_id: str | None = None,
     ) -> WorkflowAgentResult:
-        client = _get_client()
-
-        if execution_id:
-            response = await client.resume_execution_sync(
-                workflow,
-                execution_id,
-                {"instruction": instruction, "input": input},
-            )
-        else:
-            response = await client.run_workflow_sync(
-                workflow,
-                {"instruction": instruction, "input": input},
-            )
+        async with _get_client() as client:
+            if execution_id:
+                response = await client.resume_execution_sync(
+                    workflow,
+                    execution_id,
+                    {"instruction": instruction, "input": input},
+                )
+            else:
+                response = await client.run_workflow_sync(
+                    workflow,
+                    {"instruction": instruction, "input": input},
+                )
 
         return WorkflowAgentResult(
             status=_map_execution_state(response),

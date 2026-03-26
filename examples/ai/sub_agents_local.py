@@ -41,8 +41,7 @@ reviewer = agent(
     "completeness of research summaries. Provide constructive feedback.",
     model="ollama/llama3.2",
     name="reviewer",
-    description="Reviews and critiques research output for quality "
-    "and completeness.",
+    description="Reviews and critiques research output for quality " "and completeness.",
 )
 
 manager = agent(

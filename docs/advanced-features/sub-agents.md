@@ -42,7 +42,7 @@ async def review_workflow(ctx: ExecutionContext):
     return await manager(f"Review PR #{ctx.input['pr_number']}")
 ```
 
-The parent agent receives a `delegate` tool. When the LLM calls `delegate(agent_name="researcher", instruction="...")`, the framework dispatches to the matching sub-agent and returns a `DelegationResult`.
+The parent agent receives a `delegate` tool. When the LLM calls `delegate(agent="researcher", instruction="...")`, the framework dispatches to the matching sub-agent and returns a `DelegationResult`.
 
 ## Workflow Agents
 

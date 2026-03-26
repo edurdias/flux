@@ -40,8 +40,11 @@ def agent(
         system_prompt: The system prompt defining the agent's identity.
         model: Provider and model in "provider/model_name" format.
         name: Task name for events/traces. Defaults to "agent_{provider}_{model}".
+        description: Human-readable description of the agent, used when this agent
+            is a sub-agent so the parent knows when to delegate to it.
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
+        agents: List of sub-agents this agent can delegate to via a ``delegate`` tool.
         response_format: Pydantic BaseModel subclass for structured JSON output.
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
