@@ -161,21 +161,17 @@ def build_delegate(agents: list) -> task:
         parsed_input = _parse_input(input)
 
         full_instruction = instruction
+        if parsed_input is not None:
+            full_instruction += f"\n\nInput data: {json.dumps(parsed_input) if not isinstance(parsed_input, str) else parsed_input}"
         if expected_output is not None:
             full_instruction += f"\n\nExpected output format: {expected_output}"
 
         try:
+            kwargs: dict[str, Any] = {}
             if execution_id is not None:
-                raw = await target(
-                    full_instruction,
-                    input=parsed_input,
-                    execution_id=execution_id,
-                )
-            else:
-                raw = await target(
-                    full_instruction,
-                    input=parsed_input,
-                )
+                kwargs["execution_id"] = execution_id
+
+            raw = await target(full_instruction, **kwargs)
 
             if isinstance(raw, WorkflowAgentResult):
                 result = DelegationResult(

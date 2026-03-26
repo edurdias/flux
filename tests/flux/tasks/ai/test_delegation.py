@@ -273,7 +273,7 @@ class TestBuildDelegate:
             description = "Reads input."
 
             async def __call__(self, instruction, **kwargs):
-                return f"got input={kwargs.get('input')}"
+                return f"got instruction={instruction}"
 
         delegate_tool = build_delegate([InputAgent()])
 
