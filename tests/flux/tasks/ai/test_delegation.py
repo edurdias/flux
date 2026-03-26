@@ -478,3 +478,92 @@ class TestWorkflowAgent:
         ctx = test_wf.run()
         assert ctx.has_succeeded
         assert ctx.output.status == "failed"
+
+
+class TestDelegationIntegration:
+    def test_agent_with_sub_agents_creates_delegate_tool(self):
+        from flux.tasks.ai import agent
+
+        sub = _FakeAgent("researcher", "Research.")
+        parent = agent(
+            "You are a manager.",
+            model="ollama/llama3",
+            agents=[sub],
+        )
+        assert parent is not None
+
+    def test_agent_with_agents_and_skills(self):
+        from flux.tasks.ai import agent
+        from flux.tasks.ai.skills import Skill, SkillCatalog
+
+        sub = _FakeAgent("researcher", "Research.")
+        s = Skill(name="summarizer", description="Summarizes.", instructions="Summarize.")
+        catalog = SkillCatalog([s])
+
+        parent = agent(
+            "You are a manager.",
+            model="ollama/llama3",
+            agents=[sub],
+            skills=catalog,
+        )
+        assert parent is not None
+
+    def test_recursive_sub_agents(self):
+        from flux.tasks.ai import agent
+
+        inner = _FakeAgent("researcher", "Research.")
+        middle = agent(
+            "You are an analyst.",
+            model="ollama/llama3",
+            name="analyst",
+            description="Analyzes.",
+            agents=[inner],
+        )
+        outer = agent(
+            "You are a manager.",
+            model="ollama/llama3",
+            agents=[middle],
+        )
+        assert outer is not None
+        assert middle.description == "Analyzes."
+
+    def test_delegate_with_workflow_agent_result_flow(self):
+        from flux import ExecutionContext, workflow
+
+        class MockWorkflowAgent:
+            name = "deployer"
+            description = "Deploys."
+            call_count = 0
+
+            async def __call__(self, instruction, **kwargs):
+                self.call_count += 1
+                eid = kwargs.get("execution_id")
+                if eid is None:
+                    return WorkflowAgentResult(
+                        status="paused",
+                        output="need approval",
+                        execution_id="exec-1",
+                    )
+                else:
+                    return WorkflowAgentResult(
+                        status="completed",
+                        output="deployed",
+                        execution_id=eid,
+                    )
+
+        wf_agent = MockWorkflowAgent()
+        delegate_tool = build_delegate([wf_agent])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            r1 = await delegate_tool("deployer", "Deploy v2")
+            r2 = await delegate_tool("deployer", "Approved", execution_id="exec-1")
+            return {"r1": r1, "r2": r2}
+
+        ctx = test_wf.run()
+        assert ctx.has_succeeded
+        assert ctx.output["r1"]["status"] == "paused"
+        assert ctx.output["r1"]["execution_id"] == "exec-1"
+        assert ctx.output["r2"]["status"] == "completed"
+        assert ctx.output["r2"]["output"] == "deployed"
+        assert wf_agent.call_count == 2
