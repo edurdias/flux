@@ -89,7 +89,11 @@ def _parse_input(input: str | None) -> Any:
 def build_agents_preamble(agents: list) -> str:
     """Build a system-prompt section listing available agents and delegation semantics."""
     lines = [
-        "\n\nYou can delegate tasks to specialized agents using the delegate tool.",
+        "\n\n## Sub-Agents",
+        "",
+        "You have sub-agents available. To use them, you MUST call the `delegate` "
+        "tool function. Do NOT describe or simulate delegation in text — actually "
+        "call the tool.",
         "",
         "Available agents:",
     ]
@@ -99,17 +103,17 @@ def build_agents_preamble(agents: list) -> str:
     lines.extend(
         [
             "",
-            "When delegating:",
-            "- Provide clear instructions describing what you need done",
-            "- Include relevant input data the agent needs",
-            "- Describe the expected output format so the agent knows what to return",
+            "To delegate, call the `delegate` tool with these parameters:",
+            "- agent (required): the agent name from the list above",
+            "- instruction (required): what you need done",
+            "- input: any data the agent needs (JSON string or plain text)",
+            "- expected_output: description of the desired response format",
+            "- execution_id: only when resuming a paused agent",
             "",
-            "Delegation responses have a status field:",
-            "- completed: task is done, output contains the result",
-            "- paused: the agent needs more information. Read the output to "
-            "understand what is needed. Call delegate again with the same agent "
-            "name and execution_id, providing what was asked for",
-            "- failed: the agent encountered an error",
+            "The tool returns a JSON object with:",
+            '- status: "completed", "paused", or "failed"',
+            "- output: the agent's response",
+            "- execution_id: (only when paused) pass this back to resume",
         ],
     )
     return "\n".join(lines)
