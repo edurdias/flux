@@ -28,6 +28,7 @@ def build_gemini_agent(
     max_tool_calls: int = 10,
     max_tokens: int = 4096,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls Google Gemini's API."""
     if genai is None:
@@ -110,6 +111,16 @@ def build_gemini_agent(
                 contents.append(
                     types.Content(role="user", parts=function_response_parts),
                 )
+
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        contents.append(
+                            types.Content(
+                                role="user",
+                                parts=[types.Part(text=summary)],
+                            ),
+                        )
 
                 response = await client.aio.models.generate_content(
                     model=model_name,

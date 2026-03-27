@@ -25,6 +25,7 @@ def build_openai_agent(
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls OpenAI's chat API."""
     if AsyncOpenAI is None:
@@ -106,6 +107,11 @@ def build_openai_agent(
                             "content": result["output"],
                         },
                     )
+
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        call_messages[-1]["content"] += f"\n\n{summary}"
 
                 response = await client.chat.completions.create(
                     **{**kwargs, "messages": call_messages},

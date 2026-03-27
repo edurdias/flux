@@ -1,0 +1,576 @@
+from __future__ import annotations
+
+import pytest
+
+from flux.tasks.ai.agent_plan import (
+    AgentPlan,
+    AgentStep,
+    PlanContext,
+    PlanValidationError,
+    build_plan_preamble,
+    build_plan_tools,
+    _validate_dependencies,
+    _validate_step_name,
+)
+
+
+# --- AgentStep tests ---
+
+
+def test_step_construction():
+    step = AgentStep(name="research", description="Research the topic.")
+    assert step.name == "research"
+    assert step.description == "Research the topic."
+    assert step.depends_on == []
+    assert step.status == "pending"
+    assert step.result is None
+
+
+def test_step_with_dependencies():
+    step = AgentStep(
+        name="analyze",
+        description="Analyze data.",
+        depends_on=["research", "collect"],
+    )
+    assert step.depends_on == ["research", "collect"]
+
+
+def test_step_to_dict_minimal():
+    step = AgentStep(name="research", description="Research the topic.")
+    d = step.to_dict()
+    assert d == {"name": "research", "description": "Research the topic.", "status": "pending"}
+    assert "depends_on" not in d
+    assert "result" not in d
+
+
+def test_step_to_dict_full():
+    step = AgentStep(
+        name="analyze",
+        description="Analyze data.",
+        depends_on=["research"],
+        status="completed",
+        result="Found 3 competitors.",
+    )
+    d = step.to_dict()
+    assert d["depends_on"] == ["research"]
+    assert d["result"] == "Found 3 competitors."
+    assert d["status"] == "completed"
+
+
+# --- AgentPlan tests ---
+
+
+def test_plan_construction():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A."),
+            AgentStep(name="b", description="Do B.", depends_on=["a"]),
+        ],
+    )
+    assert len(plan.steps) == 2
+
+
+def test_plan_get_step():
+    step_a = AgentStep(name="a", description="Do A.")
+    plan = AgentPlan(steps=[step_a])
+    assert plan.get_step("a") is step_a
+    assert plan.get_step("nonexistent") is None
+
+
+def test_plan_completed_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(name="b", description="Do B."),
+        ],
+    )
+    completed = plan.completed_steps()
+    assert len(completed) == 1
+    assert completed[0].name == "a"
+
+
+def test_plan_pending_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(name="b", description="Do B."),
+            AgentStep(name="c", description="Do C."),
+        ],
+    )
+    pending = plan.pending_steps()
+    assert len(pending) == 2
+
+
+def test_plan_dependencies_satisfied():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(name="b", description="Do B.", depends_on=["a"]),
+            AgentStep(name="c", description="Do C.", depends_on=["a", "b"]),
+        ],
+    )
+    assert plan.dependencies_satisfied(plan.get_step("b")) is True
+    assert plan.dependencies_satisfied(plan.get_step("c")) is False
+
+
+def test_plan_dependencies_satisfied_no_deps():
+    plan = AgentPlan(steps=[AgentStep(name="a", description="Do A.")])
+    assert plan.dependencies_satisfied(plan.get_step("a")) is True
+
+
+def test_plan_dependency_results():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Result A."),
+            AgentStep(name="b", description="Do B.", status="completed", result="Result B."),
+            AgentStep(name="c", description="Do C.", depends_on=["a", "b"]),
+        ],
+    )
+    results = plan.dependency_results(plan.get_step("c"))
+    assert results == {"a": "Result A.", "b": "Result B."}
+
+
+def test_plan_dependency_results_partial():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Result A."),
+            AgentStep(name="b", description="Do B."),
+            AgentStep(name="c", description="Do C.", depends_on=["a", "b"]),
+        ],
+    )
+    results = plan.dependency_results(plan.get_step("c"))
+    assert results == {"a": "Result A."}
+
+
+def test_plan_summary_no_ready():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(
+                name="b",
+                description="Do B.",
+                depends_on=["a"],
+                status="completed",
+                result="Done.",
+            ),
+        ],
+    )
+    summary = plan.summary()
+    assert "2/2" in summary
+    assert "No steps ready" in summary
+
+
+def test_plan_summary_with_ready():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(name="b", description="Do B.", depends_on=["a"]),
+            AgentStep(name="c", description="Do C."),
+        ],
+    )
+    summary = plan.summary()
+    assert "1/3" in summary
+    assert '"b"' in summary
+    assert '"c"' in summary
+
+
+def test_plan_summary_limits_to_3():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A."),
+            AgentStep(name="b", description="B."),
+            AgentStep(name="c", description="C."),
+            AgentStep(name="d", description="D."),
+            AgentStep(name="e", description="E."),
+        ],
+    )
+    summary = plan.summary()
+    assert summary.count('"') <= 6
+
+
+def test_plan_to_dict():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A."),
+            AgentStep(name="b", description="Do B.", depends_on=["a"]),
+        ],
+    )
+    d = plan.to_dict()
+    assert len(d["steps"]) == 2
+    assert d["steps"][0]["name"] == "a"
+    assert d["steps"][1]["depends_on"] == ["a"]
+
+
+# --- Validation tests ---
+
+
+def test_validate_step_name_valid():
+    _validate_step_name("research")
+    _validate_step_name("step-1")
+    _validate_step_name("a")
+    _validate_step_name("research-data-v2")
+
+
+def test_validate_step_name_empty():
+    with pytest.raises(PlanValidationError, match="empty"):
+        _validate_step_name("")
+
+
+def test_validate_step_name_too_long():
+    with pytest.raises(PlanValidationError, match="64"):
+        _validate_step_name("a" * 65)
+
+
+def test_validate_step_name_consecutive_hyphens():
+    with pytest.raises(PlanValidationError, match="consecutive"):
+        _validate_step_name("my--step")
+
+
+def test_validate_step_name_uppercase():
+    with pytest.raises(PlanValidationError, match="invalid"):
+        _validate_step_name("MyStep")
+
+
+def test_validate_step_name_leading_hyphen():
+    with pytest.raises(PlanValidationError, match="invalid"):
+        _validate_step_name("-step")
+
+
+def test_validate_step_name_trailing_hyphen():
+    with pytest.raises(PlanValidationError, match="invalid"):
+        _validate_step_name("step-")
+
+
+def test_validate_dependencies_valid():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A."),
+            AgentStep(name="b", description="B.", depends_on=["a"]),
+        ],
+    )
+    _validate_dependencies(plan)
+
+
+def test_validate_dependencies_missing_reference():
+    plan = AgentPlan(
+        steps=[AgentStep(name="a", description="A.", depends_on=["nonexistent"])],
+    )
+    with pytest.raises(PlanValidationError, match="nonexistent"):
+        _validate_dependencies(plan)
+
+
+def test_validate_dependencies_circular():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", depends_on=["b"]),
+            AgentStep(name="b", description="B.", depends_on=["a"]),
+        ],
+    )
+    with pytest.raises(PlanValidationError, match="Circular"):
+        _validate_dependencies(plan)
+
+
+def test_validate_dependencies_self_reference():
+    plan = AgentPlan(
+        steps=[AgentStep(name="a", description="A.", depends_on=["a"])],
+    )
+    with pytest.raises(PlanValidationError, match="Circular"):
+        _validate_dependencies(plan)
+
+
+def test_validate_dependencies_duplicate_names():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A."),
+            AgentStep(name="a", description="A again."),
+        ],
+    )
+    with pytest.raises(PlanValidationError, match="Duplicate"):
+        _validate_dependencies(plan)
+
+
+# --- PlanContext tests ---
+
+
+def test_plan_context_initial_state():
+    ctx = PlanContext()
+    assert ctx.plan is None
+    assert ctx.summary() is None
+
+
+def test_plan_context_summary_with_plan():
+    ctx = PlanContext()
+    ctx.plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A."),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    summary = ctx.summary()
+    assert summary is not None
+    assert "0/2" in summary
+
+
+# --- build_plan_tools tests ---
+
+
+def test_build_plan_tools_returns_tools_and_summary():
+    tools, summary_fn = build_plan_tools()
+    assert len(tools) == 3
+    assert callable(summary_fn)
+    assert summary_fn() is None
+
+
+def test_build_plan_tools_tool_names():
+    tools, _ = build_plan_tools()
+    names = {t.func.__name__ for t in tools}
+    assert names == {"create_plan", "mark_step_done", "get_plan"}
+
+
+def test_create_plan():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, summary_fn = build_plan_tools()
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "research", "description": "Research the topic."},
+                    {"name": "analyze", "description": "Analyze data.", "depends_on": ["research"]},
+                ]
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    result = ctx.output
+    assert len(result["steps"]) == 2
+    assert result["steps"][0]["name"] == "research"
+    assert result["steps"][1]["name"] == "analyze"
+    assert result["steps"][1]["depends_on"] == ["research"]
+    assert summary_fn() is not None
+    assert "0/2" in summary_fn()
+
+
+def test_create_plan_invalid_name():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps([{"name": "Bad-Name", "description": "Invalid."}]),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
+
+
+def test_create_plan_circular_dependency():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "A.", "depends_on": ["b"]},
+                    {"name": "b", "description": "B.", "depends_on": ["a"]},
+                ]
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
+
+
+def test_create_plan_preserves_completed_on_replan():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool, mark_step_done_tool = tools[0], tools[1]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ]
+            ),
+        )
+        await mark_step_done_tool(step_name="a", result="Done A.")
+        result = await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A differently."},
+                    {"name": "b", "description": "Do B revised."},
+                    {"name": "c", "description": "Do C.", "depends_on": ["a"]},
+                ]
+            ),
+        )
+        return result
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    result = ctx.output
+    step_a = next(s for s in result["steps"] if s["name"] == "a")
+    assert step_a["status"] == "completed"
+    assert step_a["result"] == "Done A."
+    step_b = next(s for s in result["steps"] if s["name"] == "b")
+    assert step_b["status"] == "pending"
+
+
+# --- complete_step tool tests ---
+
+
+def test_mark_step_done():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, summary_fn = build_plan_tools()
+    create_plan_tool, mark_step_done_tool = tools[0], tools[1]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+        )
+        return await mark_step_done_tool(step_name="a", result="Done A.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["status"] == "completed"
+    assert ctx.output["result"] == "Done A."
+    assert "1/1" in summary_fn()
+
+
+def test_mark_step_done_no_plan():
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    mark_step_done_tool = tools[1]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await mark_step_done_tool(step_name="a", result="Done.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "error" in ctx.output
+
+
+def test_mark_step_done_not_found():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool, mark_step_done_tool = tools[0], tools[1]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+        )
+        return await mark_step_done_tool(step_name="nonexistent", result="Done.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "error" in ctx.output
+    assert "nonexistent" in ctx.output["error"]
+
+
+def test_mark_step_done_already_completed():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool, mark_step_done_tool = tools[0], tools[1]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+        )
+        await mark_step_done_tool(step_name="a", result="First result.")
+        return await mark_step_done_tool(step_name="a", result="Second result.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["result"] == "First result."
+
+
+# --- get_plan tool tests ---
+
+
+def test_get_plan():
+    import json
+
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool, _, get_plan_tool = tools
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+        )
+        return await get_plan_tool()
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert len(ctx.output["steps"]) == 1
+
+
+def test_get_plan_no_plan():
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    get_plan_tool = tools[2]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await get_plan_tool()
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "message" in ctx.output
+
+
+# --- Preamble tests ---
+
+
+def test_build_plan_preamble_contains_tool_names():
+    preamble = build_plan_preamble()
+    assert "create_plan" in preamble
+    assert "mark_step_done" in preamble
+    assert "get_plan" in preamble
+
+
+def test_build_plan_preamble_contains_guidance():
+    preamble = build_plan_preamble()
+    assert "When to create a plan" in preamble
+    assert "When NOT to create a plan" in preamble
+    assert "depends_on" in preamble
+    assert "Replanning" in preamble

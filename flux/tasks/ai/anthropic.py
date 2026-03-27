@@ -27,6 +27,7 @@ def build_anthropic_agent(
     max_tool_calls: int = 10,
     max_tokens: int = 4096,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls Anthropic's messages API."""
     if AsyncAnthropic is None:
@@ -104,6 +105,11 @@ def build_anthropic_agent(
                     }
                     for tc, result in zip(tool_calls, results)
                 ]
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        tool_results[-1]["content"] += f"\n\n{summary}"
+
                 call_messages.append({"role": "user", "content": tool_results})
 
                 response = await client.messages.create(**{**kwargs, "messages": call_messages})

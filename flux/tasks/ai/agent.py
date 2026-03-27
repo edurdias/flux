@@ -22,6 +22,7 @@ def agent(
     name: str | None = None,
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
+    planning: bool = False,
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
@@ -40,6 +41,8 @@ def agent(
         name: Task name for events/traces. Defaults to "agent_{provider}_{model}".
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
+        planning: If True, inject planning tools (create_plan, complete_step, get_plan)
+            so the agent can create structured plans for complex tasks.
         response_format: Pydantic BaseModel subclass for structured JSON output.
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
@@ -60,6 +63,14 @@ def agent(
     if long_term_memory is not None:
         tools = (tools or []) + long_term_memory.as_tools()
         system_prompt = system_prompt + long_term_memory.system_prompt_hint()
+
+    plan_summary_fn = None
+    if planning:
+        from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
+
+        system_prompt = system_prompt + build_plan_preamble()
+        plan_tools, plan_summary_fn = build_plan_tools()
+        tools = (tools or []) + plan_tools
 
     if skills is not None:
         tool_names = {
@@ -99,6 +110,7 @@ def agent(
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "openai":
         from flux.tasks.ai.openai import build_openai_agent
@@ -112,6 +124,7 @@ def agent(
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "anthropic":
         from flux.tasks.ai.anthropic import build_anthropic_agent
@@ -126,6 +139,7 @@ def agent(
             max_tool_calls=max_tool_calls,
             max_tokens=max_tokens,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "google":
         from flux.tasks.ai.gemini import build_gemini_agent
@@ -140,6 +154,7 @@ def agent(
             max_tool_calls=max_tool_calls,
             max_tokens=max_tokens,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     else:
         raise ValueError(

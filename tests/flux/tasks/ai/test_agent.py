@@ -96,3 +96,36 @@ def test_agent_parses_google_model():
 def test_agent_parses_google_model_with_version():
     a = agent("You are a test agent.", model="google/gemini-2.5-pro")
     assert a.name == "agent_google_gemini_2_5_pro"
+
+
+def test_agent_accepts_planning_parameter():
+    a = agent("You are a test agent.", model="ollama/llama3", planning=True)
+    assert a is not None
+
+
+def test_agent_planning_default_false():
+    a = agent("You are a test agent.", model="ollama/llama3")
+    assert a is not None
+
+
+def test_agent_planning_with_openai(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    a = agent("You are a test agent.", model="openai/gpt-4o", planning=True)
+    assert a is not None
+
+
+def test_agent_planning_with_anthropic():
+    a = agent("You are a test agent.", model="anthropic/claude-sonnet-4-20250514", planning=True)
+    assert a is not None
+
+
+def test_agent_planning_with_gemini():
+    a = agent("You are a test agent.", model="google/gemini-2.5-flash", planning=True)
+    assert a is not None
+
+
+def test_agent_plan_exports():
+    from flux.tasks.ai import AgentPlan, AgentStep
+
+    assert AgentPlan is not None
+    assert AgentStep is not None
