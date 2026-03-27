@@ -172,6 +172,19 @@ def test_plan_summary_with_ready():
     assert "1/3" in summary
     assert '"b"' in summary
     assert '"c"' in summary
+    # b has dependency on a — result should be included
+    assert "Done." in summary
+
+
+def test_plan_summary_no_deps_no_results():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="Do A."),
+        ],
+    )
+    summary = plan.summary()
+    assert '"a"' in summary
+    assert "from" not in summary
 
 
 def test_plan_summary_limits_to_3():

@@ -75,8 +75,17 @@ class AgentPlan:
         ready = [s for s in pending if self.dependencies_satisfied(s)]
         if not ready:
             return f"[Plan: {completed}/{total} steps completed. No steps ready.]"
-        next_names = ", ".join(f'"{s.name}"' for s in ready[:3])
-        return f"[Plan: {completed}/{total} steps completed. Ready: {next_names}]"
+
+        parts = []
+        for step in ready[:3]:
+            dep_results = self.dependency_results(step)
+            if dep_results:
+                deps_str = "; ".join(f"{k}: {str(v)[:200]}" for k, v in dep_results.items())
+                parts.append(f'"{step.name}" (from {deps_str})')
+            else:
+                parts.append(f'"{step.name}"')
+
+        return f"[Plan: {completed}/{total} steps completed. Ready: {', '.join(parts)}]"
 
     def to_dict(self) -> dict:
         return {"steps": [s.to_dict() for s in self.steps]}
@@ -169,7 +178,7 @@ def build_plan_tools() -> tuple[list[task], Callable[[], str | None]]:
         When replacing an existing plan, completed steps and their results
         are preserved.
         """
-        parsed = json.loads(steps)
+        parsed = json.loads(steps) if isinstance(steps, str) else steps
         new_steps = []
         for s in parsed:
             _validate_step_name(s["name"])

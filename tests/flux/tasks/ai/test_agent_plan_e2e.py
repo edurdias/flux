@@ -426,6 +426,8 @@ def test_integration_plan_summary_injection():
     assert '"a"' in out["s1"]
     assert "1/2" in out["s2"]
     assert '"b"' in out["s2"]
+    # b depends on a — summary should include a's result
+    assert "Done A." in out["s2"]
     assert "2/2" in out["s3"]
     assert "No steps ready" in out["s3"]
 
