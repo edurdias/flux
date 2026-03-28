@@ -1001,3 +1001,82 @@ def test_mark_step_failed_already_completed():
     ctx = test_wf.run()
     assert ctx.has_succeeded
     assert "error" in ctx.output
+
+
+def test_mark_step_done_from_in_progress():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await start_step_tool(step_name="a")
+        return await mark_step_done_tool(step_name="a", result="Done.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["status"] == "completed"
+
+
+def test_mark_step_done_from_pending_grace():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        return await mark_step_done_tool(step_name="a", result="Done directly.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["status"] == "completed"
+
+
+def test_mark_step_done_rejects_failed():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await mark_step_failed_tool(step_name="a", reason="Broke.")
+        return await mark_step_done_tool(step_name="a", result="Actually done.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "error" in ctx.output

@@ -297,8 +297,11 @@ def build_plan_tools(
         """Mark a plan step as completed and store its result.
 
         The result is stored so that dependent steps can access it
-        via get_plan. Use descriptive results — other steps will
+        via get_plan. Use descriptive results -- other steps will
         receive this as context.
+
+        Accepts steps in pending or in_progress status. Rejects
+        completed or failed steps.
 
         Args:
             step_name: The step name to mark as completed.
@@ -314,6 +317,9 @@ def build_plan_tools(
 
         if step.status == "completed":
             return step.to_dict()
+
+        if step.status == "failed":
+            return {"error": f"Step '{step_name}' is failed. Replan to retry."}
 
         step.status = "completed"
         step.result = result
