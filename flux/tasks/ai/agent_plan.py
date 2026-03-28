@@ -188,6 +188,7 @@ class PlanContext:
 def build_plan_tools(
     *,
     strict_dependencies: bool = False,
+    max_plan_steps: int = 20,
 ) -> tuple[list[task], Callable[[], str | None]]:
     """Build planning tools and a summary function.
 
@@ -214,6 +215,15 @@ def build_plan_tools(
         are preserved.
         """
         parsed = json.loads(steps) if isinstance(steps, str) else steps
+        if len(parsed) < 2:
+            raise PlanValidationError(
+                "Plans need at least 2 steps. For simple tasks, just do them directly.",
+            )
+        if len(parsed) > max_plan_steps:
+            raise PlanValidationError(
+                f"Plan has {len(parsed)} steps (max {max_plan_steps}). "
+                "Use fewer, coarser steps.",
+            )
         new_steps = []
         for s in parsed:
             _validate_step_name(s["name"])

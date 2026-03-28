@@ -629,7 +629,9 @@ def test_mark_step_done():
     @workflow
     async def test_wf(ctx: ExecutionContext):
         await create_plan_tool(
-            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
         )
         return await mark_step_done_tool(step_name="a", result="Done A.")
 
@@ -637,7 +639,7 @@ def test_mark_step_done():
     assert ctx.has_succeeded
     assert ctx.output["status"] == "completed"
     assert ctx.output["result"] == "Done A."
-    assert "1/1" in summary_fn()
+    assert "1/2" in summary_fn()
 
 
 def test_mark_step_done_no_plan():
@@ -667,7 +669,9 @@ def test_mark_step_done_not_found():
     @workflow
     async def test_wf(ctx: ExecutionContext):
         await create_plan_tool(
-            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
         )
         return await mark_step_done_tool(step_name="nonexistent", result="Done.")
 
@@ -689,7 +693,9 @@ def test_mark_step_done_already_completed():
     @workflow
     async def test_wf(ctx: ExecutionContext):
         await create_plan_tool(
-            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
         )
         await mark_step_done_tool(step_name="a", result="First result.")
         return await mark_step_done_tool(step_name="a", result="Second result.")
@@ -714,13 +720,15 @@ def test_get_plan():
     @workflow
     async def test_wf(ctx: ExecutionContext):
         await create_plan_tool(
-            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
         )
         return await get_plan_tool()
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert len(ctx.output["steps"]) == 1
+    assert len(ctx.output["steps"]) == 2
 
 
 def test_get_plan_no_plan():
@@ -1080,3 +1088,71 @@ def test_mark_step_done_rejects_failed():
     ctx = test_wf.run()
     assert ctx.has_succeeded
     assert "error" in ctx.output
+
+
+# --- Step count validation tests ---
+
+
+def test_create_plan_rejects_single_step():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps([{"name": "a", "description": "Do A."}]),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
+
+
+def test_create_plan_rejects_too_many_steps():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools(max_plan_steps=5)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(6)]
+        return await create_plan_tool(steps=json.dumps(steps))
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
+
+
+def test_create_plan_accepts_at_limit():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools(max_plan_steps=5)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(5)]
+        return await create_plan_tool(steps=json.dumps(steps))
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+
+
+def test_create_plan_default_max_is_20():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(21)]
+        return await create_plan_tool(steps=json.dumps(steps))
+
+    ctx = test_wf.run()
+    assert ctx.has_failed
