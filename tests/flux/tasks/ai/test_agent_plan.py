@@ -128,6 +128,92 @@ def test_plan_pending_steps():
     assert len(pending) == 2
 
 
+def test_plan_in_progress_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="in_progress"),
+            AgentStep(name="b", description="B."),
+            AgentStep(name="c", description="C.", status="completed", result="Done."),
+        ],
+    )
+    in_progress = plan.in_progress_steps()
+    assert len(in_progress) == 1
+    assert in_progress[0].name == "a"
+
+
+def test_plan_failed_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="failed", error="Timeout."),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    failed = plan.failed_steps()
+    assert len(failed) == 1
+    assert failed[0].name == "a"
+
+
+def test_plan_ready_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="completed", result="Done."),
+            AgentStep(name="b", description="B.", depends_on=["a"]),
+            AgentStep(name="c", description="C.", depends_on=["a", "b"]),
+            AgentStep(name="d", description="D."),
+        ],
+    )
+    ready = plan.ready_steps()
+    assert len(ready) == 2
+    names = [s.name for s in ready]
+    assert "b" in names
+    assert "d" in names
+    assert "c" not in names
+
+
+def test_plan_ready_steps_excludes_in_progress():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="in_progress"),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    ready = plan.ready_steps()
+    assert len(ready) == 1
+    assert ready[0].name == "b"
+
+
+def test_plan_failed_steps_block_dependents():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="failed", error="Broke."),
+            AgentStep(name="b", description="B.", depends_on=["a"]),
+        ],
+    )
+    assert plan.dependencies_satisfied(plan.get_step("b")) is False
+    ready = plan.ready_steps()
+    assert len(ready) == 0
+
+
+def test_plan_active_step():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="in_progress"),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    assert plan.active_step().name == "a"
+
+
+def test_plan_active_step_none():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A."),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    assert plan.active_step() is None
+
+
 def test_plan_dependencies_satisfied():
     plan = AgentPlan(
         steps=[
@@ -389,7 +475,7 @@ def test_create_plan():
                 [
                     {"name": "research", "description": "Research the topic."},
                     {"name": "analyze", "description": "Analyze data.", "depends_on": ["research"]},
-                ]
+                ],
             ),
         )
 
@@ -437,7 +523,7 @@ def test_create_plan_circular_dependency():
                 [
                     {"name": "a", "description": "A.", "depends_on": ["b"]},
                     {"name": "b", "description": "B.", "depends_on": ["a"]},
-                ]
+                ],
             ),
         )
 
@@ -460,7 +546,7 @@ def test_create_plan_preserves_completed_on_replan():
                 [
                     {"name": "a", "description": "Do A."},
                     {"name": "b", "description": "Do B."},
-                ]
+                ],
             ),
         )
         await mark_step_done_tool(step_name="a", result="Done A.")
@@ -470,7 +556,7 @@ def test_create_plan_preserves_completed_on_replan():
                     {"name": "a", "description": "Do A differently."},
                     {"name": "b", "description": "Do B revised."},
                     {"name": "c", "description": "Do C.", "depends_on": ["a"]},
-                ]
+                ],
             ),
         )
         return result

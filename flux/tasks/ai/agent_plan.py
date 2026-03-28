@@ -56,6 +56,19 @@ class AgentPlan:
     def pending_steps(self) -> list[AgentStep]:
         return [s for s in self.steps if s.status == "pending"]
 
+    def in_progress_steps(self) -> list[AgentStep]:
+        return [s for s in self.steps if s.status == "in_progress"]
+
+    def failed_steps(self) -> list[AgentStep]:
+        return [s for s in self.steps if s.status == "failed"]
+
+    def active_step(self) -> AgentStep | None:
+        in_progress = self.in_progress_steps()
+        return in_progress[0] if in_progress else None
+
+    def ready_steps(self) -> list[AgentStep]:
+        return [s for s in self.pending_steps() if self.dependencies_satisfied(s)]
+
     def dependencies_satisfied(self, step: AgentStep) -> bool:
         for dep_name in step.depends_on:
             dep = self.get_step(dep_name)
