@@ -189,6 +189,7 @@ def build_plan_tools(
     *,
     strict_dependencies: bool = False,
     max_plan_steps: int = 20,
+    approve_plan: bool = False,
 ) -> tuple[list[task], Callable[[], str | None]]:
     """Build planning tools and a summary function.
 
@@ -237,6 +238,37 @@ def build_plan_tools(
 
         new_plan = AgentPlan(steps=new_steps)
         _validate_dependencies(new_plan)
+
+        if approve_plan:
+            from flux.tasks.pause import pause
+
+            resume_input = await pause("plan_approval", output=new_plan.to_dict())
+
+            if isinstance(resume_input, dict) and resume_input.get("rejected"):
+                return {"error": "Plan was rejected during review."}
+
+            if isinstance(resume_input, dict) and "steps" in resume_input:
+                new_steps = []
+                for s in resume_input["steps"]:
+                    _validate_step_name(s["name"])
+                    new_steps.append(
+                        AgentStep(
+                            name=s["name"],
+                            description=s.get("description", ""),
+                            depends_on=s.get("depends_on", []),
+                        ),
+                    )
+                new_plan = AgentPlan(steps=new_steps)
+                _validate_dependencies(new_plan)
+                if len(new_plan.steps) < 2:
+                    raise PlanValidationError(
+                        "Plans need at least 2 steps. For simple tasks, just do them directly.",
+                    )
+                if len(new_plan.steps) > max_plan_steps:
+                    raise PlanValidationError(
+                        f"Plan has {len(new_plan.steps)} steps (max {max_plan_steps}). "
+                        "Use fewer, coarser steps.",
+                    )
 
         old_completed = ctx.plan.completed_steps() if ctx.plan else []
 

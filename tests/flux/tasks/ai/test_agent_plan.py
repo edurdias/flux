@@ -1308,3 +1308,146 @@ def test_replan_no_warning_when_steps_preserved():
     ctx = test_wf.run()
     assert ctx.has_succeeded
     assert "warning" not in ctx.output
+
+
+# --- Plan approval tests ---
+
+
+def test_create_plan_pauses_for_approval():
+    import json
+    from flux import ExecutionContext, workflow
+    from flux.domain.events import ExecutionEventType
+
+    tools, _ = build_plan_tools(approve_plan=True)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.is_paused
+    pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
+    assert len(pause_events) == 1
+    pause_output = pause_events[0].value["output"]
+    assert len(pause_output["steps"]) == 2
+
+
+def test_create_plan_resumes_with_approved_plan():
+    import json
+    from flux import ExecutionContext, workflow
+    from flux.domain.events import ExecutionEventType
+
+    tools, summary_fn = build_plan_tools(approve_plan=True)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.is_paused
+
+    pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
+    pause_output = pause_events[0].value["output"]
+
+    ctx = test_wf.resume(ctx.execution_id, pause_output)
+    assert ctx.has_succeeded
+    assert len(ctx.output["steps"]) == 2
+    assert summary_fn() is not None
+
+
+def test_create_plan_resumes_with_modified_plan():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, summary_fn = build_plan_tools(approve_plan=True)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.is_paused
+
+    modified = {
+        "steps": [
+            {"name": "a", "description": "Do A revised."},
+            {"name": "b", "description": "Do B revised."},
+            {"name": "c", "description": "Do C.", "depends_on": ["a"]},
+        ],
+    }
+    ctx = test_wf.resume(ctx.execution_id, modified)
+    assert ctx.has_succeeded
+    assert len(ctx.output["steps"]) == 3
+
+
+def test_create_plan_resumes_with_rejection():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, summary_fn = build_plan_tools(approve_plan=True)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.is_paused
+
+    ctx = test_wf.resume(ctx.execution_id, {"rejected": True})
+    assert ctx.has_succeeded
+    assert "error" in ctx.output
+    assert summary_fn() is None
+
+
+def test_create_plan_no_pause_when_approval_disabled():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools(approve_plan=False)
+    create_plan_tool = tools[0]
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
