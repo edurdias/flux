@@ -375,7 +375,35 @@ def build_plan_tools(
             return {"message": "No plan exists."}
         return ctx.plan.to_dict()
 
-    return [create_plan, start_step, mark_step_done, mark_step_failed, get_plan], ctx.summary
+    @task
+    async def get_ready_steps() -> dict:
+        """Return steps that can be started now (dependencies satisfied, status pending).
+
+        Each step includes its dependency_results so you have all context
+        needed to begin work. Use this to decide what to work on next.
+        """
+        if ctx.plan is None:
+            return {"message": "No plan exists."}
+
+        ready = ctx.plan.ready_steps()
+        result = []
+        for step in ready:
+            entry = step.to_dict()
+            dep_results = ctx.plan.dependency_results(step)
+            if dep_results:
+                entry["dependency_results"] = dep_results
+            result.append(entry)
+
+        return {"ready_steps": result}
+
+    return [
+        create_plan,
+        start_step,
+        mark_step_done,
+        mark_step_failed,
+        get_plan,
+        get_ready_steps,
+    ], ctx.summary
 
 
 def build_plan_preamble() -> str:
