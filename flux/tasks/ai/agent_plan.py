@@ -10,7 +10,7 @@ from flux.task import task
 
 logger = logging.getLogger("flux.agent.plan")
 
-_STEP_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+_STEP_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$")
 
 
 class PlanValidationError(ValueError):
@@ -26,8 +26,9 @@ class AgentStep:
     name: str
     description: str
     depends_on: list[str] = field(default_factory=list)
-    status: Literal["pending", "completed"] = "pending"
+    status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
     result: Any | None = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -35,6 +36,8 @@ class AgentStep:
             del d["depends_on"]
         if d["result"] is None:
             del d["result"]
+        if d["error"] is None:
+            del d["error"]
         return d
 
 
@@ -96,14 +99,14 @@ def _validate_step_name(name: str) -> None:
         raise PlanValidationError("Step name must not be empty.")
     if len(name) > 64:
         raise PlanValidationError(f"Step name '{name}' exceeds 64 characters.")
-    if "--" in name:
+    if "--" in name or "__" in name:
         raise PlanValidationError(
-            f"Step name '{name}' must not contain consecutive hyphens.",
+            f"Step name '{name}' must not contain consecutive hyphens or underscores.",
         )
     if not _STEP_NAME_PATTERN.match(name):
         raise PlanValidationError(
             f"Step name '{name}' is invalid. Use lowercase letters, numbers, "
-            f"and single hyphens. Must not start or end with a hyphen.",
+            f"hyphens, and underscores. Must not start or end with a hyphen or underscore.",
         )
 
 

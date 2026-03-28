@@ -57,6 +57,33 @@ def test_step_to_dict_full():
     assert d["status"] == "completed"
 
 
+def test_step_in_progress_status():
+    step = AgentStep(name="research", description="Research.", status="in_progress")
+    assert step.status == "in_progress"
+    d = step.to_dict()
+    assert d["status"] == "in_progress"
+
+
+def test_step_failed_status():
+    step = AgentStep(
+        name="research",
+        description="Research.",
+        status="failed",
+        error="Connection timeout.",
+    )
+    assert step.status == "failed"
+    assert step.error == "Connection timeout."
+    d = step.to_dict()
+    assert d["status"] == "failed"
+    assert d["error"] == "Connection timeout."
+
+
+def test_step_to_dict_omits_none_error():
+    step = AgentStep(name="research", description="Research.")
+    d = step.to_dict()
+    assert "error" not in d
+
+
 # --- AgentPlan tests ---
 
 
@@ -222,6 +249,8 @@ def test_validate_step_name_valid():
     _validate_step_name("step-1")
     _validate_step_name("a")
     _validate_step_name("research-data-v2")
+    _validate_step_name("research_data")
+    _validate_step_name("step_1")
 
 
 def test_validate_step_name_empty():
@@ -237,6 +266,11 @@ def test_validate_step_name_too_long():
 def test_validate_step_name_consecutive_hyphens():
     with pytest.raises(PlanValidationError, match="consecutive"):
         _validate_step_name("my--step")
+
+
+def test_validate_step_name_consecutive_underscores():
+    with pytest.raises(PlanValidationError, match="consecutive"):
+        _validate_step_name("my__step")
 
 
 def test_validate_step_name_uppercase():
