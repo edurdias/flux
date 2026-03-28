@@ -8,6 +8,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from flux import workflow, ExecutionContext
@@ -15,10 +16,12 @@ from flux.tasks.ai import agent
 from flux.tasks.ai.memory import working_memory
 from flux.tasks import pause
 
-chatbot = agent(
-    system_prompt="You are a friendly assistant. Keep responses concise.",
-    model="ollama/llama3.2",
-    working_memory=working_memory(),
+chatbot = asyncio.run(
+    agent(
+        system_prompt="You are a friendly assistant. Keep responses concise.",
+        model="ollama/llama3.2",
+        working_memory=working_memory(),
+    ),
 )
 
 

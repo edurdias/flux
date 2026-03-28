@@ -34,6 +34,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime
@@ -65,39 +66,47 @@ Provide your suggestions as a JSON array. Each suggestion should have:
 Respond with ONLY the JSON array, no other text."""
 
 
-security_reviewer = agent(
-    "You are a security code reviewer with expertise in finding vulnerabilities. "
-    "Analyze code for: SQL injection, XSS, authentication issues, hardcoded secrets, "
-    "input validation, command injection, path traversal, insecure cryptography, "
-    "race conditions, and sensitive data exposure.",
-    model="ollama/llama3.2",
-    name="security_review",
+security_reviewer = asyncio.run(
+    agent(
+        "You are a security code reviewer with expertise in finding vulnerabilities. "
+        "Analyze code for: SQL injection, XSS, authentication issues, hardcoded secrets, "
+        "input validation, command injection, path traversal, insecure cryptography, "
+        "race conditions, and sensitive data exposure.",
+        model="ollama/llama3.2",
+        name="security_review",
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
-performance_reviewer = agent(
-    "You are a performance optimization expert. "
-    "Review code for: algorithm efficiency, unnecessary loops, inefficient data structures, "
-    "memory leaks, database query optimization, missing caching, redundant computations, "
-    "I/O bottlenecks, and blocking operations.",
-    model="ollama/llama3.2",
-    name="performance_review",
+performance_reviewer = asyncio.run(
+    agent(
+        "You are a performance optimization expert. "
+        "Review code for: algorithm efficiency, unnecessary loops, inefficient data structures, "
+        "memory leaks, database query optimization, missing caching, redundant computations, "
+        "I/O bottlenecks, and blocking operations.",
+        model="ollama/llama3.2",
+        name="performance_review",
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
-style_reviewer = agent(
-    "You are a code quality and style expert. "
-    "Review code for: readability, naming conventions, organization, documentation, "
-    "DRY violations, function complexity, magic numbers, error handling, type hints, "
-    "and PEP 8 compliance.",
-    model="ollama/llama3.2",
-    name="style_review",
+style_reviewer = asyncio.run(
+    agent(
+        "You are a code quality and style expert. "
+        "Review code for: readability, naming conventions, organization, documentation, "
+        "DRY violations, function complexity, magic numbers, error handling, type hints, "
+        "and PEP 8 compliance.",
+        model="ollama/llama3.2",
+        name="style_review",
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
-testing_reviewer = agent(
-    "You are a testing and quality assurance expert. "
-    "Suggest: critical test cases, edge cases, error conditions, integration tests, "
-    "mock requirements, test data, missing coverage, and regression tests.",
-    model="ollama/llama3.2",
-    name="testing_review",
+testing_reviewer = asyncio.run(
+    agent(
+        "You are a testing and quality assurance expert. "
+        "Suggest: critical test cases, edge cases, error conditions, integration tests, "
+        "mock requirements, test data, missing coverage, and regression tests.",
+        model="ollama/llama3.2",
+        name="testing_review",
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 

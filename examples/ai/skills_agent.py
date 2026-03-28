@@ -32,6 +32,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -57,12 +58,14 @@ async def search_web(query: str) -> str:
 
 catalog = SkillCatalog.from_directory(SKILLS_DIR)
 
-assistant = agent(
-    "You are a helpful research assistant. Use your skills to complete tasks effectively.",
-    model="ollama/llama3.2",
-    name="skills-assistant",
-    tools=[search_web],
-    skills=catalog,
+assistant = asyncio.run(
+    agent(
+        "You are a helpful research assistant. Use your skills to complete tasks effectively.",
+        model="ollama/llama3.2",
+        name="skills-assistant",
+        tools=[search_web],
+        skills=catalog,
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 

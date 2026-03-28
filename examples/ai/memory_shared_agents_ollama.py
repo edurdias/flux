@@ -7,6 +7,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from flux import workflow, ExecutionContext
@@ -15,22 +16,26 @@ from flux.tasks.ai.memory import long_term_memory, in_memory
 
 shared = long_term_memory(provider=in_memory(), scope="review:pr-42")
 
-reviewer = agent(
-    system_prompt=(
-        "You are a code reviewer. Analyze the code and store your findings "
-        "using store_memory. Organize findings by category (bugs, style, security)."
+reviewer = asyncio.run(
+    agent(
+        system_prompt=(
+            "You are a code reviewer. Analyze the code and store your findings "
+            "using store_memory. Organize findings by category (bugs, style, security)."
+        ),
+        model="ollama/llama3.2",
+        long_term_memory=shared,
     ),
-    model="ollama/llama3.2",
-    long_term_memory=shared,
 )
 
-summarizer = agent(
-    system_prompt=(
-        "You are a summary writer. Use recall_memory and list_memory_keys to read "
-        "the reviewer's findings, then write a concise summary."
+summarizer = asyncio.run(
+    agent(
+        system_prompt=(
+            "You are a summary writer. Use recall_memory and list_memory_keys to read "
+            "the reviewer's findings, then write a concise summary."
+        ),
+        model="ollama/llama3.2",
+        long_term_memory=shared,
     ),
-    model="ollama/llama3.2",
-    long_term_memory=shared,
 )
 
 

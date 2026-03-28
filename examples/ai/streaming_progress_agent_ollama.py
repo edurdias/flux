@@ -19,22 +19,27 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from flux import ExecutionContext, workflow
 from flux.tasks.ai import agent
 
 
-streaming_assistant = agent(
-    "You are a helpful assistant. Be concise and clear.",
-    model="ollama/llama3.2",
-    stream=True,
+streaming_assistant = asyncio.run(
+    agent(
+        "You are a helpful assistant. Be concise and clear.",
+        model="ollama/llama3.2",
+        stream=True,
+    ),
 )
 
-non_streaming_assistant = agent(
-    "You are a helpful assistant. Be concise and clear.",
-    model="ollama/llama3.2",
-    stream=False,
+non_streaming_assistant = asyncio.run(
+    agent(
+        "You are a helpful assistant. Be concise and clear.",
+        model="ollama/llama3.2",
+        stream=False,
+    ),
 )
 
 

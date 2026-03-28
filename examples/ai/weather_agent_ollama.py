@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -132,12 +133,14 @@ async def get_weather_forecast(location: str, days: int = 3) -> str:
         return f"Failed to get forecast for '{location}': {e}"
 
 
-weather_assistant = agent(
-    "You are a helpful weather assistant. Use the available tools to look up "
-    "current weather conditions and forecasts. Always provide clear, concise answers.",
-    model="ollama/llama3.2",
-    name="weather_assistant",
-    tools=[get_current_weather, get_weather_forecast],
+weather_assistant = asyncio.run(
+    agent(
+        "You are a helpful weather assistant. Use the available tools to look up "
+        "current weather conditions and forecasts. Always provide clear, concise answers.",
+        model="ollama/llama3.2",
+        name="weather_assistant",
+        tools=[get_current_weather, get_weather_forecast],
+    ),
 ).with_options(retry_max_attempts=2, timeout=120)
 
 
