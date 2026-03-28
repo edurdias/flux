@@ -78,17 +78,16 @@ def test_integration_create_plan_via_execute_tools():
 
 
 def test_integration_full_plan_lifecycle():
-    """Full lifecycle: create -> complete -> get_plan through execute_tools."""
+    """Full lifecycle: create -> start -> complete -> get_ready -> start -> complete."""
 
     @workflow
     async def wf(ctx: ExecutionContext):
         tools, summary_fn = await build_plan_tools()
 
-        # Step 1: Create plan
         r1 = await execute_tools(
             [
                 {
-                    "id": "call_1",
+                    "id": "c1",
                     "name": "create_plan",
                     "arguments": json.dumps(
                         {
@@ -109,11 +108,15 @@ def test_integration_full_plan_lifecycle():
             tools,
         )
 
-        # Step 2: Complete first step
         r2 = await execute_tools(
+            [{"id": "c2", "name": "start_step", "arguments": json.dumps({"step_name": "search"})}],
+            tools,
+        )
+
+        r3 = await execute_tools(
             [
                 {
-                    "id": "call_2",
+                    "id": "c3",
                     "name": "mark_step_done",
                     "arguments": json.dumps(
                         {"step_name": "search", "result": "Found 3 competitors."},
@@ -123,23 +126,20 @@ def test_integration_full_plan_lifecycle():
             tools,
         )
 
-        # Step 3: Get plan to verify state
-        r3 = await execute_tools(
-            [
-                {
-                    "id": "call_3",
-                    "name": "get_plan",
-                    "arguments": "{}",
-                },
-            ],
+        r4 = await execute_tools(
+            [{"id": "c4", "name": "get_ready_steps", "arguments": "{}"}],
             tools,
         )
 
-        # Step 4: Complete second step
-        r4 = await execute_tools(
+        r5 = await execute_tools(
+            [{"id": "c5", "name": "start_step", "arguments": json.dumps({"step_name": "analyze"})}],
+            tools,
+        )
+
+        r6 = await execute_tools(
             [
                 {
-                    "id": "call_4",
+                    "id": "c6",
                     "name": "mark_step_done",
                     "arguments": json.dumps(
                         {"step_name": "analyze", "result": "Market growing 15%."},
@@ -149,35 +149,183 @@ def test_integration_full_plan_lifecycle():
             tools,
         )
 
-        return {"create": r1, "complete1": r2, "get": r3, "complete2": r4, "summary": summary_fn()}
+        return {
+            "create": r1,
+            "start1": r2,
+            "complete1": r3,
+            "ready": r4,
+            "start2": r5,
+            "complete2": r6,
+            "summary": summary_fn(),
+        }
 
     ctx = wf.run()
     assert ctx.has_succeeded
-
     out = ctx.output
 
-    # Verify create_plan result
-    create_result = json.loads(out["create"][0]["output"])
-    assert len(create_result["steps"]) == 2
+    start1 = json.loads(out["start1"][0]["output"])
+    assert start1["status"] == "in_progress"
 
-    # Verify first mark_step_done
-    complete1 = json.loads(out["complete1"][0]["output"])
-    assert complete1["status"] == "completed"
-    assert complete1["result"] == "Found 3 competitors."
+    ready = json.loads(out["ready"][0]["output"])
+    assert len(ready["ready_steps"]) == 1
+    assert ready["ready_steps"][0]["name"] == "analyze"
+    assert ready["ready_steps"][0]["dependency_results"]["search"] == "Found 3 competitors."
 
-    # Verify get_plan shows progress
-    plan = json.loads(out["get"][0]["output"])
-    search_step = next(s for s in plan["steps"] if s["name"] == "search")
-    assert search_step["status"] == "completed"
-    analyze_step = next(s for s in plan["steps"] if s["name"] == "analyze")
-    assert analyze_step["status"] == "pending"
+    assert "2/2 done" in out["summary"]
 
-    # Verify second mark_step_done
-    complete2 = json.loads(out["complete2"][0]["output"])
-    assert complete2["status"] == "completed"
 
-    # Verify summary
-    assert "2/2" in out["summary"]
+def test_integration_mark_step_failed():
+    """mark_step_failed works through execute_tools."""
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+
+        await execute_tools(
+            [
+                {
+                    "id": "c1",
+                    "name": "create_plan",
+                    "arguments": json.dumps(
+                        {
+                            "steps": json.dumps(
+                                [
+                                    {"name": "a", "description": "Do A."},
+                                    {"name": "b", "description": "Do B.", "depends_on": ["a"]},
+                                ],
+                            ),
+                        },
+                    ),
+                },
+            ],
+            tools,
+        )
+
+        await execute_tools(
+            [{"id": "c2", "name": "start_step", "arguments": json.dumps({"step_name": "a"})}],
+            tools,
+        )
+
+        r = await execute_tools(
+            [
+                {
+                    "id": "c3",
+                    "name": "mark_step_failed",
+                    "arguments": json.dumps(
+                        {"step_name": "a", "reason": "Connection timeout."},
+                    ),
+                },
+            ],
+            tools,
+        )
+
+        ready = await execute_tools(
+            [{"id": "c4", "name": "get_ready_steps", "arguments": "{}"}],
+            tools,
+        )
+
+        return {
+            "failed": r,
+            "ready": ready,
+            "summary": summary_fn(),
+        }
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    out = ctx.output
+
+    failed = json.loads(out["failed"][0]["output"])
+    assert failed["status"] == "failed"
+    assert failed["error"] == "Connection timeout."
+
+    ready = json.loads(out["ready"][0]["output"])
+    assert ready["ready_steps"] == []
+
+    assert "1 failed" in out["summary"]
+
+
+def test_integration_get_ready_steps():
+    """get_ready_steps returns only steps whose dependencies are satisfied."""
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+
+        await execute_tools(
+            [
+                {
+                    "id": "c1",
+                    "name": "create_plan",
+                    "arguments": json.dumps(
+                        {
+                            "steps": json.dumps(
+                                [
+                                    {"name": "fetch", "description": "Fetch data."},
+                                    {
+                                        "name": "process",
+                                        "description": "Process it.",
+                                        "depends_on": ["fetch"],
+                                    },
+                                    {
+                                        "name": "report",
+                                        "description": "Write report.",
+                                        "depends_on": ["process"],
+                                    },
+                                ],
+                            ),
+                        },
+                    ),
+                },
+            ],
+            tools,
+            iteration=0,
+        )
+
+        r1 = await execute_tools(
+            [{"id": "c2", "name": "get_ready_steps", "arguments": "{}"}],
+            tools,
+            iteration=1,
+        )
+
+        await execute_tools(
+            [{"id": "c3", "name": "start_step", "arguments": json.dumps({"step_name": "fetch"})}],
+            tools,
+            iteration=2,
+        )
+        await execute_tools(
+            [
+                {
+                    "id": "c4",
+                    "name": "mark_step_done",
+                    "arguments": json.dumps(
+                        {"step_name": "fetch", "result": "Raw data fetched."},
+                    ),
+                },
+            ],
+            tools,
+            iteration=3,
+        )
+
+        r2 = await execute_tools(
+            [{"id": "c5", "name": "get_ready_steps", "arguments": "{}"}],
+            tools,
+            iteration=4,
+        )
+
+        return {"before": r1, "after": r2}
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    out = ctx.output
+
+    before = json.loads(out["before"][0]["output"])
+    assert len(before["ready_steps"]) == 1
+    assert before["ready_steps"][0]["name"] == "fetch"
+
+    after = json.loads(out["after"][0]["output"])
+    assert len(after["ready_steps"]) == 1
+    assert after["ready_steps"][0]["name"] == "process"
+    assert after["ready_steps"][0]["dependency_results"]["fetch"] == "Raw data fetched."
 
 
 def test_integration_replan_preserves_completed():
@@ -187,7 +335,6 @@ def test_integration_replan_preserves_completed():
     async def wf(ctx: ExecutionContext):
         tools, _ = await build_plan_tools()
 
-        # Create initial plan
         await execute_tools(
             [
                 {
@@ -208,7 +355,6 @@ def test_integration_replan_preserves_completed():
             tools,
         )
 
-        # Complete step a
         await execute_tools(
             [
                 {
@@ -220,7 +366,6 @@ def test_integration_replan_preserves_completed():
             tools,
         )
 
-        # Replan with new step c, keeping a
         result = await execute_tools(
             [
                 {
@@ -260,7 +405,6 @@ def test_integration_mark_step_done_errors():
     async def wf(ctx: ExecutionContext):
         tools, _ = await build_plan_tools()
 
-        # No plan exists
         r1 = await execute_tools(
             [
                 {
@@ -272,7 +416,6 @@ def test_integration_mark_step_done_errors():
             tools,
         )
 
-        # Create plan
         await execute_tools(
             [
                 {
@@ -281,7 +424,10 @@ def test_integration_mark_step_done_errors():
                     "arguments": json.dumps(
                         {
                             "steps": json.dumps(
-                                [{"name": "a", "description": "Do A."}],
+                                [
+                                    {"name": "a", "description": "Do A."},
+                                    {"name": "b", "description": "Do B.", "depends_on": ["a"]},
+                                ],
                             ),
                         },
                     ),
@@ -290,7 +436,6 @@ def test_integration_mark_step_done_errors():
             tools,
         )
 
-        # Step not found
         r2 = await execute_tools(
             [
                 {
@@ -325,7 +470,10 @@ def test_integration_validation_errors():
                     "arguments": json.dumps(
                         {
                             "steps": json.dumps(
-                                [{"name": "Bad-Name", "description": "X."}],
+                                [
+                                    {"name": "Bad-Name", "description": "X."},
+                                    {"name": "valid", "description": "Y."},
+                                ],
                             ),
                         },
                     ),
@@ -369,10 +517,8 @@ def test_integration_plan_summary_injection():
     async def wf(ctx: ExecutionContext):
         tools, summary_fn = await build_plan_tools()
 
-        # No plan — summary should be None
         assert summary_fn() is None
 
-        # Create plan
         await execute_tools(
             [
                 {
@@ -395,7 +541,6 @@ def test_integration_plan_summary_injection():
 
         s1 = summary_fn()
 
-        # Complete step a
         await execute_tools(
             [
                 {
@@ -409,7 +554,6 @@ def test_integration_plan_summary_injection():
 
         s2 = summary_fn()
 
-        # Complete step b
         await execute_tools(
             [
                 {
@@ -432,7 +576,6 @@ def test_integration_plan_summary_injection():
     assert '"a"' in out["s1"]
     assert "1/2" in out["s2"]
     assert '"b"' in out["s2"]
-    # b depends on a — summary should include a's result
     assert "Done A." in out["s2"]
     assert "2/2" in out["s3"]
     assert "No steps ready" in out["s3"]
