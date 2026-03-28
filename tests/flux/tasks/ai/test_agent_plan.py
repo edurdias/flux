@@ -255,13 +255,13 @@ def test_plan_dependency_results_partial():
     assert results == {"a": "Result A."}
 
 
-def test_plan_summary_no_ready():
+def test_plan_summary_all_complete():
     plan = AgentPlan(
         steps=[
-            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
+            AgentStep(name="a", description="A.", status="completed", result="Done."),
             AgentStep(
                 name="b",
-                description="Do B.",
+                description="B.",
                 depends_on=["a"],
                 status="completed",
                 result="Done.",
@@ -269,30 +269,29 @@ def test_plan_summary_no_ready():
         ],
     )
     summary = plan.summary()
-    assert "2/2" in summary
+    assert "2/2 done" in summary
     assert "No steps ready" in summary
 
 
-def test_plan_summary_with_ready():
+def test_plan_summary_with_ready_and_dep_results():
     plan = AgentPlan(
         steps=[
-            AgentStep(name="a", description="Do A.", status="completed", result="Done."),
-            AgentStep(name="b", description="Do B.", depends_on=["a"]),
-            AgentStep(name="c", description="Do C."),
+            AgentStep(name="a", description="A.", status="completed", result="Done."),
+            AgentStep(name="b", description="B.", depends_on=["a"]),
+            AgentStep(name="c", description="C."),
         ],
     )
     summary = plan.summary()
-    assert "1/3" in summary
+    assert "1/3 done" in summary
     assert '"b"' in summary
     assert '"c"' in summary
-    # b has dependency on a — result should be included
     assert "Done." in summary
 
 
 def test_plan_summary_no_deps_no_results():
     plan = AgentPlan(
         steps=[
-            AgentStep(name="a", description="Do A."),
+            AgentStep(name="a", description="A."),
         ],
     )
     summary = plan.summary()
@@ -312,6 +311,49 @@ def test_plan_summary_limits_to_3():
     )
     summary = plan.summary()
     assert summary.count('"') <= 6
+
+
+def test_plan_summary_shows_active_step():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="in_progress"),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    summary = plan.summary()
+    assert "0/2 done" in summary
+    assert 'Active: "a"' in summary
+
+
+def test_plan_summary_shows_failed_steps():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="failed", error="Timeout."),
+            AgentStep(name="b", description="B."),
+        ],
+    )
+    summary = plan.summary()
+    assert "1 failed" in summary
+    assert '"a"' in summary
+
+
+def test_plan_summary_full_status():
+    plan = AgentPlan(
+        steps=[
+            AgentStep(name="a", description="A.", status="completed", result="Done."),
+            AgentStep(name="b", description="B.", status="in_progress"),
+            AgentStep(name="c", description="C.", status="failed", error="Broke."),
+            AgentStep(name="d", description="D."),
+            AgentStep(name="e", description="E.", depends_on=["a"]),
+        ],
+    )
+    summary = plan.summary()
+    assert "1/5 done" in summary
+    assert "1 failed" in summary
+    assert 'Active: "b"' in summary
+    assert "Ready:" in summary
+    assert '"d"' in summary
+    assert '"e"' in summary
 
 
 def test_plan_to_dict():

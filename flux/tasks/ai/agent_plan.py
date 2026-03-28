@@ -87,21 +87,37 @@ class AgentPlan:
     def summary(self) -> str:
         completed = len(self.completed_steps())
         total = len(self.steps)
-        pending = self.pending_steps()
-        ready = [s for s in pending if self.dependencies_satisfied(s)]
-        if not ready:
-            return f"[Plan: {completed}/{total} steps completed. No steps ready.]"
+        failed = self.failed_steps()
+        active = self.active_step()
+        ready = self.ready_steps()
 
-        parts = []
-        for step in ready[:3]:
-            dep_results = self.dependency_results(step)
-            if dep_results:
-                deps_str = "; ".join(f"{k}: {str(v)[:200]}" for k, v in dep_results.items())
-                parts.append(f'"{step.name}" (from {deps_str})')
-            else:
-                parts.append(f'"{step.name}"')
+        parts = [f"[Plan: {completed}/{total} done"]
 
-        return f"[Plan: {completed}/{total} steps completed. Ready: {', '.join(parts)}]"
+        if failed:
+            failed_names = ", ".join(f'"{s.name}"' for s in failed)
+            parts.append(f", {len(failed)} failed ({failed_names})")
+
+        parts.append(".")
+
+        if active:
+            parts.append(f' Active: "{active.name}".')
+
+        if ready:
+            ready_parts = []
+            for step in ready[:3]:
+                dep_results = self.dependency_results(step)
+                if dep_results:
+                    deps_str = "; ".join(f"{k}: {str(v)[:200]}" for k, v in dep_results.items())
+                    ready_parts.append(f'"{step.name}" (from {deps_str})')
+                else:
+                    ready_parts.append(f'"{step.name}"')
+            parts.append(f" Ready: {', '.join(ready_parts)}.")
+
+        if not active and not ready:
+            parts.append(" No steps ready.")
+
+        parts.append("]")
+        return "".join(parts)
 
     def to_dict(self) -> dict:
         return {"steps": [s.to_dict() for s in self.steps]}
