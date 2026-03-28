@@ -1241,3 +1241,70 @@ def test_get_ready_steps_none_ready():
     ctx = test_wf.run()
     assert ctx.has_succeeded
     assert ctx.output["ready_steps"] == []
+
+
+def test_replan_warns_about_dropped_completed_steps():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await mark_step_done_tool(step_name="a", result="Done A.")
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "c", "description": "Do C."},
+                    {"name": "d", "description": "Do D."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "warning" in ctx.output
+    assert "a" in ctx.output["warning"]
+
+
+def test_replan_no_warning_when_steps_preserved():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await mark_step_done_tool(step_name="a", result="Done A.")
+        return await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A differently."},
+                    {"name": "c", "description": "Do C."},
+                ],
+            ),
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "warning" not in ctx.output

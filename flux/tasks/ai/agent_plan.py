@@ -238,15 +238,24 @@ def build_plan_tools(
         new_plan = AgentPlan(steps=new_steps)
         _validate_dependencies(new_plan)
 
+        old_completed = ctx.plan.completed_steps() if ctx.plan else []
+
         if ctx.plan:
-            for completed in ctx.plan.completed_steps():
+            for completed in old_completed:
                 existing = new_plan.get_step(completed.name)
                 if existing:
                     idx = new_plan.steps.index(existing)
                     new_plan.steps[idx] = completed
 
         ctx.plan = new_plan
-        return ctx.plan.to_dict()
+
+        result = ctx.plan.to_dict()
+        dropped = [s.name for s in old_completed if ctx.plan.get_step(s.name) is None]
+        if dropped:
+            result["warning"] = (
+                f"Completed steps dropped (not in new plan): {dropped}. " f"Their results are lost."
+            )
+        return result
 
     @task
     async def start_step(step_name: str) -> dict:
