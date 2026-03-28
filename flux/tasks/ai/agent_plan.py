@@ -185,7 +185,10 @@ class PlanContext:
         return self.plan.summary()
 
 
-def build_plan_tools() -> tuple[list[task], Callable[[], str | None]]:
+def build_plan_tools(
+    *,
+    strict_dependencies: bool = False,
+) -> tuple[list[task], Callable[[], str | None]]:
     """Build planning tools and a summary function.
 
     Returns:
@@ -236,6 +239,60 @@ def build_plan_tools() -> tuple[list[task], Callable[[], str | None]]:
         return ctx.plan.to_dict()
 
     @task
+    async def start_step(step_name: str) -> dict:
+        """Mark a plan step as in-progress. Call this before working on a step.
+
+        Only one step can be in-progress at a time. Dependencies are checked:
+        if a step's dependencies are not yet completed, you will receive a
+        warning (or error in strict mode).
+
+        Args:
+            step_name: The step name to start working on.
+        """
+        if ctx.plan is None:
+            return {"error": "No plan exists. Call create_plan first."}
+
+        step = ctx.plan.get_step(step_name)
+        if step is None:
+            available = ", ".join(s.name for s in ctx.plan.steps)
+            return {"error": f"Step '{step_name}' not found. Available: {available}"}
+
+        if step.status == "in_progress":
+            return step.to_dict()
+
+        if step.status in ("completed", "failed"):
+            return {"error": f"Step '{step_name}' is already {step.status}."}
+
+        active = ctx.plan.active_step()
+        if active and active.name != step_name:
+            return {
+                "error": f'Step "{active.name}" is already in progress. '
+                f"Complete or fail it before starting another.",
+            }
+
+        if not ctx.plan.dependencies_satisfied(step):
+            unsatisfied = [
+                d
+                for d in step.depends_on
+                if (dep := ctx.plan.get_step(d)) and dep.status != "completed"
+            ]
+            if strict_dependencies:
+                return {
+                    "error": f"Step '{step_name}' has unsatisfied dependencies: "
+                    f"{unsatisfied}. Complete them first.",
+                }
+            step.status = "in_progress"
+            result = step.to_dict()
+            result["warning"] = (
+                f"Step '{step_name}' has unsatisfied dependencies: "
+                f"{unsatisfied}. Proceeding anyway."
+            )
+            return result
+
+        step.status = "in_progress"
+        return step.to_dict()
+
+    @task
     async def mark_step_done(step_name: str, result: str) -> dict:
         """Mark a plan step as completed and store its result.
 
@@ -273,7 +330,7 @@ def build_plan_tools() -> tuple[list[task], Callable[[], str | None]]:
             return {"message": "No plan exists."}
         return ctx.plan.to_dict()
 
-    return [create_plan, mark_step_done, get_plan], ctx.summary
+    return [create_plan, start_step, mark_step_done, get_plan], ctx.summary
 
 
 def build_plan_preamble() -> str:
