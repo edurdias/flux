@@ -11,7 +11,7 @@ Key scenarios tested:
 
 Prerequisites:
     1. Install Ollama: https://ollama.ai
-    2. Pull a model: ollama pull mistral-small:24b
+    2. Pull a model: ollama pull qwen3
     3. Start Ollama service: ollama serve
 
 Usage:
@@ -20,6 +20,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from flux import ExecutionContext, task, workflow
@@ -83,17 +84,20 @@ async def generate_report(title: str, sections: str) -> str:
     )
 
 
-analyst = agent(
-    "You are a business analyst. Always use your tools to accomplish tasks. "
-    "Never describe what you would do — actually do it by calling tools. "
-    "For multi-step tasks, create a plan first using create_plan, then "
-    "execute each step using your tools, and mark steps done with mark_step_done. "
-    "If a tool fails, retry it or adjust your plan.",
-    model="ollama/mistral-small:24b",
-    name="replan-analyst",
-    tools=[search_database, search_web, analyze_data, generate_report],
-    planning=True,
-    max_tool_calls=30,
+analyst = asyncio.run(
+    agent(
+        "You are a business analyst. Always use your tools to accomplish tasks. "
+        "Never describe what you would do — actually do it by calling tools. "
+        "For multi-step tasks, create a plan first using create_plan, then "
+        "call start_step before working on each step. Mark steps done with mark_step_done, "
+        "or mark_step_failed if they cannot be completed. Use get_ready_steps to see what "
+        "can be started next. If a tool fails, retry it or adjust your plan.",
+        model="ollama/qwen3",
+        name="replan-analyst",
+        tools=[search_database, search_web, analyze_data, generate_report],
+        planning=True,
+        max_tool_calls=30,
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=600)
 
 
@@ -158,4 +162,4 @@ if __name__ == "__main__":  # pragma: no cover
         print(f"Error: {e}")
         print("\nMake sure:")
         print("1. Ollama is running: ollama serve")
-        print("2. Model is pulled: ollama pull mistral-small:24b")
+        print("2. Model is pulled: ollama pull qwen3")

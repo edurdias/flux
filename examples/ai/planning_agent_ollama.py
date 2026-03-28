@@ -14,7 +14,7 @@ Key Features:
 
 Prerequisites:
     1. Install Ollama: https://ollama.ai
-    2. Pull a model: ollama pull llama3.2
+    2. Pull a model: ollama pull mistral-small:24b
     3. Start Ollama service: ollama serve
 
 Usage:
@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from flux import ExecutionContext, task, workflow
@@ -63,15 +64,19 @@ async def write_report(topic: str, content: str) -> str:
     )
 
 
-analyst = agent(
-    "You are a thorough market research analyst. "
-    "For complex research tasks, create a plan to organize your work. "
-    "Use your tools to gather data, analyze it, and produce reports.",
-    model="ollama/mistral-small:24b",
-    name="planning-analyst",
-    tools=[search_web, analyze_data, write_report],
-    planning=True,
-    max_tool_calls=30,
+analyst = asyncio.run(
+    agent(
+        "You are a thorough market research analyst. "
+        "For complex research tasks, create a plan to organize your work. "
+        "Call start_step before working on each step. Mark steps done with mark_step_done, "
+        "or mark_step_failed if they cannot be completed. Use get_ready_steps to see what "
+        "can be started next. Use your tools to gather data, analyze it, and produce reports.",
+        model="ollama/mistral-small:24b",
+        name="planning-analyst",
+        tools=[search_web, analyze_data, write_report],
+        planning=True,
+        max_tool_calls=30,
+    ),
 ).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=600)
 
 
@@ -127,4 +132,4 @@ if __name__ == "__main__":  # pragma: no cover
         print(f"Error: {e}")
         print("\nMake sure:")
         print("1. Ollama is running: ollama serve")
-        print("2. Model is pulled: ollama pull llama3.2")
+        print("2. Model is pulled: ollama pull mistral-small:24b")
