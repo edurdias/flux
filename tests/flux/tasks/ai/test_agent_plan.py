@@ -905,19 +905,20 @@ def test_start_step_strict_deps_blocks():
 # --- Preamble tests ---
 
 
-def test_build_plan_preamble_contains_tool_names():
+def test_build_plan_preamble_contains_new_tool_names():
     preamble = build_plan_preamble()
-    assert "create_plan" in preamble
+    assert "start_step" in preamble
+    assert "mark_step_failed" in preamble
+    assert "get_ready_steps" in preamble
     assert "mark_step_done" in preamble
+    assert "create_plan" in preamble
     assert "get_plan" in preamble
 
 
-def test_build_plan_preamble_contains_guidance():
+def test_build_plan_preamble_contains_status_guidance():
     preamble = build_plan_preamble()
-    assert "When to create a plan" in preamble
-    assert "When NOT to create a plan" in preamble
-    assert "depends_on" in preamble
-    assert "Replanning" in preamble
+    assert "in_progress" in preamble
+    assert "failed" in preamble
 
 
 # --- mark_step_failed tool tests ---

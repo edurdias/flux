@@ -500,21 +500,29 @@ When NOT to create a plan:
 - When you are unsure what steps are needed (gather information first)
 
 Creating a plan:
-- Call create_plan with a list of steps. Each step has a name, description,
-  and optional depends_on list.
-- Steps are goals, not single tool calls. "Research competitor pricing" is
-  a good step. "Call search_web" is too granular.
+- Call create_plan with a JSON array of steps. Each step has a name,
+  description, and optional depends_on list.
+- Plans must have 2-20 steps. Steps are goals, not single tool calls.
+  "Research competitor pricing" is a good step. "Call search_web" is
+  too granular.
 - Use depends_on to declare data dependencies between steps. Only add
   dependencies where a step genuinely needs another step's result.
-- Keep plans concise. Prefer fewer meaningful steps over many granular ones.
+- When replanning, keep the same names for completed steps to preserve
+  their results.
 
 Working through a plan:
-- Work on steps using your available tools, skills, and agents as normal.
-- When you finish a step, call mark_step_done with step_name and a
-  descriptive result. Other steps that depend on it will see this result.
-- Call get_plan to review progress and access results from completed steps.
-- Respect dependency order — complete dependencies before starting a step
-  that depends on them.
+- Call start_step before working on a step. Only one step can be
+  in_progress at a time.
+- Call get_ready_steps to see which steps can be started (dependencies
+  satisfied). Each includes dependency results for context.
+- Use your available tools to accomplish the step's goal.
+- Call mark_step_done with a descriptive result when finished. Other
+  steps that depend on it will see this result.
+- Call mark_step_failed with a reason if a step cannot be completed.
+  Failed steps block their dependents. Consider replanning after failure.
+- Call get_plan to review full progress at any time.
+- Respect dependency order — complete dependencies before starting a
+  step that depends on them.
 - A status reminder appears after tool calls to help you track progress.
 
 Replanning:
