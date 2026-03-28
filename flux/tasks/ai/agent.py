@@ -23,6 +23,9 @@ async def agent(
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
     planning: bool = False,
+    max_plan_steps: int = 20,
+    strict_dependencies: bool = False,
+    approve_plan: bool = False,
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
@@ -43,6 +46,11 @@ async def agent(
         skills: SkillCatalog providing Agent Skills the LLM can activate.
         planning: If True, inject planning tools (create_plan, complete_step, get_plan)
             so the agent can create structured plans for complex tasks.
+        max_plan_steps: Maximum number of steps allowed in a plan. Defaults to 20.
+        strict_dependencies: If True, prevent starting a step before its dependencies
+            are completed. Defaults to False (warns instead).
+        approve_plan: If True, pause for human approval before activating a new plan.
+            Defaults to False.
         response_format: Pydantic BaseModel subclass for structured JSON output.
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
@@ -70,6 +78,9 @@ async def agent(
 
         system_prompt = system_prompt + build_plan_preamble()
         plan_tools, plan_summary_fn = await build_plan_tools(
+            strict_dependencies=strict_dependencies,
+            max_plan_steps=max_plan_steps,
+            approve_plan=approve_plan,
             long_term_memory=long_term_memory,
         )
         tools = (tools or []) + plan_tools

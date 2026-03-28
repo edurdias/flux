@@ -170,3 +170,19 @@ def test_agent_plan_exports():
 
     assert AgentPlan is not None
     assert AgentStep is not None
+
+
+def test_agent_planning_params_threaded():
+    """Verify agent accepts new planning parameters without error."""
+    result = asyncio.run(
+        agent(
+            "You are an assistant.",
+            model="ollama/llama3.2",
+            planning=True,
+            max_plan_steps=10,
+            strict_dependencies=True,
+            approve_plan=False,
+            stream=False,
+        ),
+    )
+    assert result is not None
