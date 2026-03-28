@@ -4,9 +4,12 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from flux.task import task
+
+if TYPE_CHECKING:
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
 logger = logging.getLogger("flux.agent.plan")
 
@@ -122,6 +125,22 @@ class AgentPlan:
     def to_dict(self) -> dict:
         return {"steps": [s.to_dict() for s in self.steps]}
 
+    @classmethod
+    def from_dict(cls, data: dict) -> AgentPlan:
+        steps = []
+        for s in data.get("steps", []):
+            steps.append(
+                AgentStep(
+                    name=s["name"],
+                    description=s.get("description", ""),
+                    depends_on=s.get("depends_on", []),
+                    status=s.get("status", "pending"),
+                    result=s.get("result"),
+                    error=s.get("error"),
+                ),
+            )
+        return cls(steps=steps)
+
 
 def _validate_step_name(name: str) -> None:
     if not name:
@@ -185,11 +204,12 @@ class PlanContext:
         return self.plan.summary()
 
 
-def build_plan_tools(
+async def build_plan_tools(
     *,
     strict_dependencies: bool = False,
     max_plan_steps: int = 20,
     approve_plan: bool = False,
+    long_term_memory: LongTermMemory | None = None,
 ) -> tuple[list[task], Callable[[], str | None]]:
     """Build planning tools and a summary function.
 
@@ -198,6 +218,15 @@ def build_plan_tools(
         the same PlanContext via closure.
     """
     ctx = PlanContext()
+
+    if long_term_memory:
+        saved = await long_term_memory.recall("_active_plan")
+        if saved and isinstance(saved, dict) and "steps" in saved:
+            ctx.plan = AgentPlan.from_dict(saved)
+
+    async def _persist() -> None:
+        if long_term_memory and ctx.plan:
+            await long_term_memory.memorize("_active_plan", ctx.plan.to_dict())
 
     @task
     async def create_plan(steps: str) -> dict:
@@ -280,6 +309,7 @@ def build_plan_tools(
                     new_plan.steps[idx] = completed
 
         ctx.plan = new_plan
+        await _persist()
 
         result = ctx.plan.to_dict()
         dropped = [s.name for s in old_completed if ctx.plan.get_step(s.name) is None]
@@ -333,6 +363,7 @@ def build_plan_tools(
                     f"{unsatisfied}. Complete them first.",
                 }
             step.status = "in_progress"
+            await _persist()
             result = step.to_dict()
             result["warning"] = (
                 f"Step '{step_name}' has unsatisfied dependencies: "
@@ -341,6 +372,7 @@ def build_plan_tools(
             return result
 
         step.status = "in_progress"
+        await _persist()
         return step.to_dict()
 
     @task
@@ -374,6 +406,7 @@ def build_plan_tools(
 
         step.status = "completed"
         step.result = result
+        await _persist()
         return step.to_dict()
 
     @task
@@ -403,6 +436,7 @@ def build_plan_tools(
 
         step.status = "failed"
         step.error = reason
+        await _persist()
         return step.to_dict()
 
     @task

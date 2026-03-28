@@ -490,16 +490,30 @@ def test_plan_context_summary_with_plan():
 
 
 def test_build_plan_tools_returns_tools_and_summary():
-    tools, summary_fn = build_plan_tools()
-    assert len(tools) == 6
-    assert callable(summary_fn)
-    assert summary_fn() is None
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+        return {"count": len(tools), "summary": summary_fn()}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["count"] == 6
+    assert ctx.output["summary"] is None
 
 
 def test_build_plan_tools_tool_names():
-    tools, _ = build_plan_tools()
-    names = {t.func.__name__ for t in tools}
-    assert names == {
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        return {t.func.__name__ for t in tools}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output == {
         "create_plan",
         "start_step",
         "mark_step_done",
@@ -514,12 +528,11 @@ def test_create_plan():
 
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools()
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        return await create_plan_tool(
+        tools, summary_fn = await build_plan_tools()
+        create_plan_tool = tools[0]
+        result = await create_plan_tool(
             steps=json.dumps(
                 [
                     {"name": "research", "description": "Research the topic."},
@@ -527,16 +540,17 @@ def test_create_plan():
                 ],
             ),
         )
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    result = ctx.output
+    result = ctx.output["result"]
     assert len(result["steps"]) == 2
     assert result["steps"][0]["name"] == "research"
     assert result["steps"][1]["name"] == "analyze"
     assert result["steps"][1]["depends_on"] == ["research"]
-    assert summary_fn() is not None
-    assert "0/2" in summary_fn()
+    assert ctx.output["summary"] is not None
+    assert "0/2" in ctx.output["summary"]
 
 
 def test_create_plan_invalid_name():
@@ -544,11 +558,10 @@ def test_create_plan_invalid_name():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps([{"name": "Bad-Name", "description": "Invalid."}]),
         )
@@ -562,11 +575,10 @@ def test_create_plan_circular_dependency():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
                 [
@@ -585,12 +597,11 @@ def test_create_plan_preserves_completed_on_replan():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -629,34 +640,33 @@ def test_mark_step_done():
 
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
             ),
         )
-        return await mark_step_done_tool(step_name="a", result="Done A.")
+        result = await mark_step_done_tool(step_name="a", result="Done A.")
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert ctx.output["status"] == "completed"
-    assert ctx.output["result"] == "Done A."
-    assert "1/2" in summary_fn()
+    assert ctx.output["result"]["status"] == "completed"
+    assert ctx.output["result"]["result"] == "Done A."
+    assert "1/2" in ctx.output["summary"]
 
 
 def test_mark_step_done_no_plan():
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         return await mark_step_done_tool(step_name="a", result="Done.")
 
     ctx = test_wf.run()
@@ -669,12 +679,11 @@ def test_mark_step_done_not_found():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
@@ -693,12 +702,11 @@ def test_mark_step_done_already_completed():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
@@ -720,12 +728,11 @@ def test_get_plan():
 
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
         await create_plan_tool(
             steps=json.dumps(
                 [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
@@ -741,11 +748,10 @@ def test_get_plan():
 def test_get_plan_no_plan():
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
         return await get_plan_tool()
 
     ctx = test_wf.run()
@@ -760,12 +766,11 @@ def test_start_step():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -774,22 +779,22 @@ def test_start_step():
                 ],
             ),
         )
-        return await start_step_tool(step_name="a")
+        result = await start_step_tool(step_name="a")
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert ctx.output["status"] == "in_progress"
-    assert 'Active: "a"' in summary_fn()
+    assert ctx.output["result"]["status"] == "in_progress"
+    assert 'Active: "a"' in ctx.output["summary"]
 
 
 def test_start_step_no_plan():
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         return await start_step_tool(step_name="a")
 
     ctx = test_wf.run()
@@ -801,12 +806,11 @@ def test_start_step_not_found():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -826,12 +830,11 @@ def test_start_step_already_in_progress():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -853,12 +856,11 @@ def test_start_step_deps_not_satisfied_warns():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -879,12 +881,11 @@ def test_start_step_strict_deps_blocks():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools(strict_dependencies=True)
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(strict_dependencies=True)
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -926,13 +927,12 @@ def test_mark_step_failed():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -942,23 +942,23 @@ def test_mark_step_failed():
             ),
         )
         await start_step_tool(step_name="a")
-        return await mark_step_failed_tool(step_name="a", reason="Connection timeout.")
+        result = await mark_step_failed_tool(step_name="a", reason="Connection timeout.")
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert ctx.output["status"] == "failed"
-    assert ctx.output["error"] == "Connection timeout."
-    assert "1 failed" in summary_fn()
+    assert ctx.output["result"]["status"] == "failed"
+    assert ctx.output["result"]["error"] == "Connection timeout."
+    assert "1 failed" in ctx.output["summary"]
 
 
 def test_mark_step_failed_no_plan():
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         return await mark_step_failed_tool(step_name="a", reason="Error.")
 
     ctx = test_wf.run()
@@ -970,12 +970,11 @@ def test_mark_step_failed_allows_from_pending():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -995,13 +994,12 @@ def test_mark_step_failed_already_completed():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1022,13 +1020,12 @@ def test_mark_step_done_from_in_progress():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1049,12 +1046,11 @@ def test_mark_step_done_from_pending_grace():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1074,13 +1070,12 @@ def test_mark_step_done_rejects_failed():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1104,11 +1099,10 @@ def test_create_plan_rejects_single_step():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps([{"name": "a", "description": "Do A."}]),
         )
@@ -1121,11 +1115,10 @@ def test_create_plan_rejects_too_many_steps():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools(max_plan_steps=5)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(max_plan_steps=5)
+        create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(6)]
         return await create_plan_tool(steps=json.dumps(steps))
 
@@ -1137,11 +1130,10 @@ def test_create_plan_accepts_at_limit():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools(max_plan_steps=5)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(max_plan_steps=5)
+        create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(5)]
         return await create_plan_tool(steps=json.dumps(steps))
 
@@ -1153,11 +1145,10 @@ def test_create_plan_default_max_is_20():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(21)]
         return await create_plan_tool(steps=json.dumps(steps))
 
@@ -1172,13 +1163,12 @@ def test_get_ready_steps():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-    get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+        get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1204,11 +1194,10 @@ def test_get_ready_steps():
 def test_get_ready_steps_no_plan():
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
         return await get_ready_steps_tool()
 
     ctx = test_wf.run()
@@ -1220,13 +1209,12 @@ def test_get_ready_steps_none_ready():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
-    get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+        get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1247,12 +1235,11 @@ def test_replan_warns_about_dropped_completed_steps():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1281,12 +1268,11 @@ def test_replan_no_warning_when_steps_preserved():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools()
-    create_plan_tool = tools[0]
-    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1318,11 +1304,10 @@ def test_create_plan_pauses_for_approval():
     from flux import ExecutionContext, workflow
     from flux.domain.events import ExecutionEventType
 
-    tools, _ = build_plan_tools(approve_plan=True)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(approve_plan=True)
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1345,12 +1330,11 @@ def test_create_plan_resumes_with_approved_plan():
     from flux import ExecutionContext, workflow
     from flux.domain.events import ExecutionEventType
 
-    tools, summary_fn = build_plan_tools(approve_plan=True)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        return await create_plan_tool(
+        tools, summary_fn = await build_plan_tools(approve_plan=True)
+        create_plan_tool = tools[0]
+        result = await create_plan_tool(
             steps=json.dumps(
                 [
                     {"name": "a", "description": "Do A."},
@@ -1358,6 +1342,7 @@ def test_create_plan_resumes_with_approved_plan():
                 ],
             ),
         )
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.is_paused
@@ -1367,19 +1352,18 @@ def test_create_plan_resumes_with_approved_plan():
 
     ctx = test_wf.resume(ctx.execution_id, pause_output)
     assert ctx.has_succeeded
-    assert len(ctx.output["steps"]) == 2
-    assert summary_fn() is not None
+    assert len(ctx.output["result"]["steps"]) == 2
+    assert ctx.output["summary"] is not None
 
 
 def test_create_plan_resumes_with_modified_plan():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools(approve_plan=True)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(approve_plan=True)
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1408,12 +1392,11 @@ def test_create_plan_resumes_with_rejection():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, summary_fn = build_plan_tools(approve_plan=True)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        return await create_plan_tool(
+        tools, summary_fn = await build_plan_tools(approve_plan=True)
+        create_plan_tool = tools[0]
+        result = await create_plan_tool(
             steps=json.dumps(
                 [
                     {"name": "a", "description": "Do A."},
@@ -1421,25 +1404,25 @@ def test_create_plan_resumes_with_rejection():
                 ],
             ),
         )
+        return {"result": result, "summary": summary_fn()}
 
     ctx = test_wf.run()
     assert ctx.is_paused
 
     ctx = test_wf.resume(ctx.execution_id, {"rejected": True})
     assert ctx.has_succeeded
-    assert "error" in ctx.output
-    assert summary_fn() is None
+    assert "error" in ctx.output["result"]
+    assert ctx.output["summary"] is None
 
 
 def test_create_plan_no_pause_when_approval_disabled():
     import json
     from flux import ExecutionContext, workflow
 
-    tools, _ = build_plan_tools(approve_plan=False)
-    create_plan_tool = tools[0]
-
     @workflow
     async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(approve_plan=False)
+        create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
                 [
@@ -1451,3 +1434,72 @@ def test_create_plan_no_pause_when_approval_disabled():
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
+
+
+# --- LTM persistence tests ---
+
+
+def test_build_plan_tools_restores_from_ltm():
+    import json
+    from flux import ExecutionContext, workflow
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+
+    provider = InMemoryProvider()
+
+    @workflow
+    async def plan_wf(ctx: ExecutionContext):
+        ltm = LongTermMemory(provider=provider, scope="_plan")
+        phase = ctx.input or "setup"
+        if phase == "setup":
+            tools, _ = await build_plan_tools(long_term_memory=ltm)
+            create_plan_tool = tools[0]
+            mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+            await create_plan_tool(
+                steps=json.dumps(
+                    [
+                        {"name": "a", "description": "Do A."},
+                        {"name": "b", "description": "Do B."},
+                    ],
+                ),
+            )
+            await mark_step_done_tool(step_name="a", result="Done A.")
+            return "setup done"
+        else:
+            tools, summary_fn = await build_plan_tools(long_term_memory=ltm)
+            get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
+            plan = await get_plan_tool()
+            return {"plan": plan, "summary": summary_fn()}
+
+    ctx = plan_wf.run("setup")
+    assert ctx.has_succeeded
+
+    ctx = plan_wf.run("restore")
+    assert ctx.has_succeeded
+    step_a = next(s for s in ctx.output["plan"]["steps"] if s["name"] == "a")
+    assert step_a["status"] == "completed"
+    assert step_a["result"] == "Done A."
+    assert "1/2" in ctx.output["summary"]
+
+
+def test_build_plan_tools_works_without_ltm():
+    import json
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf2(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+        create_plan_tool = tools[0]
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        return summary_fn()
+
+    ctx = test_wf2.run()
+    assert ctx.has_succeeded
+    assert "0/2" in ctx.output

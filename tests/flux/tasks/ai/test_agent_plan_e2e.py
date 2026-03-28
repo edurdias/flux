@@ -38,11 +38,11 @@ TIMEOUT = 120
 
 def test_integration_create_plan_via_execute_tools():
     """create_plan works when called through execute_tools like the agent loop would."""
-    tools, summary_fn = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        return await execute_tools(
+        tools, summary_fn = await build_plan_tools()
+        result = await execute_tools(
             [
                 {
                     "id": "call_1",
@@ -65,23 +65,25 @@ def test_integration_create_plan_via_execute_tools():
             ],
             tools,
         )
+        return {"result": result, "summary": summary_fn()}
 
     ctx = wf.run()
     assert ctx.has_succeeded
-    result = json.loads(ctx.output[0]["output"])
+    result = json.loads(ctx.output["result"][0]["output"])
     assert len(result["steps"]) == 2
     assert result["steps"][0]["name"] == "research"
     assert result["steps"][1]["depends_on"] == ["research"]
-    assert summary_fn() is not None
-    assert "0/2" in summary_fn()
+    assert ctx.output["summary"] is not None
+    assert "0/2" in ctx.output["summary"]
 
 
 def test_integration_full_plan_lifecycle():
     """Full lifecycle: create -> complete -> get_plan through execute_tools."""
-    tools, summary_fn = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+
         # Step 1: Create plan
         r1 = await execute_tools(
             [
@@ -147,7 +149,7 @@ def test_integration_full_plan_lifecycle():
             tools,
         )
 
-        return {"create": r1, "complete1": r2, "get": r3, "complete2": r4}
+        return {"create": r1, "complete1": r2, "get": r3, "complete2": r4, "summary": summary_fn()}
 
     ctx = wf.run()
     assert ctx.has_succeeded
@@ -175,15 +177,16 @@ def test_integration_full_plan_lifecycle():
     assert complete2["status"] == "completed"
 
     # Verify summary
-    assert "2/2" in summary_fn()
+    assert "2/2" in out["summary"]
 
 
 def test_integration_replan_preserves_completed():
     """Replanning preserves completed steps and their results."""
-    tools, _ = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+
         # Create initial plan
         await execute_tools(
             [
@@ -252,10 +255,11 @@ def test_integration_replan_preserves_completed():
 
 def test_integration_mark_step_done_errors():
     """mark_step_done returns error dicts for invalid calls."""
-    tools, _ = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+
         # No plan exists
         r1 = await execute_tools(
             [
@@ -308,10 +312,11 @@ def test_integration_mark_step_done_errors():
 
 def test_integration_validation_errors():
     """create_plan returns error for invalid step names and circular deps."""
-    tools, _ = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+
         r1 = await execute_tools(
             [
                 {
@@ -359,10 +364,11 @@ def test_integration_validation_errors():
 
 def test_integration_plan_summary_injection():
     """Plan summary function returns correct status after operations."""
-    tools, summary_fn = build_plan_tools()
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        tools, summary_fn = await build_plan_tools()
+
         # No plan — summary should be None
         assert summary_fn() is None
 
@@ -447,17 +453,17 @@ async def search_web(query: str) -> str:
 
 def test_e2e_agent_with_planning_succeeds():
     """An agent with planning=True can complete a task without errors."""
-    planner = agent(
-        "You are a research analyst. Use your tools to help with research tasks.",
-        model=MODEL,
-        tools=[search_web],
-        planning=True,
-        max_tool_calls=15,
-        stream=False,
-    )
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        planner = await agent(
+            "You are a research analyst. Use your tools to help with research tasks.",
+            model=MODEL,
+            tools=[search_web],
+            planning=True,
+            max_tool_calls=15,
+            stream=False,
+        )
         return await planner("Search for information about AI frameworks.")
 
     ctx = wf.run(timeout=TIMEOUT)
@@ -467,17 +473,17 @@ def test_e2e_agent_with_planning_succeeds():
 
 def test_e2e_agent_without_planning_succeeds():
     """An agent with planning=False still works normally."""
-    basic = agent(
-        "You are a research analyst.",
-        model=MODEL,
-        tools=[search_web],
-        planning=False,
-        max_tool_calls=10,
-        stream=False,
-    )
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        basic = await agent(
+            "You are a research analyst.",
+            model=MODEL,
+            tools=[search_web],
+            planning=False,
+            max_tool_calls=10,
+            stream=False,
+        )
         return await basic("Search for AI framework data.")
 
     ctx = wf.run(timeout=TIMEOUT)
@@ -486,26 +492,25 @@ def test_e2e_agent_without_planning_succeeds():
 
 def test_e2e_planning_and_non_planning_both_succeed():
     """Both planning and non-planning agents should complete without crashing."""
-    planner = agent(
-        "You are a research analyst.",
-        model=MODEL,
-        tools=[search_web],
-        planning=True,
-        max_tool_calls=15,
-        stream=False,
-    )
-
-    basic = agent(
-        "You are a research analyst.",
-        model=MODEL,
-        tools=[search_web],
-        planning=False,
-        max_tool_calls=10,
-        stream=False,
-    )
 
     @workflow
     async def wf(ctx: ExecutionContext):
+        planner = await agent(
+            "You are a research analyst.",
+            model=MODEL,
+            tools=[search_web],
+            planning=True,
+            max_tool_calls=15,
+            stream=False,
+        )
+        basic = await agent(
+            "You are a research analyst.",
+            model=MODEL,
+            tools=[search_web],
+            planning=False,
+            max_tool_calls=10,
+            stream=False,
+        )
         r1 = await planner("What companies are in the AI market?")
         r2 = await basic("What companies are in the AI market?")
         return {"planning": r1, "basic": r2}

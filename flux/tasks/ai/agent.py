@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("flux.agent")
 
 
-def agent(
+async def agent(
     system_prompt: str,
     *,
     model: str,
@@ -69,7 +69,9 @@ def agent(
         from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
 
         system_prompt = system_prompt + build_plan_preamble()
-        plan_tools, plan_summary_fn = build_plan_tools()
+        plan_tools, plan_summary_fn = await build_plan_tools(
+            long_term_memory=long_term_memory,
+        )
         tools = (tools or []) + plan_tools
 
     if skills is not None:
