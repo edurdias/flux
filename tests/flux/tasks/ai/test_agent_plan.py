@@ -491,7 +491,7 @@ def test_plan_context_summary_with_plan():
 
 def test_build_plan_tools_returns_tools_and_summary():
     tools, summary_fn = build_plan_tools()
-    assert len(tools) == 4
+    assert len(tools) == 5
     assert callable(summary_fn)
     assert summary_fn() is None
 
@@ -499,7 +499,7 @@ def test_build_plan_tools_returns_tools_and_summary():
 def test_build_plan_tools_tool_names():
     tools, _ = build_plan_tools()
     names = {t.func.__name__ for t in tools}
-    assert names == {"create_plan", "start_step", "mark_step_done", "get_plan"}
+    assert names == {"create_plan", "start_step", "mark_step_done", "mark_step_failed", "get_plan"}
 
 
 def test_create_plan():
@@ -902,3 +902,102 @@ def test_build_plan_preamble_contains_guidance():
     assert "When NOT to create a plan" in preamble
     assert "depends_on" in preamble
     assert "Replanning" in preamble
+
+
+# --- mark_step_failed tool tests ---
+
+
+def test_mark_step_failed():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, summary_fn = build_plan_tools()
+    create_plan_tool = tools[0]
+    start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await start_step_tool(step_name="a")
+        return await mark_step_failed_tool(step_name="a", reason="Connection timeout.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["status"] == "failed"
+    assert ctx.output["error"] == "Connection timeout."
+    assert "1 failed" in summary_fn()
+
+
+def test_mark_step_failed_no_plan():
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await mark_step_failed_tool(step_name="a", reason="Error.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "error" in ctx.output
+
+
+def test_mark_step_failed_allows_from_pending():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        return await mark_step_failed_tool(step_name="a", reason="Skip.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["status"] == "failed"
+
+
+def test_mark_step_failed_already_completed():
+    import json
+    from flux import ExecutionContext, workflow
+
+    tools, _ = build_plan_tools()
+    create_plan_tool = tools[0]
+    mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+    mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        await create_plan_tool(
+            steps=json.dumps(
+                [
+                    {"name": "a", "description": "Do A."},
+                    {"name": "b", "description": "Do B."},
+                ],
+            ),
+        )
+        await mark_step_done_tool(step_name="a", result="Done.")
+        return await mark_step_failed_tool(step_name="a", reason="Too late.")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert "error" in ctx.output

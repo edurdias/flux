@@ -320,6 +320,35 @@ def build_plan_tools(
         return step.to_dict()
 
     @task
+    async def mark_step_failed(step_name: str, reason: str) -> dict:
+        """Mark a plan step as failed and store the reason.
+
+        Use this when a step cannot be completed (tool errors, bad data, etc.).
+        Failed steps block their dependents. Consider replanning after a failure.
+
+        Args:
+            step_name: The step name to mark as failed.
+            reason: Why the step failed.
+        """
+        if ctx.plan is None:
+            return {"error": "No plan exists. Call create_plan first."}
+
+        step = ctx.plan.get_step(step_name)
+        if step is None:
+            available = ", ".join(s.name for s in ctx.plan.steps)
+            return {"error": f"Step '{step_name}' not found. Available: {available}"}
+
+        if step.status == "completed":
+            return {"error": f"Step '{step_name}' is already completed."}
+
+        if step.status == "failed":
+            return step.to_dict()
+
+        step.status = "failed"
+        step.error = reason
+        return step.to_dict()
+
+    @task
     async def get_plan() -> dict:
         """Return the current plan with all steps, statuses, and results.
 
@@ -330,7 +359,7 @@ def build_plan_tools(
             return {"message": "No plan exists."}
         return ctx.plan.to_dict()
 
-    return [create_plan, start_step, mark_step_done, get_plan], ctx.summary
+    return [create_plan, start_step, mark_step_done, mark_step_failed, get_plan], ctx.summary
 
 
 def build_plan_preamble() -> str:
