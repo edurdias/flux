@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from flux.task import task
-from flux.tasks.ai.tool_executor import build_tool_schemas, execute_tools
+from flux.tasks.ai.tool_executor import (
+    build_tool_schemas,
+    execute_tools,
+    extract_tool_calls_from_content,
+    strip_tool_calls_from_content,
+)
 
 if TYPE_CHECKING:
     from flux.tasks.ai.memory.working_memory import WorkingMemory
@@ -21,6 +26,7 @@ def build_ollama_agent(
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls Ollama's chat API."""
     try:
@@ -33,6 +39,7 @@ def build_ollama_agent(
     task_name = name or f"agent_ollama_{model_name.replace(':', '_').replace('.', '_')}"
     tool_schemas = build_tool_schemas(tools) if tools else None
     ollama_tools = _to_ollama_tools(tool_schemas) if tool_schemas else None
+    tool_names = {s["name"] for s in tool_schemas} if tool_schemas else set()
 
     @task.with_options(name=task_name)
     async def ollama_agent_task(instruction: str, *, context: str = "") -> str | BaseModel:
@@ -81,27 +88,68 @@ def build_ollama_agent(
 
             tool_call_count = 0
             tool_iteration = 0
-            while response_message.get("tool_calls") and tools and tool_call_count < max_tool_calls:
-                tool_calls = [
-                    {
-                        "id": f"call_{i}",
-                        "name": tc["function"]["name"],
-                        "arguments": tc["function"]["arguments"],
-                    }
-                    for i, tc in enumerate(response_message["tool_calls"])
-                ]
-                tool_call_count += len(tool_calls)
+
+            def _extract_tool_calls(msg: dict) -> list[dict] | None:
+                """Extract tool calls from structured field or text content."""
+                if msg.get("tool_calls"):
+                    return [
+                        {
+                            "id": f"call_{i}",
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        }
+                        for i, tc in enumerate(msg["tool_calls"])
+                    ]
+                if tool_names and msg.get("content"):
+                    return extract_tool_calls_from_content(
+                        msg["content"],
+                        tool_names,
+                    )
+                return None
+
+            pending_tool_calls = _extract_tool_calls(response_message)
+            while pending_tool_calls and tools and tool_call_count < max_tool_calls:
+                tool_call_count += len(pending_tool_calls)
 
                 call_messages.append(response_message)
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    pending_tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                )
                 tool_iteration += 1
                 for result in results:
                     call_messages.append({"role": "tool", "content": result["output"]})
 
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        call_messages[-1]["content"] += f"\n\n{summary}"
+
                 response = await client.chat(**{**kwargs, "messages": call_messages})
                 response_message = response["message"]
+                pending_tool_calls = _extract_tool_calls(response_message)
 
-            if response_message.get("tool_calls") and tool_call_count >= max_tool_calls:
+                if (
+                    not pending_tool_calls
+                    and not response_message.get("content")
+                    and plan_summary_fn
+                    and plan_summary_fn()
+                    and tool_call_count < max_tool_calls
+                ):
+                    summary = plan_summary_fn()
+                    call_messages.append(response_message)
+                    call_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Continue working on your plan. {summary}",
+                        },
+                    )
+                    response = await client.chat(**{**kwargs, "messages": call_messages})
+                    response_message = response["message"]
+                    pending_tool_calls = _extract_tool_calls(response_message)
+
+            if pending_tool_calls and tool_call_count >= max_tool_calls:
                 call_messages.append(response_message)
                 call_messages.append(
                     {
@@ -113,17 +161,20 @@ def build_ollama_agent(
                 response = await client.chat(**{**kwargs_no_tools, "messages": call_messages})
                 response_message = response["message"]
 
-            if stream and not response_message.get("tool_calls"):
+            content = response_message.get("content", "")
+
+            if stream and not content and not pending_tool_calls:
+                call_messages.append(response_message)
                 kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
                 kwargs_stream["messages"] = call_messages
-                content = ""
                 async for chunk in await client.chat(**{**kwargs_stream, "stream": True}):
                     token = chunk["message"]["content"]
                     if token:
                         content += token
                         await progress({"token": token})
-            else:
-                content = response_message["content"]
+
+            if tool_names:
+                content = strip_tool_calls_from_content(content)
 
         if working_memory:
             await working_memory.memorize("user", user_content)

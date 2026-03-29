@@ -29,14 +29,13 @@ class TestGeminiWorkflowIntegration:
             )
             mock_genai.Client.return_value = mock_client
 
-            assistant = agent(
-                system_prompt="You are a helpful assistant.",
-                model="google/gemini-2.5-flash",
-                stream=False,
-            )
-
             @workflow
             async def gemini_basic_workflow(ctx: ExecutionContext):
+                assistant = await agent(
+                    system_prompt="You are a helpful assistant.",
+                    model="google/gemini-2.5-flash",
+                    stream=False,
+                )
                 return await assistant(ctx.input["message"])
 
             result = gemini_basic_workflow.run({"message": "Why is the sky blue?"})
@@ -72,15 +71,14 @@ class TestGeminiWorkflowIntegration:
                 """Get weather for a city."""
                 return "15°C, cloudy"
 
-            assistant = agent(
-                system_prompt="You are a weather assistant.",
-                model="google/gemini-2.5-flash",
-                tools=[get_weather],
-                stream=False,
-            )
-
             @workflow
             async def gemini_tools_workflow(ctx: ExecutionContext):
+                assistant = await agent(
+                    system_prompt="You are a weather assistant.",
+                    model="google/gemini-2.5-flash",
+                    tools=[get_weather],
+                    stream=False,
+                )
                 return await assistant(ctx.input["message"])
 
             result = gemini_tools_workflow.run(
@@ -102,15 +100,14 @@ class TestGeminiWorkflowIntegration:
             )
             mock_genai.Client.return_value = mock_client
 
-            assistant = agent(
-                system_prompt="Return weather data as JSON.",
-                model="google/gemini-2.5-flash",
-                response_format=WeatherReport,
-                stream=False,
-            )
-
             @workflow
             async def gemini_structured_workflow(ctx: ExecutionContext):
+                assistant = await agent(
+                    system_prompt="Return weather data as JSON.",
+                    model="google/gemini-2.5-flash",
+                    response_format=WeatherReport,
+                    stream=False,
+                )
                 return await assistant(ctx.input["message"])
 
             result = gemini_structured_workflow.run(
