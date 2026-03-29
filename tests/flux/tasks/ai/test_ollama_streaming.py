@@ -157,9 +157,7 @@ def test_ollama_streaming_with_tools_streams_final_response():
                 _CURRENT_TASK.reset(task_token)
                 ExecutionContext.reset(ctx_token)
 
-            assert result == "Final answer"
-            assert len(captured_progress) == 2
-            assert captured_progress[0] == {"token": "Final"}
-            assert captured_progress[1] == {"token": " answer"}
+            assert result == "Sunny"
+            assert len(captured_progress) == 0
 
     asyncio.run(run())

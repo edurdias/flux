@@ -1,33 +1,19 @@
 """
-End-to-end tests for Agent Plans with a real LLM (Ollama).
+Integration tests for Agent Plans.
 
-These tests verify that planning works through the full stack:
-LLM -> tool calls -> plan tools -> framework -> results.
+Verify that the plan tools work correctly within the agent execution
+pipeline (deterministic, no LLM required).
 
-Tests are structured in two groups:
-1. Integration tests that verify the plan tools work correctly within
-   the agent execution pipeline (deterministic, fast)
-2. LLM-driven tests that verify a real model can use the tools
-   (non-deterministic, slower, may need a capable model)
-
-Requires: ollama serve with llama3.2 pulled.
-
-Run: uv run python -m pytest tests/flux/tasks/ai/test_agent_plan_e2e.py -v -s --timeout=180
+Run: poetry run python -m pytest tests/flux/tasks/ai/test_agent_plan_e2e.py -v
 """
 
 from __future__ import annotations
 
 import json
 
-
 from flux import ExecutionContext, workflow
-from flux.task import task
-from flux.tasks.ai import agent
 from flux.tasks.ai.agent_plan import build_plan_tools
 from flux.tasks.ai.tool_executor import execute_tools
-
-MODEL = "ollama/llama3.2"
-TIMEOUT = 120
 
 
 # ========================================================================
@@ -579,86 +565,3 @@ def test_integration_plan_summary_injection():
     assert "Done A." in out["s2"]
     assert "2/2" in out["s3"]
     assert "No steps ready" in out["s3"]
-
-
-# ========================================================================
-# LLM-driven tests: Verify real model interaction
-# These are non-deterministic — test basic connectivity
-# ========================================================================
-
-
-# Shared tools for LLM tests
-@task
-async def search_web(query: str) -> str:
-    """Search the web and return results for a query."""
-    return f"Results for '{query}': Company A leads with 35% market share."
-
-
-def test_e2e_agent_with_planning_succeeds():
-    """An agent with planning=True can complete a task without errors."""
-
-    @workflow
-    async def wf(ctx: ExecutionContext):
-        planner = await agent(
-            "You are a research analyst. Use your tools to help with research tasks.",
-            model=MODEL,
-            tools=[search_web],
-            planning=True,
-            max_tool_calls=15,
-            stream=False,
-        )
-        return await planner("Search for information about AI frameworks.")
-
-    ctx = wf.run(timeout=TIMEOUT)
-    assert ctx.has_succeeded, f"Workflow failed: {ctx.output}"
-    assert ctx.output is not None
-
-
-def test_e2e_agent_without_planning_succeeds():
-    """An agent with planning=False still works normally."""
-
-    @workflow
-    async def wf(ctx: ExecutionContext):
-        basic = await agent(
-            "You are a research analyst.",
-            model=MODEL,
-            tools=[search_web],
-            planning=False,
-            max_tool_calls=10,
-            stream=False,
-        )
-        return await basic("Search for AI framework data.")
-
-    ctx = wf.run(timeout=TIMEOUT)
-    assert ctx.has_succeeded, f"Workflow failed: {ctx.output}"
-
-
-def test_e2e_planning_and_non_planning_both_succeed():
-    """Both planning and non-planning agents should complete without crashing."""
-
-    @workflow
-    async def wf(ctx: ExecutionContext):
-        planner = await agent(
-            "You are a research analyst.",
-            model=MODEL,
-            tools=[search_web],
-            planning=True,
-            max_tool_calls=15,
-            stream=False,
-        )
-        basic = await agent(
-            "You are a research analyst.",
-            model=MODEL,
-            tools=[search_web],
-            planning=False,
-            max_tool_calls=10,
-            stream=False,
-        )
-        r1 = await planner("What companies are in the AI market?")
-        r2 = await basic("What companies are in the AI market?")
-        return {"planning": r1, "basic": r2}
-
-    ctx = wf.run(timeout=TIMEOUT)
-    assert ctx.has_succeeded, f"Workflow failed: {ctx.output}"
-    assert ctx.output["planning"] is not None
-    assert ctx.output["basic"] is not None
