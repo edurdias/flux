@@ -163,18 +163,15 @@ def build_ollama_agent(
 
             content = response_message.get("content", "")
 
-            if stream and not pending_tool_calls:
-                if content:
-                    await progress({"token": content})
-                else:
-                    call_messages.append(response_message)
-                    kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
-                    kwargs_stream["messages"] = call_messages
-                    async for chunk in await client.chat(**{**kwargs_stream, "stream": True}):
-                        token = chunk["message"]["content"]
-                        if token:
-                            content += token
-                            await progress({"token": token})
+            if stream and not content and not pending_tool_calls:
+                call_messages.append(response_message)
+                kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
+                kwargs_stream["messages"] = call_messages
+                async for chunk in await client.chat(**{**kwargs_stream, "stream": True}):
+                    token = chunk["message"]["content"]
+                    if token:
+                        content += token
+                        await progress({"token": token})
 
             if tool_names:
                 content = strip_tool_calls_from_content(content)

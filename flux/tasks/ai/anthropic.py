@@ -148,20 +148,16 @@ def build_anthropic_agent(
                     **{**kwargs_no_tools, "messages": call_messages},
                 )
 
-            if stream and not _has_tool_use(response):
-                existing_text = _extract_text(response)
-                if existing_text:
-                    await progress({"token": existing_text})
-                else:
-                    call_messages.append(
-                        {"role": "assistant", "content": _serialize_content(response.content)},
-                    )
-                    kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
-                    kwargs_stream["messages"] = call_messages
-                    async with client.messages.stream(**kwargs_stream) as stream_ctx:
-                        async for text in stream_ctx.text_stream:
-                            await progress({"token": text})
-                        response = stream_ctx.get_final_message()
+            if stream and not _extract_text(response) and not _has_tool_use(response):
+                call_messages.append(
+                    {"role": "assistant", "content": _serialize_content(response.content)},
+                )
+                kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
+                kwargs_stream["messages"] = call_messages
+                async with client.messages.stream(**kwargs_stream) as stream_ctx:
+                    async for text in stream_ctx.text_stream:
+                        await progress({"token": text})
+                    response = stream_ctx.get_final_message()
 
         content = _extract_text(response)
 

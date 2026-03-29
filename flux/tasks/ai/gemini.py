@@ -166,24 +166,21 @@ def build_gemini_agent(
 
             content = response.text or ""
 
-            if stream and not response.function_calls:
-                if content:
-                    await progress({"token": content})
-                else:
-                    contents.append(response.candidates[0].content)
-                    config_stream = types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        max_output_tokens=max_tokens,
-                    )
-                    async for chunk in await client.aio.models.generate_content_stream(
-                        model=model_name,
-                        contents=contents,
-                        config=config_stream,
-                    ):
-                        token = chunk.text
-                        if token:
-                            content += token
-                            await progress({"token": token})
+            if stream and not content and not response.function_calls:
+                contents.append(response.candidates[0].content)
+                config_stream = types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    max_output_tokens=max_tokens,
+                )
+                async for chunk in await client.aio.models.generate_content_stream(
+                    model=model_name,
+                    contents=contents,
+                    config=config_stream,
+                ):
+                    token = chunk.text
+                    if token:
+                        content += token
+                        await progress({"token": token})
 
         if working_memory:
             await working_memory.memorize("user", user_content)
