@@ -70,6 +70,20 @@
    - [MCP Client](advanced-features/task-patterns.md#mcp-client)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
+### [AI Agents](advanced-features/ai-agents.md)
+   - [Supported Providers](advanced-features/ai-agents.md#supported-providers)
+   - [Tool Calling](advanced-features/ai-agents.md#tool-calling)
+   - [Streaming](advanced-features/ai-agents.md#streaming)
+   - [Structured Output](advanced-features/ai-agents.md#structured-output)
+   - [Memory](advanced-features/ai-agents.md#memory)
+
+### [Agent Plans](advanced-features/agent-plans.md)
+   - [Plan Tools](advanced-features/agent-plans.md#the-six-tools)
+   - [Step Lifecycle](advanced-features/agent-plans.md#step-lifecycle)
+   - [Replanning](advanced-features/agent-plans.md#replanning)
+   - [Plan Approval](advanced-features/agent-plans.md#plan-approval)
+   - [Planning with Sub-Agents](advanced-features/agent-plans.md#planning-with-sub-agents)
+
 ### [Agent Skills](advanced-features/agent-skills.md)
    - [Defining Skills](advanced-features/agent-skills.md#defining-skills)
    - [SkillCatalog](advanced-features/agent-skills.md#skillcatalog)

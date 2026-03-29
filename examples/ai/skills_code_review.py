@@ -32,7 +32,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from flux import ExecutionContext, task, workflow
@@ -97,18 +96,6 @@ async def run_linter(code: str) -> str:
     return "\n".join(issues)
 
 
-reviewer = asyncio.run(
-    agent(
-        "You are a code review assistant. Use the appropriate skill for the type of "
-        "review requested. If the user asks for a general review, use both skills.",
-        model="ollama/llama3.2",
-        name="code-reviewer",
-        tools=[run_linter],
-        skills=catalog,
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
-
-
 @workflow
 async def skills_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
@@ -135,6 +122,14 @@ async def skills_code_review_ollama(ctx: ExecutionContext[dict[str, Any]]):
     review_type = input_data.get("review_type", "general")
     instruction = f"Review this code ({review_type} review):\n\n```\n{code}\n```"
 
+    reviewer = await agent(
+        "You are a code review assistant. Use the appropriate skill for the type of "
+        "review requested. If the user asks for a general review, use both skills.",
+        model="ollama/llama3.2",
+        name="code-reviewer",
+        tools=[run_linter],
+        skills=catalog,
+    )
     review = await reviewer(instruction)
 
     return {

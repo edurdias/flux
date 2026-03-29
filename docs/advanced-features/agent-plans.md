@@ -9,7 +9,6 @@ Plans are guidance, not rigid execution. The agent decides when to plan, works t
 ## Quick Start
 
 ```python
-import asyncio
 from flux import task, workflow, ExecutionContext
 from flux.tasks.ai import agent
 
@@ -103,6 +102,12 @@ After each tool call, the agent sees a lightweight one-line reminder:
 ```
 
 This prevents the agent from losing track of the plan during long sequences of tool calls. When a step has dependency results, they are included inline so the agent has context without calling `get_plan`.
+
+### Plan Continuation
+
+If the LLM stops responding mid-plan (returns no content and no tool calls while steps remain incomplete), the framework automatically nudges it to continue by injecting a continuation prompt with the current plan summary. This prevents models — especially smaller local ones — from silently abandoning incomplete plans.
+
+The nudge is transparent: the agent receives a message like `"Continue working on your plan. [Plan: 1/3 done. Active: \"analyze\".]"` and resumes calling tools normally.
 
 ### Replanning
 

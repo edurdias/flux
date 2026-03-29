@@ -12,6 +12,8 @@ Flux is a distributed workflow orchestration engine written in Python that enabl
 - **High Performance**: Efficient parallel task execution and workflow processing
 - **Type Safety**: Leverages Python type hints for safer workflow development
 - **API Integration**: Built-in FastAPI server for HTTP-based workflow execution
+- **AI Agents**: LLM-powered tasks with tool use, structured output, streaming, and memory (Ollama, OpenAI, Anthropic, Gemini)
+- **Agent Plans**: Structured multi-step planning with dependency tracking, replanning, and plan approval
 - **Model Context Protocol (MCP) Support**: Integration with AI development workflows through MCP server capabilities
 - **Workflow Cancellation**: Cancel running workflows with both sync and async modes
 - **Resource Monitoring**: Worker system with CPU, memory, and resource tracking

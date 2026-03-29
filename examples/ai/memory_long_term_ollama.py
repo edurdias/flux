@@ -8,27 +8,11 @@ Usage:
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
 from flux.tasks.ai.memory import working_memory, long_term_memory, sqlite
-
-assistant = asyncio.run(
-    agent(
-        system_prompt=(
-            "You are a personal assistant. Remember important facts about the user "
-            "using your memory tools. Always check memory at the start of a conversation."
-        ),
-        model="ollama/llama3.2",
-        working_memory=working_memory(),
-        long_term_memory=long_term_memory(
-            provider=sqlite("memory_example.db"),
-            scope="user:default",
-        ),
-    ),
-)
 
 
 @workflow
@@ -41,6 +25,19 @@ async def memory_long_term(ctx: ExecutionContext[dict[str, Any]]):
     message = initial_input.get(
         "message",
         "Hi! My name is Alice and I work as a software developer.",
+    )
+
+    assistant = await agent(
+        system_prompt=(
+            "You are a personal assistant. Remember important facts about the user "
+            "using your memory tools. Always check memory at the start of a conversation."
+        ),
+        model="ollama/llama3.2",
+        working_memory=working_memory(),
+        long_term_memory=long_term_memory(
+            provider=sqlite("memory_example.db"),
+            scope="user:default",
+        ),
     )
     response = await assistant(message)
     return response

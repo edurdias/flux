@@ -31,8 +31,10 @@
 
 ## AI & MCP Integration
 - **AI Agents**: LLM-powered tasks with tool use, structured output, and conversation history
+- **Agent Plans**: Structured multi-step planning with dependency tracking, replanning, and plan approval
+- **Agent Skills**: Reusable prompt-based capabilities that agents discover and invoke at runtime
 - **MCP Client**: Connect to external MCP servers, discover tools at runtime, and use them as Flux tasks
-- **Provider Support**: Ollama, OpenAI, and Anthropic for AI agents; any MCP-compliant server for tools
+- **Provider Support**: Ollama, OpenAI, Anthropic, and Google Gemini for AI agents; any MCP-compliant server for tools
 
 ## API Integration
 - **HTTP API**: Built-in FastAPI server for HTTP access

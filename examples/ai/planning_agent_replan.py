@@ -20,7 +20,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from flux import ExecutionContext, task, workflow
@@ -84,8 +83,22 @@ async def generate_report(title: str, sections: str) -> str:
     )
 
 
-analyst = asyncio.run(
-    agent(
+@workflow
+async def planning_agent_replan(ctx: ExecutionContext[dict[str, Any]]):
+    """
+    A planning agent that handles failures and replans.
+
+    Input format:
+    {
+        "topic": "quarterly business review"
+    }
+    """
+    _call_count.clear()
+
+    input_data = ctx.input or {}
+    topic = input_data.get("topic", "quarterly business review")
+
+    analyst = await agent(
         "You are a business analyst. Always use your tools to accomplish tasks. "
         "Never describe what you would do — actually do it by calling tools. "
         "For multi-step tasks, create a plan first using create_plan, then "
@@ -97,25 +110,7 @@ analyst = asyncio.run(
         tools=[search_database, search_web, analyze_data, generate_report],
         planning=True,
         max_tool_calls=30,
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=600)
-
-
-@workflow
-async def planning_agent_replan(ctx: ExecutionContext[dict[str, Any]]):
-    """
-    A planning agent that handles failures and replans.
-
-    Input format:
-    {
-        "topic": "quarterly business review"
-    }
-    """
-    # Reset call counts for each run
-    _call_count.clear()
-
-    input_data = ctx.input or {}
-    topic = input_data.get("topic", "quarterly business review")
+    )
 
     response = await analyst(
         f"Prepare a {topic} report. You need to: "

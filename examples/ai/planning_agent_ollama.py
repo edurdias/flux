@@ -23,7 +23,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from flux import ExecutionContext, task, workflow
@@ -64,22 +63,6 @@ async def write_report(topic: str, content: str) -> str:
     )
 
 
-analyst = asyncio.run(
-    agent(
-        "You are a thorough market research analyst. "
-        "For complex research tasks, create a plan to organize your work. "
-        "Call start_step before working on each step. Mark steps done with mark_step_done, "
-        "or mark_step_failed if they cannot be completed. Use get_ready_steps to see what "
-        "can be started next. Use your tools to gather data, analyze it, and produce reports.",
-        model="ollama/mistral-small:24b",
-        name="planning-analyst",
-        tools=[search_web, analyze_data, write_report],
-        planning=True,
-        max_tool_calls=30,
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=600)
-
-
 @workflow
 async def planning_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
@@ -92,6 +75,19 @@ async def planning_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     """
     input_data = ctx.input or {}
     topic = input_data.get("topic", "AI agent frameworks")
+
+    analyst = await agent(
+        "You are a thorough market research analyst. "
+        "For complex research tasks, create a plan to organize your work. "
+        "Call start_step before working on each step. Mark steps done with mark_step_done, "
+        "or mark_step_failed if they cannot be completed. Use get_ready_steps to see what "
+        "can be started next. Use your tools to gather data, analyze it, and produce reports.",
+        model="ollama/mistral-small:24b",
+        name="planning-analyst",
+        tools=[search_web, analyze_data, write_report],
+        planning=True,
+        max_tool_calls=30,
+    )
 
     response = await analyst(
         f"Research the competitive landscape for '{topic}' and produce "

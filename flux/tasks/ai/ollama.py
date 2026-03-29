@@ -130,6 +130,25 @@ def build_ollama_agent(
                 response_message = response["message"]
                 pending_tool_calls = _extract_tool_calls(response_message)
 
+                if (
+                    not pending_tool_calls
+                    and not response_message.get("content")
+                    and plan_summary_fn
+                    and plan_summary_fn()
+                    and tool_call_count < max_tool_calls
+                ):
+                    summary = plan_summary_fn()
+                    call_messages.append(response_message)
+                    call_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Continue working on your plan. {summary}",
+                        },
+                    )
+                    response = await client.chat(**{**kwargs, "messages": call_messages})
+                    response_message = response["message"]
+                    pending_tool_calls = _extract_tool_calls(response_message)
+
             if pending_tool_calls and tool_call_count >= max_tool_calls:
                 call_messages.append(response_message)
                 call_messages.append(
@@ -142,17 +161,17 @@ def build_ollama_agent(
                 response = await client.chat(**{**kwargs_no_tools, "messages": call_messages})
                 response_message = response["message"]
 
-            if stream and not pending_tool_calls:
+            content = response_message.get("content", "")
+
+            if stream and not content and not pending_tool_calls:
+                call_messages.append(response_message)
                 kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
                 kwargs_stream["messages"] = call_messages
-                content = ""
                 async for chunk in await client.chat(**{**kwargs_stream, "stream": True}):
                     token = chunk["message"]["content"]
                     if token:
                         content += token
                         await progress({"token": token})
-            else:
-                content = response_message["content"]
 
             if tool_names:
                 content = strip_tool_calls_from_content(content)

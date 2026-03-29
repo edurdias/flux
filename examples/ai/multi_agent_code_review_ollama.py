@@ -34,7 +34,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from datetime import datetime
@@ -64,50 +63,6 @@ Provide your suggestions as a JSON array. Each suggestion should have:
 - importance: string (why it matters)
 
 Respond with ONLY the JSON array, no other text."""
-
-
-security_reviewer = asyncio.run(
-    agent(
-        "You are a security code reviewer with expertise in finding vulnerabilities. "
-        "Analyze code for: SQL injection, XSS, authentication issues, hardcoded secrets, "
-        "input validation, command injection, path traversal, insecure cryptography, "
-        "race conditions, and sensitive data exposure.",
-        model="ollama/llama3.2",
-        name="security_review",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-
-performance_reviewer = asyncio.run(
-    agent(
-        "You are a performance optimization expert. "
-        "Review code for: algorithm efficiency, unnecessary loops, inefficient data structures, "
-        "memory leaks, database query optimization, missing caching, redundant computations, "
-        "I/O bottlenecks, and blocking operations.",
-        model="ollama/llama3.2",
-        name="performance_review",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-
-style_reviewer = asyncio.run(
-    agent(
-        "You are a code quality and style expert. "
-        "Review code for: readability, naming conventions, organization, documentation, "
-        "DRY violations, function complexity, magic numbers, error handling, type hints, "
-        "and PEP 8 compliance.",
-        model="ollama/llama3.2",
-        name="style_review",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
-
-testing_reviewer = asyncio.run(
-    agent(
-        "You are a testing and quality assurance expert. "
-        "Suggest: critical test cases, edge cases, error conditions, integration tests, "
-        "mock requirements, test data, missing coverage, and regression tests.",
-        model="ollama/llama3.2",
-        name="testing_review",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=60)
 
 
 def parse_llm_json_response(content: str) -> list[dict[str, Any]]:
@@ -184,6 +139,14 @@ def _parse_review(agent_name: str, raw_output: str, key: str = "findings") -> di
 @task
 async def run_security(input_data: dict[str, Any]) -> dict[str, Any]:
     """Graph node: run security review agent."""
+    security_reviewer = await agent(
+        "You are a security code reviewer with expertise in finding vulnerabilities. "
+        "Analyze code for: SQL injection, XSS, authentication issues, hardcoded secrets, "
+        "input validation, command injection, path traversal, insecure cryptography, "
+        "race conditions, and sensitive data exposure.",
+        model="ollama/llama3.2",
+        name="security_review",
+    )
     prompt = _build_review_prompt(
         input_data["code"],
         input_data.get("file_path"),
@@ -197,6 +160,14 @@ async def run_security(input_data: dict[str, Any]) -> dict[str, Any]:
 @task
 async def run_performance(input_data: dict[str, Any]) -> dict[str, Any]:
     """Graph node: run performance review agent."""
+    performance_reviewer = await agent(
+        "You are a performance optimization expert. "
+        "Review code for: algorithm efficiency, unnecessary loops, inefficient data structures, "
+        "memory leaks, database query optimization, missing caching, redundant computations, "
+        "I/O bottlenecks, and blocking operations.",
+        model="ollama/llama3.2",
+        name="performance_review",
+    )
     prompt = _build_review_prompt(
         input_data["code"],
         input_data.get("file_path"),
@@ -210,6 +181,14 @@ async def run_performance(input_data: dict[str, Any]) -> dict[str, Any]:
 @task
 async def run_style(input_data: dict[str, Any]) -> dict[str, Any]:
     """Graph node: run style review agent."""
+    style_reviewer = await agent(
+        "You are a code quality and style expert. "
+        "Review code for: readability, naming conventions, organization, documentation, "
+        "DRY violations, function complexity, magic numbers, error handling, type hints, "
+        "and PEP 8 compliance.",
+        model="ollama/llama3.2",
+        name="style_review",
+    )
     prompt = _build_review_prompt(
         input_data["code"],
         input_data.get("file_path"),
@@ -223,6 +202,13 @@ async def run_style(input_data: dict[str, Any]) -> dict[str, Any]:
 @task
 async def run_testing(input_data: dict[str, Any]) -> dict[str, Any]:
     """Graph node: run testing review agent."""
+    testing_reviewer = await agent(
+        "You are a testing and quality assurance expert. "
+        "Suggest: critical test cases, edge cases, error conditions, integration tests, "
+        "mock requirements, test data, missing coverage, and regression tests.",
+        model="ollama/llama3.2",
+        name="testing_review",
+    )
     prompt = _build_review_prompt(
         input_data["code"],
         input_data.get("file_path"),

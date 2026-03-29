@@ -31,42 +31,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from flux import ExecutionContext, workflow
 from flux.tasks.ai import agent
-
-
-researcher = asyncio.run(
-    agent(
-        "You are an experienced research analyst. Research topics thoroughly and produce "
-        "structured summaries with key findings, trends, perspectives, examples, and future outlook. "
-        "Organize your findings with clear headings and bullet points.",
-        model="ollama/llama3",
-        name="researcher",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
-
-writer = asyncio.run(
-    agent(
-        "You are a skilled content writer. Transform research into compelling blog posts "
-        "with a title (as a markdown heading), an engaging introduction, well-organized body "
-        "sections with clear headings, and a strong conclusion. Target 800-1200 words.",
-        model="ollama/llama3",
-        name="writer",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
-
-editor = asyncio.run(
-    agent(
-        "You are an experienced content editor. Polish drafts for clarity, grammar, flow, "
-        "tone consistency, and argument strength. Return only the final polished post — "
-        "no editorial notes.",
-        model="ollama/llama3",
-        name="editor",
-    ),
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
 
 
 @workflow
@@ -97,6 +65,30 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
             "error": "Missing required parameter 'topic'",
             "execution_id": ctx.execution_id,
         }
+
+    researcher = await agent(
+        "You are an experienced research analyst. Research topics thoroughly and produce "
+        "structured summaries with key findings, trends, perspectives, examples, and future outlook. "
+        "Organize your findings with clear headings and bullet points.",
+        model="ollama/llama3",
+        name="researcher",
+    )
+
+    writer = await agent(
+        "You are a skilled content writer. Transform research into compelling blog posts "
+        "with a title (as a markdown heading), an engaging introduction, well-organized body "
+        "sections with clear headings, and a strong conclusion. Target 800-1200 words.",
+        model="ollama/llama3",
+        name="writer",
+    )
+
+    editor = await agent(
+        "You are an experienced content editor. Polish drafts for clarity, grammar, flow, "
+        "tone consistency, and argument strength. Return only the final polished post — "
+        "no editorial notes.",
+        model="ollama/llama3",
+        name="editor",
+    )
 
     research = await researcher(f"Research this topic: {topic}")
     draft = await writer(f"Write a blog post about: {topic}", context=research)

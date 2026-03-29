@@ -5,20 +5,19 @@
 ## Quick Start
 
 ```python
-from flux import task, workflow, ExecutionContext
+from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
-
-assistant = agent(
-    "You are a helpful assistant.",
-    model="ollama/llama3.2",
-)
 
 @workflow
 async def my_workflow(ctx: ExecutionContext):
+    assistant = await agent(
+        "You are a helpful assistant.",
+        model="ollama/llama3.2",
+    )
     return await assistant("What is the capital of France?")
 ```
 
-The returned value is a regular Flux `@task`. Call it with an instruction string and, optionally, a `context` string for additional background.
+`agent()` is an async function that returns a Flux `@task`. Call it with an instruction string and, optionally, a `context` string for additional background.
 
 ## Supported Providers
 
@@ -51,7 +50,7 @@ pip install google-genai     # for Google Gemini models
 Ollama runs locally. No API key required. Start the Ollama server before running your workflow.
 
 ```python
-assistant = agent(
+assistant = await agent(
     "You are a helpful assistant.",
     model="ollama/llama3.2",
 )
@@ -63,7 +62,7 @@ assistant = agent(
 import os
 os.environ["OPENAI_API_KEY"] = "sk-..."
 
-assistant = agent(
+assistant = await agent(
     "You are a helpful assistant.",
     model="openai/gpt-4o",
 )
@@ -75,7 +74,7 @@ assistant = agent(
 import os
 os.environ["ANTHROPIC_API_KEY"] = "sk-ant-..."
 
-assistant = agent(
+assistant = await agent(
     "You are a helpful assistant.",
     model="anthropic/claude-sonnet-4-20250514",
 )
@@ -87,7 +86,7 @@ assistant = agent(
 import os
 os.environ["GOOGLE_API_KEY"] = "AIza..."  # or GEMINI_API_KEY
 
-assistant = agent(
+assistant = await agent(
     "You are a helpful assistant.",
     model="google/gemini-2.5-flash",
 )
@@ -96,7 +95,7 @@ assistant = agent(
 ## Parameters
 
 ```python
-def agent(
+async def agent(
     system_prompt: str,
     *,
     model: str,
@@ -153,14 +152,13 @@ async def search_web(query: str) -> str:
     """Search the web and return relevant results."""
     ...
 
-assistant = agent(
-    "You are a helpful assistant with access to real-time data.",
-    model="openai/gpt-4o",
-    tools=[get_weather, search_web],
-)
-
 @workflow
 async def my_workflow(ctx: ExecutionContext):
+    assistant = await agent(
+        "You are a helpful assistant with access to real-time data.",
+        model="openai/gpt-4o",
+        tools=[get_weather, search_web],
+    )
     return await assistant("What's the weather like in Tokyo?")
 ```
 
@@ -171,7 +169,7 @@ Each tool call is recorded as a Flux task event, so tool invocations are fully o
 The `max_tool_calls` parameter (default `10`) caps the number of tool call iterations per agent invocation. When the limit is reached, the agent is forced to produce a final answer with whatever it has gathered.
 
 ```python
-assistant = agent(
+assistant = await agent(
     "You are a research assistant.",
     model="openai/gpt-4o",
     tools=[search_web],
@@ -193,14 +191,13 @@ class Sentiment(BaseModel):
     confidence: float # 0.0 to 1.0
     reason: str
 
-classifier = agent(
-    "You are a sentiment analysis assistant. Respond only with structured JSON.",
-    model="openai/gpt-4o",
-    response_format=Sentiment,
-)
-
 @workflow
 async def analyze(ctx: ExecutionContext):
+    classifier = await agent(
+        "You are a sentiment analysis assistant. Respond only with structured JSON.",
+        model="openai/gpt-4o",
+        response_format=Sentiment,
+    )
     result: Sentiment = await classifier(ctx.input["text"])
     return {"label": result.label, "confidence": result.confidence}
 ```
@@ -217,21 +214,20 @@ By default, `stream=True` and the agent emits progress events as the LLM produce
 from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
 
-assistant = agent(
-    "You are a helpful assistant.",
-    model="anthropic/claude-sonnet-4-20250514",
-    stream=True,  # default, can be omitted
-)
-
 @workflow
 async def my_workflow(ctx: ExecutionContext):
+    assistant = await agent(
+        "You are a helpful assistant.",
+        model="anthropic/claude-sonnet-4-20250514",
+        stream=True,  # default, can be omitted
+    )
     return await assistant("Explain the theory of relativity.")
 ```
 
 To disable streaming:
 
 ```python
-assistant = agent(
+assistant = await agent(
     "You are a helpful assistant.",
     model="openai/gpt-4o",
     stream=False,
@@ -251,14 +247,13 @@ Pass `working_memory()` to maintain conversation history across multiple agent c
 ```python
 from flux.tasks.ai.memory import working_memory
 
-chatbot = agent(
-    "You are a helpful assistant.",
-    model="openai/gpt-4o",
-    working_memory=working_memory(),
-)
-
 @workflow
 async def conversation(ctx: ExecutionContext):
+    chatbot = await agent(
+        "You are a helpful assistant.",
+        model="openai/gpt-4o",
+        working_memory=working_memory(),
+    )
     r1 = await chatbot("What is Python?")
     r2 = await chatbot("What about asyncio?")  # aware of the Python context
     return r2
@@ -271,7 +266,7 @@ Pass `long_term_memory()` to persist facts across workflow executions:
 ```python
 from flux.tasks.ai.memory import long_term_memory, sqlite
 
-assistant = agent(
+assistant = await agent(
     "You are a personal assistant. Remember important facts about the user.",
     model="openai/gpt-4o",
     long_term_memory=long_term_memory(
@@ -292,7 +287,7 @@ from flux.tasks.ai import agent, SkillCatalog
 
 catalog = SkillCatalog.from_directory("./skills")
 
-assistant = agent(
+assistant = await agent(
     "You are a research assistant.",
     model="openai/gpt-4o",
     tools=[search_web],
@@ -307,11 +302,11 @@ See [Agent Skills](agent-skills.md) for the full skills reference including `SKI
 Because `agent()` returns a Flux `@task`, you can chain `.with_options()` to configure retry, timeout, and other task-level settings:
 
 ```python
-assistant = agent(
+assistant = (await agent(
     "You are a helpful assistant.",
     model="openai/gpt-4o",
     tools=[search_web],
-).with_options(
+)).with_options(
     retry_max_attempts=3,
     timeout=120,
 )
@@ -322,7 +317,7 @@ assistant = agent(
 ```python
 from flux.tasks.ai import agent
 
-agent(
+await agent(
     system_prompt: str,
     *,
     model: str,
