@@ -44,7 +44,8 @@ async def agent(
         name: Task name for events/traces. Defaults to "agent_{provider}_{model}".
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
-        planning: If True, inject planning tools (create_plan, complete_step, get_plan)
+        planning: If True, inject planning tools (create_plan, start_step,
+            mark_step_done, mark_step_failed, get_plan, get_ready_steps)
             so the agent can create structured plans for complex tasks.
         max_plan_steps: Maximum number of steps allowed in a plan. Defaults to 20.
         strict_dependencies: If True, prevent starting a step before its dependencies

@@ -154,18 +154,21 @@ def build_openai_agent(
 
             content = message.content or ""
 
-            if stream and not content and not message.tool_calls:
-                call_messages.append(message.model_dump())
-                kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
-                kwargs_stream["messages"] = call_messages
-                async for chunk in await client.chat.completions.create(
-                    **kwargs_stream,
-                    stream=True,
-                ):
-                    token = chunk.choices[0].delta.content
-                    if token:
-                        content += token
-                        await progress({"token": token})
+            if stream and not message.tool_calls:
+                if content:
+                    await progress({"token": content})
+                else:
+                    call_messages.append(message.model_dump())
+                    kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
+                    kwargs_stream["messages"] = call_messages
+                    async for chunk in await client.chat.completions.create(
+                        **kwargs_stream,
+                        stream=True,
+                    ):
+                        token = chunk.choices[0].delta.content
+                        if token:
+                            content += token
+                            await progress({"token": token})
 
         if working_memory:
             await working_memory.memorize("user", user_content)

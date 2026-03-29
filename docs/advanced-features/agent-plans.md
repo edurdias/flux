@@ -73,12 +73,8 @@ pending → in_progress → completed
 ### Plan Structure
 
 ```python
-# The LLM calls create_plan with steps like:
-create_plan(steps=[
-    {"name": "research", "description": "Search for competitor pricing data."},
-    {"name": "analyze", "description": "Analyze pricing trends.", "depends_on": ["research"]},
-    {"name": "report", "description": "Write the final report.", "depends_on": ["analyze"]},
-])
+# The LLM calls create_plan with a JSON string:
+create_plan(steps='[{"name": "research", "description": "Search for competitor pricing data."}, {"name": "analyze", "description": "Analyze pricing trends.", "depends_on": ["research"]}, {"name": "report", "description": "Write the final report.", "depends_on": ["analyze"]}]')
 ```
 
 - **Steps are goals, not tool calls.** A step like "Research competitor pricing" may involve multiple tool calls.
