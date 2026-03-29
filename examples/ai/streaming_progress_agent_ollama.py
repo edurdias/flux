@@ -25,29 +25,18 @@ from flux import ExecutionContext, workflow
 from flux.tasks.ai import agent
 
 
-streaming_assistant = agent(
-    "You are a helpful assistant. Be concise and clear.",
-    model="ollama/llama3.2",
-    stream=True,
-)
-
-non_streaming_assistant = agent(
-    "You are a helpful assistant. Be concise and clear.",
-    model="ollama/llama3.2",
-    stream=False,
-)
-
-
 @workflow
 async def streaming_progress_agent(ctx: ExecutionContext[dict[str, Any]]):
     input_data = ctx.input or {}
     prompt = input_data.get("prompt", "Hello!")
     use_streaming = input_data.get("stream", True)
 
-    if use_streaming:
-        result = await streaming_assistant(prompt)
-    else:
-        result = await non_streaming_assistant(prompt)
+    assistant = await agent(
+        "You are a helpful assistant. Be concise and clear.",
+        model="ollama/llama3.2",
+        stream=use_streaming,
+    )
+    result = await assistant(prompt)
 
     return {
         "response": result,

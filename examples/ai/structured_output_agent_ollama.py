@@ -50,40 +50,6 @@ class BlogOutline(BaseModel):
     estimated_word_count: int
 
 
-extractor = agent(
-    "You are a data extraction specialist. Extract structured information from text. "
-    'Return a JSON object with fields: "name" (string), "age" (integer or null), '
-    '"occupation" (string or null), "company" (string or null), "location" (string or null).',
-    model="ollama/llama3",
-    name="extractor",
-    response_format=PersonInfo,
-).with_options(retry_max_attempts=3, timeout=60)
-
-classifier = agent(
-    "You are a sentiment analysis specialist. Analyze the sentiment of the given text. "
-    'Return a JSON object with fields: "sentiment" (one of "positive", "negative", "neutral"), '
-    '"confidence" (float 0.0 to 1.0), "reasoning" (brief explanation).',
-    model="ollama/llama3",
-    name="classifier",
-    response_format=SentimentResult,
-).with_options(retry_max_attempts=3, timeout=60)
-
-planner = agent(
-    "You are a content planning specialist. Create a structured blog outline. "
-    'Return a JSON object with fields: "title" (string), "sections" (list of section heading strings), '
-    '"target_audience" (string), "estimated_word_count" (integer).',
-    model="ollama/llama3",
-    name="planner",
-    response_format=BlogOutline,
-).with_options(retry_max_attempts=3, timeout=60)
-
-writer = agent(
-    "You are a content writer. Write a blog post based on the outline provided.",
-    model="ollama/llama3",
-    name="writer",
-).with_options(timeout=300)
-
-
 @workflow
 async def structured_output_demo(ctx: ExecutionContext[dict[str, Any]]):
     """
@@ -98,6 +64,39 @@ async def structured_output_demo(ctx: ExecutionContext[dict[str, Any]]):
     text = input_data.get(
         "text",
         "Marie Curie was a physicist and chemist who conducted pioneering research on radioactivity.",
+    )
+
+    extractor = await agent(
+        "You are a data extraction specialist. Extract structured information from text. "
+        'Return a JSON object with fields: "name" (string), "age" (integer or null), '
+        '"occupation" (string or null), "company" (string or null), "location" (string or null).',
+        model="ollama/llama3",
+        name="extractor",
+        response_format=PersonInfo,
+    )
+
+    classifier = await agent(
+        "You are a sentiment analysis specialist. Analyze the sentiment of the given text. "
+        'Return a JSON object with fields: "sentiment" (one of "positive", "negative", "neutral"), '
+        '"confidence" (float 0.0 to 1.0), "reasoning" (brief explanation).',
+        model="ollama/llama3",
+        name="classifier",
+        response_format=SentimentResult,
+    )
+
+    planner = await agent(
+        "You are a content planning specialist. Create a structured blog outline. "
+        'Return a JSON object with fields: "title" (string), "sections" (list of section heading strings), '
+        '"target_audience" (string), "estimated_word_count" (integer).',
+        model="ollama/llama3",
+        name="planner",
+        response_format=BlogOutline,
+    )
+
+    writer = await agent(
+        "You are a content writer. Write a blog post based on the outline provided.",
+        model="ollama/llama3",
+        name="writer",
     )
 
     # 1. Data extraction — returns a PersonInfo model

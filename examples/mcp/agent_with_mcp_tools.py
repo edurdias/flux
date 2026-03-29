@@ -40,7 +40,7 @@ async def mcp_agent_assistant(ctx: ExecutionContext):
             tools.health_check,
         ]
 
-        assistant = agent(
+        assistant = await agent(
             system_prompt=(
                 "You are a Flux workflow management assistant. "
                 "Use the available tools to help users manage their workflows. "
