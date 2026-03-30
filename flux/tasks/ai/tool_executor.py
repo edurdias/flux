@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
@@ -174,6 +175,7 @@ async def execute_tools(
     tool_calls: list[dict[str, Any]],
     tools: list[Any],
     iteration: int = 0,
+    max_concurrent: int | None = None,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
 
@@ -185,6 +187,9 @@ async def execute_tools(
         tools: List of Flux @task functions.
         iteration: The tool call iteration number within the agent call.
             Used to generate deterministic _call_id values for replay safety.
+        max_concurrent: Maximum number of tools to run concurrently.
+            When ``None`` (the default) all tools run in parallel with no limit.
+            Set to ``1`` for fully sequential execution.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
@@ -229,4 +234,15 @@ async def execute_tools(
             logger.warning("Tool '%s' failed: %s (args=%s)", name, e, args)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    return [await _run_one(call) for call in tool_calls]
+    if max_concurrent is not None:
+        if max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def _limited(call: dict[str, Any]) -> dict[str, Any]:
+            async with sem:
+                return await _run_one(call)
+
+        return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
+
+    return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))

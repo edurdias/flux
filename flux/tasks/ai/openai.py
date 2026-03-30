@@ -24,6 +24,7 @@ def build_openai_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     stream: bool = True,
     plan_summary_fn: Any | None = None,
 ) -> task:
@@ -97,7 +98,12 @@ def build_openai_agent(
                 tool_call_count += len(tool_calls)
 
                 call_messages.append(message.model_dump())
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
+                )
                 tool_iteration += 1
                 for tc, result in zip(tool_calls, results):
                     call_messages.append(

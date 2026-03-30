@@ -30,6 +30,7 @@ async def agent(
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
 ) -> task:
@@ -56,6 +57,9 @@ async def agent(
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
+        max_concurrent_tools: Maximum number of tools to run concurrently when
+            the LLM emits multiple tool calls in a single turn. None means
+            unlimited. Defaults to None.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
 
@@ -123,6 +127,7 @@ async def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             stream=effective_stream,
             plan_summary_fn=plan_summary_fn,
         )
@@ -137,6 +142,7 @@ async def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             stream=effective_stream,
             plan_summary_fn=plan_summary_fn,
         )
@@ -151,6 +157,7 @@ async def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             max_tokens=max_tokens,
             stream=effective_stream,
             plan_summary_fn=plan_summary_fn,
@@ -166,6 +173,7 @@ async def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             max_tokens=max_tokens,
             stream=effective_stream,
             plan_summary_fn=plan_summary_fn,
