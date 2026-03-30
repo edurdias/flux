@@ -241,20 +241,27 @@ def workflow_agent(
     async def _workflow_task(
         instruction: str,
         *,
-        input: Any | None = None,
+        context: str = "",
         execution_id: str | None = None,
     ) -> WorkflowAgentResult:
         async with _get_client() as client:
+            input_value: Any = context or None
+            if isinstance(input_value, str):
+                try:
+                    input_value = json.loads(input_value)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            payload = {"instruction": instruction, "input": input_value}
             if execution_id:
                 response = await client.resume_execution_sync(
                     workflow,
                     execution_id,
-                    {"instruction": instruction, "input": input},
+                    payload,
                 )
             else:
                 response = await client.run_workflow_sync(
                     workflow,
-                    {"instruction": instruction, "input": input},
+                    payload,
                 )
 
         return WorkflowAgentResult(
@@ -272,7 +279,10 @@ def _get_client():
     from flux.config import Configuration
 
     config = Configuration.get()
-    return FluxClient(config.settings.workers.server_url, timeout=None)
+    return FluxClient(
+        config.settings.workers.server_url,
+        timeout=config.settings.workers.default_timeout or None,
+    )
 
 
 def _map_execution_state(response: dict) -> Literal["completed", "paused", "failed"]:
