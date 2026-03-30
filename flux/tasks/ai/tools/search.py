@@ -8,10 +8,24 @@ from typing import TYPE_CHECKING
 
 from flux.task import task
 
-from flux.tasks.ai.tools.system_tools import resolve_path, truncate_output
+from flux.tasks.ai.tools.system_tools import resolve_path
 
 if TYPE_CHECKING:
     from flux.tasks.ai.tools.system_tools import SystemToolsConfig
+
+
+def _truncate_list(items: list, max_chars: int) -> tuple[list, bool]:
+    """Truncate a list so its JSON representation fits within max_chars."""
+    serialized = json.dumps(items)
+    if len(serialized) <= max_chars:
+        return items, False
+    truncated: list = []
+    for item in items:
+        candidate = truncated + [item]
+        if len(json.dumps(candidate)) > max_chars:
+            break
+        truncated = candidate
+    return truncated, True
 
 
 def build_search_tools(config: SystemToolsConfig) -> list:
@@ -33,13 +47,12 @@ def build_search_tools(config: SystemToolsConfig) -> list:
             rel = str(match.relative_to(config.workspace))
             matches.append(rel)
 
-        serialized = json.dumps(matches)
-        truncated_str, was_truncated = truncate_output(serialized, config.max_output_chars)
+        returned, was_truncated = _truncate_list(matches, config.max_output_chars)
 
         result = {
             "status": "ok",
             "pattern": pattern,
-            "matches": matches if not was_truncated else json.loads(truncated_str + '"]'),
+            "matches": returned,
             "total": len(matches),
         }
         if was_truncated:
@@ -83,13 +96,12 @@ def build_search_tools(config: SystemToolsConfig) -> list:
                 except (OSError, UnicodeDecodeError):
                     continue
 
-        serialized = json.dumps(matches)
-        _, was_truncated = truncate_output(serialized, config.max_output_chars)
+        returned, was_truncated = _truncate_list(matches, config.max_output_chars)
 
         result = {
             "status": "ok",
             "pattern": pattern,
-            "matches": matches,
+            "matches": returned,
             "total": len(matches),
         }
         if was_truncated:

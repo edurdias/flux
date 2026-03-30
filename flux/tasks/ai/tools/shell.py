@@ -35,25 +35,53 @@ def build_shell_tools(config: SystemToolsConfig) -> list:
         assert proc.stdout is not None
         assert proc.stderr is not None
 
-        if stream:
-            from flux.tasks.progress import progress
+        try:
+            if stream:
+                from flux.tasks.progress import progress
 
-            chunks = []
-            while True:
-                chunk = await proc.stdout.read(4096)
-                if not chunk:
-                    break
-                text = chunk.decode(errors="replace")
-                chunks.append(text)
-                await progress({"token": text})
-            stdout_full = "".join(chunks)
-            stderr_bytes = await proc.stderr.read()
-            stderr_full = stderr_bytes.decode(errors="replace")
-            await proc.wait()
-        else:
-            stdout_bytes, stderr_bytes = await proc.communicate()
-            stdout_full = stdout_bytes.decode(errors="replace")
-            stderr_full = stderr_bytes.decode(errors="replace")
+                stdout_chunks: list[str] = []
+                stderr_chunks: list[str] = []
+
+                async def _read_stderr():
+                    assert proc.stderr is not None
+                    while True:
+                        chunk = await proc.stderr.read(4096)
+                        if not chunk:
+                            break
+                        stderr_chunks.append(chunk.decode(errors="replace"))
+
+                stderr_task = asyncio.create_task(_read_stderr())
+
+                while True:
+                    chunk = await proc.stdout.read(4096)
+                    if not chunk:
+                        break
+                    text = chunk.decode(errors="replace")
+                    stdout_chunks.append(text)
+                    await progress({"token": text})
+
+                await stderr_task
+                stdout_full = "".join(stdout_chunks)
+                stderr_full = "".join(stderr_chunks)
+                await proc.wait()
+            else:
+                stdout_bytes, stderr_bytes = await proc.communicate()
+                stdout_full = stdout_bytes.decode(errors="replace")
+                stderr_full = stderr_bytes.decode(errors="replace")
+        except (asyncio.CancelledError, Exception):
+            if proc.returncode is None:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except (TimeoutError, ProcessLookupError):
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+            raise
 
         stdout, stdout_truncated = truncate_output(stdout_full, config.max_output_chars)
         stderr, stderr_truncated = truncate_output(stderr_full, config.max_output_chars)

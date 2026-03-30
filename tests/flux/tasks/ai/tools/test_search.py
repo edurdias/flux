@@ -80,6 +80,28 @@ def test_find_files_path_escape(search_tools):
     assert "escape" in result["error"].lower()
 
 
+def test_find_files_truncates_by_list_count(tmp_path):
+    config = SystemToolsConfig(
+        workspace=tmp_path,
+        timeout=30,
+        blocklist=[],
+        max_output_chars=50,
+    )
+    from flux.tasks.ai.tools.search import build_search_tools
+
+    for i in range(20):
+        (tmp_path / f"file_{i:03d}.py").touch()
+    tools = {t.func.__name__: t for t in build_search_tools(config)}
+    result = _run(tools["find_files"](pattern="*.py"))
+    assert result["status"] == "ok"
+    assert result["total"] == 20
+    assert result["truncated"] is True
+    assert len(result["matches"]) < 20
+    # All returned matches are valid strings
+    for m in result["matches"]:
+        assert isinstance(m, str)
+
+
 # --- grep ---
 
 
@@ -129,3 +151,25 @@ def test_grep_in_subpath(search_tools, tmp_path):
     result = _run(search_tools["grep"](pattern="target", path="src"))
     assert result["status"] == "ok"
     assert result["total"] == 1
+
+
+def test_grep_truncates_matches_list(tmp_path):
+    config = SystemToolsConfig(
+        workspace=tmp_path,
+        timeout=30,
+        blocklist=[],
+        max_output_chars=100,
+    )
+    from flux.tasks.ai.tools.search import build_search_tools
+
+    lines = "\n".join(f"match_line_{i}" for i in range(50))
+    (tmp_path / "big.txt").write_text(lines)
+    tools = {t.func.__name__: t for t in build_search_tools(config)}
+    result = _run(tools["grep"](pattern="match_line"))
+    assert result["status"] == "ok"
+    assert result["total"] == 50
+    assert result["truncated"] is True
+    assert len(result["matches"]) < 50
+    # All returned matches have the expected structure
+    for m in result["matches"]:
+        assert "file" in m and "line" in m and "content" in m

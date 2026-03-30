@@ -88,6 +88,39 @@ def test_shell_allowed_commands_pass(shell_tool):
     assert result["status"] == "ok"
 
 
+def test_shell_stream_captures_stderr(tmp_path):
+    config = SystemToolsConfig(
+        workspace=tmp_path,
+        timeout=30,
+        blocklist=[],
+        max_output_chars=100_000,
+    )
+    from flux.tasks.ai.tools.shell import build_shell_tools
+
+    tool = build_shell_tools(config)[0]
+    result = _run(tool(command="echo out && echo err >&2", stream=True))
+    assert result["status"] == "ok"
+    assert "out" in result["stdout"]
+    assert "err" in result["stderr"]
+
+
+def test_shell_stream_heavy_stderr_no_deadlock(tmp_path):
+    config = SystemToolsConfig(
+        workspace=tmp_path,
+        timeout=10,
+        blocklist=[],
+        max_output_chars=100_000,
+    )
+    from flux.tasks.ai.tools.shell import build_shell_tools
+
+    tool = build_shell_tools(config)[0]
+    result = _run(
+        tool(command="python3 -c \"import sys; sys.stderr.write('e' * 100000)\"", stream=True),
+    )
+    assert result["status"] == "ok"
+    assert len(result["stderr"]) == 100_000
+
+
 def test_shell_truncates_stdout(tmp_path):
     config = SystemToolsConfig(
         workspace=tmp_path,

@@ -41,8 +41,8 @@ tools = system_tools(
 - **timeout**: Applied to the shell tool via `@task.with_options(timeout=...)`. Default: 30s.
 - **blocklist**: List of regex patterns. Shell commands matching any pattern are rejected.
   Pass `None` for sensible defaults, or `[]` to disable.
-- **max_output_chars**: Maximum characters in tool responses sent to the LLM. Full output is
-  preserved in Flux task events. Default: 100,000.
+- **max_output_chars**: Maximum characters in tool responses. Output beyond this limit is
+  truncated. Default: 100,000.
 
 ## Tools
 
