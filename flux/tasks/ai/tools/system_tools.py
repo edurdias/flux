@@ -6,7 +6,7 @@ from pathlib import Path
 from flux.task import task
 
 DEFAULT_BLOCKLIST = [
-    r"\brm\s+-rf\s+/\b",
+    r"\brm\s+-rf\s+/",
     r"\bmkfs\b",
     r"\bdd\s",
     r"\bshutdown\b",
