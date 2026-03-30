@@ -235,6 +235,8 @@ async def execute_tools(
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
     if max_concurrent is not None:
+        if max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
         sem = asyncio.Semaphore(max_concurrent)
 
         async def _limited(call: dict[str, Any]) -> dict[str, Any]:

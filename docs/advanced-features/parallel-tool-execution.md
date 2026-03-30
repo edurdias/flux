@@ -62,19 +62,18 @@ assistant = await agent(
 await assistant("Compare approaches to distributed consensus")
 ```
 
-### Parallel agent delegations
+### Parallel tool calls in practice
 
-Combined with sub-agents, the supervisor can delegate to multiple agents at once:
+When an agent has multiple independent tools, the LLM can call several at once:
 
 ```python
-researcher = await agent("You research topics.", model="ollama/llama3.2", name="researcher")
-reviewer = await agent("You review content.", model="ollama/llama3.2", name="reviewer")
-
-supervisor = await agent(
-    "You coordinate research and review.",
+assistant = await agent(
+    "You are a data analyst.",
     model="anthropic/claude-sonnet-4-20250514",
-    agents=[researcher, reviewer],
+    tools=[query_users_db, query_orders_db, query_inventory_db],
 )
+# LLM may emit all 3 queries in one turn — they run concurrently
+await assistant("Get a full business snapshot for Q1 2026")
 ```
 
 ### Rate-limited API tools
