@@ -23,7 +23,7 @@ def build_shell_tools(config: SystemToolsConfig) -> list:
         """Execute a shell command in the workspace directory."""
         for pattern in compiled_blocklist:
             if pattern.search(command):
-                return {"status": "error", "error": f"blocked by security policy: {command}"}
+                return {"status": "error", "error": "command blocked by security policy"}
 
         proc = await asyncio.create_subprocess_shell(
             command,

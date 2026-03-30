@@ -63,11 +63,11 @@ def build_file_tools(config: SystemToolsConfig) -> list:
                 "error": f"parent directory does not exist: {resolved.parent}",
             }
 
-        resolved.write_text(content)
+        resolved.write_text(content, encoding="utf-8")
         return {
             "status": "ok",
             "path": path,
-            "bytes_written": len(content.encode()),
+            "bytes_written": len(content.encode("utf-8")),
             "created": created,
         }
 
@@ -86,6 +86,9 @@ def build_file_tools(config: SystemToolsConfig) -> list:
 
         if not resolved.is_file():
             return {"status": "error", "error": f"file not found: {path}"}
+
+        if not old_string:
+            return {"status": "error", "error": "old_string must not be empty"}
 
         text = resolved.read_text(errors="replace")
         count = text.count(old_string)

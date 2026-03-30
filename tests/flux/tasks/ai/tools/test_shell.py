@@ -78,6 +78,12 @@ def test_shell_blocklist_blocks(shell_tool):
     assert "blocked" in result["error"].lower()
 
 
+def test_shell_blocklist_does_not_echo_command(shell_tool):
+    result = _run(shell_tool(command="rm -rf / --secret-token"))
+    assert result["status"] == "error"
+    assert "--secret-token" not in result["error"]
+
+
 def test_shell_blocklist_blocks_shutdown(shell_tool):
     result = _run(shell_tool(command="shutdown now"))
     assert result["status"] == "error"

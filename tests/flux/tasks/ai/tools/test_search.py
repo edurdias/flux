@@ -80,6 +80,13 @@ def test_find_files_path_escape(search_tools):
     assert "escape" in result["error"].lower()
 
 
+def test_find_files_glob_escape_filtered(search_tools, tmp_path):
+    result = _run(search_tools["find_files"](pattern="../*"))
+    assert result["status"] == "ok"
+    for m in result["matches"]:
+        assert ".." not in m
+
+
 def test_find_files_truncates_by_list_count(tmp_path):
     config = SystemToolsConfig(
         workspace=tmp_path,

@@ -163,6 +163,13 @@ def test_edit_file_replace_all(file_tools, tmp_path):
     assert (tmp_path / "dup.txt").read_text() == "bbb\nbbb\n"
 
 
+def test_edit_file_empty_old_string(file_tools, tmp_path):
+    (tmp_path / "code.py").write_text("some content\n")
+    result = _run(file_tools["edit_file"](path="code.py", old_string="", new_string="x"))
+    assert result["status"] == "error"
+    assert "empty" in result["error"].lower()
+
+
 def test_edit_file_path_escape(file_tools):
     result = _run(file_tools["edit_file"](path="../x.txt", old_string="a", new_string="b"))
     assert result["status"] == "error"

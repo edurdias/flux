@@ -40,11 +40,15 @@ def build_search_tools(config: SystemToolsConfig) -> list:
         if not search_root.is_dir():
             return {"status": "error", "error": f"not a directory: {path}"}
 
+        workspace = config.workspace.resolve()
         matches = []
         for match in sorted(
             search_root.rglob(pattern) if "**" in pattern else search_root.glob(pattern),
         ):
-            rel = str(match.relative_to(config.workspace))
+            resolved_match = match.resolve()
+            if not resolved_match.is_relative_to(workspace):
+                continue
+            rel = str(resolved_match.relative_to(workspace))
             matches.append(rel)
 
         returned, was_truncated = _truncate_list(matches, config.max_output_chars)
