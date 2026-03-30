@@ -397,7 +397,7 @@ class TestWorkflowAgent:
         @workflow
         async def test_wf(ctx: ExecutionContext):
             with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
-                return await wa("Deploy v2", input={"version": "2.0"})
+                return await wa("Deploy v2", context='{"version": "2.0"}')
 
         ctx = test_wf.run()
         assert ctx.has_succeeded
@@ -452,7 +452,7 @@ class TestWorkflowAgent:
         @workflow
         async def test_wf(ctx: ExecutionContext):
             with patch("flux.tasks.ai.delegation._get_client", return_value=mock_client):
-                return await wa("Approved", input={"approved": True}, execution_id="exec-1")
+                return await wa("Approved", context='{"approved": true}', execution_id="exec-1")
 
         ctx = test_wf.run()
         assert ctx.has_succeeded
