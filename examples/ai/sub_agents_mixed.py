@@ -5,9 +5,8 @@ Demonstrates a parent agent with local agents, workflow agents, and skills
 all composed together.
 
 Prerequisites:
-    1. Install Ollama and pull a model: ollama pull llama3.2
+    1. Install Ollama and pull a model: ollama pull mistral-small:24b
     2. A running Flux server with a 'deploy_pipeline' workflow (for workflow agent)
-    3. A ./skills directory with skill definitions (optional)
 
 Usage:
     flux workflow run sub_agents_mixed '{
@@ -34,49 +33,48 @@ async def run_tests(code: str) -> str:
     return f"All tests passed for code snippet ({len(code)} chars)"
 
 
-researcher = agent(
-    "You are a thorough research specialist.",
-    model="ollama/llama3.2",
-    name="researcher",
-    description="Deep research using web sources. Delegate when "
-    "gathering and synthesizing information from multiple sources.",
-    tools=[search_web],
-)
-
-reviewer = agent(
-    "You are a code review expert focused on security and performance.",
-    model="ollama/llama3.2",
-    name="reviewer",
-    description="Code review with security and performance analysis. "
-    "Delegate when code needs expert review.",
-    tools=[run_tests],
-)
-
-deployer = workflow_agent(
-    name="deployer",
-    description="Handles deployment pipelines. Delegate for deploy, "
-    "rollback, or release operations. May pause for approval.",
-    workflow="deploy_pipeline",
-)
-
-manager = agent(
-    "You are a senior engineering manager. You coordinate your team to "
-    "review, test, and deploy changes. For each PR:\n"
-    "1. Have the researcher gather context about the changes\n"
-    "2. Have the reviewer perform a code review\n"
-    "3. If everything looks good, have the deployer handle deployment\n"
-    "4. Summarize all findings in a final report",
-    model="ollama/llama3.2",
-    agents=[researcher, reviewer, deployer],
-)
-
-
 @workflow
 async def sub_agents_mixed(ctx: ExecutionContext):
     """Coordinate local agents, workflow agents, and skills for a release."""
     raw = ctx.input or {}
     pr_number = raw.get("pr_number", 1)
     code = raw.get("code", "# no code provided")
+
+    researcher = await agent(
+        "You are a thorough research specialist.",
+        model="ollama/mistral-small:24b",
+        name="researcher",
+        description="Deep research using web sources.",
+        tools=[search_web],
+    )
+
+    reviewer = await agent(
+        "You are a code review expert focused on security and performance.",
+        model="ollama/mistral-small:24b",
+        name="reviewer",
+        description="Code review with security and performance analysis.",
+        tools=[run_tests],
+    )
+
+    deployer = workflow_agent(
+        name="deployer",
+        description="Handles deployment pipelines. May pause for approval.",
+        workflow="deploy_pipeline",
+    )
+
+    manager = await agent(
+        "You are a senior engineering manager. You coordinate your team to "
+        "review, test, and deploy changes. For each PR:\n"
+        "1. Have the researcher gather context about the changes\n"
+        "2. Have the reviewer perform a code review\n"
+        "3. If everything looks good, have the deployer handle deployment\n"
+        "4. Summarize all findings in a final report",
+        model="ollama/mistral-small:24b",
+        name="manager",
+        agents=[researcher, reviewer, deployer],
+        max_tool_calls=10,
+    )
+
     return await manager(
         f"Handle release for PR #{pr_number}. Code to review:\n```\n{code}\n```",
     )
