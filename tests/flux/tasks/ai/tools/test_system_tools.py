@@ -64,3 +64,57 @@ def test_config_dataclass():
 
 def test_default_blocklist_is_nonempty():
     assert len(DEFAULT_BLOCKLIST) > 0
+
+
+def test_system_tools_has_all_expected_tools(tmp_path):
+    tools = system_tools(workspace=tmp_path)
+    names = {t.func.__name__ for t in tools}
+    assert names == {
+        "shell",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "file_info",
+        "find_files",
+        "grep",
+        "list_directory",
+        "directory_tree",
+    }
+
+
+def test_system_tools_produce_valid_schemas(tmp_path):
+    from flux.tasks.ai.tool_executor import build_tool_schemas
+
+    tools = system_tools(workspace=tmp_path)
+    schemas = build_tool_schemas(tools)
+    assert len(schemas) == 9
+
+    for schema in schemas:
+        assert "name" in schema
+        assert "description" in schema
+        assert len(schema["description"]) > 0
+        assert "parameters" in schema
+        assert schema["parameters"]["type"] == "object"
+
+
+def test_shell_schema_has_command_required(tmp_path):
+    from flux.tasks.ai.tool_executor import build_tool_schemas
+
+    tools = system_tools(workspace=tmp_path)
+    schemas = build_tool_schemas(tools)
+    shell_schema = next(s for s in schemas if s["name"] == "shell")
+    assert "command" in shell_schema["parameters"]["properties"]
+    assert "command" in shell_schema["parameters"]["required"]
+    assert "stream" in shell_schema["parameters"]["properties"]
+    assert "stream" not in shell_schema["parameters"]["required"]
+
+
+def test_read_file_schema_has_path_required(tmp_path):
+    from flux.tasks.ai.tool_executor import build_tool_schemas
+
+    tools = system_tools(workspace=tmp_path)
+    schemas = build_tool_schemas(tools)
+    schema = next(s for s in schemas if s["name"] == "read_file")
+    assert "path" in schema["parameters"]["required"]
+    assert "offset" not in schema["parameters"]["required"]
+    assert "limit" not in schema["parameters"]["required"]
