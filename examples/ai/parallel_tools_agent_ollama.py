@@ -6,7 +6,7 @@ LLM emits them in a single response.
 
 Prerequisites:
     1. Install Ollama: https://ollama.ai
-    2. Pull a model: ollama pull qwen2.5-coder:14b
+    2. Pull a model: ollama pull mistral-small:24b
     3. Start Ollama service: ollama serve
 
 Usage (in-process):
@@ -76,10 +76,9 @@ async def parallel_tools_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     tools = [search_topic, get_statistics, check_news]
 
     assistant = await agent(
-        "You are a research assistant with access to search, statistics, and news tools. "
-        "When answering comparative questions, call multiple tools in parallel to gather "
-        "information efficiently. Always use tools to gather data before answering.",
-        model="ollama/qwen2.5-coder:14b",
+        "You are a research assistant. You MUST use your tools to answer questions. "
+        "Do NOT answer from memory. Always call multiple tools at once when possible.",
+        model="ollama/mistral-small:24b",
         name="parallel_researcher",
         tools=tools,
         max_tool_calls=10,
