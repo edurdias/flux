@@ -113,12 +113,6 @@ manager = await agent(
 
 Workflow agents use `FluxClient` to call the remote workflow synchronously (`run_workflow_sync` / `resume_execution_sync`). The target workflow must be registered on the server.
 
-### Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FLUX_WORKERS__SERVER_URL` | `http://localhost:8000` | Flux server URL (via `flux.config.Configuration`) |
-
 ## The `delegate` Tool
 
 The `delegate` tool is a `@task` with the following parameters:

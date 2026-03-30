@@ -6,8 +6,7 @@ including the pause/resume pattern for human approval.
 
 Prerequisites:
     1. A running Flux server with a 'deploy_pipeline' workflow registered
-    2. Set FLUX_SERVER_URL if not using the default (http://localhost:8000)
-    3. Install Ollama and pull a model: ollama pull mistral-small:24b
+    2. Install Ollama and pull a model: ollama pull mistral-small:24b
 
 Usage:
     flux workflow run sub_agents_workflow '{"service": "api-gateway", "version": "2.1.0"}'
