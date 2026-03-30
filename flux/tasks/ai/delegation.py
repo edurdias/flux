@@ -245,12 +245,7 @@ def workflow_agent(
         execution_id: str | None = None,
     ) -> WorkflowAgentResult:
         async with _get_client() as client:
-            input_value: Any = context or None
-            if isinstance(input_value, str):
-                try:
-                    input_value = json.loads(input_value)
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            input_value: Any = _parse_input(context or None)
             payload = {"instruction": instruction, "input": input_value}
             if execution_id:
                 response = await client.resume_execution_sync(
