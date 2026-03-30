@@ -53,14 +53,9 @@ async def system_tools_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
     tools = system_tools(workspace=workspace, timeout=60)
 
     assistant = await agent(
-        "You are an autonomous coding assistant. You have access to shell commands "
-        "and file system tools. Use them to accomplish the user's request.\n\n"
-        "Available tools:\n"
-        "- shell: run any shell command\n"
-        "- read_file, write_file, edit_file: work with files\n"
-        "- find_files, grep: search the codebase\n"
-        "- list_directory, directory_tree, file_info: explore the workspace\n\n"
-        "Always explore before making changes. Check your work after editing.",
+        "You are an autonomous coding assistant. Use your tools to accomplish "
+        "the user's request. Always explore before making changes. "
+        "Check your work after editing.",
         model="ollama/qwen2.5-coder:14b",
         name="system_tools_agent",
         tools=tools,
