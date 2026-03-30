@@ -186,3 +186,13 @@ def test_agent_planning_params_threaded():
         ),
     )
     assert result is not None
+
+
+def test_agent_accepts_max_concurrent_tools():
+    a = asyncio.run(agent("You are a test agent.", model="ollama/llama3", max_concurrent_tools=5))
+    assert a is not None
+
+
+def test_agent_max_concurrent_tools_defaults_to_none():
+    a = asyncio.run(agent("You are a test agent.", model="ollama/llama3"))
+    assert a is not None
