@@ -87,6 +87,7 @@ class task:
     ):
         self._func = func
         self.name = name if name else func.__name__
+        self.description: str | None = None
         self.fallback = fallback
         self.rollback = rollback
         self.retry_max_attempts = retry_max_attempts

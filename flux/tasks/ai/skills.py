@@ -167,11 +167,15 @@ class SkillCatalog:
 
 
 def build_skills_preamble(catalog: SkillCatalog) -> str:
+    """Build a system-prompt section listing available skills."""
     skills = catalog.list()
     lines = [
-        "\n\nYou have access to the following skills. To use a skill, "
-        "call the use_skill tool with the skill name. The skill will "
-        "provide detailed instructions for completing the task.\n\n"
+        "\n\n## Skills",
+        "",
+        "You have skills available. To activate a skill, call the `use_skill` "
+        "tool with the skill name. The skill returns detailed instructions "
+        "for completing the task — follow them using your available tools.",
+        "",
         "Available skills:",
     ]
     for skill in skills:

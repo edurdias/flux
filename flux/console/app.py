@@ -5,7 +5,7 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, TabbedContent, TabPane
 
-from flux.console.client import FluxClient
+from flux.client import FluxClient
 from flux.console.screens.dashboard import DashboardView
 from flux.console.screens.executions import ExecutionsView
 from flux.console.screens.logs import LogsView

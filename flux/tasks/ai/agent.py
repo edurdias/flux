@@ -20,8 +20,10 @@ async def agent(
     *,
     model: str,
     name: str | None = None,
+    description: str | None = None,
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
+    agents: list | None = None,
     planning: bool = False,
     max_plan_steps: int = 20,
     strict_dependencies: bool = False,
@@ -43,8 +45,11 @@ async def agent(
         system_prompt: The system prompt defining the agent's identity.
         model: Provider and model in "provider/model_name" format.
         name: Task name for events/traces. Defaults to "agent_{provider}_{model}".
+        description: Human-readable description of the agent, used when this agent
+            is a sub-agent so the parent knows when to delegate to it.
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
+        agents: List of sub-agents this agent can delegate to via a ``delegate`` tool.
         planning: If True, inject planning tools (create_plan, start_step,
             mark_step_done, mark_step_failed, get_plan, get_ready_steps)
             so the agent can create structured plans for complex tasks.
@@ -77,6 +82,12 @@ async def agent(
         tools = (tools or []) + long_term_memory.as_tools()
         system_prompt = system_prompt + long_term_memory.system_prompt_hint()
 
+    if agents:
+        from flux.tasks.ai.delegation import build_agents_preamble, build_delegate
+
+        system_prompt = system_prompt + build_agents_preamble(agents)
+        tools = (tools or []) + [build_delegate(agents)]
+
     plan_summary_fn = None
     if planning:
         from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
@@ -105,6 +116,11 @@ async def agent(
                         allowed,
                     )
 
+    if tools:
+        from flux.tasks.ai.tool_executor import build_tools_preamble
+
+        system_prompt = system_prompt + build_tools_preamble(tools)
+
     effective_stream = stream and response_format is None
 
     if "/" not in model:
@@ -119,7 +135,7 @@ async def agent(
     if provider == "ollama":
         from flux.tasks.ai.ollama import build_ollama_agent
 
-        return build_ollama_agent(
+        result = build_ollama_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -134,7 +150,7 @@ async def agent(
     elif provider == "openai":
         from flux.tasks.ai.openai import build_openai_agent
 
-        return build_openai_agent(
+        result = build_openai_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -149,7 +165,7 @@ async def agent(
     elif provider == "anthropic":
         from flux.tasks.ai.anthropic import build_anthropic_agent
 
-        return build_anthropic_agent(
+        result = build_anthropic_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -165,7 +181,7 @@ async def agent(
     elif provider == "google":
         from flux.tasks.ai.gemini import build_gemini_agent
 
-        return build_gemini_agent(
+        result = build_gemini_agent(
             system_prompt=system_prompt,
             model_name=model_name,
             name=name,
@@ -183,3 +199,8 @@ async def agent(
             f"Unknown provider: '{provider}'. "
             "Supported providers: ollama, openai, anthropic, google",
         )
+
+    if description is not None:
+        result.description = description
+
+    return result
