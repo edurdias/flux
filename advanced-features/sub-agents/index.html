@@ -1108,23 +1108,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Workflow Agents">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -1437,23 +1420,6 @@
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="p">)</span>
 </code></pre></div>
 <p>Workflow agents use <code>FluxClient</code> to call the remote workflow synchronously (<code>run_workflow_sync</code> / <code>resume_execution_sync</code>). The target workflow must be registered on the server.</p>
-<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Variable</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>FLUX_WORKERS__SERVER_URL</code></td>
-<td><code>http://localhost:8000</code></td>
-<td>Flux server URL (via <code>flux.config.Configuration</code>)</td>
-</tr>
-</tbody>
-</table>
 <h2 id="the-delegate-tool">The <code>delegate</code> Tool<a class="headerlink" href="#the-delegate-tool" title="Permanent link">&para;</a></h2>
 <p>The <code>delegate</code> tool is a <code>@task</code> with the following parameters:</p>
 <table>
