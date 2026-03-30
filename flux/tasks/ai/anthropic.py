@@ -25,6 +25,7 @@ def build_anthropic_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
     plan_summary_fn: Any | None = None,
@@ -95,7 +96,12 @@ def build_anthropic_agent(
                 call_messages.append(
                     {"role": "assistant", "content": _serialize_content(response.content)},
                 )
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
+                )
                 tool_iteration += 1
                 tool_results = [
                     {

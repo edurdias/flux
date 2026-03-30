@@ -25,6 +25,7 @@ def build_ollama_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     stream: bool = True,
     plan_summary_fn: Any | None = None,
 ) -> task:
@@ -116,6 +117,7 @@ def build_ollama_agent(
                     pending_tool_calls,
                     tools,
                     iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
                 )
                 tool_iteration += 1
                 for result in results:
