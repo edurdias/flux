@@ -26,8 +26,10 @@ def build_gemini_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls Google Gemini's API."""
     if genai is None:
@@ -95,7 +97,12 @@ def build_gemini_agent(
                 tool_call_count += len(tool_calls)
 
                 contents.append(response.candidates[0].content)
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
+                )
                 tool_iteration += 1
 
                 function_response_parts = [
@@ -111,11 +118,39 @@ def build_gemini_agent(
                     types.Content(role="user", parts=function_response_parts),
                 )
 
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        contents.append(
+                            types.Content(
+                                role="user",
+                                parts=[types.Part(text=summary)],
+                            ),
+                        )
+
                 response = await client.aio.models.generate_content(
                     model=model_name,
                     contents=contents,
                     config=config,
                 )
+
+                if (
+                    not response.function_calls
+                    and not (response.text or "")
+                    and plan_summary_fn
+                    and plan_summary_fn()
+                    and tool_call_count < max_tool_calls
+                ):
+                    summary = plan_summary_fn()
+                    contents.append(response.candidates[0].content)
+                    contents.append(
+                        _to_content("user", f"Continue working on your plan. {summary}"),
+                    )
+                    response = await client.aio.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=config,
+                    )
 
             if response.function_calls and tool_call_count >= max_tool_calls:
                 contents.append(response.candidates[0].content)
@@ -135,12 +170,14 @@ def build_gemini_agent(
                     config=config_no_tools,
                 )
 
-            if stream and not (response.function_calls):
+            content = response.text or ""
+
+            if stream and not content and not response.function_calls:
+                contents.append(response.candidates[0].content)
                 config_stream = types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     max_output_tokens=max_tokens,
                 )
-                content = ""
                 async for chunk in await client.aio.models.generate_content_stream(
                     model=model_name,
                     contents=contents,
@@ -150,8 +187,6 @@ def build_gemini_agent(
                     if token:
                         content += token
                         await progress({"token": token})
-            else:
-                content = response.text or ""
 
         if working_memory:
             await working_memory.memorize("user", user_content)

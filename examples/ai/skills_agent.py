@@ -57,14 +57,6 @@ async def search_web(query: str) -> str:
 
 catalog = SkillCatalog.from_directory(SKILLS_DIR)
 
-assistant = agent(
-    "You are a helpful research assistant. Use your skills to complete tasks effectively.",
-    model="ollama/llama3.2",
-    name="skills-assistant",
-    tools=[search_web],
-    skills=catalog,
-).with_options(retry_max_attempts=3, retry_delay=1, retry_backoff=2, timeout=120)
-
 
 @workflow
 async def skills_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
@@ -92,6 +84,13 @@ async def skills_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
             "execution_id": ctx.execution_id,
         }
 
+    assistant = await agent(
+        "You are a helpful research assistant. Use your skills to complete tasks effectively.",
+        model="ollama/llama3.2",
+        name="skills-assistant",
+        tools=[search_web],
+        skills=catalog,
+    )
     response = await assistant(f"Research the topic: {topic}")
 
     return {

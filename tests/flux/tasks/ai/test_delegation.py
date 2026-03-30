@@ -514,20 +514,26 @@ class TestDelegationIntegration:
         assert parent is not None
 
     def test_recursive_sub_agents(self):
+        import asyncio
+
         from flux.tasks.ai import agent
 
         inner = _FakeAgent("researcher", "Research.")
-        middle = agent(
-            "You are an analyst.",
-            model="ollama/llama3",
-            name="analyst",
-            description="Analyzes.",
-            agents=[inner],
+        middle = asyncio.run(
+            agent(
+                "You are an analyst.",
+                model="ollama/llama3",
+                name="analyst",
+                description="Analyzes.",
+                agents=[inner],
+            ),
         )
-        outer = agent(
-            "You are a manager.",
-            model="ollama/llama3",
-            agents=[middle],
+        outer = asyncio.run(
+            agent(
+                "You are a manager.",
+                model="ollama/llama3",
+                agents=[middle],
+            ),
         )
         assert outer is not None
         assert middle.description == "Analyzes."

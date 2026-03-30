@@ -24,7 +24,9 @@ def build_openai_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls OpenAI's chat API."""
     if AsyncOpenAI is None:
@@ -96,7 +98,12 @@ def build_openai_agent(
                 tool_call_count += len(tool_calls)
 
                 call_messages.append(message.model_dump())
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
+                )
                 tool_iteration += 1
                 for tc, result in zip(tool_calls, results):
                     call_messages.append(
@@ -107,10 +114,35 @@ def build_openai_agent(
                         },
                     )
 
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        call_messages[-1]["content"] += f"\n\n{summary}"
+
                 response = await client.chat.completions.create(
                     **{**kwargs, "messages": call_messages},
                 )
                 message = response.choices[0].message
+
+                if (
+                    not message.tool_calls
+                    and not message.content
+                    and plan_summary_fn
+                    and plan_summary_fn()
+                    and tool_call_count < max_tool_calls
+                ):
+                    summary = plan_summary_fn()
+                    call_messages.append(message.model_dump())
+                    call_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Continue working on your plan. {summary}",
+                        },
+                    )
+                    response = await client.chat.completions.create(
+                        **{**kwargs, "messages": call_messages},
+                    )
+                    message = response.choices[0].message
 
             if message.tool_calls and tool_call_count >= max_tool_calls:
                 call_messages.append(message.model_dump())
@@ -126,10 +158,12 @@ def build_openai_agent(
                 )
                 message = response.choices[0].message
 
-            if stream and not message.tool_calls:
+            content = message.content or ""
+
+            if stream and not content and not message.tool_calls:
+                call_messages.append(message.model_dump())
                 kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
                 kwargs_stream["messages"] = call_messages
-                content = ""
                 async for chunk in await client.chat.completions.create(
                     **kwargs_stream,
                     stream=True,
@@ -138,8 +172,6 @@ def build_openai_agent(
                     if token:
                         content += token
                         await progress({"token": token})
-            else:
-                content = message.content or ""
 
         if working_memory:
             await working_memory.memorize("user", user_content)

@@ -25,8 +25,10 @@ def build_anthropic_agent(
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
+    plan_summary_fn: Any | None = None,
 ) -> task:
     """Build a Flux @task that calls Anthropic's messages API."""
     if AsyncAnthropic is None:
@@ -94,7 +96,12 @@ def build_anthropic_agent(
                 call_messages.append(
                     {"role": "assistant", "content": _serialize_content(response.content)},
                 )
-                results = await execute_tools(tool_calls, tools, iteration=tool_iteration)
+                results = await execute_tools(
+                    tool_calls,
+                    tools,
+                    iteration=tool_iteration,
+                    max_concurrent=max_concurrent_tools,
+                )
                 tool_iteration += 1
                 tool_results = [
                     {
@@ -104,9 +111,33 @@ def build_anthropic_agent(
                     }
                     for tc, result in zip(tool_calls, results)
                 ]
+                if plan_summary_fn:
+                    summary = plan_summary_fn()
+                    if summary:
+                        tool_results[-1]["content"] += f"\n\n{summary}"
+
                 call_messages.append({"role": "user", "content": tool_results})
 
                 response = await client.messages.create(**{**kwargs, "messages": call_messages})
+
+                if (
+                    not _has_tool_use(response)
+                    and not _extract_text(response)
+                    and plan_summary_fn
+                    and plan_summary_fn()
+                    and tool_call_count < max_tool_calls
+                ):
+                    summary = plan_summary_fn()
+                    call_messages.append(
+                        {"role": "assistant", "content": _serialize_content(response.content)},
+                    )
+                    call_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"Continue working on your plan. {summary}",
+                        },
+                    )
+                    response = await client.messages.create(**{**kwargs, "messages": call_messages})
 
             if _has_tool_use(response) and tool_call_count >= max_tool_calls:
                 call_messages.append(
@@ -123,7 +154,10 @@ def build_anthropic_agent(
                     **{**kwargs_no_tools, "messages": call_messages},
                 )
 
-            if stream and not _has_tool_use(response):
+            if stream and not _extract_text(response) and not _has_tool_use(response):
+                call_messages.append(
+                    {"role": "assistant", "content": _serialize_content(response.content)},
+                )
                 kwargs_stream = {k: v for k, v in kwargs.items() if k != "tools"}
                 kwargs_stream["messages"] = call_messages
                 async with client.messages.stream(**kwargs_stream) as stream_ctx:

@@ -15,12 +15,6 @@ from flux.tasks.ai import agent
 from flux.tasks.ai.memory import working_memory
 from flux.tasks import pause
 
-chatbot = agent(
-    system_prompt="You are a friendly assistant. Keep responses concise.",
-    model="ollama/llama3.2",
-    working_memory=working_memory(),
-)
-
 
 @workflow
 async def memory_chatbot(ctx: ExecutionContext[dict[str, Any]]):
@@ -30,6 +24,12 @@ async def memory_chatbot(ctx: ExecutionContext[dict[str, Any]]):
 
         initial_input = json.loads(initial_input)
     message = initial_input.get("message", "Hello!")
+
+    chatbot = await agent(
+        system_prompt="You are a friendly assistant. Keep responses concise.",
+        model="ollama/llama3.2",
+        working_memory=working_memory(),
+    )
 
     response = await chatbot(message)
     print(f"Assistant: {response}")

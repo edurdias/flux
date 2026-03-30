@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("flux.agent")
 
 
-def agent(
+async def agent(
     system_prompt: str,
     *,
     model: str,
@@ -24,10 +24,15 @@ def agent(
     tools: list[task] | None = None,
     skills: SkillCatalog | None = None,
     agents: list | None = None,
+    planning: bool = False,
+    max_plan_steps: int = 20,
+    strict_dependencies: bool = False,
+    approve_plan: bool = False,
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
     max_tool_calls: int = 10,
+    max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
 ) -> task:
@@ -45,10 +50,21 @@ def agent(
         tools: List of Flux @task functions the agent can call as tools.
         skills: SkillCatalog providing Agent Skills the LLM can activate.
         agents: List of sub-agents this agent can delegate to via a ``delegate`` tool.
+        planning: If True, inject planning tools (create_plan, start_step,
+            mark_step_done, mark_step_failed, get_plan, get_ready_steps)
+            so the agent can create structured plans for complex tasks.
+        max_plan_steps: Maximum number of steps allowed in a plan. Defaults to 20.
+        strict_dependencies: If True, prevent starting a step before its dependencies
+            are completed. Defaults to False (warns instead).
+        approve_plan: If True, pause for human approval before activating a new plan.
+            Defaults to False.
         response_format: Pydantic BaseModel subclass for structured JSON output.
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
+        max_concurrent_tools: Maximum number of tools to run concurrently when
+            the LLM emits multiple tool calls in a single turn. None means
+            unlimited. Defaults to None.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
 
@@ -71,6 +87,19 @@ def agent(
 
         system_prompt = system_prompt + build_agents_preamble(agents)
         tools = (tools or []) + [build_delegate(agents)]
+
+    plan_summary_fn = None
+    if planning:
+        from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
+
+        system_prompt = system_prompt + build_plan_preamble()
+        plan_tools, plan_summary_fn = await build_plan_tools(
+            strict_dependencies=strict_dependencies,
+            max_plan_steps=max_plan_steps,
+            approve_plan=approve_plan,
+            long_term_memory=long_term_memory,
+        )
+        tools = (tools or []) + plan_tools
 
     if skills is not None:
         tool_names = {
@@ -114,7 +143,9 @@ def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "openai":
         from flux.tasks.ai.openai import build_openai_agent
@@ -127,7 +158,9 @@ def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "anthropic":
         from flux.tasks.ai.anthropic import build_anthropic_agent
@@ -140,8 +173,10 @@ def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             max_tokens=max_tokens,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     elif provider == "google":
         from flux.tasks.ai.gemini import build_gemini_agent
@@ -154,8 +189,10 @@ def agent(
             response_format=response_format,
             working_memory=working_memory,
             max_tool_calls=max_tool_calls,
+            max_concurrent_tools=max_concurrent_tools,
             max_tokens=max_tokens,
             stream=effective_stream,
+            plan_summary_fn=plan_summary_fn,
         )
     else:
         raise ValueError(
