@@ -18,29 +18,29 @@ async def search_web(query: str) -> str:
     """Search the web for information."""
     ...
 
-researcher = agent(
-    "You are a thorough research specialist.",
-    model="ollama/llama3.2",
-    name="researcher",
-    description="Deep research using web sources.",
-    tools=[search_web],
-)
-
-reviewer = agent(
-    "You are a code review expert.",
-    model="openai/gpt-4o",
-    name="reviewer",
-    description="Code review with security and performance analysis.",
-)
-
-manager = agent(
-    "You are a senior engineering manager. Coordinate your team.",
-    model="openai/gpt-4o",
-    agents=[researcher, reviewer],
-)
-
 @workflow
 async def review_workflow(ctx: ExecutionContext):
+    researcher = await agent(
+        "You are a thorough research specialist.",
+        model="ollama/llama3.2",
+        name="researcher",
+        description="Deep research using web sources.",
+        tools=[search_web],
+    )
+
+    reviewer = await agent(
+        "You are a code review expert.",
+        model="openai/gpt-4o",
+        name="reviewer",
+        description="Code review with security and performance analysis.",
+    )
+
+    manager = await agent(
+        "You are a senior engineering manager. Coordinate your team.",
+        model="openai/gpt-4o",
+        agents=[researcher, reviewer],
+    )
+
     return await manager(f"Review PR #{ctx.input['pr_number']}")
 ```
 
@@ -79,7 +79,7 @@ At runtime, the flow looks like:
 Local sub-agents are regular `agent()` tasks. They run in the same process and workflow execution as the parent. Give each a `name` and `description`:
 
 ```python
-researcher = agent(
+researcher = await agent(
     "You are a thorough research specialist.",
     model="ollama/llama3.2",
     name="researcher",
@@ -104,7 +104,7 @@ deployer = workflow_agent(
     workflow="deploy_pipeline",
 )
 
-manager = agent(
+manager = await agent(
     "You are an engineering manager.",
     model="openai/gpt-4o",
     agents=[deployer],
@@ -117,7 +117,7 @@ Workflow agents use `FluxClient` to call the remote workflow synchronously (`run
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FLUX_SERVER_URL` | `http://localhost:8000` | Flux server URL (via `flux.config.Configuration`) |
+| `FLUX_WORKERS__SERVER_URL` | `http://localhost:8000` | Flux server URL (via `flux.config.Configuration`) |
 
 ## The `delegate` Tool
 
@@ -171,7 +171,7 @@ deployer = workflow_agent(
     workflow="deploy_pipeline",
 )
 
-manager = agent(
+manager = await agent(
     "You are a release manager. When a deployment pauses for approval, "
     "review the details and resume with your decision.",
     model="openai/gpt-4o",
@@ -188,7 +188,7 @@ Local agents can also trigger pause via Flux's `PauseRequested` mechanism. The d
 Agents can have their own sub-agents, forming a hierarchy:
 
 ```python
-researcher = agent(
+researcher = await agent(
     "You are a research specialist.",
     model="ollama/llama3.2",
     name="researcher",
@@ -196,7 +196,7 @@ researcher = agent(
     tools=[search_web],
 )
 
-analyst = agent(
+analyst = await agent(
     "You are a data analyst.",
     model="ollama/llama3.2",
     name="analyst",
@@ -204,7 +204,7 @@ analyst = agent(
     agents=[researcher],
 )
 
-manager = agent(
+manager = await agent(
     "You are a project manager.",
     model="openai/gpt-4o",
     agents=[analyst, reviewer],
@@ -222,7 +222,7 @@ from flux.tasks.ai import agent, workflow_agent, SkillCatalog
 
 catalog = SkillCatalog.from_directory("./skills")
 
-researcher = agent(
+researcher = await agent(
     "You are a research specialist.",
     model="ollama/llama3.2",
     name="researcher",
@@ -237,7 +237,7 @@ deployer = workflow_agent(
     workflow="deploy_pipeline",
 )
 
-manager = agent(
+manager = await agent(
     "You are a senior engineering manager.",
     model="openai/gpt-4o",
     agents=[researcher, deployer],

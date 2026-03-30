@@ -486,18 +486,18 @@ class TestWorkflowAgent:
 
 
 class TestDelegationIntegration:
-    def test_agent_with_sub_agents_creates_delegate_tool(self):
+    async def test_agent_with_sub_agents_creates_delegate_tool(self):
         from flux.tasks.ai import agent
 
         sub = _FakeAgent("researcher", "Research.")
-        parent = agent(
+        parent = await agent(
             "You are a manager.",
             model="ollama/llama3",
             agents=[sub],
         )
         assert parent is not None
 
-    def test_agent_with_agents_and_skills(self):
+    async def test_agent_with_agents_and_skills(self):
         from flux.tasks.ai import agent
         from flux.tasks.ai.skills import Skill, SkillCatalog
 
@@ -505,7 +505,7 @@ class TestDelegationIntegration:
         s = Skill(name="summarizer", description="Summarizes.", instructions="Summarize.")
         catalog = SkillCatalog([s])
 
-        parent = agent(
+        parent = await agent(
             "You are a manager.",
             model="ollama/llama3",
             agents=[sub],
@@ -513,27 +513,21 @@ class TestDelegationIntegration:
         )
         assert parent is not None
 
-    def test_recursive_sub_agents(self):
-        import asyncio
-
+    async def test_recursive_sub_agents(self):
         from flux.tasks.ai import agent
 
         inner = _FakeAgent("researcher", "Research.")
-        middle = asyncio.run(
-            agent(
-                "You are an analyst.",
-                model="ollama/llama3",
-                name="analyst",
-                description="Analyzes.",
-                agents=[inner],
-            ),
+        middle = await agent(
+            "You are an analyst.",
+            model="ollama/llama3",
+            name="analyst",
+            description="Analyzes.",
+            agents=[inner],
         )
-        outer = asyncio.run(
-            agent(
-                "You are a manager.",
-                model="ollama/llama3",
-                agents=[middle],
-            ),
+        outer = await agent(
+            "You are a manager.",
+            model="ollama/llama3",
+            agents=[middle],
         )
         assert outer is not None
         assert middle.description == "Analyzes."
