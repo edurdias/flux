@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 
 from flux import task
 from flux.tasks.ai.tool_executor import (
@@ -250,3 +252,143 @@ def test_strip_plain_text_unchanged():
 def test_strip_empty():
     assert strip_tool_calls_from_content("") == ""
     assert strip_tool_calls_from_content(None) is None
+
+
+# --- parallel execute_tools tests ---
+
+
+@task
+async def slow_tool(label: str) -> str:
+    """A tool that takes 0.3s."""
+    await asyncio.sleep(0.3)
+    return f"done:{label}"
+
+
+@task
+async def failing_tool() -> str:
+    """A tool that raises."""
+    raise ValueError("tool broke")
+
+
+def test_execute_tools_parallel_runs_concurrently():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "slow_tool", "arguments": {"label": "a"}},
+            {"id": "2", "name": "slow_tool", "arguments": {"label": "b"}},
+            {"id": "3", "name": "slow_tool", "arguments": {"label": "c"}},
+        ]
+        start = time.monotonic()
+        results = await execute_tools(calls, [slow_tool])
+        elapsed = time.monotonic() - start
+        return {"results": results, "elapsed": elapsed}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert len(ctx.output["results"]) == 3
+    # 3 tools at 0.3s each: sequential = ~0.9s, parallel < 0.6s
+    assert ctx.output["elapsed"] < 0.6
+
+
+def test_execute_tools_parallel_preserves_order():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "slow_tool", "arguments": {"label": "first"}},
+            {"id": "2", "name": "slow_tool", "arguments": {"label": "second"}},
+            {"id": "3", "name": "slow_tool", "arguments": {"label": "third"}},
+        ]
+        results = await execute_tools(calls, [slow_tool])
+        return results
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output[0]["output"] == "done:first"
+    assert ctx.output[1]["output"] == "done:second"
+    assert ctx.output[2]["output"] == "done:third"
+
+
+def test_execute_tools_parallel_error_does_not_block_others():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "slow_tool", "arguments": {"label": "ok"}},
+            {"id": "2", "name": "failing_tool", "arguments": {}},
+            {"id": "3", "name": "slow_tool", "arguments": {"label": "also_ok"}},
+        ]
+        results = await execute_tools(calls, [slow_tool, failing_tool])
+        return results
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output[0]["output"] == "done:ok"
+    assert "Error:" in ctx.output[1]["output"]
+    assert ctx.output[2]["output"] == "done:also_ok"
+
+
+def test_execute_tools_max_concurrent_limits_parallelism():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "slow_tool", "arguments": {"label": "a"}},
+            {"id": "2", "name": "slow_tool", "arguments": {"label": "b"}},
+            {"id": "3", "name": "slow_tool", "arguments": {"label": "c"}},
+            {"id": "4", "name": "slow_tool", "arguments": {"label": "d"}},
+        ]
+        start = time.monotonic()
+        results = await execute_tools(calls, [slow_tool], max_concurrent=2)
+        elapsed = time.monotonic() - start
+        return {"results": results, "elapsed": elapsed}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert len(ctx.output["results"]) == 4
+    # 4 tools, max 2 concurrent, 0.3s each: ~0.6s (2 batches)
+    assert ctx.output["elapsed"] >= 0.5
+    assert ctx.output["elapsed"] < 0.9
+
+
+def test_execute_tools_max_concurrent_one_is_sequential():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "slow_tool", "arguments": {"label": "a"}},
+            {"id": "2", "name": "slow_tool", "arguments": {"label": "b"}},
+            {"id": "3", "name": "slow_tool", "arguments": {"label": "c"}},
+        ]
+        start = time.monotonic()
+        results = await execute_tools(calls, [slow_tool], max_concurrent=1)
+        elapsed = time.monotonic() - start
+        return {"results": results, "elapsed": elapsed}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert len(ctx.output["results"]) == 3
+    # Sequential: ~0.9s
+    assert ctx.output["elapsed"] >= 0.8
+
+
+def test_execute_tools_single_call_unchanged():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        results = await execute_tools(
+            [{"id": "1", "name": "search_web", "arguments": {"query": "test"}}],
+            [search_web],
+        )
+        return results
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output[0]["output"] == "Results for: test"
