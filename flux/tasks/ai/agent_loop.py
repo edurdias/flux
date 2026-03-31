@@ -92,7 +92,13 @@ async def run_agent_loop(
         if plan_summary_fn:
             summary = plan_summary_fn()
             if summary and tool_result_messages:
-                tool_result_messages[-1]["content"] += f"\n\n{summary}"
+                last = tool_result_messages[-1]
+                if isinstance(last, dict) and "content" in last:
+                    last["content"] += f"\n\n{summary}"
+                else:
+                    tool_result_messages.append(
+                        formatter.format_user_message(summary),
+                    )
 
         messages.extend(tool_result_messages)
 
