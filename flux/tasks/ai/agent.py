@@ -210,21 +210,40 @@ async def agent(
 
         result = _anthropic_agent
     elif provider == "google":
-        from flux.tasks.ai.gemini import build_gemini_agent
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.gemini import _to_gemini_tools, build_gemini_provider
+        from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        result = build_gemini_agent(
-            system_prompt=system_prompt,
-            model_name=model_name,
-            name=name,
-            tools=tools,
-            response_format=response_format,
-            working_memory=working_memory,
-            max_tool_calls=max_tool_calls,
-            max_concurrent_tools=max_concurrent_tools,
+        llm_task, formatter = build_gemini_provider(
+            model_name,
             max_tokens=max_tokens,
-            stream=effective_stream,
-            plan_summary_fn=plan_summary_fn,
+            response_format=response_format,
         )
+
+        tool_schemas = build_tool_schemas(tools) if tools else None
+        gemini_tools = _to_gemini_tools(tool_schemas) if tool_schemas else None
+
+        task_name = name or f"agent_google_{model_name.replace('-', '_').replace('.', '_')}"
+
+        @task.with_options(name=task_name)
+        async def _google_agent(instruction: str, *, context: str = "") -> str | BaseModel:
+            return await run_agent_loop(
+                llm_task=llm_task,
+                formatter=formatter,
+                system_prompt=system_prompt,
+                instruction=instruction,
+                context=context,
+                tools=tools,
+                tool_schemas=gemini_tools,
+                response_format=response_format,
+                working_memory=working_memory,
+                max_tool_calls=max_tool_calls,
+                max_concurrent_tools=max_concurrent_tools,
+                stream=effective_stream,
+                plan_summary_fn=plan_summary_fn,
+            )
+
+        result = _google_agent
     else:
         raise ValueError(
             f"Unknown provider: '{provider}'. "
