@@ -133,20 +133,40 @@ async def agent(
     provider, model_name = model.split("/", 1)
 
     if provider == "ollama":
-        from flux.tasks.ai.ollama import build_ollama_agent
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.ollama import OllamaFormatter, _to_ollama_tools, build_ollama_provider
+        from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        result = build_ollama_agent(
-            system_prompt=system_prompt,
-            model_name=model_name,
-            name=name,
-            tools=tools,
-            response_format=response_format,
-            working_memory=working_memory,
-            max_tool_calls=max_tool_calls,
-            max_concurrent_tools=max_concurrent_tools,
-            stream=effective_stream,
-            plan_summary_fn=plan_summary_fn,
-        )
+        llm_task, formatter = build_ollama_provider(model_name, response_format=response_format)
+
+        tool_schemas = build_tool_schemas(tools) if tools else None
+        ollama_tools = _to_ollama_tools(tool_schemas) if tool_schemas else None
+
+        if tool_schemas and isinstance(formatter, OllamaFormatter):
+            ollama_tool_names: set[str] = {str(s["name"]) for s in tool_schemas}
+            formatter.set_tool_names(ollama_tool_names)
+
+        task_name = name or f"agent_ollama_{model_name.replace(':', '_').replace('.', '_')}"
+
+        @task.with_options(name=task_name)
+        async def _ollama_agent(instruction: str, *, context: str = "") -> str | BaseModel:
+            return await run_agent_loop(
+                llm_task=llm_task,
+                formatter=formatter,
+                system_prompt=system_prompt,
+                instruction=instruction,
+                context=context,
+                tools=tools,
+                tool_schemas=ollama_tools,
+                response_format=response_format,
+                working_memory=working_memory,
+                max_tool_calls=max_tool_calls,
+                max_concurrent_tools=max_concurrent_tools,
+                stream=effective_stream,
+                plan_summary_fn=plan_summary_fn,
+            )
+
+        result = _ollama_agent
     elif provider == "openai":
         from flux.tasks.ai.agent_loop import run_agent_loop
         from flux.tasks.ai.openai import _to_openai_tools, build_openai_provider
