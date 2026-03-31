@@ -163,21 +163,36 @@ async def agent(
             plan_summary_fn=plan_summary_fn,
         )
     elif provider == "anthropic":
-        from flux.tasks.ai.anthropic import build_anthropic_agent
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.anthropic import _to_anthropic_tools, build_anthropic_provider
+        from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        result = build_anthropic_agent(
-            system_prompt=system_prompt,
-            model_name=model_name,
-            name=name,
-            tools=tools,
-            response_format=response_format,
-            working_memory=working_memory,
-            max_tool_calls=max_tool_calls,
-            max_concurrent_tools=max_concurrent_tools,
-            max_tokens=max_tokens,
-            stream=effective_stream,
-            plan_summary_fn=plan_summary_fn,
-        )
+        llm_task, formatter = build_anthropic_provider(model_name, max_tokens=max_tokens)
+
+        tool_schemas = build_tool_schemas(tools) if tools else None
+        anthropic_tools = _to_anthropic_tools(tool_schemas) if tool_schemas else None
+
+        task_name = name or f"agent_anthropic_{model_name.replace('-', '_').replace('.', '_')}"
+
+        @task.with_options(name=task_name)
+        async def _anthropic_agent(instruction: str, *, context: str = "") -> str | BaseModel:
+            return await run_agent_loop(
+                llm_task=llm_task,
+                formatter=formatter,
+                system_prompt=system_prompt,
+                instruction=instruction,
+                context=context,
+                tools=tools,
+                tool_schemas=anthropic_tools,
+                response_format=response_format,
+                working_memory=working_memory,
+                max_tool_calls=max_tool_calls,
+                max_concurrent_tools=max_concurrent_tools,
+                stream=effective_stream,
+                plan_summary_fn=plan_summary_fn,
+            )
+
+        result = _anthropic_agent
     elif provider == "google":
         from flux.tasks.ai.gemini import build_gemini_agent
 

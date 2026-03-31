@@ -21,9 +21,11 @@ def test_llm_response_text_only():
 
 
 def test_llm_response_tool_calls_only():
-    r = LLMResponse(tool_calls=[
-        ToolCall(id="1", name="search", arguments={"q": "AI"}),
-    ])
+    r = LLMResponse(
+        tool_calls=[
+            ToolCall(id="1", name="search", arguments={"q": "AI"}),
+        ],
+    )
     assert r.text == ""
     assert len(r.tool_calls) == 1
 
