@@ -5,115 +5,74 @@ from flux.domain.execution_context import ExecutionContext
 from flux._task_context import _CURRENT_TASK
 
 
-def test_ollama_streaming_emits_progress():
-    captured_progress = []
-
-    def on_progress(execution_id, task_id, task_name, value):
-        captured_progress.append(value)
-
+def test_ollama_streaming_yields_tokens():
     async def run():
-        async def mock_chat(**kwargs):
-            if kwargs.get("stream"):
-
-                async def token_generator():
-                    for token in ["Hello", " world", "!"]:
-                        yield {"message": {"content": token}}
-
-                return token_generator()
-            else:
-                return {"message": {"content": "Hello world!", "tool_calls": None}}
-
-        with patch("ollama.AsyncClient") as MockClient:
+        with patch("flux.tasks.ai.ollama.AsyncClient") as MockClient:
             mock_client = MagicMock()
-            mock_client.chat = mock_chat
             MockClient.return_value = mock_client
 
-            from flux.tasks.ai.ollama import build_ollama_agent
+            async def mock_chat(**kwargs):
+                for t in ["Hello", " world", "!"]:
+                    yield {"message": {"content": t}}
 
-            agent_task = build_ollama_agent(
-                system_prompt="Test",
-                model_name="llama3",
-                stream=True,
-            )
+            mock_client.chat = AsyncMock(return_value=mock_chat())
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
-            ctx.set_progress_callback(on_progress)
-            ctx_token = ExecutionContext.set(ctx)
-            task_token = _CURRENT_TASK.set(("task-1", "test_task"))
-            try:
-                result = await agent_task("Say hello")
-            finally:
-                _CURRENT_TASK.reset(task_token)
-                ExecutionContext.reset(ctx_token)
+            from flux.tasks.ai.ollama import build_ollama_provider
 
-            assert result == "Hello world!"
-            assert len(captured_progress) == 3
-            assert captured_progress[0] == {"token": "Hello"}
-            assert captured_progress[1] == {"token": " world"}
-            assert captured_progress[2] == {"token": "!"}
+            _, formatter = build_ollama_provider("llama3")
+
+            messages = [
+                {"role": "system", "content": "Test"},
+                {"role": "user", "content": "Say hello"},
+            ]
+            kwargs = {"model": "llama3"}
+
+            tokens = []
+            async for tok in formatter.stream(messages, kwargs):
+                tokens.append(tok)
+
+            assert tokens == ["Hello", " world", "!"]
 
     asyncio.run(run())
 
 
-def test_ollama_no_streaming_when_disabled():
-    captured_progress = []
-
-    def on_progress(execution_id, task_id, task_name, value):
-        captured_progress.append(value)
-
+def test_ollama_no_streaming_returns_response():
     async def run():
-        with patch("ollama.AsyncClient") as MockClient:
+        with patch("flux.tasks.ai.ollama.AsyncClient") as MockClient:
             mock_client = MagicMock()
             mock_client.chat = AsyncMock(
-                return_value={"message": {"content": "Hello world!", "tool_calls": None}},
+                return_value={"message": {"content": "Hello world!"}},
             )
             MockClient.return_value = mock_client
 
-            from flux.tasks.ai.ollama import build_ollama_agent
+            from flux.tasks.ai.ollama import build_ollama_provider
 
-            agent_task = build_ollama_agent(
-                system_prompt="Test",
-                model_name="llama3",
-                stream=False,
-            )
+            llm_task, _ = build_ollama_provider("llama3")
 
             ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
-            ctx.set_progress_callback(on_progress)
             ctx_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))
             try:
-                result = await agent_task("Say hello")
+                result = await llm_task(
+                    [{"role": "user", "content": "Say hello"}],
+                    model="llama3",
+                )
             finally:
                 _CURRENT_TASK.reset(task_token)
                 ExecutionContext.reset(ctx_token)
 
-            assert result == "Hello world!"
-            assert len(captured_progress) == 0
+            assert result.text == "Hello world!"
+            assert result.tool_calls == []
 
     asyncio.run(run())
 
 
-def test_ollama_streaming_with_tools_streams_final_response():
-    captured_progress = []
-
-    def on_progress(execution_id, task_id, task_name, value):
-        captured_progress.append(value)
-
+def test_ollama_llm_task_with_tool_calls():
     async def run():
-        call_count = 0
-
-        async def mock_chat(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if kwargs.get("stream"):
-
-                async def token_generator():
-                    for token in ["Final", " answer"]:
-                        yield {"message": {"content": token}}
-
-                return token_generator()
-            elif call_count == 1:
-                return {
+        with patch("flux.tasks.ai.ollama.AsyncClient") as MockClient:
+            mock_client = MagicMock()
+            mock_client.chat = AsyncMock(
+                return_value={
                     "message": {
                         "content": "",
                         "tool_calls": [
@@ -125,39 +84,28 @@ def test_ollama_streaming_with_tools_streams_final_response():
                             },
                         ],
                     },
-                }
-            else:
-                return {"message": {"content": "Sunny", "tool_calls": None}}
-
-        async def get_weather(city: str) -> str:
-            """Get the weather for a city."""
-            return "Sunny"
-
-        with patch("ollama.AsyncClient") as MockClient:
-            mock_client = MagicMock()
-            mock_client.chat = mock_chat
+                },
+            )
             MockClient.return_value = mock_client
 
-            from flux.tasks.ai.ollama import build_ollama_agent
+            from flux.tasks.ai.ollama import build_ollama_provider
 
-            agent_task = build_ollama_agent(
-                system_prompt="Test",
-                model_name="llama3",
-                tools=[get_weather],
-                stream=True,
-            )
+            llm_task, _ = build_ollama_provider("llama3")
 
             ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
-            ctx.set_progress_callback(on_progress)
             ctx_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))
             try:
-                result = await agent_task("What is the weather in London?")
+                result = await llm_task(
+                    [{"role": "user", "content": "Weather in London?"}],
+                    model="llama3",
+                )
             finally:
                 _CURRENT_TASK.reset(task_token)
                 ExecutionContext.reset(ctx_token)
 
-            assert result == "Sunny"
-            assert len(captured_progress) == 0
+            assert len(result.tool_calls) == 1
+            assert result.tool_calls[0].name == "get_weather"
+            assert result.tool_calls[0].arguments == {"city": "London"}
 
     asyncio.run(run())
