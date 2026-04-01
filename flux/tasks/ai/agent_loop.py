@@ -25,7 +25,7 @@ async def run_agent_loop(
     instruction: str,
     context: str = "",
     tools: list[Any] | None = None,
-    tool_schemas: list[dict] | None = None,
+    tool_schemas: list[Any] | None = None,
     response_format: type[BaseModel] | None = None,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
@@ -93,7 +93,7 @@ async def run_agent_loop(
             summary = plan_summary_fn()
             if summary and tool_result_messages:
                 last = tool_result_messages[-1]
-                if isinstance(last, dict) and "content" in last:
+                if isinstance(last, dict) and isinstance(last.get("content"), str):
                     last["content"] += f"\n\n{summary}"
                 else:
                     tool_result_messages.append(

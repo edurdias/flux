@@ -78,7 +78,7 @@ class OllamaFormatter(LLMFormatter):
 
         call_kwargs: dict[str, Any] = {"model": self._model_name}
 
-        if self._response_format:
+        if self._response_format and not self._tool_names:
             schema_json = json.dumps(self._response_format.model_json_schema())
             messages[-1]["content"] += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
             call_kwargs["format"] = "json"
