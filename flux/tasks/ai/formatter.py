@@ -14,24 +14,24 @@ class LLMFormatter(ABC):
         system_prompt: str,
         user_content: str,
         working_memory: Any | None = None,
-    ) -> tuple[list[dict], dict]:
+    ) -> tuple[list[Any], dict]:
         """Build initial message list and provider-specific call kwargs."""
 
     @abstractmethod
-    def format_assistant_message(self, response: LLMResponse) -> dict:
-        """Convert LLMResponse into a message dict to append to conversation."""
+    def format_assistant_message(self, response: LLMResponse) -> Any:
+        """Convert LLMResponse into a message to append to conversation."""
 
     @abstractmethod
     def format_tool_results(
         self,
         tool_calls: list[ToolCall],
         results: list[dict],
-    ) -> list[dict]:
-        """Format tool execution results as message dicts for next turn."""
+    ) -> list[Any]:
+        """Format tool execution results as messages for next turn."""
 
     @abstractmethod
-    def format_user_message(self, text: str) -> dict:
-        """Format a plain user message dict."""
+    def format_user_message(self, text: str) -> Any:
+        """Format a plain user message."""
 
     @abstractmethod
     def remove_tools_from_kwargs(self, call_kwargs: dict) -> dict:
@@ -40,7 +40,7 @@ class LLMFormatter(ABC):
     @abstractmethod
     async def stream(
         self,
-        messages: list[dict],
+        messages: list[Any],
         call_kwargs: dict,
     ) -> AsyncIterator[str]:
         """Stream tokens from the LLM. Yields text strings."""
