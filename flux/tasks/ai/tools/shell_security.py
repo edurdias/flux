@@ -202,6 +202,46 @@ def check_privilege_escalation(command: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Check 11: Network exfiltration / reverse shell
+# ---------------------------------------------------------------------------
+
+_NET_EXFIL_RE = re.compile(
+    r"\bnc\b[^;|&\n\r]*(?:-[a-zA-Z]*l\b|--listen\b)"
+    r"|\bncat\b"
+    r"|\bsocat\b[^;|&\n\r]*(?:TCP|UDP)-LISTEN"
+    r"|bash\s+-i\s*>&?\s*/dev/tcp/"
+    r"|sh\s+-i\s*>&?\s*/dev/tcp/"
+    r"|/dev/tcp/",
+    re.IGNORECASE,
+)
+
+
+def check_network_exfiltration(command: str) -> str | None:
+    if _NET_EXFIL_RE.search(command):
+        return "network exfiltration or reverse shell detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Check 12: Crypto mining tools
+# ---------------------------------------------------------------------------
+
+_CRYPTO_MINING_RE = re.compile(
+    r"\bxmrig\b"
+    r"|\bminerd\b"
+    r"|\bcpuminer\b"
+    r"|stratum\+tcp://",
+    re.IGNORECASE,
+)
+
+
+def check_crypto_mining(command: str) -> str | None:
+    if _CRYPTO_MINING_RE.search(command):
+        return "crypto mining tool detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Pipeline (expanded in subsequent tasks)
 # ---------------------------------------------------------------------------
 
@@ -216,6 +256,8 @@ BASELINE_CHECKS = [
     check_ifs_injection,
     check_env_manipulation,
     check_privilege_escalation,
+    check_network_exfiltration,
+    check_crypto_mining,
 ]
 
 
