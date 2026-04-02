@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from flux.task import task
 
+from flux.tasks.ai.tools.shell_security import run_security_checks
 from flux.tasks.ai.tools.system_tools import truncate_output
 
 if TYPE_CHECKING:
@@ -21,6 +22,10 @@ def build_shell_tools(config: SystemToolsConfig) -> list:
     @task.with_options(timeout=config.timeout)
     async def shell(command: str, stream: bool = False) -> dict:
         """Execute a shell command in the workspace directory."""
+        security_error = run_security_checks(command)
+        if security_error:
+            return {"status": "error", "error": security_error}
+
         for pattern in compiled_blocklist:
             if pattern.search(command):
                 return {"status": "error", "error": "command blocked by security policy"}
