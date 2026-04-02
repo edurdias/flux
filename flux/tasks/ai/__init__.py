@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flux.tasks.ai.agent import agent
 from flux.tasks.ai.agent_plan import AgentPlan, AgentStep
+from flux.tasks.ai.approval import requires_approval
 from flux.tasks.ai.delegation import DelegationResult, workflow_agent
 from flux.tasks.ai.models import LLMResponse, ToolCall
 from flux.tasks.ai.memory import in_memory, long_term_memory, postgresql, sqlite, working_memory
@@ -24,4 +25,5 @@ __all__ = [
     "DelegationResult",
     "LLMResponse",
     "ToolCall",
+    "requires_approval",
 ]

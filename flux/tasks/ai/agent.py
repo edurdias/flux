@@ -35,6 +35,7 @@ async def agent(
     max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
+    approval_mode: str = "default",
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -119,7 +120,7 @@ async def agent(
     if tools:
         from flux.tasks.ai.tool_executor import build_tools_preamble
 
-        system_prompt = system_prompt + build_tools_preamble(tools)
+        system_prompt = system_prompt + build_tools_preamble(tools, approval_mode=approval_mode)
 
     effective_stream = stream and response_format is None
 
@@ -164,6 +165,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                approval_mode=approval_mode,
             )
 
         result = _ollama_agent
@@ -195,6 +197,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                approval_mode=approval_mode,
             )
 
         result = _openai_agent
@@ -226,6 +229,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                approval_mode=approval_mode,
             )
 
         result = _anthropic_agent
@@ -261,6 +265,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                approval_mode=approval_mode,
             )
 
         result = _google_agent
