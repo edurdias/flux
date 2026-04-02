@@ -152,14 +152,52 @@ def check_unicode_injection(command: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 _IFS_INJECTION_RE = re.compile(
-    r"\bIFS\s*="
-    r"|\x00",
+    r"\bIFS\s*=" r"|\x00",
 )
 
 
 def check_ifs_injection(command: str) -> str | None:
     if _IFS_INJECTION_RE.search(command):
         return "IFS or null-byte injection detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Check 9: Dangerous environment variable manipulation
+# ---------------------------------------------------------------------------
+
+_ENV_MANIP_RE = re.compile(
+    r"\b(?:PATH|LD_PRELOAD|LD_LIBRARY_PATH|PYTHONPATH|PYTHONSTARTUP"
+    r"|RUBYLIB|PERL5LIB|NODE_PATH|DYLD_INSERT_LIBRARIES)\s*=",
+    re.IGNORECASE,
+)
+
+
+def check_env_manipulation(command: str) -> str | None:
+    if _ENV_MANIP_RE.search(command):
+        return "dangerous environment variable manipulation detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Check 10: Privilege escalation
+# ---------------------------------------------------------------------------
+
+_PRIV_ESC_RE = re.compile(
+    r"\bsudo\b"
+    r"|\bsu\b"
+    r"|\bchmod\b[^;|&\n\r]*\b777\b"
+    r"|\bchmod\b[^;|&\n\r]*\+s\b"
+    r"|\bchown\b[^;|&\n\r]*\broot\b"
+    r"|\bpkexec\b"
+    r"|\bnewgrp\b",
+    re.IGNORECASE,
+)
+
+
+def check_privilege_escalation(command: str) -> str | None:
+    if _PRIV_ESC_RE.search(command):
+        return "privilege escalation detected"
     return None
 
 
@@ -176,6 +214,8 @@ BASELINE_CHECKS = [
     check_pipe_to_shell,
     check_unicode_injection,
     check_ifs_injection,
+    check_env_manipulation,
+    check_privilege_escalation,
 ]
 
 

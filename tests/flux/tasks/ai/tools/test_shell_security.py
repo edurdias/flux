@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from flux.tasks.ai.tools.shell_security import (
     check_destructive_commands,
+    check_env_manipulation,
     check_fork_bomb,
     check_ifs_injection,
     check_path_traversal,
     check_pipe_to_shell,
+    check_privilege_escalation,
     check_protected_files,
     check_system_control,
     check_unicode_injection,
@@ -268,3 +270,79 @@ class TestCheckIfsInjection:
     def test_allows_normal_commands(self):
         assert check_ifs_injection("ls -la") is None
         assert check_ifs_injection("git status") is None
+
+
+class TestCheckEnvManipulation:
+    def test_detects_export_path(self):
+        assert check_env_manipulation("export PATH=/evil:$PATH") is not None
+
+    def test_detects_inline_path(self):
+        assert check_env_manipulation("PATH=/evil:$PATH ls") is not None
+
+    def test_detects_ld_preload(self):
+        assert check_env_manipulation("LD_PRELOAD=/evil.so ls") is not None
+
+    def test_detects_export_ld_library_path(self):
+        assert check_env_manipulation("export LD_LIBRARY_PATH=/evil") is not None
+
+    def test_detects_pythonpath(self):
+        assert check_env_manipulation("PYTHONPATH=/evil python3 app.py") is not None
+
+    def test_detects_pythonstartup(self):
+        assert check_env_manipulation("export PYTHONSTARTUP=/evil/init.py") is not None
+
+    def test_detects_node_path(self):
+        assert check_env_manipulation("NODE_PATH=/evil node app.js") is not None
+
+    def test_detects_dyld_insert_libraries(self):
+        assert check_env_manipulation("DYLD_INSERT_LIBRARIES=/evil.dylib ls") is not None
+
+    def test_evasion_uppercase_export(self):
+        assert check_env_manipulation("EXPORT PATH=/evil") is not None
+
+    def test_allows_reading_path(self):
+        assert check_env_manipulation("echo $PATH") is None
+
+    def test_allows_env_command(self):
+        assert check_env_manipulation("env | grep PATH") is None
+
+    def test_allows_python_without_env(self):
+        assert check_env_manipulation("python3 script.py") is None
+
+
+class TestCheckPrivilegeEscalation:
+    def test_detects_sudo(self):
+        assert check_privilege_escalation("sudo rm -rf /var/log") is not None
+
+    def test_detects_su(self):
+        assert check_privilege_escalation("su root") is not None
+
+    def test_detects_su_dash(self):
+        assert check_privilege_escalation("su -") is not None
+
+    def test_detects_chmod_777(self):
+        assert check_privilege_escalation("chmod 777 /etc/passwd") is not None
+
+    def test_detects_chmod_setuid(self):
+        assert check_privilege_escalation("chmod +s /usr/local/bin/program") is not None
+
+    def test_detects_chown_root(self):
+        assert check_privilege_escalation("chown root:root /tmp/evil") is not None
+
+    def test_detects_pkexec(self):
+        assert check_privilege_escalation("pkexec install_package") is not None
+
+    def test_detects_newgrp(self):
+        assert check_privilege_escalation("newgrp docker") is not None
+
+    def test_evasion_sudo_uppercase(self):
+        assert check_privilege_escalation("SUDO rm -rf /") is not None
+
+    def test_allows_chmod_755(self):
+        assert check_privilege_escalation("chmod 755 script.sh") is None
+
+    def test_allows_chmod_644(self):
+        assert check_privilege_escalation("chmod 644 file.txt") is None
+
+    def test_allows_ls(self):
+        assert check_privilege_escalation("ls -la") is None
