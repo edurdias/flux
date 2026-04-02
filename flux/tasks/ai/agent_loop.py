@@ -32,6 +32,7 @@ async def run_agent_loop(
     max_concurrent_tools: int | None = None,
     stream: bool = False,
     plan_summary_fn: Any | None = None,
+    approval_mode: str = "default",
 ) -> str | BaseModel:
     from flux.tasks.progress import progress
 
@@ -70,6 +71,8 @@ async def run_agent_loop(
     call_counter += 1
     response = _ensure_llm_response(result)
 
+    always_approved: set[str] = set()
+
     tool_call_count = 0
     tool_iteration = 0
 
@@ -84,6 +87,8 @@ async def run_agent_loop(
             tools,
             iteration=tool_iteration,
             max_concurrent=max_concurrent_tools,
+            always_approved=always_approved,
+            approval_mode=approval_mode,
         )
         tool_iteration += 1
 
