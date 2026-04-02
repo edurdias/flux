@@ -129,6 +129,41 @@ def check_pipe_to_shell(command: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Check 7: Unicode injection
+# ---------------------------------------------------------------------------
+
+_ALLOWED_CONTROL_CODEPOINTS = frozenset([0x09, 0x0A, 0x0D])  # tab, LF, CR
+
+
+def check_unicode_injection(command: str) -> str | None:
+    for ch in command:
+        cp = ord(ch)
+        if cp < 0x20 and cp not in _ALLOWED_CONTROL_CODEPOINTS:
+            return "unicode injection detected: control character"
+        if cp == 0x7F:
+            return "unicode injection detected: DEL character"
+        if cp > 0x7F and unicodedata.category(ch) == "Cf":
+            return "unicode injection detected: invisible formatting character"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Check 8: IFS and null-byte injection
+# ---------------------------------------------------------------------------
+
+_IFS_INJECTION_RE = re.compile(
+    r"\bIFS\s*="
+    r"|\x00",
+)
+
+
+def check_ifs_injection(command: str) -> str | None:
+    if _IFS_INJECTION_RE.search(command):
+        return "IFS or null-byte injection detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Pipeline (expanded in subsequent tasks)
 # ---------------------------------------------------------------------------
 
@@ -139,6 +174,8 @@ BASELINE_CHECKS = [
     check_protected_files,
     check_path_traversal,
     check_pipe_to_shell,
+    check_unicode_injection,
+    check_ifs_injection,
 ]
 
 

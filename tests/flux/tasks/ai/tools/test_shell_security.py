@@ -3,10 +3,12 @@ from __future__ import annotations
 from flux.tasks.ai.tools.shell_security import (
     check_destructive_commands,
     check_fork_bomb,
+    check_ifs_injection,
     check_path_traversal,
     check_pipe_to_shell,
     check_protected_files,
     check_system_control,
+    check_unicode_injection,
 )
 
 
@@ -213,3 +215,56 @@ class TestCheckPipeToShell:
 
     def test_allows_cat_pipe_bash(self):
         assert check_pipe_to_shell("cat script.sh | bash") is None
+
+
+class TestCheckUnicodeInjection:
+    def test_detects_zero_width_space(self):
+        assert check_unicode_injection("ls\u200b -la") is not None
+
+    def test_detects_rtlo(self):
+        assert check_unicode_injection("echo\u202e evil") is not None
+
+    def test_detects_zero_width_joiner(self):
+        assert check_unicode_injection("cat\u200d /etc/passwd") is not None
+
+    def test_detects_null_byte(self):
+        assert check_unicode_injection("cat /etc/passwd\x00") is not None
+
+    def test_detects_bell_character(self):
+        assert check_unicode_injection("echo\x07 hello") is not None
+
+    def test_allows_printable_ascii(self):
+        assert check_unicode_injection("echo 'hello world'") is None
+
+    def test_allows_tab_newline_cr(self):
+        assert check_unicode_injection("echo hello\n\t\r") is None
+
+    def test_allows_regular_unicode_letters(self):
+        assert check_unicode_injection("echo héllo") is None
+
+    def test_allows_emoji(self):
+        assert check_unicode_injection("echo '👍 done'") is None
+
+
+class TestCheckIfsInjection:
+    def test_detects_ifs_assignment(self):
+        assert check_ifs_injection("IFS=x; cat /etc/passwd") is not None
+
+    def test_detects_ifs_equals_space(self):
+        assert check_ifs_injection("IFS= ls") is not None
+
+    def test_detects_ifs_assignment_quoted(self):
+        assert check_ifs_injection("IFS='x'") is not None
+
+    def test_detects_null_byte(self):
+        assert check_ifs_injection("cat /etc/passwd\x00extra") is not None
+
+    def test_evasion_ifs_uppercase(self):
+        assert check_ifs_injection("IFS=:; PATH=$IFS") is not None
+
+    def test_allows_echo_ifs(self):
+        assert check_ifs_injection("echo IFS") is None
+
+    def test_allows_normal_commands(self):
+        assert check_ifs_injection("ls -la") is None
+        assert check_ifs_injection("git status") is None
