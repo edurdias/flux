@@ -135,7 +135,7 @@ def _resolve_json_type(hint: Any) -> str:
     return "string"
 
 
-def build_tools_preamble(tools: list[Any]) -> str:
+def build_tools_preamble(tools: list[Any], approval_mode: str = "default") -> str:
     """Build a system-prompt section listing available tools.
 
     Reinforces the API-level tool schema with a human-readable summary
@@ -178,7 +178,7 @@ def build_tools_preamble(tools: list[Any]) -> str:
         for t in tools
         if getattr(t, "requires_approval", False)
     ]
-    if approval_tools:
+    if approval_tools and approval_mode != "autonomous":
         lines.extend(
             [
                 "",
