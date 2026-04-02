@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
+from flux.domain.execution_context import ExecutionContext
 from flux.tasks.ai.tools.shell_security import (
     check_crypto_mining,
     check_destructive_commands,
@@ -15,6 +20,7 @@ from flux.tasks.ai.tools.shell_security import (
     check_unicode_injection,
     run_security_checks,
 )
+from flux.tasks.ai.tools.system_tools import SystemToolsConfig
 
 
 class TestCheckForkBomb:
@@ -445,3 +451,68 @@ class TestRunSecurityChecks:
             == "network exfiltration or reverse shell detected"
         )
         assert run_security_checks("./xmrig -o pool.com") == "crypto mining tool detected"
+
+
+def _run(coro):
+    async def _wrapper():
+        ctx = ExecutionContext(workflow_id="test", workflow_name="test")
+        token = ExecutionContext.set(ctx)
+        try:
+            return await coro
+        finally:
+            ExecutionContext.reset(token)
+
+    return asyncio.run(_wrapper())
+
+
+@pytest.fixture
+def shell_tool_no_blocklist(tmp_path):
+    from flux.tasks.ai.tools.shell import build_shell_tools
+
+    config = SystemToolsConfig(
+        workspace=tmp_path,
+        timeout=30,
+        blocklist=[],
+        max_output_chars=100_000,
+    )
+    return build_shell_tools(config)[0]
+
+
+class TestShellToolBaseline:
+    def test_baseline_blocks_fork_bomb(self, shell_tool_no_blocklist):
+        result = _run(shell_tool_no_blocklist(command=":(){ :|:& };:"))
+        assert result["status"] == "error"
+        assert result["error"] == "fork bomb detected"
+
+    def test_baseline_blocks_destructive(self, shell_tool_no_blocklist):
+        result = _run(shell_tool_no_blocklist(command="rm -rf /"))
+        assert result["status"] == "error"
+        assert result["error"] == "destructive command detected"
+
+    def test_baseline_blocks_system_control(self, shell_tool_no_blocklist):
+        result = _run(shell_tool_no_blocklist(command="shutdown now"))
+        assert result["status"] == "error"
+        assert result["error"] == "system control command detected"
+
+    def test_baseline_error_distinct_from_blocklist_error(self, shell_tool_no_blocklist):
+        result = _run(shell_tool_no_blocklist(command="shutdown now"))
+        assert "blocked by security policy" not in result["error"]
+
+    def test_blocklist_still_works(self, tmp_path):
+        from flux.tasks.ai.tools.shell import build_shell_tools
+
+        config = SystemToolsConfig(
+            workspace=tmp_path,
+            timeout=30,
+            blocklist=[r"\bsecret_cmd\b"],
+            max_output_chars=100_000,
+        )
+        tool = build_shell_tools(config)[0]
+        result = _run(tool(command="secret_cmd"))
+        assert result["status"] == "error"
+        assert result["error"] == "command blocked by security policy"
+
+    def test_safe_commands_still_execute(self, shell_tool_no_blocklist):
+        result = _run(shell_tool_no_blocklist(command="echo hello"))
+        assert result["status"] == "ok"
+        assert "hello" in result["stdout"]
