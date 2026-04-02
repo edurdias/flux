@@ -227,10 +227,7 @@ def check_network_exfiltration(command: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 _CRYPTO_MINING_RE = re.compile(
-    r"\bxmrig\b"
-    r"|\bminerd\b"
-    r"|\bcpuminer\b"
-    r"|stratum\+tcp://",
+    r"\bxmrig\b" r"|\bminerd\b" r"|\bcpuminer\b" r"|stratum\+tcp://",
     re.IGNORECASE,
 )
 
