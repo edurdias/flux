@@ -3,6 +3,8 @@ from __future__ import annotations
 from flux.tasks.ai.tools.shell_security import (
     check_destructive_commands,
     check_fork_bomb,
+    check_protected_files,
+    check_system_control,
 )
 
 
@@ -78,3 +80,76 @@ class TestCheckDestructiveCommands:
 
     def test_allows_ls(self):
         assert check_destructive_commands("ls -la") is None
+
+
+class TestCheckSystemControl:
+    def test_detects_shutdown(self):
+        assert check_system_control("shutdown now") is not None
+
+    def test_detects_reboot(self):
+        assert check_system_control("reboot") is not None
+
+    def test_detects_halt(self):
+        assert check_system_control("halt") is not None
+
+    def test_detects_init_0(self):
+        assert check_system_control("init 0") is not None
+
+    def test_detects_init_6(self):
+        assert check_system_control("init 6") is not None
+
+    def test_detects_systemctl_poweroff(self):
+        assert check_system_control("systemctl poweroff") is not None
+
+    def test_detects_systemctl_halt(self):
+        assert check_system_control("systemctl halt") is not None
+
+    def test_detects_systemctl_reboot(self):
+        assert check_system_control("systemctl reboot") is not None
+
+    def test_evasion_uppercase_shutdown(self):
+        assert check_system_control("SHUTDOWN now") is not None
+
+    def test_allows_ls(self):
+        assert check_system_control("ls /etc") is None
+
+    def test_allows_git_status(self):
+        assert check_system_control("git status") is None
+
+
+class TestCheckProtectedFiles:
+    def test_detects_rm_env(self):
+        assert check_protected_files("rm .env") is not None
+
+    def test_detects_rm_ssh_dir(self):
+        assert check_protected_files("rm -rf ~/.ssh/") is not None
+
+    def test_detects_redirect_to_env(self):
+        assert check_protected_files("echo evil > .env") is not None
+
+    def test_detects_append_to_bashrc(self):
+        assert check_protected_files("echo alias >> ~/.bashrc") is not None
+
+    def test_detects_cp_over_gitconfig(self):
+        assert check_protected_files("cp evil ~/.gitconfig") is not None
+
+    def test_detects_mv_over_profile(self):
+        assert check_protected_files("mv evil ~/.profile") is not None
+
+    def test_detects_chmod_on_id_rsa(self):
+        assert check_protected_files("chmod 644 ~/.ssh/id_rsa") is not None
+
+    def test_detects_redirect_to_authorized_keys(self):
+        assert check_protected_files("cat key.pub >> ~/.ssh/authorized_keys") is not None
+
+    def test_detects_tee_to_mcp_json(self):
+        assert check_protected_files("echo '{}' | tee .mcp.json") is not None
+
+    def test_allows_cat_env(self):
+        assert check_protected_files("cat .env") is None
+
+    def test_allows_ls_ssh(self):
+        assert check_protected_files("ls ~/.ssh/") is None
+
+    def test_allows_read_gitconfig(self):
+        assert check_protected_files("git config --list") is None
