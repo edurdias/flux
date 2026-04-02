@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # ---------------------------------------------------------------------------
 # Check 1: Fork bomb
@@ -93,6 +94,41 @@ def check_protected_files(command: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Check 5: Path traversal
+# ---------------------------------------------------------------------------
+
+_URL_DOT_RE = re.compile(r"%2e", re.IGNORECASE)
+_URL_SLASH_RE = re.compile(r"%2f", re.IGNORECASE)
+
+
+def check_path_traversal(command: str) -> str | None:
+    normalized = unicodedata.normalize("NFC", command)
+    decoded = _URL_DOT_RE.sub(".", normalized)
+    decoded = _URL_SLASH_RE.sub("/", decoded)
+    if re.search(r"\.\.[/\\]", decoded) or re.search(r"[/\\]\.\.", decoded):
+        return "path traversal detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Check 6: Pipe to shell (download-and-execute)
+# ---------------------------------------------------------------------------
+
+_PIPE_TO_SHELL_RE = re.compile(
+    r"\b(?:curl|wget|fetch|http(?:ie)?)\b[^;|&\n\r]*"
+    r"\|[^;|&\n\r]*"
+    r"\b(?:bash|sh|zsh|dash|ash|python\d*|perl|ruby|node)\b",
+    re.IGNORECASE,
+)
+
+
+def check_pipe_to_shell(command: str) -> str | None:
+    if _PIPE_TO_SHELL_RE.search(command):
+        return "download and execute detected"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Pipeline (expanded in subsequent tasks)
 # ---------------------------------------------------------------------------
 
@@ -101,6 +137,8 @@ BASELINE_CHECKS = [
     check_destructive_commands,
     check_system_control,
     check_protected_files,
+    check_path_traversal,
+    check_pipe_to_shell,
 ]
 
 
