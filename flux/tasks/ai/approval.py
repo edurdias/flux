@@ -48,11 +48,13 @@ class _ApprovalWrapper:
 
 
 @overload
-def requires_approval(tool: task, *, only: list[str] | None = None) -> _ApprovalWrapper: ...
+def requires_approval(tool: task, *, only: list[str] | None = None) -> _ApprovalWrapper:
+    ...
 
 
 @overload
-def requires_approval(tool: list, *, only: list[str] | None = None) -> list: ...
+def requires_approval(tool: list, *, only: list[str] | None = None) -> list:
+    ...
 
 
 def requires_approval(
