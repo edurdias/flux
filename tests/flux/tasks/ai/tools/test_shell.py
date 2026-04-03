@@ -75,7 +75,7 @@ def test_shell_cwd_is_workspace(shell_tool, tmp_path):
 def test_shell_blocklist_blocks(shell_tool):
     result = _run(shell_tool(command="rm -rf /"))
     assert result["status"] == "error"
-    assert "blocked" in result["error"].lower()
+    assert "blocked" in result["error"].lower() or "destructive" in result["error"].lower()
 
 
 def test_shell_blocklist_does_not_echo_command(shell_tool):

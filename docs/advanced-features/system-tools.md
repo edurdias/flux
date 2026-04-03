@@ -89,9 +89,31 @@ any attempt to escape (e.g., `../`) returns an error.
 **File tools** are sandboxed to the workspace directory. Paths are resolved and checked —
 symlink escapes, `../` traversals, and absolute paths outside workspace are all rejected.
 
-**Shell** is not path-sandboxed. It can access the full system, which is necessary for
-package installs, system commands, and external services. A regex blocklist prevents
-obviously destructive commands. Override with `blocklist=[]` for full trust.
+**Shell** has a two-layer security model:
+
+1. **Baseline security checks** (non-overridable) — 12 hardcoded checks that always run
+   before any command executes. These cannot be disabled and protect against:
+
+   | Check | Threats |
+   |-------|---------|
+   | Fork bomb | `:(){ :|:& };:`, `while true`, `for(;;)` |
+   | Destructive commands | `rm -rf /`, `mkfs`, `dd if=/dev/zero`, `wipefs` |
+   | System control | `shutdown`, `reboot`, `halt`, `init 0/6` |
+   | Protected files | Writes to `.env`, `.ssh/`, `.bashrc`, `.gitconfig`, credentials |
+   | Path traversal | `../` sequences, URL-encoded `%2e%2e` variants |
+   | Pipe to shell | `curl \| bash`, `wget \| sh`, download-and-execute patterns |
+   | Unicode injection | Zero-width spaces, right-to-left override, control characters |
+   | IFS injection | `IFS=` manipulation, null-byte injection |
+   | Env manipulation | `PATH=`, `LD_PRELOAD=`, `PYTHONPATH=` overrides |
+   | Privilege escalation | `sudo`, `su`, `chmod 777`, `chmod +s`, `chown root` |
+   | Network exfiltration | `nc -l`, reverse shells via `/dev/tcp/`, `socat` listeners |
+   | Crypto mining | `xmrig`, `minerd`, `cpuminer`, `stratum+tcp://` |
+
+   Blocked commands return a descriptive error (e.g., `"fork bomb detected"`) without
+   executing.
+
+2. **Configurable blocklist** — regex patterns for organization-specific rules. Override
+   with `blocklist=[]` to disable the configurable layer (baseline checks still apply).
 
 For stronger isolation, run your Flux workflow inside a Docker container.
 
