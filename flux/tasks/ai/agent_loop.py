@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from flux.errors import PauseRequested
 from flux.tasks.ai.models import LLMResponse
 from flux.tasks.ai.tool_executor import execute_tools
 
@@ -22,7 +24,9 @@ async def _fire_hooks(hooks: list[Any] | None, agent_name: str, value: Any) -> N
         return
     for hook in hooks:
         try:
-            await hook(agent_name, value)
+            result = hook(agent_name, value)
+            if inspect.isawaitable(result):
+                await result
         except Exception:
             logger.warning("Hook %s failed", hook, exc_info=True)
 
@@ -98,14 +102,18 @@ async def run_agent_loop(
         messages.append(formatter.format_assistant_message(response))
 
         tool_call_dicts = [tc.model_dump() for tc in response.tool_calls]
-        results = await execute_tools(
-            tool_call_dicts,
-            tools,
-            iteration=tool_iteration,
-            max_concurrent=max_concurrent_tools,
-            always_approved=always_approved,
-            approval_mode=approval_mode,
-        )
+        try:
+            results = await execute_tools(
+                tool_call_dicts,
+                tools,
+                iteration=tool_iteration,
+                max_concurrent=max_concurrent_tools,
+                always_approved=always_approved,
+                approval_mode=approval_mode,
+            )
+        except PauseRequested:
+            await _fire_hooks(on_pause, agent_name, None)
+            raise
         tool_iteration += 1
 
         tool_result_messages = formatter.format_tool_results(response.tool_calls, results)
