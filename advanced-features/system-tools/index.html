@@ -1336,9 +1336,75 @@ any attempt to escape (e.g., <code>../</code>) returns an error.</p>
 <h2 id="security-model">Security Model<a class="headerlink" href="#security-model" title="Permanent link">&para;</a></h2>
 <p><strong>File tools</strong> are sandboxed to the workspace directory. Paths are resolved and checked —
 symlink escapes, <code>../</code> traversals, and absolute paths outside workspace are all rejected.</p>
-<p><strong>Shell</strong> is not path-sandboxed. It can access the full system, which is necessary for
-package installs, system commands, and external services. A regex blocklist prevents
-obviously destructive commands. Override with <code>blocklist=[]</code> for full trust.</p>
+<p><strong>Shell</strong> has a two-layer security model:</p>
+<ol>
+<li><strong>Baseline security checks</strong> (non-overridable) — 12 hardcoded checks that always run
+   before any command executes. These cannot be disabled and protect against:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Threats</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fork bomb</td>
+<td><code>:(){ :|:&amp; };:</code>, <code>while true</code>, <code>for(;;)</code></td>
+</tr>
+<tr>
+<td>Destructive commands</td>
+<td><code>rm -rf /</code>, <code>mkfs</code>, <code>dd if=/dev/zero</code>, <code>wipefs</code></td>
+</tr>
+<tr>
+<td>System control</td>
+<td><code>shutdown</code>, <code>reboot</code>, <code>halt</code>, <code>init 0/6</code></td>
+</tr>
+<tr>
+<td>Protected files</td>
+<td>Writes to <code>.env</code>, <code>.ssh/</code>, <code>.bashrc</code>, <code>.gitconfig</code>, credentials</td>
+</tr>
+<tr>
+<td>Path traversal</td>
+<td><code>../</code> sequences, URL-encoded <code>%2e%2e</code> variants</td>
+</tr>
+<tr>
+<td>Pipe to shell</td>
+<td><code>curl \| bash</code>, <code>wget \| sh</code>, download-and-execute patterns</td>
+</tr>
+<tr>
+<td>Unicode injection</td>
+<td>Zero-width spaces, right-to-left override, control characters</td>
+</tr>
+<tr>
+<td>IFS injection</td>
+<td><code>IFS=</code> manipulation, null-byte injection</td>
+</tr>
+<tr>
+<td>Env manipulation</td>
+<td><code>PATH=</code>, <code>LD_PRELOAD=</code>, <code>PYTHONPATH=</code> overrides</td>
+</tr>
+<tr>
+<td>Privilege escalation</td>
+<td><code>sudo</code>, <code>su</code>, <code>chmod 777</code>, <code>chmod +s</code>, <code>chown root</code></td>
+</tr>
+<tr>
+<td>Network exfiltration</td>
+<td><code>nc -l</code>, reverse shells via <code>/dev/tcp/</code>, <code>socat</code> listeners</td>
+</tr>
+<tr>
+<td>Crypto mining</td>
+<td><code>xmrig</code>, <code>minerd</code>, <code>cpuminer</code>, <code>stratum+tcp://</code></td>
+</tr>
+</tbody>
+</table>
+<p>Blocked commands return a descriptive error (e.g., <code>"fork bomb detected"</code>) without
+   executing.</p>
+<ol>
+<li><strong>Configurable blocklist</strong> — regex patterns for organization-specific rules. Override
+   with <code>blocklist=[]</code> to disable the configurable layer (baseline checks still apply).</li>
+</ol>
 <p>For stronger isolation, run your Flux workflow inside a Docker container.</p>
 <h2 id="composing-with-other-tools">Composing With Other Tools<a class="headerlink" href="#composing-with-other-tools" title="Permanent link">&para;</a></h2>
 <p>System tools are a plain <code>list[task]</code> — combine them with your own tools:</p>
