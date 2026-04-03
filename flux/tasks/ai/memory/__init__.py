@@ -22,9 +22,9 @@ def postgresql(connection_string: str) -> SqlAlchemyProvider:
     return SqlAlchemyProvider(connection_string)
 
 
-def long_term_memory(provider: MemoryProvider, scope: str) -> LongTermMemory:
+def long_term_memory(provider: MemoryProvider, agent: str, scope: str) -> LongTermMemory:
     """Create a long-term memory backed by a provider."""
-    return LongTermMemory(provider=provider, scope=scope)
+    return LongTermMemory(provider=provider, agent=agent, scope=scope)
 
 
 def working_memory(
