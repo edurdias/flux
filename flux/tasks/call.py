@@ -8,20 +8,23 @@ from flux.workflow import workflow as workflow_cls
 
 
 @task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: workflow_cls | str, *args):
-    """Call a workflow directly or via the HTTP API in sync mode.
+async def call(workflow: workflow_cls | str, *args, mode: str = "sync"):
+    """Call a workflow directly or via the HTTP API in sync or async mode.
 
     Args:
         workflow: The workflow to call, can be either:
             - A workflow object: Will be called directly
             - A string: Will be called via the HTTP API
+        mode: Execution mode, either "sync" (default) or "async".
+            In async mode, returns the execution_id immediately without waiting.
 
     Raises:
         WorkflowNotFoundError: If the workflow does not exist (when using string name)
         ExecutionError: If the workflow execution fails
 
     Returns:
-        Any: The output of the workflow execution
+        Any: In sync mode, the output of the workflow execution.
+             In async mode, the execution_id string.
     """
     from flux.errors import WorkflowNotFoundError
     from flux.domain.execution_context import ExecutionContext
@@ -36,8 +39,17 @@ async def call(workflow: workflow_cls | str, *args):
     server_url = settings.workers.server_url
 
     try:
-        url = f"{server_url}/workflows/{workflow}/run/sync?detailed=true"
         payload = args[0] if len(args) == 1 else args
+
+        if mode == "async":
+            url = f"{server_url}/workflows/{workflow}/run/async"
+            with httpx.Client(timeout=settings.workers.default_timeout) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data["execution_id"]
+
+        url = f"{server_url}/workflows/{workflow}/run/sync?detailed=true"
         with httpx.Client(timeout=settings.workers.default_timeout) as client:
             response = client.post(url, json=payload)
             response.raise_for_status()
