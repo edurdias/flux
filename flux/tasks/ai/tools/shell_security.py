@@ -8,9 +8,9 @@ import unicodedata
 # ---------------------------------------------------------------------------
 
 _FORK_BOMB_RE = re.compile(
-    r":\s*\(\s*\)\s*\{"  # :() {  — bash fork bomb function signature
-    r"|while\s+true\s*[;{]"  # while true; / while true {
-    r"|for\s*\(\s*;\s*;\s*\)",  # for (;;)
+    r":\s*\(\s*\)\s*\{"
+    r"|while\s+true\s*[;{]"
+    r"|for\s*\(\s*;\s*;\s*\)",
     re.IGNORECASE,
 )
 
@@ -26,12 +26,12 @@ def check_fork_bomb(command: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 _DESTRUCTIVE_RE = re.compile(
-    r"\brm\b[^;|&\n\r]*-[a-zA-Z]*[rf][a-zA-Z]*[rf][^;|&\n\r]*\s+/"  # rm -rf / or rm -fr /
-    r"|\bmkfs\b"  # mkfs (any variant: mkfs.ext4, etc.)
-    r"|\bdd\b[^;|&\n\r]*\bif=/dev/zero\b"  # dd if=/dev/zero
-    r"|\bdd\b[^;|&\n\r]*\bof=/dev/[sh]d"  # dd of=/dev/sda or /dev/hda
-    r"|>\s*/dev/[sh]d[a-z]?"  # redirect to block device
-    r"|\bwipefs\b",  # wipefs
+    r"\brm\b[^;|&\n\r]*-[a-zA-Z]*[rf][a-zA-Z]*[rf][^;|&\n\r]*\s+/"
+    r"|\bmkfs\b"
+    r"|\bdd\b[^;|&\n\r]*\bif=/dev/zero\b"
+    r"|\bdd\b[^;|&\n\r]*\bof=/dev/[sh]d"
+    r"|>\s*/dev/[sh]d[a-z]?"
+    r"|\bwipefs\b",
     re.IGNORECASE,
 )
 
@@ -132,7 +132,7 @@ def check_pipe_to_shell(command: str) -> str | None:
 # Check 7: Unicode injection
 # ---------------------------------------------------------------------------
 
-_ALLOWED_CONTROL_CODEPOINTS = frozenset([0x09, 0x0A, 0x0D])  # tab, LF, CR
+_ALLOWED_CONTROL_CODEPOINTS = frozenset([0x09, 0x0A, 0x0D])
 
 
 def check_unicode_injection(command: str) -> str | None:
@@ -239,7 +239,7 @@ def check_crypto_mining(command: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline (expanded in subsequent tasks)
+# Pipeline
 # ---------------------------------------------------------------------------
 
 BASELINE_CHECKS = [
