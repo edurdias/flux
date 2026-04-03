@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from flux.task import task
 from flux.tasks.call import call
+from flux.workflow import workflow
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -112,3 +114,110 @@ PRUNE_PROMPT = (
     "Use `list_memory_keys`, `recall_memory`, `forget_memory`, and `store_memory` as needed.\n\n"
     "Produce a brief summary of what changed: entries before, entries after, what was pruned."
 )
+
+
+@task
+async def load_execution_events(execution_id: str) -> str:
+    """Fetch execution events via the Flux client."""
+
+    from flux.client import FluxClient
+    from flux.config import Configuration
+
+    settings = Configuration.get().settings
+    server_url = settings.workers.server_url
+
+    async with FluxClient(server_url) as client:
+        data = await client.get_execution(execution_id, detailed=True)
+
+    events = data.get("events", [])
+    summary_lines = []
+    for event in events:
+        name = event.get("name", "unknown")
+        event_type = event.get("type", "unknown")
+        value = event.get("value")
+        value_preview = str(value)[:200] if value else ""
+        summary_lines.append(f"[{event_type}] {name}: {value_preview}")
+
+    return "\n".join(summary_lines)
+
+
+@workflow
+async def agent_dream(ctx):
+    """Memory consolidation workflow — four-phase dream pipeline."""
+    from flux.tasks.ai import agent
+    from flux.tasks.ai.memory import long_term_memory
+    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+
+    input_data = ctx.input or {}
+    execution_id = input_data.get("execution_id", "")
+    agent_id = input_data.get("agent", "")
+    scope = input_data.get("scope", "")
+    model = input_data.get("model", "ollama/llama3.2")
+
+    provider = InMemoryProvider()
+    memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
+
+    if not await check_failure_gate(memory):
+        return {"status": "skipped", "reason": "max consecutive failures reached"}
+
+    try:
+        events_summary = await load_execution_events(execution_id)
+
+        ltm_tools = memory.as_tools()
+
+        orient_agent = await agent(
+            ORIENT_PROMPT,
+            model=model,
+            name="dream_orient",
+            tools=ltm_tools,
+            long_term_memory=memory,
+            max_tool_calls=20,
+            stream=False,
+        )
+        orientation = await orient_agent("Review the current memory state.")
+
+        signal_agent = await agent(
+            GATHER_SIGNAL_PROMPT,
+            model=model,
+            name="dream_gather_signal",
+            tools=ltm_tools,
+            max_tool_calls=10,
+            stream=False,
+        )
+        signal_report = await signal_agent(
+            f"Scan these execution events for signals:\n\n{events_summary}"
+            f"\n\nOrientation report:\n{orientation}",
+        )
+
+        consolidate_agent = await agent(
+            CONSOLIDATE_PROMPT,
+            model=model,
+            name="dream_consolidate",
+            tools=ltm_tools,
+            long_term_memory=memory,
+            max_tool_calls=30,
+            stream=False,
+        )
+        await consolidate_agent(
+            f"Signal report:\n{signal_report}\n\nOrientation:\n{orientation}"
+            f"\n\nExecution ID for provenance: {execution_id}",
+        )
+
+        prune_agent = await agent(
+            PRUNE_PROMPT,
+            model=model,
+            name="dream_prune",
+            tools=ltm_tools,
+            long_term_memory=memory,
+            max_tool_calls=20,
+            stream=False,
+        )
+        summary = await prune_agent("Review and prune the memory. Report what changed.")
+
+        await reset_failure_counter(memory)
+        return {"status": "completed", "summary": summary}
+
+    except Exception as e:
+        await increment_failure_counter(memory)
+        logger.error("Dream workflow failed: %s", e, exc_info=True)
+        return {"status": "failed", "error": str(e)}

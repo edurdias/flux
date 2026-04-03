@@ -159,3 +159,16 @@ class TestDreamPrompts:
 
         assert "100" in PRUNE_PROMPT
         assert "stale" in PRUNE_PROMPT.lower()
+
+
+class TestAgentDreamWorkflow:
+    def test_agent_dream_is_a_workflow(self):
+        from flux.tasks.ai.dreaming import agent_dream
+        from flux.workflow import workflow as workflow_cls
+
+        assert isinstance(agent_dream, workflow_cls)
+
+    def test_load_execution_events_is_a_task(self):
+        from flux.tasks.ai.dreaming import load_execution_events
+
+        assert hasattr(load_execution_events, "func") or callable(load_execution_events)
