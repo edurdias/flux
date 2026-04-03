@@ -8,9 +8,7 @@ import unicodedata
 # ---------------------------------------------------------------------------
 
 _FORK_BOMB_RE = re.compile(
-    r":\s*\(\s*\)\s*\{"
-    r"|while\s+true\s*[;{]"
-    r"|for\s*\(\s*;\s*;\s*\)",
+    r":\s*\(\s*\)\s*\{" r"|while\s+true\s*[;{]" r"|for\s*\(\s*;\s*;\s*\)",
     re.IGNORECASE,
 )
 
