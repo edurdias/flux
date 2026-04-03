@@ -36,6 +36,8 @@ async def agent(
     max_tokens: int = 4096,
     stream: bool = True,
     approval_mode: str = "default",
+    on_complete: list | None = None,
+    on_pause: list | None = None,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -166,6 +168,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _ollama_agent
@@ -198,6 +203,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _openai_agent
@@ -230,6 +238,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _anthropic_agent
@@ -266,6 +277,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _google_agent

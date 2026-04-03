@@ -17,6 +17,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("flux.agent")
 
 
+async def _fire_hooks(hooks: list[Any] | None, agent_name: str, value: Any) -> None:
+    if not hooks:
+        return
+    for hook in hooks:
+        try:
+            await hook(agent_name, value)
+        except Exception:
+            logger.warning("Hook %s failed", hook, exc_info=True)
+
+
 async def run_agent_loop(
     *,
     llm_task: TaskType,
@@ -33,6 +43,9 @@ async def run_agent_loop(
     stream: bool = False,
     plan_summary_fn: Any | None = None,
     approval_mode: str = "default",
+    on_complete: list[Any] | None = None,
+    on_pause: list[Any] | None = None,
+    agent_name: str = "agent",
 ) -> str | BaseModel:
     from flux.tasks.progress import progress
 
@@ -63,8 +76,11 @@ async def run_agent_loop(
             await working_memory.memorize("assistant", content)
 
         if response_format:
-            return response_format.model_validate_json(content)
+            return_value = response_format.model_validate_json(content)
+            await _fire_hooks(on_complete, agent_name, return_value)
+            return return_value
 
+        await _fire_hooks(on_complete, agent_name, content)
         return content
 
     result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
@@ -157,8 +173,11 @@ async def run_agent_loop(
         await working_memory.memorize("assistant", content)
 
     if response_format:
-        return response_format.model_validate_json(content)
+        return_value = response_format.model_validate_json(content)
+        await _fire_hooks(on_complete, agent_name, return_value)
+        return return_value
 
+    await _fire_hooks(on_complete, agent_name, content)
     return content
 
 
