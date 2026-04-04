@@ -38,16 +38,15 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
         payload = args[0] if len(args) == 1 else args
         url = f"{server_url}/workflows/{workflow}/run/{mode}"
 
-        if mode == "async":
-            with httpx.Client(timeout=settings.workers.default_timeout) as client:
-                response = client.post(url, json=payload)
+        async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
+            if mode == "async":
+                response = await client.post(url, json=payload)
                 response.raise_for_status()
                 data = response.json()
                 return data["execution_id"]
 
-        url = f"{url}?detailed=true"
-        with httpx.Client(timeout=settings.workers.default_timeout) as client:
-            response = client.post(url, json=payload)
+            url = f"{url}?detailed=true"
+            response = await client.post(url, json=payload)
             response.raise_for_status()
 
             data = response.json()
