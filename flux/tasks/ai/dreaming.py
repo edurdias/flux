@@ -43,19 +43,25 @@ def dream(
 
 async def check_failure_gate(memory: LongTermMemory, max_failures: int = 3) -> bool:
     count = await memory.recall("_dream:failures")
-    if count is not None and int(count) >= max_failures:
-        logger.warning(
-            "Dream skipped: %d consecutive failures (max: %d)",
-            count,
-            max_failures,
-        )
-        return False
+    try:
+        if count is not None and int(count) >= max_failures:
+            logger.warning(
+                "Dream skipped: %d consecutive failures (max: %d)",
+                int(count),
+                max_failures,
+            )
+            return False
+    except (ValueError, TypeError):
+        await memory.memorize("_dream:failures", 0)
     return True
 
 
 async def increment_failure_counter(memory: LongTermMemory) -> None:
     count = await memory.recall("_dream:failures")
-    await memory.memorize("_dream:failures", int(count or 0) + 1)
+    try:
+        await memory.memorize("_dream:failures", int(count or 0) + 1)
+    except (ValueError, TypeError):
+        await memory.memorize("_dream:failures", 1)
 
 
 async def reset_failure_counter(memory: LongTermMemory) -> None:
@@ -135,7 +141,7 @@ async def load_execution_events(execution_id: str) -> str:
         name = event.get("name", "unknown")
         event_type = event.get("type", "unknown")
         value = event.get("value")
-        value_preview = str(value)[:200] if value else ""
+        value_preview = str(value)[:200] if value is not None else ""
         summary_lines.append(f"[{event_type}] {name}: {value_preview}")
 
     return "\n".join(summary_lines)
@@ -145,16 +151,22 @@ async def load_execution_events(execution_id: str) -> str:
 async def agent_dream(ctx):
     """Memory consolidation workflow — four-phase dream pipeline."""
     from flux.tasks.ai import agent
-    from flux.tasks.ai.memory import long_term_memory
-    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+    from flux.tasks.ai.memory import long_term_memory, sqlite
 
     input_data = ctx.input or {}
-    execution_id = input_data.get("execution_id", "")
-    agent_id = input_data.get("agent", "")
-    scope = input_data.get("scope", "")
+    execution_id = input_data.get("execution_id")
+    agent_id = input_data.get("agent")
+    scope = input_data.get("scope")
+
+    if not execution_id or not agent_id or not scope:
+        return {
+            "status": "failed",
+            "error": "Missing required input: execution_id, agent, and scope are all required",
+        }
+
     model = input_data.get("model", "ollama/llama3.2")
 
-    provider = InMemoryProvider()
+    provider = sqlite("memory.db")
     memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
 
     if not await check_failure_gate(memory):

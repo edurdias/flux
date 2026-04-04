@@ -70,6 +70,11 @@ async def agent(
             unlimited. Defaults to None.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
+        on_complete: List of hook callables fired after the agent returns.
+            Signature: ``async (agent_id: str, value: Any) -> None``. Sync hooks are also supported.
+            Failures are logged but never affect the return value.
+        on_pause: List of hook callables fired when the agent pauses (PauseRequested).
+            Same signature as on_complete. Fired before the pause propagates.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel

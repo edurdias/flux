@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 
 from flux.domain.execution_context import ExecutionContext
-from flux.tasks.ai.models import LLMResponse
+from flux.errors import PauseRequested
+from flux.tasks.ai.models import LLMResponse, ToolCall
 from flux.task import task
 
 
@@ -127,5 +128,57 @@ class TestAgentHooks:
                 stream=False,
             )
             assert result == "response text"
+        finally:
+            ExecutionContext.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_on_pause_fires_on_pause_requested(self):
+        captured = []
+
+        async def pause_hook(agent_id: str, value):
+            captured.append({"agent_id": agent_id, "value": value})
+
+        @task
+        async def pausing_tool(command: str) -> str:
+            """A tool that pauses."""
+            raise PauseRequested("approval needed")
+
+        @task
+        async def llm_with_tool_call(messages, **kwargs):
+            return LLMResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(id="call_0", name="pausing_tool", arguments={"command": "test"}),
+                ],
+            )
+
+        class ToolFormatter(FakeFormatter):
+            def format_tool_results(self, tc, results):
+                return [{"role": "tool", "content": str(r)} for r in results]
+
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.tool_executor import build_tool_schemas
+
+        tools = [pausing_tool]
+        schemas = build_tool_schemas(tools)
+
+        ctx = ExecutionContext(workflow_id="test", workflow_name="test")
+        token = ExecutionContext.set(ctx)
+        try:
+            with pytest.raises(PauseRequested):
+                await run_agent_loop(
+                    llm_task=llm_with_tool_call,
+                    formatter=ToolFormatter(),
+                    system_prompt="test",
+                    instruction="test",
+                    tools=tools,
+                    tool_schemas=schemas,
+                    stream=False,
+                    on_pause=[pause_hook],
+                    agent_name="test_agent",
+                )
+            assert len(captured) == 1
+            assert captured[0]["agent_id"] == "test_agent"
+            assert captured[0]["value"] is None
         finally:
             ExecutionContext.reset(token)
