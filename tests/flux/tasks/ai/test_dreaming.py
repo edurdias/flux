@@ -39,6 +39,7 @@ class TestDreamFactory:
                 {
                     "agent": "my_agent",
                     "scope": "user:1",
+                    "provider_type": "in_memory",
                     "working_memory": wm.recall(),
                 },
                 mode="async",

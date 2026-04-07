@@ -97,6 +97,27 @@ async def test_ltm_scope_property():
     assert ltm.scope == "user:1"
 
 
+def test_ltm_provider_type_in_memory():
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    assert ltm.provider_type == "in_memory"
+
+
+def test_ltm_provider_type_sqlalchemy():
+    import os
+    import tempfile
+
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        provider = SqlAlchemyProvider(f"sqlite:///{os.path.join(tmpdir, 'test.db')}")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        assert ltm.provider_type == "sqlalchemy"
+
+
 @pytest.mark.asyncio
 async def test_ltm_tools_generation():
     """LTM generates tool definitions for agent integration."""

@@ -14,6 +14,28 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("flux.dreaming")
 
+MEMORY_PROVIDER_URL_SECRET = "MEMORY_PROVIDER_URL"
+
+
+def _build_provider(provider_type: str):
+    """Build a MemoryProvider from type string + secret."""
+    if provider_type == "sqlalchemy":
+        from flux.secret_managers import SecretManager
+        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+        secrets = SecretManager.current().get([MEMORY_PROVIDER_URL_SECRET])
+        url = secrets.get(MEMORY_PROVIDER_URL_SECRET)
+        if not url:
+            raise ValueError(
+                f"Secret '{MEMORY_PROVIDER_URL_SECRET}' is required for sqlalchemy provider. "
+                f"Set it with: flux secrets set {MEMORY_PROVIDER_URL_SECRET} <connection_string>",
+            )
+        return SqlAlchemyProvider(url)
+
+    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+
+    return InMemoryProvider()
+
 
 def dream(
     *,
@@ -23,6 +45,7 @@ def dream(
 ) -> Callable[[str, Any], Awaitable[None]]:
     """Return an async hook that fires a dream workflow."""
     scope = long_term_memory.scope
+    provider_type = long_term_memory.provider_type
     wm = working_memory
 
     async def _hook(agent_id: str, value: Any) -> None:
@@ -33,6 +56,7 @@ def dream(
                 {
                     "agent": agent_id,
                     "scope": scope,
+                    "provider_type": provider_type,
                     "working_memory": snapshot,
                 },
                 mode="async",
@@ -128,11 +152,12 @@ PRUNE_PROMPT = (
 async def agent_dream(ctx):
     """Memory consolidation workflow — four-phase dream pipeline."""
     from flux.tasks.ai import agent
-    from flux.tasks.ai.memory import long_term_memory, sqlite
+    from flux.tasks.ai.memory import long_term_memory
 
     input_data = ctx.input or {}
     agent_id = input_data.get("agent")
     scope = input_data.get("scope")
+    provider_type = input_data.get("provider_type", "in_memory")
     wm_snapshot = input_data.get("working_memory", [])
 
     if not agent_id or not scope:
@@ -140,7 +165,7 @@ async def agent_dream(ctx):
 
     model = input_data.get("model", "ollama/llama3.2")
 
-    provider = sqlite("memory.db")
+    provider = _build_provider(provider_type)
     memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
 
     if not await check_failure_gate(memory):

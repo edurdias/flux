@@ -19,6 +19,14 @@ class LongTermMemory:
     def scope(self) -> str:
         return self._scope
 
+    @property
+    def provider_type(self) -> str:
+        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+        if isinstance(self._provider, SqlAlchemyProvider):
+            return "sqlalchemy"
+        return "in_memory"
+
     async def memorize(self, key: str, value: Any) -> None:
         await self._provider.memorize(self._agent, self._scope, key, value)
 
