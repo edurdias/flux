@@ -18,23 +18,31 @@ MEMORY_PROVIDER_URL_SECRET = "MEMORY_PROVIDER_URL"
 
 
 def _build_provider(provider_type: str):
-    """Build a MemoryProvider from type string + secret."""
-    if provider_type == "sqlalchemy":
+    """Build a MemoryProvider from type string + secret.
+
+    Uses the same factory names as flux.tasks.ai.memory (sqlite, postgresql, in_memory).
+    Connection string is read from the MEMORY_PROVIDER_URL secret.
+    """
+    if provider_type in ("sqlite", "postgresql"):
         from flux.secret_managers import SecretManager
-        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
         secrets = SecretManager.current().get([MEMORY_PROVIDER_URL_SECRET])
         url = secrets.get(MEMORY_PROVIDER_URL_SECRET)
         if not url:
             raise ValueError(
-                f"Secret '{MEMORY_PROVIDER_URL_SECRET}' is required for sqlalchemy provider. "
+                f"Secret '{MEMORY_PROVIDER_URL_SECRET}' is required for {provider_type} provider. "
                 f"Set it with: flux secrets set {MEMORY_PROVIDER_URL_SECRET} <connection_string>",
             )
-        return SqlAlchemyProvider(url)
 
-    from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
+        from flux.tasks.ai.memory import postgresql, sqlite
 
-    return InMemoryProvider()
+        if provider_type == "postgresql":
+            return postgresql(url)
+        return sqlite(url)
+
+    from flux.tasks.ai.memory import in_memory
+
+    return in_memory()
 
 
 def dream(

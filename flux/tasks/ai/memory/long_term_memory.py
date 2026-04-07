@@ -24,7 +24,10 @@ class LongTermMemory:
         from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
         if isinstance(self._provider, SqlAlchemyProvider):
-            return "sqlalchemy"
+            dialect = self._provider._get_engine().dialect.name
+            if dialect == "postgresql":
+                return "postgresql"
+            return "sqlite"
         return "in_memory"
 
     async def memorize(self, key: str, value: Any) -> None:

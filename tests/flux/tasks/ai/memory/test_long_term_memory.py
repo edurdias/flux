@@ -105,7 +105,7 @@ def test_ltm_provider_type_in_memory():
     assert ltm.provider_type == "in_memory"
 
 
-def test_ltm_provider_type_sqlalchemy():
+def test_ltm_provider_type_sqlite():
     import os
     import tempfile
 
@@ -115,7 +115,7 @@ def test_ltm_provider_type_sqlalchemy():
     with tempfile.TemporaryDirectory() as tmpdir:
         provider = SqlAlchemyProvider(f"sqlite:///{os.path.join(tmpdir, 'test.db')}")
         ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
-        assert ltm.provider_type == "sqlalchemy"
+        assert ltm.provider_type == "sqlite"
 
 
 @pytest.mark.asyncio
