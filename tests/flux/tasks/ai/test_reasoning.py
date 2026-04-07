@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 
 from flux.tasks.ai.models import LLMResponse, ReasoningContent
 
@@ -309,3 +310,85 @@ class TestOpenAIReasoning:
         wm = type("FakeWM", (), {"recall": lambda self: []})()
         _, kwargs = formatter.build_messages("system", "question", wm)
         assert kwargs.get("reasoning_effort") == "medium"
+
+
+class TestGeminiReasoning:
+    def test_to_llm_response_captures_thought_parts(self):
+        pytest.importorskip("google.genai")
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.gemini import _to_llm_response
+
+        thought_part = MagicMock()
+        thought_part.thought = True
+        thought_part.text = "Let me think..."
+        thought_part.function_call = None
+
+        text_part = MagicMock()
+        text_part.thought = False
+        text_part.text = "The answer."
+        text_part.function_call = None
+
+        candidate = MagicMock()
+        candidate.content.parts = [thought_part, text_part]
+
+        response = MagicMock()
+        response.candidates = [candidate]
+        response.text = "The answer."
+        response.function_calls = None
+
+        result = _to_llm_response(response)
+        assert result.reasoning is not None
+        assert result.reasoning.text == "Let me think..."
+        assert result.reasoning.opaque == {"text": "Let me think...", "thought": True}
+
+    def test_to_llm_response_no_thought(self):
+        pytest.importorskip("google.genai")
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.gemini import _to_llm_response
+
+        text_part = MagicMock()
+        text_part.thought = False
+        text_part.text = "Hello"
+        text_part.function_call = None
+
+        candidate = MagicMock()
+        candidate.content.parts = [text_part]
+
+        response = MagicMock()
+        response.candidates = [candidate]
+        response.text = "Hello"
+        response.function_calls = None
+
+        result = _to_llm_response(response)
+        assert result.reasoning is None
+
+    def test_format_assistant_message_includes_thought(self):
+        pytest.importorskip("google.genai")
+
+        from flux.tasks.ai.gemini import GeminiFormatter
+
+        formatter = GeminiFormatter("gemini-test", max_tokens=4096)
+        response = LLMResponse(
+            text="answer",
+            reasoning=ReasoningContent(
+                text="thinking...",
+                opaque={"text": "thinking...", "thought": True},
+            ),
+        )
+        content = formatter.format_assistant_message(response)
+        parts = content.parts
+        has_thought = any(getattr(p, "thought", False) for p in parts)
+        assert has_thought
+
+    def test_format_assistant_message_omits_when_none(self):
+        pytest.importorskip("google.genai")
+        from flux.tasks.ai.gemini import GeminiFormatter
+
+        formatter = GeminiFormatter("gemini-test", max_tokens=4096)
+        response = LLMResponse(text="answer")
+        content = formatter.format_assistant_message(response)
+        parts = content.parts
+        has_thought = any(getattr(p, "thought", False) for p in parts)
+        assert not has_thought
