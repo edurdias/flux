@@ -42,6 +42,29 @@ class AnthropicFormatter(LLMFormatter):
         self._model_name = model_name
         self._max_tokens = max_tokens
 
+    def _convert_memory_messages(self, memory_messages: list[dict]) -> list[dict]:
+        import json
+
+        converted = []
+        for msg in memory_messages:
+            role, content = msg["role"], msg["content"]
+            if role == "tool_call":
+                data = json.loads(content)
+                blocks = [
+                    {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c.get("arguments", {})}
+                    for c in data["calls"]
+                ]
+                converted.append({"role": "assistant", "content": blocks})
+            elif role == "tool_result":
+                data = json.loads(content)
+                converted.append({
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": data["call_id"], "content": data["output"]}],
+                })
+            elif role in ("user", "assistant"):
+                converted.append({"role": role, "content": content})
+        return converted
+
     def build_messages(
         self,
         system_prompt: str,
@@ -50,7 +73,7 @@ class AnthropicFormatter(LLMFormatter):
     ) -> tuple[list[dict], dict]:
         if working_memory:
             prior = working_memory.recall()
-            messages = prior + [{"role": "user", "content": user_content}]
+            messages = self._convert_memory_messages(prior) + [{"role": "user", "content": user_content}]
         else:
             messages = [{"role": "user", "content": user_content}]
 
