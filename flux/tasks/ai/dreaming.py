@@ -49,24 +49,29 @@ def dream(
     *,
     working_memory: WorkingMemory,
     long_term_memory: LongTermMemory,
+    model: str | None = None,
     workflow: str = "agent_dream",
 ) -> Callable[[str, Any], Awaitable[None]]:
     """Return an async hook that fires a dream workflow."""
     scope = long_term_memory.scope
     provider_type = long_term_memory.provider_type
+    dream_model = model
     wm = working_memory
 
     async def _hook(agent_id: str, value: Any) -> None:
         try:
             snapshot = wm.recall()
+            payload: dict[str, Any] = {
+                "agent": agent_id,
+                "scope": scope,
+                "provider_type": provider_type,
+                "working_memory": snapshot,
+            }
+            if dream_model:
+                payload["model"] = dream_model
             await call(
                 workflow,
-                {
-                    "agent": agent_id,
-                    "scope": scope,
-                    "provider_type": provider_type,
-                    "working_memory": snapshot,
-                },
+                payload,
                 mode="async",
             )
         except Exception:

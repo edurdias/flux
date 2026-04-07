@@ -71,6 +71,7 @@ async def dreaming_agent(ctx: ExecutionContext[dict[str, Any]]):
     workspace.mkdir(parents=True, exist_ok=True)
 
     max_turns = input_data.get("max_turns", 10)
+    model = input_data.get("model", "ollama/llama3.2")
 
     wm = working_memory(max_tokens=50_000)
     ltm = long_term_memory(
@@ -86,14 +87,14 @@ async def dreaming_agent(ctx: ExecutionContext[dict[str, Any]]):
         "Always check your long-term memory first for relevant context. "
         "Store important facts you learn using store_memory. "
         "Be concise in your responses.",
-        model="ollama/llama3.2",
+        model=model,
         name="dreaming_agent",
         tools=tools,
         working_memory=wm,
         long_term_memory=ltm,
         max_tool_calls=10,
         stream=False,
-        on_complete=[dream(working_memory=wm, long_term_memory=ltm)],
+        on_complete=[dream(working_memory=wm, long_term_memory=ltm, model=model)],
     )
 
     message = first_message
