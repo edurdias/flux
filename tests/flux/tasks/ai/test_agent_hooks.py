@@ -220,7 +220,7 @@ class TestAgentLoopToolStorage:
         token = ExecutionContext.set(ctx)
         try:
             wm = WorkingMemory()
-            result = await run_agent_loop(
+            await run_agent_loop(
                 llm_task=fake_llm_with_tools,
                 formatter=ToolFormatter(),
                 system_prompt="test",

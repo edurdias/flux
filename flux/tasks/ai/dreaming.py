@@ -160,9 +160,7 @@ async def agent_dream(ctx):
         )
         orientation = await orient_agent("Review the current memory state.")
 
-        formatted_wm = "\n".join(
-            f"[{m['role']}] {m['content']}" for m in wm_snapshot
-        )
+        formatted_wm = "\n".join(f"[{m['role']}] {m['content']}" for m in wm_snapshot)
 
         signal_agent = await agent(
             GATHER_SIGNAL_PROMPT,

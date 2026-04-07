@@ -136,11 +136,13 @@ async def run_agent_loop(
             for tc_dict, result in zip(tool_call_dicts, results):
                 await working_memory.memorize(
                     "tool_result",
-                    json.dumps({
-                        "call_id": tc_dict.get("id", ""),
-                        "name": tc_dict.get("name", ""),
-                        "output": str(result.get("output", "")),
-                    }),
+                    json.dumps(
+                        {
+                            "call_id": tc_dict.get("id", ""),
+                            "name": tc_dict.get("name", ""),
+                            "output": str(result.get("output", "")),
+                        },
+                    ),
                 )
 
         tool_result_messages = formatter.format_tool_results(response.tool_calls, results)

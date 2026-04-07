@@ -63,14 +63,16 @@ class OllamaFormatter(LLMFormatter):
             role, content = msg["role"], msg["content"]
             if role == "tool_call":
                 data = json.loads(content)
-                converted.append({
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {"function": {"name": c["name"], "arguments": c.get("arguments", {})}}
-                        for c in data["calls"]
-                    ],
-                })
+                converted.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {"function": {"name": c["name"], "arguments": c.get("arguments", {})}}
+                            for c in data["calls"]
+                        ],
+                    },
+                )
             elif role == "tool_result":
                 data = json.loads(content)
                 converted.append({"role": "tool", "content": data["output"]})

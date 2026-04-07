@@ -73,7 +73,10 @@ class GeminiFormatter(LLMFormatter):
                 data = json.loads(content)
                 parts = [
                     _types.Part(
-                        function_call=_types.FunctionCall(name=c["name"], args=c.get("arguments", {}))
+                        function_call=_types.FunctionCall(
+                            name=c["name"],
+                            args=c.get("arguments", {}),
+                        ),
                     )
                     for c in data["calls"]
                 ]
@@ -88,10 +91,10 @@ class GeminiFormatter(LLMFormatter):
                                 function_response=_types.FunctionResponse(
                                     name=data["name"],
                                     response={"output": data["output"]},
-                                )
-                            )
+                                ),
+                            ),
                         ],
-                    )
+                    ),
                 )
             elif role in ("user", "assistant"):
                 converted.append(_to_content(role, content))

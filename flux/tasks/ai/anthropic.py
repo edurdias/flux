@@ -51,16 +51,29 @@ class AnthropicFormatter(LLMFormatter):
             if role == "tool_call":
                 data = json.loads(content)
                 blocks = [
-                    {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c.get("arguments", {})}
+                    {
+                        "type": "tool_use",
+                        "id": c["id"],
+                        "name": c["name"],
+                        "input": c.get("arguments", {}),
+                    }
                     for c in data["calls"]
                 ]
                 converted.append({"role": "assistant", "content": blocks})
             elif role == "tool_result":
                 data = json.loads(content)
-                converted.append({
-                    "role": "user",
-                    "content": [{"type": "tool_result", "tool_use_id": data["call_id"], "content": data["output"]}],
-                })
+                converted.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": data["call_id"],
+                                "content": data["output"],
+                            },
+                        ],
+                    },
+                )
             elif role in ("user", "assistant"):
                 converted.append({"role": role, "content": content})
         return converted
@@ -73,7 +86,9 @@ class AnthropicFormatter(LLMFormatter):
     ) -> tuple[list[dict], dict]:
         if working_memory:
             prior = working_memory.recall()
-            messages = self._convert_memory_messages(prior) + [{"role": "user", "content": user_content}]
+            messages = self._convert_memory_messages(prior) + [
+                {"role": "user", "content": user_content},
+            ]
         else:
             messages = [{"role": "user", "content": user_content}]
 
