@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from flux.task import task
 from flux.tasks.call import call
 from flux.workflow import workflow
 
@@ -11,27 +10,30 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
 
 logger = logging.getLogger("flux.dreaming")
 
 
 def dream(
-    memory: LongTermMemory,
-    execution_id: str,
     *,
+    working_memory: WorkingMemory,
+    long_term_memory: LongTermMemory,
     workflow: str = "agent_dream",
 ) -> Callable[[str, Any], Awaitable[None]]:
     """Return an async hook that fires a dream workflow."""
-    scope = memory.scope
+    scope = long_term_memory.scope
+    wm = working_memory
 
     async def _hook(agent_id: str, value: Any) -> None:
         try:
+            snapshot = wm.recall()
             await call(
                 workflow,
                 {
-                    "execution_id": execution_id,
                     "agent": agent_id,
                     "scope": scope,
+                    "working_memory": snapshot,
                 },
                 mode="async",
             )
@@ -81,13 +83,15 @@ ORIENT_PROMPT = (
 )
 
 GATHER_SIGNAL_PROMPT = (
-    "You are scanning execution events for high-value signals worth persisting to memory.\n\n"
+    "You are scanning the agent's working memory for high-value signals worth persisting "
+    "to long-term memory.\n\n"
+    "The working memory contains the conversation history including user messages, "
+    "assistant responses, tool calls, and tool results.\n\n"
     "Focus on these signal types:\n"
     "- **Corrections**: Where the user or agent reversed or amended a prior statement\n"
     "- **Decisions**: Explicit choices (technology selections, configuration changes, approach pivots)\n"
-    "- **Repeated patterns**: Facts or entities referenced across 3+ distinct events\n"
+    "- **Repeated patterns**: Facts or entities referenced across 3+ distinct messages\n"
     "- **Staleness indicators**: Tool calls that returned errors for entities that may exist in memory\n\n"
-    "Do NOT read every event in detail. Scan for patterns and extract only high-value signals.\n\n"
     "Produce a signal report listing each signal with its type and a brief description."
 )
 
@@ -101,9 +105,7 @@ CONSOLIDATE_PROMPT = (
     "3. **Convert temporal references** — replace relative time expressions (yesterday, last week) "
     "with absolute dates.\n"
     "4. **Enrich with signals** — corrections and decisions from the signal report should be stored "
-    "as new facts via `store_memory`.\n"
-    "5. **Preserve provenance** — when storing or updating a fact, include the execution_id in the "
-    "value so the origin is traceable.\n\n"
+    "as new facts via `store_memory`.\n\n"
     "Use `recall_memory`, `store_memory`, `forget_memory`, and `list_memory_keys` to read and "
     "modify memory."
 )
@@ -122,31 +124,6 @@ PRUNE_PROMPT = (
 )
 
 
-@task
-async def load_execution_events(execution_id: str) -> str:
-    """Fetch execution events via the Flux client."""
-
-    from flux.client import FluxClient
-    from flux.config import Configuration
-
-    settings = Configuration.get().settings
-    server_url = settings.workers.server_url
-
-    async with FluxClient(server_url) as client:
-        data = await client.get_execution(execution_id, detailed=True)
-
-    events = data.get("events", [])
-    summary_lines = []
-    for event in events:
-        name = event.get("name", "unknown")
-        event_type = event.get("type", "unknown")
-        value = event.get("value")
-        value_preview = str(value)[:200] if value is not None else ""
-        summary_lines.append(f"[{event_type}] {name}: {value_preview}")
-
-    return "\n".join(summary_lines)
-
-
 @workflow
 async def agent_dream(ctx):
     """Memory consolidation workflow — four-phase dream pipeline."""
@@ -154,15 +131,12 @@ async def agent_dream(ctx):
     from flux.tasks.ai.memory import long_term_memory, sqlite
 
     input_data = ctx.input or {}
-    execution_id = input_data.get("execution_id")
     agent_id = input_data.get("agent")
     scope = input_data.get("scope")
+    wm_snapshot = input_data.get("working_memory", [])
 
-    if not execution_id or not agent_id or not scope:
-        return {
-            "status": "failed",
-            "error": "Missing required input: execution_id, agent, and scope are all required",
-        }
+    if not agent_id or not scope:
+        return {"status": "failed", "error": "Missing required input: agent and scope are required"}
 
     model = input_data.get("model", "ollama/llama3.2")
 
@@ -173,8 +147,6 @@ async def agent_dream(ctx):
         return {"status": "skipped", "reason": "max consecutive failures reached"}
 
     try:
-        events_summary = await load_execution_events(execution_id)
-
         ltm_tools = memory.as_tools()
 
         orient_agent = await agent(
@@ -188,6 +160,10 @@ async def agent_dream(ctx):
         )
         orientation = await orient_agent("Review the current memory state.")
 
+        formatted_wm = "\n".join(
+            f"[{m['role']}] {m['content']}" for m in wm_snapshot
+        )
+
         signal_agent = await agent(
             GATHER_SIGNAL_PROMPT,
             model=model,
@@ -197,7 +173,7 @@ async def agent_dream(ctx):
             stream=False,
         )
         signal_report = await signal_agent(
-            f"Scan these execution events for signals:\n\n{events_summary}"
+            f"Scan this working memory for signals:\n\n{formatted_wm}"
             f"\n\nOrientation report:\n{orientation}",
         )
 
@@ -211,8 +187,7 @@ async def agent_dream(ctx):
             stream=False,
         )
         await consolidate_agent(
-            f"Signal report:\n{signal_report}\n\nOrientation:\n{orientation}"
-            f"\n\nExecution ID for provenance: {execution_id}",
+            f"Signal report:\n{signal_report}\n\nOrientation:\n{orientation}",
         )
 
         prune_agent = await agent(

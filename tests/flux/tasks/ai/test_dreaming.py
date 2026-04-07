@@ -11,20 +11,24 @@ class TestDreamFactory:
     def test_dream_returns_callable(self):
         from flux.tasks.ai.dreaming import dream
         from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
 
         provider = InMemoryProvider()
-        memory = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
-        hook = dream(memory, execution_id="exec_123")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        wm = WorkingMemory()
+        hook = dream(working_memory=wm, long_term_memory=ltm)
         assert callable(hook)
 
     @pytest.mark.asyncio
     async def test_dream_submits_async_workflow(self):
         from flux.tasks.ai.dreaming import dream
         from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
 
         provider = InMemoryProvider()
-        memory = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
-        hook = dream(memory, execution_id="exec_123")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        wm = WorkingMemory()
+        hook = dream(working_memory=wm, long_term_memory=ltm)
 
         with patch("flux.tasks.ai.dreaming.call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = "dream_exec_456"
@@ -33,9 +37,9 @@ class TestDreamFactory:
             mock_call.assert_called_once_with(
                 "agent_dream",
                 {
-                    "execution_id": "exec_123",
                     "agent": "my_agent",
                     "scope": "user:1",
+                    "working_memory": wm.recall(),
                 },
                 mode="async",
             )
@@ -44,10 +48,12 @@ class TestDreamFactory:
     async def test_dream_custom_workflow_name(self):
         from flux.tasks.ai.dreaming import dream
         from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
 
         provider = InMemoryProvider()
-        memory = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
-        hook = dream(memory, execution_id="exec_123", workflow="custom_dream")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        wm = WorkingMemory()
+        hook = dream(working_memory=wm, long_term_memory=ltm, workflow="custom_dream")
 
         with patch("flux.tasks.ai.dreaming.call", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = "dream_exec_789"
@@ -59,10 +65,12 @@ class TestDreamFactory:
     async def test_dream_failure_is_logged_not_raised(self):
         from flux.tasks.ai.dreaming import dream
         from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
 
         provider = InMemoryProvider()
-        memory = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
-        hook = dream(memory, execution_id="exec_123")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        wm = WorkingMemory()
+        hook = dream(working_memory=wm, long_term_memory=ltm)
 
         with patch("flux.tasks.ai.dreaming.call", new_callable=AsyncMock) as mock_call:
             mock_call.side_effect = RuntimeError("connection failed")
@@ -152,7 +160,6 @@ class TestDreamPrompts:
 
         assert "merge" in CONSOLIDATE_PROMPT.lower()
         assert "contradict" in CONSOLIDATE_PROMPT.lower()
-        assert "provenance" in CONSOLIDATE_PROMPT.lower()
 
     def test_prune_prompt_mentions_cap(self):
         from flux.tasks.ai.dreaming import PRUNE_PROMPT
@@ -167,8 +174,3 @@ class TestAgentDreamWorkflow:
         from flux.workflow import workflow as workflow_cls
 
         assert isinstance(agent_dream, workflow_cls)
-
-    def test_load_execution_events_is_a_task(self):
-        from flux.tasks.ai.dreaming import load_execution_events
-
-        assert hasattr(load_execution_events, "func") or callable(load_execution_events)
