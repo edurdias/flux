@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from flux.tasks.ai.models import LLMResponse, ReasoningContent
+from flux.domain.execution_context import ExecutionContext
+from flux.task import task
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
 
 
 class TestReasoningContent:
@@ -392,3 +394,143 @@ class TestGeminiReasoning:
         parts = content.parts
         has_thought = any(getattr(p, "thought", False) for p in parts)
         assert not has_thought
+
+
+class TestAgentLoopReasoning:
+    @pytest.mark.asyncio
+    async def test_thinking_stored_in_working_memory(self):
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
+        from flux.tasks.ai.tool_executor import build_tool_schemas
+
+        call_count = 0
+
+        @task
+        async def fake_llm_reasoning(messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(
+                    text="",
+                    tool_calls=[ToolCall(id="c1", name="my_tool", arguments={"x": 1})],
+                    reasoning=ReasoningContent(text="Let me think...", opaque=None),
+                )
+            return LLMResponse(
+                text="done",
+                reasoning=ReasoningContent(text="Final thought", opaque=None),
+            )
+
+        @task
+        async def my_tool(x: int) -> str:
+            """Test tool."""
+            return "result"
+
+        class FakeFormatter:
+            def build_messages(self, sys, user, wm):
+                return [{"role": "user", "content": user}], {}
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": r.text}
+
+            def format_tool_results(self, tc, results):
+                return [{"role": "tool", "content": r["output"]} for r in results]
+
+            def format_user_message(self, text):
+                return {"role": "user", "content": text}
+
+            def remove_tools_from_kwargs(self, kw):
+                return kw
+
+            async def stream(self, messages, kwargs):
+                yield "hello"
+
+        tools = [my_tool]
+        schemas = build_tool_schemas(tools)
+
+        ctx = ExecutionContext(workflow_id="test", workflow_name="test")
+        token = ExecutionContext.set(ctx)
+        try:
+            wm = WorkingMemory()
+            await run_agent_loop(
+                llm_task=fake_llm_reasoning,
+                formatter=FakeFormatter(),
+                system_prompt="test",
+                instruction="test",
+                tools=tools,
+                tool_schemas=schemas,
+                working_memory=wm,
+                stream=False,
+            )
+            messages = wm.recall()
+            roles = [m["role"] for m in messages]
+            assert "thinking" in roles
+            thinking_msgs = [m for m in messages if m["role"] == "thinking"]
+            assert len(thinking_msgs) >= 1
+        finally:
+            ExecutionContext.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_thinking_order_before_tool_call(self):
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
+        from flux.tasks.ai.tool_executor import build_tool_schemas
+
+        call_count = 0
+
+        @task
+        async def fake_llm(messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(
+                    text="",
+                    tool_calls=[ToolCall(id="c1", name="my_tool", arguments={"x": 1})],
+                    reasoning=ReasoningContent(text="thinking first", opaque=None),
+                )
+            return LLMResponse(text="done")
+
+        @task
+        async def my_tool(x: int) -> str:
+            """Test tool."""
+            return "ok"
+
+        class FakeFormatter:
+            def build_messages(self, sys, user, wm):
+                return [{"role": "user", "content": user}], {}
+
+            def format_assistant_message(self, r):
+                return {"role": "assistant", "content": r.text}
+
+            def format_tool_results(self, tc, results):
+                return [{"role": "tool", "content": r["output"]} for r in results]
+
+            def format_user_message(self, text):
+                return {"role": "user", "content": text}
+
+            def remove_tools_from_kwargs(self, kw):
+                return kw
+
+        tools = [my_tool]
+        schemas = build_tool_schemas(tools)
+
+        ctx = ExecutionContext(workflow_id="test", workflow_name="test")
+        token = ExecutionContext.set(ctx)
+        try:
+            wm = WorkingMemory()
+            await run_agent_loop(
+                llm_task=fake_llm,
+                formatter=FakeFormatter(),
+                system_prompt="test",
+                instruction="test",
+                tools=tools,
+                tool_schemas=schemas,
+                working_memory=wm,
+                stream=False,
+            )
+            messages = wm.recall()
+            roles = [m["role"] for m in messages]
+            thinking_idx = roles.index("thinking")
+            tool_call_idx = roles.index("tool_call")
+            assert thinking_idx < tool_call_idx
+        finally:
+            ExecutionContext.reset(token)
