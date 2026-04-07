@@ -6,7 +6,7 @@ from typing import Any
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
 from flux.tasks.ai.tool_executor import (
     extract_tool_calls_from_content,
     strip_tool_calls_from_content,
@@ -21,6 +21,7 @@ except ImportError:
 def build_ollama_provider(
     model_name: str,
     response_format: Any | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[task, LLMFormatter]:
     if AsyncClient is None:
         raise ImportError(
@@ -38,20 +39,22 @@ def build_ollama_provider(
         response = await client.chat(messages=messages, **kwargs)
         return _to_llm_response(response, tool_names)
 
-    formatter = OllamaFormatter(client, model_name, response_format)
+    formatter = OllamaFormatter(model_name, client, response_format, reasoning_effort)
     return ollama_llm, formatter
 
 
 class OllamaFormatter(LLMFormatter):
     def __init__(
         self,
-        client: Any,
         model_name: str,
+        client: Any = None,
         response_format: Any | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._client = client
         self._model_name = model_name
         self._response_format = response_format
+        self._reasoning_effort = reasoning_effort
         self._tool_names: set[str] = set()
 
     def set_tool_names(self, tool_names: set[str]) -> None:
@@ -76,6 +79,8 @@ class OllamaFormatter(LLMFormatter):
             elif role == "tool_result":
                 data = json.loads(content)
                 converted.append({"role": "tool", "content": data["output"]})
+            elif role == "thinking":
+                continue
             elif role in ("user", "assistant"):
                 converted.append({"role": role, "content": content})
         return converted
@@ -108,6 +113,9 @@ class OllamaFormatter(LLMFormatter):
 
         if self._tool_names:
             call_kwargs["tool_names"] = self._tool_names
+
+        if self._reasoning_effort is not None:
+            call_kwargs["think"] = True
 
         return messages, call_kwargs
 
@@ -190,7 +198,10 @@ def _to_llm_response(
             ]
             content = strip_tool_calls_from_content(content)
 
-    return LLMResponse(text=content, tool_calls=tool_calls)
+    thinking = message.get("thinking")
+    reasoning = ReasoningContent(text=thinking, opaque=None) if thinking else None
+
+    return LLMResponse(text=content, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _to_ollama_tools(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
