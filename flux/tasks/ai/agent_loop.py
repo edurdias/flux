@@ -95,13 +95,29 @@ async def run_agent_loop(
 
     tool_call_count = 0
     tool_iteration = 0
+    entered_tool_loop = False
 
     while response.tool_calls and tools and tool_call_count < max_tool_calls:
+        if not entered_tool_loop:
+            entered_tool_loop = True
+            if working_memory:
+                await working_memory.memorize("user", user_content)
+
         tool_call_count += len(response.tool_calls)
 
         messages.append(formatter.format_assistant_message(response))
 
+        if working_memory and response.text:
+            await working_memory.memorize("assistant", response.text)
+
         tool_call_dicts = [tc.model_dump() for tc in response.tool_calls]
+
+        if working_memory:
+            await working_memory.memorize(
+                "tool_call",
+                json.dumps({"calls": tool_call_dicts}),
+            )
+
         try:
             results = await execute_tools(
                 tool_call_dicts,
@@ -115,6 +131,17 @@ async def run_agent_loop(
             await _fire_hooks(on_pause, agent_name, None)
             raise
         tool_iteration += 1
+
+        if working_memory:
+            for tc_dict, result in zip(tool_call_dicts, results):
+                await working_memory.memorize(
+                    "tool_result",
+                    json.dumps({
+                        "call_id": tc_dict.get("id", ""),
+                        "name": tc_dict.get("name", ""),
+                        "output": str(result.get("output", "")),
+                    }),
+                )
 
         tool_result_messages = formatter.format_tool_results(response.tool_calls, results)
 
@@ -176,8 +203,10 @@ async def run_agent_loop(
             content += token
             await progress({"token": token})
 
-    if working_memory:
+    if working_memory and not entered_tool_loop:
         await working_memory.memorize("user", user_content)
+        await working_memory.memorize("assistant", content)
+    elif working_memory and entered_tool_loop:
         await working_memory.memorize("assistant", content)
 
     if response_format:

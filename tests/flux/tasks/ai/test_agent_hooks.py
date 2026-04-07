@@ -182,3 +182,59 @@ class TestAgentHooks:
             assert captured[0]["value"] is None
         finally:
             ExecutionContext.reset(token)
+
+
+class TestAgentLoopToolStorage:
+    @pytest.mark.asyncio
+    async def test_tool_calls_stored_in_working_memory(self):
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.memory.working_memory import WorkingMemory
+        from flux.tasks.ai.tool_executor import build_tool_schemas
+
+        call_count = 0
+
+        @task
+        async def fake_llm_with_tools(messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(
+                    text="",
+                    tool_calls=[ToolCall(id="c1", name="my_tool", arguments={"x": 1})],
+                )
+            return LLMResponse(text="done")
+
+        @task
+        async def my_tool(x: int) -> str:
+            """A test tool."""
+            return f"result_{x}"
+
+        tools = [my_tool]
+        schemas = build_tool_schemas(tools)
+
+        class ToolFormatter(FakeFormatter):
+            def format_tool_results(self, tc, results):
+                return [{"role": "tool", "content": r["output"]} for r in results]
+
+        ctx = ExecutionContext(workflow_id="test", workflow_name="test")
+        token = ExecutionContext.set(ctx)
+        try:
+            wm = WorkingMemory()
+            result = await run_agent_loop(
+                llm_task=fake_llm_with_tools,
+                formatter=ToolFormatter(),
+                system_prompt="test",
+                instruction="do something",
+                tools=tools,
+                tool_schemas=schemas,
+                working_memory=wm,
+                stream=False,
+            )
+            messages = wm.recall()
+            roles = [m["role"] for m in messages]
+            assert "tool_call" in roles
+            assert "tool_result" in roles
+            assert roles[0] == "user"
+            assert roles[-1] == "assistant"
+        finally:
+            ExecutionContext.reset(token)
