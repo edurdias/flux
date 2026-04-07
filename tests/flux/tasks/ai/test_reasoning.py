@@ -223,3 +223,89 @@ class TestAnthropicReasoning:
         _, kwargs = formatter.build_messages("system", "question", wm)
         assert "thinking" in kwargs
         assert kwargs["thinking"]["type"] == "adaptive"
+
+
+class TestOpenAIReasoning:
+    def test_to_llm_response_captures_reasoning_content(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.openai import _to_llm_response
+
+        message = MagicMock()
+        message.content = "The answer."
+        message.tool_calls = None
+        message.reasoning_content = "I reasoned step by step..."
+
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+
+        result = _to_llm_response(response)
+        assert result.reasoning is not None
+        assert result.reasoning.text == "I reasoned step by step..."
+        assert result.reasoning.opaque == {"reasoning_content": "I reasoned step by step..."}
+
+    def test_to_llm_response_no_reasoning(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.openai import _to_llm_response
+
+        message = MagicMock()
+        message.content = "Hello"
+        message.tool_calls = None
+        message.reasoning_content = None
+
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+
+        result = _to_llm_response(response)
+        assert result.reasoning is None
+
+    def test_format_assistant_message_includes_reasoning(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.openai import OpenAIFormatter
+
+        formatter = OpenAIFormatter(MagicMock(), "gpt-test")
+        response = LLMResponse(
+            text="answer",
+            reasoning=ReasoningContent(
+                text="step by step",
+                opaque={"reasoning_content": "step by step"},
+            ),
+        )
+        msg = formatter.format_assistant_message(response)
+        assert msg.get("reasoning_content") == "step by step"
+
+    def test_convert_memory_handles_thinking_role(self):
+        import json
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.openai import OpenAIFormatter
+
+        formatter = OpenAIFormatter(MagicMock(), "gpt-test")
+        messages = [
+            {"role": "user", "content": "question"},
+            {
+                "role": "thinking",
+                "content": json.dumps(
+                    {
+                        "text": "reasoning",
+                        "opaque": {"reasoning_content": "reasoning"},
+                    },
+                ),
+            },
+            {"role": "assistant", "content": "answer"},
+        ]
+        converted = formatter._convert_memory_messages(messages)
+        assistant_msgs = [m for m in converted if m.get("role") == "assistant"]
+        assert any(m.get("reasoning_content") for m in assistant_msgs)
+
+    def test_reasoning_effort_in_call_kwargs(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.openai import OpenAIFormatter
+
+        formatter = OpenAIFormatter(MagicMock(), "gpt-test", reasoning_effort="medium")
+        wm = type("FakeWM", (), {"recall": lambda self: []})()
+        _, kwargs = formatter.build_messages("system", "question", wm)
+        assert kwargs.get("reasoning_effort") == "medium"

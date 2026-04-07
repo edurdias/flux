@@ -6,7 +6,7 @@ from typing import Any
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
 
 try:
     from openai import AsyncOpenAI
@@ -17,6 +17,7 @@ except ImportError:
 def build_openai_provider(
     model_name: str,
     response_format: Any | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[task, LLMFormatter]:
     if AsyncOpenAI is None:
         raise ImportError(
@@ -33,7 +34,7 @@ def build_openai_provider(
         )
         return _to_llm_response(response)
 
-    formatter = OpenAIFormatter(client, model_name, response_format)
+    formatter = OpenAIFormatter(client, model_name, response_format, reasoning_effort)
     return openai_llm, formatter
 
 
@@ -43,13 +44,16 @@ class OpenAIFormatter(LLMFormatter):
         client: Any,
         model_name: str,
         response_format: Any | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._client = client
         self._model_name = model_name
         self._response_format = response_format
+        self._reasoning_effort = reasoning_effort
 
     def _convert_memory_messages(self, memory_messages: list[dict]) -> list[dict]:
         converted = []
+        pending_reasoning = None
         for msg in memory_messages:
             role, content = msg["role"], msg["content"]
             if role == "tool_call":
@@ -80,7 +84,17 @@ class OpenAIFormatter(LLMFormatter):
                         "content": data["output"],
                     },
                 )
-            elif role in ("user", "assistant"):
+            elif role == "thinking":
+                data = json.loads(content)
+                pending_reasoning = (data.get("opaque") or {}).get("reasoning_content")
+                continue
+            elif role == "assistant":
+                msg_out: dict[str, Any] = {"role": "assistant", "content": content}
+                if pending_reasoning:
+                    msg_out["reasoning_content"] = pending_reasoning
+                    pending_reasoning = None
+                converted.append(msg_out)
+            elif role == "user":
                 converted.append({"role": role, "content": content})
         return converted
 
@@ -114,6 +128,9 @@ class OpenAIFormatter(LLMFormatter):
                 },
             }
 
+        if self._reasoning_effort:
+            call_kwargs["reasoning_effort"] = self._reasoning_effort
+
         return messages, call_kwargs
 
     def format_assistant_message(self, response: LLMResponse) -> dict:
@@ -130,6 +147,8 @@ class OpenAIFormatter(LLMFormatter):
                 }
                 for tc in response.tool_calls
             ]
+        if response.reasoning and response.reasoning.opaque:
+            msg["reasoning_content"] = response.reasoning.opaque.get("reasoning_content")
         return msg
 
     def format_tool_results(
@@ -180,7 +199,14 @@ def _to_llm_response(response: Any) -> LLMResponse:
                     arguments=json.loads(tc.function.arguments),
                 ),
             )
-    return LLMResponse(text=text, tool_calls=tool_calls)
+    reasoning: ReasoningContent | None = None
+    reasoning_text = getattr(message, "reasoning_content", None)
+    if reasoning_text:
+        reasoning = ReasoningContent(
+            text=reasoning_text,
+            opaque={"reasoning_content": reasoning_text},
+        )
+    return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _to_openai_tools(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
