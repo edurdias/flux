@@ -66,6 +66,7 @@ def test_openai_no_streaming_when_disabled():
         message = MagicMock()
         message.content = "Hello world!"
         message.tool_calls = None
+        message.reasoning_content = None
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
