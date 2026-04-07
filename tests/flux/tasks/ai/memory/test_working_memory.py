@@ -158,8 +158,14 @@ async def test_working_memory_tool_call_role():
     try:
         wm = WorkingMemory()
         await wm.memorize("user", "find TODOs")
-        await wm.memorize("tool_call", '{"calls": [{"id": "c1", "name": "grep", "arguments": {"pattern": "TODO"}}]}')
-        await wm.memorize("tool_result", '{"call_id": "c1", "name": "grep", "output": "file.py:10: TODO fix"}')
+        await wm.memorize(
+            "tool_call",
+            '{"calls": [{"id": "c1", "name": "grep", "arguments": {"pattern": "TODO"}}]}',
+        )
+        await wm.memorize(
+            "tool_result",
+            '{"call_id": "c1", "name": "grep", "output": "file.py:10: TODO fix"}',
+        )
         await wm.memorize("assistant", "Found 1 TODO in file.py")
         messages = wm.recall()
         assert len(messages) == 4
@@ -188,5 +194,54 @@ async def test_working_memory_compact_marks_messages():
         messages = wm.recall()
         assert len(messages) == 2
         assert messages[0]["content"] == "msg2"
+    finally:
+        ExecutionContext.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_working_memory_tool_pruning():
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
+
+    ctx, token = _make_ctx()
+    try:
+        wm = WorkingMemory(
+            max_tokens=100,
+            compact_model="ollama/llama3.2",
+            compact_threshold=0.5,
+            compact_preserve=2,
+        )
+        await wm.memorize("user", "find files")
+        await wm.memorize("tool_call", '{"calls": [{"id": "c1", "name": "grep", "arguments": {}}]}')
+        long_output = "x" * 1000
+        await wm.memorize(
+            "tool_result",
+            '{"call_id": "c1", "name": "grep", "output": "' + long_output + '"}',
+        )
+        await wm.memorize("assistant", "found results")
+        await wm.memorize("user", "next question")
+
+        messages = wm.recall()
+        tool_results = [m for m in messages if m["role"] == "tool_result"]
+        for tr in tool_results:
+            import json
+
+            data = json.loads(tr["content"])
+            if "[truncated]" in data.get("output", ""):
+                assert len(data["output"]) < 300
+    finally:
+        ExecutionContext.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_working_memory_no_compact_without_model():
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
+
+    ctx, token = _make_ctx()
+    try:
+        wm = WorkingMemory(max_tokens=10)
+        for i in range(20):
+            await wm.memorize("user", f"message {i}" * 10)
+        messages = wm.recall()
+        assert len(messages) < 20
     finally:
         ExecutionContext.reset(token)
