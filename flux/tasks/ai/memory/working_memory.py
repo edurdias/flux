@@ -221,11 +221,12 @@ class WorkingMemory:
             trimmed: list[dict[str, str]] = []
             token_count = 0
             for msg in reversed(messages):
-                msg_tokens = len(msg["content"]) // 4
+                msg_tokens = max(1, len(msg["content"]) // 4)
                 if token_count + msg_tokens > self._max_tokens:
                     break
-                trimmed.insert(0, msg)
+                trimmed.append(msg)
                 token_count += msg_tokens
+            trimmed.reverse()
             messages = trimmed
 
         return messages

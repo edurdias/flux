@@ -34,11 +34,11 @@ def _build_provider(provider_type: str):
                 f"Set it with: flux secrets set {MEMORY_PROVIDER_URL_SECRET} <connection_string>",
             )
 
-        from flux.tasks.ai.memory import postgresql, sqlite
+        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
-        if provider_type == "postgresql":
-            return postgresql(url)
-        return sqlite(url)
+        if provider_type == "sqlite":
+            return SqlAlchemyProvider(f"sqlite:///{url}")
+        return SqlAlchemyProvider(url)
 
     from flux.tasks.ai.memory import in_memory
 
@@ -193,7 +193,6 @@ async def agent_dream(ctx):
             model=model,
             name="dream_orient",
             tools=ltm_tools,
-            long_term_memory=memory,
             max_tool_calls=20,
             stream=False,
         )
@@ -219,7 +218,6 @@ async def agent_dream(ctx):
             model=model,
             name="dream_consolidate",
             tools=ltm_tools,
-            long_term_memory=memory,
             max_tool_calls=30,
             stream=False,
         )
@@ -232,7 +230,6 @@ async def agent_dream(ctx):
             model=model,
             name="dream_prune",
             tools=ltm_tools,
-            long_term_memory=memory,
             max_tool_calls=20,
             stream=False,
         )
