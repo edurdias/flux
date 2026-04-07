@@ -33,7 +33,6 @@ Usage (server/worker):
 """
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -61,12 +60,15 @@ async def dreaming_agent(ctx: ExecutionContext[dict[str, Any]]):
         "message": "Follow-up question or instruction"
     }
     """
+    from flux.config import Configuration
+
     input_data = ctx.input or {}
     first_message = input_data.get("message", "List all files in the workspace")
 
-    workspace = Path(input_data.get("workspace", tempfile.mkdtemp(prefix="flux_dreaming_")))
-    if not workspace.exists():
-        workspace.mkdir(parents=True)
+    flux_home = Path(Configuration.get().settings.home)
+    default_workspace = str(flux_home / "dreaming")
+    workspace = Path(input_data.get("workspace", default_workspace))
+    workspace.mkdir(parents=True, exist_ok=True)
 
     max_turns = input_data.get("max_turns", 10)
 
@@ -122,8 +124,29 @@ async def dreaming_agent(ctx: ExecutionContext[dict[str, Any]]):
     }
 
 
+def _print_result(result):
+    if result.has_succeeded:
+        output = result.output
+        print(f"\nConversation ({len(output['conversation'])} turns):")
+        for turn in output["conversation"]:
+            print(f"  Turn {turn['turn']}:")
+            print(f"    User: {turn['user'][:100]}")
+            print(f"    Agent: {turn['assistant'][:200]}")
+        print(f"\nWorking Memory: {output['working_memory_count']} messages")
+        print(f"LTM keys: {output['ltm_keys']}")
+    elif result.has_failed:
+        print(f"\nFailed: {result.output}")
+    elif result.is_paused:
+        print(f"\nPaused. Execution ID: {result.execution_id}")
+
+
 if __name__ == "__main__":
-    workspace = Path(tempfile.mkdtemp(prefix="flux_dreaming_"))
+    # Use Flux home for persistent data (defaults to .flux/)
+    from flux.config import Configuration
+
+    flux_home = Path(Configuration.get().settings.home)
+    workspace = flux_home / "dreaming"
+    workspace.mkdir(parents=True, exist_ok=True)
     (workspace / "hello.py").write_text('def greet(name):\n    return f"Hello, {name}!"\n')
     (workspace / "config.yaml").write_text(
         "database: postgres\nport: 5432\nhost: db.example.com\n",
@@ -136,55 +159,36 @@ if __name__ == "__main__":
     )
 
     print(f"Workspace: {workspace}")
+    print(f"Memory DB: {workspace / 'memory.db'}")
     print("=" * 70)
 
-    # Turn 1: Explore
-    print("\n--- Turn 1: Explore workspace ---")
+    # --- Session 1: Explore and learn ---
+    print("\n=== SESSION 1: Explore and learn ===")
     result = dreaming_agent.run(
         {
             "message": "Explore the workspace. List all files and read config.yaml. "
-            "Store the database configuration in your memory.",
+            "Store the database host, port, and type in your long-term memory.",
             "workspace": str(workspace),
         },
     )
 
     if result.is_paused:
-        output = result.output
-        if isinstance(output, dict):
-            print(f"Paused. Execution ID: {result.execution_id}")
-        else:
-            print(f"Paused: {output}")
+        # End session 1
+        result = dreaming_agent.resume(result.execution_id, {"message": ""})
 
-        # Turn 2: Ask what it remembers
-        print("\n--- Turn 2: What do you remember? ---")
-        result = dreaming_agent.resume(
-            result.execution_id,
-            {
-                "message": "What database configuration do you remember? Check your long-term memory.",
-            },
-        )
+    _print_result(result)
 
-        if result.is_paused:
-            print(f"Paused again. Execution ID: {result.execution_id}")
+    # --- Session 2: New execution — recall from LTM ---
+    print("\n=== SESSION 2: New execution — what do you remember? ===")
+    result = dreaming_agent.run(
+        {
+            "message": "Without using any tools, what database configuration do you "
+            "remember from previous sessions? Check your long-term memory.",
+            "workspace": str(workspace),
+        },
+    )
 
-            # Turn 3: End conversation
-            print("\n--- Turn 3: End conversation ---")
-            result = dreaming_agent.resume(
-                result.execution_id,
-                {"message": ""},
-            )
+    if result.is_paused:
+        result = dreaming_agent.resume(result.execution_id, {"message": ""})
 
-    if result.has_succeeded:
-        output = result.output
-        print(f"\nConversation ({len(output['conversation'])} turns):")
-        for turn in output["conversation"]:
-            print(f"  Turn {turn['turn']}:")
-            print(f"    User: {turn['user'][:100]}")
-            print(f"    Agent: {turn['assistant'][:200]}")
-        print(f"\nWorking Memory: {output['working_memory_count']} messages")
-        print(f"Roles: {output['working_memory_roles']}")
-        print(f"LTM keys: {output['ltm_keys']}")
-    elif result.has_failed:
-        print(f"\nFailed: {result.output}")
-    else:
-        print(f"\nState: {result.state}")
+    _print_result(result)
