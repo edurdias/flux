@@ -178,13 +178,14 @@ async def agent_dream(ctx):
 
     model = input_data.get("model", "ollama/llama3.2")
 
-    provider = _build_provider(provider_type)
-    memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
-
-    if not await check_failure_gate(memory):
-        return {"status": "skipped", "reason": "max consecutive failures reached"}
-
+    memory = None
     try:
+        provider = _build_provider(provider_type)
+        memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
+
+        if not await check_failure_gate(memory):
+            return {"status": "skipped", "reason": "max consecutive failures reached"}
+
         ltm_tools = memory.as_tools()
 
         orient_agent = await agent(
@@ -241,6 +242,7 @@ async def agent_dream(ctx):
         return {"status": "completed", "summary": summary}
 
     except Exception as e:
-        await increment_failure_counter(memory)
+        if memory is not None:
+            await increment_failure_counter(memory)
         logger.error("Dream workflow failed: %s", e, exc_info=True)
         return {"status": "failed", "error": str(e)}

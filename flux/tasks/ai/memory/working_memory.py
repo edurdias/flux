@@ -80,7 +80,7 @@ class WorkingMemory:
         return value
 
     def _estimate_tokens(self, messages: list[dict[str, str]]) -> int:
-        return sum(len(m["content"]) // 4 for m in messages)
+        return sum(max(1, len(m["content"]) // 4) for m in messages)
 
     def _should_compact(self) -> bool:
         if self._compact_model is None or self._max_tokens is None:
@@ -108,8 +108,10 @@ class WorkingMemory:
             if len(output) <= 200:
                 continue
             data["output"] = f"[truncated] {data.get('name', 'tool')}: {output[:200]}..."
-            await self._mark_compacted(msg["_id"])
-            await self.memorize("tool_result", json.dumps(data))
+            await self._mark_compacted(
+                msg["_id"],
+                replacement={"role": "tool_result", "content": json.dumps(data)},
+            )
 
     async def _summarize_messages(self) -> None:
         messages = self._collect_messages()
@@ -169,6 +171,7 @@ class WorkingMemory:
 
         forgotten: set[str] = set()
         compacted: set[str] = set()
+        replacements: dict[str, dict[str, str]] = {}
         for event in ctx.events:
             if event.type == ExecutionEventType.TASK_COMPLETED and event.name is not None:
                 if event.name.startswith("wm_forget"):
@@ -178,7 +181,11 @@ class WorkingMemory:
                 elif event.name.startswith("wm_compact"):
                     value = _extract_value(event.value)
                     if isinstance(value, dict) and "compacted_id" in value:
-                        compacted.add(value["compacted_id"])
+                        cid = value["compacted_id"]
+                        if "replacement" in value:
+                            replacements[cid] = value["replacement"]
+                        else:
+                            compacted.add(cid)
 
         excluded = forgotten | compacted
 
@@ -190,6 +197,12 @@ class WorkingMemory:
                 and event.name.startswith(_TASK_PREFIX)
             ):
                 if event.name in excluded:
+                    continue
+                if event.name in replacements:
+                    r = replacements[event.name]
+                    messages.append(
+                        {"_id": event.name, "role": r["role"], "content": r["content"]},
+                    )
                     continue
                 value = _extract_value(event.value)
                 if isinstance(value, dict) and "role" in value and "content" in value:
@@ -235,17 +248,28 @@ class WorkingMemory:
 
         await _forget_message(message_id)
 
-    async def _mark_compacted(self, message_id: str) -> None:
-        """Mark a message as compacted by its stable ID (task name)."""
+    async def _mark_compacted(
+        self,
+        message_id: str,
+        replacement: dict[str, str] | None = None,
+    ) -> None:
+        """Mark a message as compacted. Optionally provide a replacement that
+        keeps the original position in the message sequence."""
         from flux.task import task
 
         task_name = f"wm_compact_{self._next_counter()}"
 
         @task.with_options(name=task_name)
-        async def _compact_message(compacted_id: str) -> dict[str, Any]:
-            return {"compacted_id": compacted_id}
+        async def _compact_message(
+            compacted_id: str,
+            replacement: dict[str, str] | None = None,
+        ) -> dict[str, Any]:
+            result: dict[str, Any] = {"compacted_id": compacted_id}
+            if replacement is not None:
+                result["replacement"] = replacement
+            return result
 
-        await _compact_message(message_id)
+        await _compact_message(compacted_id=message_id, replacement=replacement)
 
     def keys(self) -> list[str]:
         """Return stable IDs of all messages in the current recall window."""
