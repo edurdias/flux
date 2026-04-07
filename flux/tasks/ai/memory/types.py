@@ -6,7 +6,7 @@ from typing import Any
 
 @dataclass
 class MemoryEntry:
-    workflow: str
+    agent: str
     scope: str
     key: str
     value: Any

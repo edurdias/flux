@@ -13,7 +13,7 @@ from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent
 from flux.tasks.ai.memory import long_term_memory, in_memory
 
-shared = long_term_memory(provider=in_memory(), scope="review:pr-42")
+shared = long_term_memory(provider=in_memory(), agent="shared_agent", scope="review:pr-42")
 
 
 @workflow

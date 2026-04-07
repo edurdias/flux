@@ -62,6 +62,44 @@ class GeminiFormatter(LLMFormatter):
         self._max_tokens = max_tokens
         self._response_format = response_format
 
+    def _convert_memory_messages(self, memory_messages: list[dict]) -> list:
+        import json
+        from google.genai import types as _types
+
+        converted = []
+        for msg in memory_messages:
+            role, content = msg["role"], msg["content"]
+            if role == "tool_call":
+                data = json.loads(content)
+                parts = [
+                    _types.Part(
+                        function_call=_types.FunctionCall(
+                            name=c["name"],
+                            args=c.get("arguments", {}),
+                        ),
+                    )
+                    for c in data["calls"]
+                ]
+                converted.append(_types.Content(role="model", parts=parts))
+            elif role == "tool_result":
+                data = json.loads(content)
+                converted.append(
+                    _types.Content(
+                        role="user",
+                        parts=[
+                            _types.Part(
+                                function_response=_types.FunctionResponse(
+                                    name=data["name"],
+                                    response={"output": data["output"]},
+                                ),
+                            ),
+                        ],
+                    ),
+                )
+            elif role in ("user", "assistant"):
+                converted.append(_to_content(role, content))
+        return converted
+
     def build_messages(
         self,
         system_prompt: str,
@@ -70,7 +108,7 @@ class GeminiFormatter(LLMFormatter):
     ) -> tuple[list, dict]:
         if working_memory:
             prior = working_memory.recall()
-            contents = [_to_content(m["role"], m["content"]) for m in prior]
+            contents = self._convert_memory_messages(prior)
             contents.append(_to_content("user", user_content))
         else:
             contents = [_to_content("user", user_content)]

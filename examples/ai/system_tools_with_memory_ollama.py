@@ -54,6 +54,7 @@ async def system_tools_with_memory_ollama(ctx: ExecutionContext[dict[str, Any]])
 
     ltm = long_term_memory(
         provider=sqlite(f"{workspace}/.agent_memory.db"),
+        agent="memory_coding_agent",
         scope="project",
     )
 

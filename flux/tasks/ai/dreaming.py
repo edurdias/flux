@@ -1,0 +1,245 @@
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from flux.tasks.call import call
+from flux.workflow import workflow
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.working_memory import WorkingMemory
+
+logger = logging.getLogger("flux.dreaming")
+
+MEMORY_PROVIDER_URL_SECRET = "MEMORY_PROVIDER_URL"
+
+
+def _build_provider(provider_type: str):
+    """Build a MemoryProvider from type string + secret.
+
+    Uses the same factory names as flux.tasks.ai.memory (sqlite, postgresql, in_memory).
+    Connection string is read from the MEMORY_PROVIDER_URL secret.
+    """
+    if provider_type in ("sqlite", "postgresql"):
+        from flux.secret_managers import SecretManager
+
+        secrets = SecretManager.current().get([MEMORY_PROVIDER_URL_SECRET])
+        url = secrets.get(MEMORY_PROVIDER_URL_SECRET)
+        if not url:
+            raise ValueError(
+                f"Secret '{MEMORY_PROVIDER_URL_SECRET}' is required for {provider_type} provider. "
+                f"Set it with: flux secrets set {MEMORY_PROVIDER_URL_SECRET} <connection_string>",
+            )
+
+        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+        if provider_type == "sqlite":
+            return SqlAlchemyProvider(f"sqlite:///{url}")
+        return SqlAlchemyProvider(url)
+
+    from flux.tasks.ai.memory import in_memory
+
+    return in_memory()
+
+
+def dream(
+    *,
+    working_memory: WorkingMemory,
+    long_term_memory: LongTermMemory,
+    model: str | None = None,
+    workflow: str = "agent_dream",
+) -> Callable[[str, Any], Awaitable[None]]:
+    """Return an async hook that fires a dream workflow."""
+    scope = long_term_memory.scope
+    provider_type = long_term_memory.provider_type
+    dream_model = model
+    wm = working_memory
+
+    async def _hook(agent_id: str, value: Any) -> None:
+        try:
+            snapshot = wm.recall()
+            payload: dict[str, Any] = {
+                "agent": agent_id,
+                "scope": scope,
+                "provider_type": provider_type,
+                "working_memory": snapshot,
+            }
+            if dream_model:
+                payload["model"] = dream_model
+            await call(
+                workflow,
+                payload,
+                mode="async",
+            )
+        except Exception:
+            logger.warning("Dream workflow submission failed", exc_info=True)
+
+    return _hook
+
+
+async def check_failure_gate(memory: LongTermMemory, max_failures: int = 3) -> bool:
+    count = await memory.recall("_dream:failures")
+    try:
+        if count is not None and int(count) >= max_failures:
+            logger.warning(
+                "Dream skipped: %d consecutive failures (max: %d)",
+                int(count),
+                max_failures,
+            )
+            return False
+    except (ValueError, TypeError):
+        await memory.memorize("_dream:failures", 0)
+    return True
+
+
+async def increment_failure_counter(memory: LongTermMemory) -> None:
+    count = await memory.recall("_dream:failures")
+    try:
+        await memory.memorize("_dream:failures", int(count or 0) + 1)
+    except (ValueError, TypeError):
+        await memory.memorize("_dream:failures", 1)
+
+
+async def reset_failure_counter(memory: LongTermMemory) -> None:
+    await memory.memorize("_dream:failures", 0)
+
+
+ORIENT_PROMPT = (
+    "You are performing memory consolidation. Your task is to understand the current "
+    "state of the agent's long-term memory.\n\n"
+    "Use `list_memory_keys` to see all stored keys, then use `recall_memory` to read "
+    "the contents of each key. Build a mental map of what facts are stored, how they "
+    "are organized, and identify any obvious issues (duplicates, contradictions, stale entries).\n\n"
+    "Produce a brief orientation report summarizing:\n"
+    "- Total number of memory entries\n"
+    "- Key topics/categories covered\n"
+    "- Any obvious issues you notice"
+)
+
+GATHER_SIGNAL_PROMPT = (
+    "You are scanning the agent's working memory for high-value signals worth persisting "
+    "to long-term memory.\n\n"
+    "The working memory contains the conversation history including user messages, "
+    "assistant responses, tool calls, and tool results.\n\n"
+    "Focus on these signal types:\n"
+    "- **Corrections**: Where the user or agent reversed or amended a prior statement\n"
+    "- **Decisions**: Explicit choices (technology selections, configuration changes, approach pivots)\n"
+    "- **Repeated patterns**: Facts or entities referenced across 3+ distinct messages\n"
+    "- **Staleness indicators**: Tool calls that returned errors for entities that may exist in memory\n\n"
+    "Produce a signal report listing each signal with its type and a brief description."
+)
+
+CONSOLIDATE_PROMPT = (
+    "You are consolidating the agent's long-term memory using signals from a recent execution.\n\n"
+    "Rules:\n"
+    "1. **Merge duplicates** — if multiple facts express the same information, use `store_memory` "
+    "with a combined version and `forget_memory` on redundant keys.\n"
+    "2. **Resolve contradictions** — when two facts conflict, keep the one consistent with the most "
+    "recent execution events. `forget_memory` the outdated fact.\n"
+    "3. **Convert temporal references** — replace relative time expressions (yesterday, last week) "
+    "with absolute dates.\n"
+    "4. **Enrich with signals** — corrections and decisions from the signal report should be stored "
+    "as new facts via `store_memory`.\n\n"
+    "Use `recall_memory`, `store_memory`, `forget_memory`, and `list_memory_keys` to read and "
+    "modify memory."
+)
+
+PRUNE_PROMPT = (
+    "You are pruning and indexing the agent's long-term memory after consolidation.\n\n"
+    "Rules:\n"
+    "1. **Remove stale entries** — facts referencing deleted files, removed endpoints, or changed "
+    "APIs that are no longer valid.\n"
+    "2. **Demote verbose entries** — if a memory value is excessively long, summarize it.\n"
+    "3. **Cap total entries** — if the total number of memory keys exceeds 100, remove the least "
+    "important entries to bring it under the cap.\n"
+    "4. **Verify consistency** — ensure no remaining contradictions exist.\n\n"
+    "Use `list_memory_keys`, `recall_memory`, `forget_memory`, and `store_memory` as needed.\n\n"
+    "Produce a brief summary of what changed: entries before, entries after, what was pruned."
+)
+
+
+@workflow
+async def agent_dream(ctx):
+    """Memory consolidation workflow — four-phase dream pipeline."""
+    from flux.tasks.ai import agent
+    from flux.tasks.ai.memory import long_term_memory
+
+    input_data = ctx.input or {}
+    agent_id = input_data.get("agent")
+    scope = input_data.get("scope")
+    provider_type = input_data.get("provider_type", "in_memory")
+    wm_snapshot = input_data.get("working_memory", [])
+
+    if not agent_id or not scope:
+        return {"status": "failed", "error": "Missing required input: agent and scope are required"}
+
+    model = input_data.get("model", "ollama/llama3.2")
+
+    memory = None
+    try:
+        provider = _build_provider(provider_type)
+        memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
+
+        if not await check_failure_gate(memory):
+            return {"status": "skipped", "reason": "max consecutive failures reached"}
+
+        ltm_tools = memory.as_tools()
+
+        orient_agent = await agent(
+            ORIENT_PROMPT,
+            model=model,
+            name="dream_orient",
+            tools=ltm_tools,
+            max_tool_calls=20,
+            stream=False,
+        )
+        orientation = await orient_agent("Review the current memory state.")
+
+        formatted_wm = "\n".join(f"[{m['role']}] {m['content']}" for m in wm_snapshot)
+
+        signal_agent = await agent(
+            GATHER_SIGNAL_PROMPT,
+            model=model,
+            name="dream_gather_signal",
+            tools=ltm_tools,
+            max_tool_calls=10,
+            stream=False,
+        )
+        signal_report = await signal_agent(
+            f"Scan this working memory for signals:\n\n{formatted_wm}"
+            f"\n\nOrientation report:\n{orientation}",
+        )
+
+        consolidate_agent = await agent(
+            CONSOLIDATE_PROMPT,
+            model=model,
+            name="dream_consolidate",
+            tools=ltm_tools,
+            max_tool_calls=30,
+            stream=False,
+        )
+        await consolidate_agent(
+            f"Signal report:\n{signal_report}\n\nOrientation:\n{orientation}",
+        )
+
+        prune_agent = await agent(
+            PRUNE_PROMPT,
+            model=model,
+            name="dream_prune",
+            tools=ltm_tools,
+            max_tool_calls=20,
+            stream=False,
+        )
+        summary = await prune_agent("Review and prune the memory. Report what changed.")
+
+        await reset_failure_counter(memory)
+        return {"status": "completed", "summary": summary}
+
+    except Exception as e:
+        if memory is not None:
+            await increment_failure_counter(memory)
+        logger.error("Dream workflow failed: %s", e, exc_info=True)
+        return {"status": "failed", "error": str(e)}

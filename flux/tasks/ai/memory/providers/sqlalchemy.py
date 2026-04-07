@@ -24,7 +24,7 @@ _metadata = MetaData()
 _memory_table = Table(
     "memory",
     _metadata,
-    Column("workflow", String, primary_key=True),
+    Column("agent", String, primary_key=True),
     Column("scope", String, primary_key=True),
     Column("key", String, primary_key=True),
     Column("value", Text, nullable=False),
@@ -42,37 +42,40 @@ class SqlAlchemyProvider:
             _metadata.create_all(self._engine)
         return self._engine
 
-    def _upsert_stmt(self, workflow: str, scope: str, key: str, serialized: str) -> Any:
+    @property
+    def dialect_name(self) -> str:
+        return self._get_engine().dialect.name
+
+    def _upsert_stmt(self, agent: str, scope: str, key: str, serialized: str) -> Any:
         """Build a dialect-aware atomic upsert statement."""
         engine = self._get_engine()
-        values = {"workflow": workflow, "scope": scope, "key": key, "value": serialized}
+        values = {"agent": agent, "scope": scope, "key": key, "value": serialized}
         dialect = engine.dialect.name
         if dialect == "postgresql":
             stmt = pg_insert(_memory_table).values(**values)
             return stmt.on_conflict_do_update(
-                index_elements=["workflow", "scope", "key"],
+                index_elements=["agent", "scope", "key"],
                 set_={"value": stmt.excluded.value},
             )
-        # SQLite and other dialects
         stmt = sqlite_insert(_memory_table).values(**values)
         return stmt.on_conflict_do_update(
-            index_elements=["workflow", "scope", "key"],
+            index_elements=["agent", "scope", "key"],
             set_={"value": stmt.excluded.value},
         )
 
-    async def memorize(self, workflow: str, scope: str, key: str, value: Any) -> None:
+    async def memorize(self, agent: str, scope: str, key: str, value: Any) -> None:
         engine = self._get_engine()
         serialized = json.dumps(value)
         with engine.begin() as conn:
-            conn.execute(self._upsert_stmt(workflow, scope, key, serialized))
+            conn.execute(self._upsert_stmt(agent, scope, key, serialized))
 
-    async def recall(self, workflow: str, scope: str, key: str | None = None) -> Any:
+    async def recall(self, agent: str, scope: str, key: str | None = None) -> Any:
         engine = self._get_engine()
         with engine.connect() as conn:
             if key is not None:
                 row = conn.execute(
                     select(_memory_table.c.value).where(
-                        _memory_table.c.workflow == workflow,
+                        _memory_table.c.agent == agent,
                         _memory_table.c.scope == scope,
                         _memory_table.c.key == key,
                     ),
@@ -80,19 +83,19 @@ class SqlAlchemyProvider:
                 return json.loads(row[0]) if row else None
             rows = conn.execute(
                 select(_memory_table.c.key, _memory_table.c.value).where(
-                    _memory_table.c.workflow == workflow,
+                    _memory_table.c.agent == agent,
                     _memory_table.c.scope == scope,
                 ),
             ).fetchall()
             return {row[0]: json.loads(row[1]) for row in rows}
 
-    async def forget(self, workflow: str, scope: str, key: str | None = None) -> None:
+    async def forget(self, agent: str, scope: str, key: str | None = None) -> None:
         engine = self._get_engine()
         with engine.begin() as conn:
             if key is not None:
                 conn.execute(
                     delete(_memory_table).where(
-                        _memory_table.c.workflow == workflow,
+                        _memory_table.c.agent == agent,
                         _memory_table.c.scope == scope,
                         _memory_table.c.key == key,
                     ),
@@ -100,28 +103,28 @@ class SqlAlchemyProvider:
             else:
                 conn.execute(
                     delete(_memory_table).where(
-                        _memory_table.c.workflow == workflow,
+                        _memory_table.c.agent == agent,
                         _memory_table.c.scope == scope,
                     ),
                 )
 
-    async def keys(self, workflow: str, scope: str) -> list[str]:
+    async def keys(self, agent: str, scope: str) -> list[str]:
         engine = self._get_engine()
         with engine.connect() as conn:
             rows = conn.execute(
                 select(_memory_table.c.key).where(
-                    _memory_table.c.workflow == workflow,
+                    _memory_table.c.agent == agent,
                     _memory_table.c.scope == scope,
                 ),
             ).fetchall()
             return [row[0] for row in rows]
 
-    async def scopes(self, workflow: str) -> list[str]:
+    async def scopes(self, agent: str) -> list[str]:
         engine = self._get_engine()
         with engine.connect() as conn:
             rows = conn.execute(
                 select(distinct(_memory_table.c.scope)).where(
-                    _memory_table.c.workflow == workflow,
+                    _memory_table.c.agent == agent,
                 ),
             ).fetchall()
             return [row[0] for row in rows]

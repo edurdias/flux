@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from flux.task import task
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
     from flux.tasks.ai.memory.working_memory import WorkingMemory
     from flux.tasks.ai.skills import SkillCatalog
@@ -36,6 +38,8 @@ async def agent(
     max_tokens: int = 4096,
     stream: bool = True,
     approval_mode: str = "default",
+    on_complete: list[Callable] | None = None,
+    on_pause: list[Callable] | None = None,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -68,6 +72,11 @@ async def agent(
             unlimited. Defaults to None.
         max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
+        on_complete: List of hook callables fired after the agent returns.
+            Signature: ``async (agent_id: str, value: Any) -> None``. Sync hooks are also supported.
+            Failures are logged but never affect the return value.
+        on_pause: List of hook callables fired when the agent pauses (PauseRequested).
+            Same signature as on_complete. Fired before the pause propagates.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
@@ -166,6 +175,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _ollama_agent
@@ -198,6 +210,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _openai_agent
@@ -230,6 +245,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _anthropic_agent
@@ -266,6 +284,9 @@ async def agent(
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 approval_mode=approval_mode,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
             )
 
         result = _google_agent

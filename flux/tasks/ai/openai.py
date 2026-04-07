@@ -48,6 +48,42 @@ class OpenAIFormatter(LLMFormatter):
         self._model_name = model_name
         self._response_format = response_format
 
+    def _convert_memory_messages(self, memory_messages: list[dict]) -> list[dict]:
+        converted = []
+        for msg in memory_messages:
+            role, content = msg["role"], msg["content"]
+            if role == "tool_call":
+                data = json.loads(content)
+                converted.append(
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": c["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": c["name"],
+                                    "arguments": json.dumps(c.get("arguments", {})),
+                                },
+                            }
+                            for c in data["calls"]
+                        ],
+                    },
+                )
+            elif role == "tool_result":
+                data = json.loads(content)
+                converted.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": data["call_id"],
+                        "content": data["output"],
+                    },
+                )
+            elif role in ("user", "assistant"):
+                converted.append({"role": role, "content": content})
+        return converted
+
     def build_messages(
         self,
         system_prompt: str,
@@ -58,7 +94,7 @@ class OpenAIFormatter(LLMFormatter):
             prior = working_memory.recall()
             messages = (
                 [{"role": "system", "content": system_prompt}]
-                + prior
+                + self._convert_memory_messages(prior)
                 + [{"role": "user", "content": user_content}]
             )
         else:

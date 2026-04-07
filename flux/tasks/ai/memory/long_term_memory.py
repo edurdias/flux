@@ -6,32 +6,44 @@ from flux.tasks.ai.memory.providers.protocol import MemoryProvider
 
 
 class LongTermMemory:
-    def __init__(self, provider: MemoryProvider, scope: str) -> None:
+    def __init__(self, provider: MemoryProvider, agent: str, scope: str) -> None:
         self._provider = provider
+        self._agent = agent
         self._scope = scope
 
-    def _get_workflow(self) -> str:
-        from flux.domain.execution_context import CURRENT_CONTEXT
+    @property
+    def agent(self) -> str:
+        return self._agent
 
-        ctx = CURRENT_CONTEXT.get()
-        if ctx is None:
-            return "__default__"
-        return ctx.workflow_name
+    @property
+    def scope(self) -> str:
+        return self._scope
+
+    @property
+    def provider_type(self) -> str:
+        from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+        if isinstance(self._provider, SqlAlchemyProvider):
+            dialect = self._provider.dialect_name
+            if dialect == "postgresql":
+                return "postgresql"
+            return "sqlite"
+        return "in_memory"
 
     async def memorize(self, key: str, value: Any) -> None:
-        await self._provider.memorize(self._get_workflow(), self._scope, key, value)
+        await self._provider.memorize(self._agent, self._scope, key, value)
 
     async def recall(self, key: str | None = None) -> Any:
-        return await self._provider.recall(self._get_workflow(), self._scope, key)
+        return await self._provider.recall(self._agent, self._scope, key)
 
     async def forget(self, key: str | None = None) -> None:
-        await self._provider.forget(self._get_workflow(), self._scope, key)
+        await self._provider.forget(self._agent, self._scope, key)
 
     async def keys(self) -> list[str]:
-        return await self._provider.keys(self._get_workflow(), self._scope)
+        return await self._provider.keys(self._agent, self._scope)
 
     async def scopes(self) -> list[str]:
-        return await self._provider.scopes(self._get_workflow())
+        return await self._provider.scopes(self._agent)
 
     def as_tools(self) -> list:
         """Create Flux @task tools for agent integration.

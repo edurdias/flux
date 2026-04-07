@@ -15,14 +15,14 @@ def test_agent_accepts_working_memory():
 
 
 def test_agent_accepts_long_term_memory():
-    ltm = long_term_memory(provider=in_memory(), scope="test")
+    ltm = long_term_memory(provider=in_memory(), agent="test_agent", scope="test")
     a = asyncio.run(agent("You are a test agent.", model="ollama/llama3", long_term_memory=ltm))
     assert a is not None
 
 
 def test_agent_accepts_both_memories():
     wm = working_memory(window=10)
-    ltm = long_term_memory(provider=in_memory(), scope="test")
+    ltm = long_term_memory(provider=in_memory(), agent="test_agent", scope="test")
     a = asyncio.run(
         agent(
             "You are a test agent.",
@@ -42,6 +42,6 @@ def test_agent_no_stateful_parameter():
 
 def test_agent_ltm_injects_tools():
     """Long-term memory should add memory tools to the agent."""
-    ltm = long_term_memory(provider=in_memory(), scope="test")
+    ltm = long_term_memory(provider=in_memory(), agent="test_agent", scope="test")
     a = asyncio.run(agent("You are a test agent.", model="ollama/llama3", long_term_memory=ltm))
     assert a is not None

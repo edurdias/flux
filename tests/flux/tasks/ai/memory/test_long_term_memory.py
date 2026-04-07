@@ -2,115 +2,120 @@ from __future__ import annotations
 
 import pytest
 
-from flux.domain.events import ExecutionState
-from flux.domain.execution_context import ExecutionContext
 from flux.tasks.ai.memory.providers.in_memory import InMemoryProvider
-
-
-def _make_ctx(workflow_name: str = "test_workflow"):  # type: ignore[no-untyped-def]
-    ctx: ExecutionContext = ExecutionContext(
-        workflow_id="wf1",
-        workflow_name=workflow_name,
-        state=ExecutionState.RUNNING,
-    )
-    token = ExecutionContext.set(ctx)
-    return ctx, token
 
 
 @pytest.mark.asyncio
 async def test_ltm_memorize_and_recall():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx()
-    try:
-        provider = InMemoryProvider()
-        ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Alice")
-        result = await ltm.recall("name")
-        assert result == "Alice"
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    await ltm.memorize("name", "Alice")
+    result = await ltm.recall("name")
+    assert result == "Alice"
 
 
 @pytest.mark.asyncio
 async def test_ltm_recall_all():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx()
-    try:
-        provider = InMemoryProvider()
-        ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Alice")
-        await ltm.memorize("role", "developer")
-        result = await ltm.recall()
-        assert result == {"name": "Alice", "role": "developer"}
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    await ltm.memorize("name", "Alice")
+    await ltm.memorize("role", "developer")
+    result = await ltm.recall()
+    assert result == {"name": "Alice", "role": "developer"}
 
 
 @pytest.mark.asyncio
 async def test_ltm_forget():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx()
-    try:
-        provider = InMemoryProvider()
-        ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Alice")
-        await ltm.forget("name")
-        result = await ltm.recall("name")
-        assert result is None
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    await ltm.memorize("name", "Alice")
+    await ltm.forget("name")
+    result = await ltm.recall("name")
+    assert result is None
 
 
 @pytest.mark.asyncio
 async def test_ltm_keys():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx()
-    try:
-        provider = InMemoryProvider()
-        ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Alice")
-        await ltm.memorize("role", "developer")
-        keys = await ltm.keys()
-        assert sorted(keys) == ["name", "role"]
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    await ltm.memorize("name", "Alice")
+    await ltm.memorize("role", "developer")
+    keys = await ltm.keys()
+    assert sorted(keys) == ["name", "role"]
 
 
 @pytest.mark.asyncio
 async def test_ltm_scopes():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx()
-    try:
-        provider = InMemoryProvider()
-        ltm1 = LongTermMemory(provider=provider, scope="user:1")
-        ltm2 = LongTermMemory(provider=provider, scope="user:2")
-        await ltm1.memorize("name", "Alice")
-        await ltm2.memorize("name", "Bob")
-        scopes = await ltm1.scopes()
-        assert sorted(scopes) == ["user:1", "user:2"]
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm1 = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    ltm2 = LongTermMemory(provider=provider, agent="assistant", scope="user:2")
+    await ltm1.memorize("name", "Alice")
+    await ltm2.memorize("name", "Bob")
+    scopes = await ltm1.scopes()
+    assert sorted(scopes) == ["user:1", "user:2"]
 
 
 @pytest.mark.asyncio
-async def test_ltm_workflow_auto_scoping():
-    """Workflow name is auto-injected from ExecutionContext."""
+async def test_ltm_agent_scoping():
+    """Agent name is passed explicitly and reaches the provider directly."""
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
-    ctx, token = _make_ctx("my_workflow")
-    try:
-        provider = InMemoryProvider()
-        ltm = LongTermMemory(provider=provider, scope="user:1")
-        await ltm.memorize("name", "Alice")
-        result = await provider.recall("my_workflow", "user:1", "name")
-        assert result == "Alice"
-    finally:
-        ExecutionContext.reset(token)
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="my_agent", scope="user:1")
+    await ltm.memorize("name", "Alice")
+    result = await provider.recall("my_agent", "user:1", "name")
+    assert result == "Alice"
+
+
+@pytest.mark.asyncio
+async def test_ltm_agent_property():
+    """LTM exposes the agent name via a property."""
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="my_agent", scope="user:1")
+    assert ltm.agent == "my_agent"
+
+
+@pytest.mark.asyncio
+async def test_ltm_scope_property():
+    """LTM exposes the scope via a property."""
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    assert ltm.scope == "user:1"
+
+
+def test_ltm_provider_type_in_memory():
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+
+    provider = InMemoryProvider()
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+    assert ltm.provider_type == "in_memory"
+
+
+def test_ltm_provider_type_sqlite():
+    import os
+    import tempfile
+
+    from flux.tasks.ai.memory.long_term_memory import LongTermMemory
+    from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        provider = SqlAlchemyProvider(f"sqlite:///{os.path.join(tmpdir, 'test.db')}")
+        ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
+        assert ltm.provider_type == "sqlite"
 
 
 @pytest.mark.asyncio
@@ -119,7 +124,7 @@ async def test_ltm_tools_generation():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
     provider = InMemoryProvider()
-    ltm = LongTermMemory(provider=provider, scope="user:1")
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
     tools = ltm.as_tools()
     tool_names = [t.func.__name__ if hasattr(t, "func") else t.__name__ for t in tools]
     assert "recall_memory" in tool_names
@@ -134,7 +139,7 @@ async def test_ltm_system_prompt_hint():
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
 
     provider = InMemoryProvider()
-    ltm = LongTermMemory(provider=provider, scope="user:1")
+    ltm = LongTermMemory(provider=provider, agent="assistant", scope="user:1")
     hint = ltm.system_prompt_hint()
     assert "recall_memory" in hint
     assert "store_memory" in hint
