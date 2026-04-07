@@ -48,6 +48,7 @@ class WorkingMemory:
                         and (
                             event.name.startswith(_TASK_PREFIX)
                             or event.name.startswith("wm_forget")
+                            or event.name.startswith("wm_compact")
                         )
                     ):
                         parts = event.name.rsplit("_", 1)
@@ -80,15 +81,22 @@ class WorkingMemory:
             return []
 
         forgotten: set[str] = set()
+        compacted: set[str] = set()
         for event in ctx.events:
             if (
                 event.type == ExecutionEventType.TASK_COMPLETED
                 and event.name is not None
-                and event.name.startswith("wm_forget")
             ):
-                value = _extract_value(event.value)
-                if isinstance(value, dict) and "forgotten_id" in value:
-                    forgotten.add(value["forgotten_id"])
+                if event.name.startswith("wm_forget"):
+                    value = _extract_value(event.value)
+                    if isinstance(value, dict) and "forgotten_id" in value:
+                        forgotten.add(value["forgotten_id"])
+                elif event.name.startswith("wm_compact"):
+                    value = _extract_value(event.value)
+                    if isinstance(value, dict) and "compacted_id" in value:
+                        compacted.add(value["compacted_id"])
+
+        excluded = forgotten | compacted
 
         messages: list[dict[str, str]] = []
         for event in ctx.events:
@@ -97,7 +105,7 @@ class WorkingMemory:
                 and event.name is not None
                 and event.name.startswith(_TASK_PREFIX)
             ):
-                if event.name in forgotten:
+                if event.name in excluded:
                     continue
                 value = _extract_value(event.value)
                 if isinstance(value, dict) and "role" in value and "content" in value:
@@ -142,6 +150,18 @@ class WorkingMemory:
             return {"forgotten_id": forgotten_id}
 
         await _forget_message(message_id)
+
+    async def _mark_compacted(self, message_id: str) -> None:
+        """Mark a message as compacted by its stable ID (task name)."""
+        from flux.task import task
+
+        task_name = f"wm_compact_{self._next_counter()}"
+
+        @task.with_options(name=task_name)
+        async def _compact_message(compacted_id: str) -> dict[str, Any]:
+            return {"compacted_id": compacted_id}
+
+        await _compact_message(message_id)
 
     def keys(self) -> list[str]:
         """Return stable IDs of all messages in the current recall window."""
