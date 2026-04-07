@@ -332,3 +332,9 @@ await agent(
     stream: bool = True,
 ) -> task
 ```
+
+## Reasoning Models
+
+For models that support chain-of-thought reasoning (Qwen3, DeepSeek-R1,
+Claude extended thinking, OpenAI o-series, Gemini thinking), see
+[Reasoning Models](reasoning-models.md).
