@@ -108,3 +108,118 @@ class TestOllamaReasoning:
         wm = type("FakeWM", (), {"recall": lambda self: []})()
         _, kwargs = formatter.build_messages("system", "question", wm)
         assert "think" not in kwargs
+
+
+class TestAnthropicReasoning:
+    def test_to_llm_response_captures_thinking(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import _to_llm_response
+
+        thinking_block = MagicMock()
+        thinking_block.type = "thinking"
+        thinking_block.thinking = "Let me reason..."
+        thinking_block.signature = "sig_abc"
+
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "The answer."
+
+        response = MagicMock()
+        response.content = [thinking_block, text_block]
+
+        result = _to_llm_response(response)
+        assert result.reasoning is not None
+        assert result.reasoning.text == "Let me reason..."
+        assert result.reasoning.opaque["type"] == "thinking"
+        assert result.reasoning.opaque["signature"] == "sig_abc"
+
+    def test_to_llm_response_no_thinking(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import _to_llm_response
+
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Hello"
+
+        response = MagicMock()
+        response.content = [text_block]
+
+        result = _to_llm_response(response)
+        assert result.reasoning is None
+
+    def test_format_assistant_message_includes_thinking(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import AnthropicFormatter
+
+        formatter = AnthropicFormatter(MagicMock(), "claude-test", 4096)
+        response = LLMResponse(
+            text="answer",
+            reasoning=ReasoningContent(
+                text="thinking...",
+                opaque={"type": "thinking", "thinking": "thinking...", "signature": "sig"},
+            ),
+        )
+        msg = formatter.format_assistant_message(response)
+        assert msg["role"] == "assistant"
+        content = msg["content"]
+        assert isinstance(content, list)
+        assert content[0]["type"] == "thinking"
+        assert content[0]["signature"] == "sig"
+
+    def test_format_assistant_message_omits_thinking_when_none(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import AnthropicFormatter
+
+        formatter = AnthropicFormatter(MagicMock(), "claude-test", 4096)
+        response = LLMResponse(text="answer")
+        msg = formatter.format_assistant_message(response)
+        content = msg["content"]
+        has_thinking = any(isinstance(c, dict) and c.get("type") == "thinking" for c in content)
+        assert not has_thinking
+
+    def test_convert_memory_merges_thinking_with_next_message(self):
+        import json
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import AnthropicFormatter
+
+        formatter = AnthropicFormatter(MagicMock(), "claude-test", 4096)
+        messages = [
+            {"role": "user", "content": "question"},
+            {
+                "role": "thinking",
+                "content": json.dumps(
+                    {
+                        "text": "reasoning...",
+                        "opaque": {
+                            "type": "thinking",
+                            "thinking": "reasoning...",
+                            "signature": "sig",
+                        },
+                    },
+                ),
+            },
+            {"role": "assistant", "content": "answer"},
+        ]
+        converted = formatter._convert_memory_messages(messages)
+        assert len(converted) == 2
+        assistant_msg = converted[1]
+        assert assistant_msg["role"] == "assistant"
+        content = assistant_msg["content"]
+        assert isinstance(content, list)
+        assert content[0]["type"] == "thinking"
+
+    def test_reasoning_effort_adds_thinking_config(self):
+        from unittest.mock import MagicMock
+
+        from flux.tasks.ai.anthropic import AnthropicFormatter
+
+        formatter = AnthropicFormatter(MagicMock(), "claude-test", 4096, reasoning_effort="medium")
+        wm = type("FakeWM", (), {"recall": lambda self: []})()
+        _, kwargs = formatter.build_messages("system", "question", wm)
+        assert "thinking" in kwargs
+        assert kwargs["thinking"]["type"] == "adaptive"
