@@ -1450,7 +1450,7 @@ def test_build_plan_tools_restores_from_ltm():
 
     @workflow
     async def plan_wf(ctx: ExecutionContext):
-        ltm = LongTermMemory(provider=provider, scope="_plan")
+        ltm = LongTermMemory(provider=provider, agent="plan_wf", scope="_plan")
         phase = ctx.input or "setup"
         if phase == "setup":
             tools, _ = await build_plan_tools(long_term_memory=ltm)

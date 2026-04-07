@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import copy
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from examples.subflows import subflows
 from flux.domain.events import ExecutionEventType
@@ -19,7 +20,7 @@ REPO_STAR_COUNTS = {
 
 @pytest.fixture
 def mock_httpx_client():
-    """Fixture that creates and configures a mock for httpx.Client.
+    """Fixture that creates and configures a mock for httpx.AsyncClient.
 
     This fixture mocks the HTTP client used by the 'call' task to call
     the get_stars_workflow. It returns mocked star counts for each repository.
@@ -46,7 +47,7 @@ def mock_httpx_client():
     }
 
     # Create side effect function to generate appropriate response for each repo
-    def mock_post_side_effect(url, json, **kwargs):
+    async def mock_post_side_effect(url, json, **kwargs):
         repo = json  # The repo name is passed as the JSON payload
 
         # Create a copy of the mock data with the repository-specific information
@@ -62,9 +63,13 @@ def mock_httpx_client():
         return mock_response
 
     # Create and configure the mock client
-    with patch("httpx.Client") as mock_client:
-        mock_client.return_value.__enter__.return_value.post.side_effect = mock_post_side_effect
-        yield mock_client
+    with patch("httpx.AsyncClient") as mock_client:
+        mock_instance = AsyncMock()
+        mock_instance.post.side_effect = mock_post_side_effect
+        mock_instance.__aenter__.return_value = mock_instance
+        mock_instance.__aexit__.return_value = None
+        mock_client.return_value = mock_instance
+        yield mock_instance
 
 
 def test_should_succeed(mock_httpx_client):
@@ -76,7 +81,7 @@ def test_should_succeed(mock_httpx_client):
     ctx = subflows.run(repos)
 
     # Verify the mock was called once for each repository
-    assert mock_httpx_client.return_value.__enter__.return_value.post.call_count == len(repos)
+    assert mock_httpx_client.post.call_count == len(repos)
 
     # Verify the workflow completed successfully
     assert (
@@ -103,13 +108,13 @@ def test_should_skip_if_finished(mock_httpx_client):
     first_ctx = test_should_succeed(mock_httpx_client)
 
     # Reset the mock to verify it's not called again
-    mock_httpx_client.reset_mock()
+    mock_httpx_client.post.reset_mock()
 
     # Second execution with same execution_id
     second_ctx = subflows.run(execution_id=first_ctx.execution_id)
 
     # Verify execution was skipped (no additional HTTP calls)
-    assert mock_httpx_client.return_value.__enter__.return_value.post.call_count == 0
+    assert mock_httpx_client.post.call_count == 0
 
     # Verify contexts match
     assert first_ctx.execution_id == second_ctx.execution_id

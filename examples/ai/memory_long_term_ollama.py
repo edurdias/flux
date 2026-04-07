@@ -36,6 +36,7 @@ async def memory_long_term(ctx: ExecutionContext[dict[str, Any]]):
         working_memory=working_memory(),
         long_term_memory=long_term_memory(
             provider=sqlite("memory_example.db"),
+            agent="memory_long_term",
             scope="user:default",
         ),
     )

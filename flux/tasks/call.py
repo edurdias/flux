@@ -1,33 +1,35 @@
 from __future__ import annotations
 
-from flux.domain.events import ExecutionEvent
-from flux.domain.events import ExecutionEventType
+from typing import Literal
+
+from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError
 from flux.task import task
 from flux.workflow import workflow as workflow_cls
 
 
 @task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: workflow_cls | str, *args):
-    """Call a workflow directly or via the HTTP API in sync mode.
+async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async"] = "sync"):
+    """Call a workflow via the HTTP API.
 
     Args:
-        workflow: The workflow to call, can be either:
-            - A workflow object: Will be called directly
-            - A string: Will be called via the HTTP API
-
-    Raises:
-        WorkflowNotFoundError: If the workflow does not exist (when using string name)
-        ExecutionError: If the workflow execution fails
+        workflow: The workflow to call (workflow object or string name).
+        *args: Arguments passed to the workflow.
+        mode: Execution mode — "sync" waits for completion and returns output,
+              "async" submits and returns the execution_id immediately.
 
     Returns:
-        Any: The output of the workflow execution
+        mode="sync": The workflow output.
+        mode="async": The execution_id (str).
     """
-    from flux.errors import WorkflowNotFoundError
     from flux.domain.execution_context import ExecutionContext
+    from flux.errors import WorkflowNotFoundError
 
     if isinstance(workflow, workflow_cls):
         workflow = workflow.name
+
+    if mode not in ("sync", "async"):
+        raise ValueError(f"mode must be 'sync' or 'async', got: '{mode}'")
 
     import httpx
     from flux.config import Configuration
@@ -36,10 +38,18 @@ async def call(workflow: workflow_cls | str, *args):
     server_url = settings.workers.server_url
 
     try:
-        url = f"{server_url}/workflows/{workflow}/run/sync?detailed=true"
         payload = args[0] if len(args) == 1 else args
-        with httpx.Client(timeout=settings.workers.default_timeout) as client:
-            response = client.post(url, json=payload)
+        url = f"{server_url}/workflows/{workflow}/run/{mode}"
+
+        async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
+            if mode == "async":
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data["execution_id"]
+
+            url = f"{url}?detailed=true"
+            response = await client.post(url, json=payload)
             response.raise_for_status()
 
             data = response.json()
@@ -67,7 +77,6 @@ async def call(workflow: workflow_cls | str, *args):
             if ctx.has_failed:
                 raise ExecutionError(ctx.output)
 
-            # TODO: add support for paused workflows
             if ctx.is_paused:
                 raise ExecutionError(
                     message=f"Workflow execution {ctx.workflow_name} was paused, but is not supported for nested calls.",

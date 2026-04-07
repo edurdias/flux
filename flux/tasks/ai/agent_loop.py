@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from flux.errors import PauseRequested
 from flux.tasks.ai.models import LLMResponse
 from flux.tasks.ai.tool_executor import execute_tools
 
@@ -15,6 +17,22 @@ if TYPE_CHECKING:
     from flux.tasks.ai.memory.working_memory import WorkingMemory
 
 logger = logging.getLogger("flux.agent")
+
+
+async def _fire_hooks(hooks: list[Any] | None, agent_name: str, value: Any) -> None:
+    import asyncio
+
+    if not hooks:
+        return
+    for hook in hooks:
+        try:
+            result = hook(agent_name, value)
+            if inspect.isawaitable(result):
+                await asyncio.wait_for(result, timeout=30)
+        except asyncio.TimeoutError:
+            logger.warning("Hook %s timed out after 30s", hook)
+        except Exception:
+            logger.warning("Hook %s failed", hook, exc_info=True)
 
 
 async def run_agent_loop(
@@ -33,6 +51,9 @@ async def run_agent_loop(
     stream: bool = False,
     plan_summary_fn: Any | None = None,
     approval_mode: str = "default",
+    on_complete: list[Any] | None = None,
+    on_pause: list[Any] | None = None,
+    agent_name: str = "agent",
 ) -> str | BaseModel:
     from flux.tasks.progress import progress
 
@@ -63,8 +84,11 @@ async def run_agent_loop(
             await working_memory.memorize("assistant", content)
 
         if response_format:
-            return response_format.model_validate_json(content)
+            return_value = response_format.model_validate_json(content)
+            await _fire_hooks(on_complete, agent_name, return_value)
+            return return_value
 
+        await _fire_hooks(on_complete, agent_name, content)
         return content
 
     result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
@@ -75,22 +99,55 @@ async def run_agent_loop(
 
     tool_call_count = 0
     tool_iteration = 0
+    entered_tool_loop = False
 
     while response.tool_calls and tools and tool_call_count < max_tool_calls:
+        if not entered_tool_loop:
+            entered_tool_loop = True
+            if working_memory:
+                await working_memory.memorize("user", user_content)
+
         tool_call_count += len(response.tool_calls)
 
         messages.append(formatter.format_assistant_message(response))
 
+        if working_memory and response.text:
+            await working_memory.memorize("assistant", response.text)
+
         tool_call_dicts = [tc.model_dump() for tc in response.tool_calls]
-        results = await execute_tools(
-            tool_call_dicts,
-            tools,
-            iteration=tool_iteration,
-            max_concurrent=max_concurrent_tools,
-            always_approved=always_approved,
-            approval_mode=approval_mode,
-        )
+
+        if working_memory:
+            await working_memory.memorize(
+                "tool_call",
+                json.dumps({"calls": tool_call_dicts}),
+            )
+
+        try:
+            results = await execute_tools(
+                tool_call_dicts,
+                tools,
+                iteration=tool_iteration,
+                max_concurrent=max_concurrent_tools,
+                always_approved=always_approved,
+                approval_mode=approval_mode,
+            )
+        except PauseRequested:
+            await _fire_hooks(on_pause, agent_name, None)
+            raise
         tool_iteration += 1
+
+        if working_memory:
+            for tc_dict, result in zip(tool_call_dicts, results):
+                await working_memory.memorize(
+                    "tool_result",
+                    json.dumps(
+                        {
+                            "call_id": tc_dict.get("id", ""),
+                            "name": tc_dict.get("name", ""),
+                            "output": str(result.get("output", "")),
+                        },
+                    ),
+                )
 
         tool_result_messages = formatter.format_tool_results(response.tool_calls, results)
 
@@ -152,13 +209,18 @@ async def run_agent_loop(
             content += token
             await progress({"token": token})
 
-    if working_memory:
+    if working_memory and not entered_tool_loop:
         await working_memory.memorize("user", user_content)
+        await working_memory.memorize("assistant", content)
+    elif working_memory and entered_tool_loop:
         await working_memory.memorize("assistant", content)
 
     if response_format:
-        return response_format.model_validate_json(content)
+        return_value = response_format.model_validate_json(content)
+        await _fire_hooks(on_complete, agent_name, return_value)
+        return return_value
 
+    await _fire_hooks(on_complete, agent_name, content)
     return content
 
 
