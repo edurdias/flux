@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from flux.task import task
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
     from flux.tasks.ai.memory.working_memory import WorkingMemory
     from flux.tasks.ai.skills import SkillCatalog
@@ -36,8 +38,8 @@ async def agent(
     max_tokens: int = 4096,
     stream: bool = True,
     approval_mode: str = "default",
-    on_complete: list | None = None,
-    on_pause: list | None = None,
+    on_complete: list[Callable] | None = None,
+    on_pause: list[Callable] | None = None,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 

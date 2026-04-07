@@ -24,7 +24,7 @@ class LongTermMemory:
         from flux.tasks.ai.memory.providers.sqlalchemy import SqlAlchemyProvider
 
         if isinstance(self._provider, SqlAlchemyProvider):
-            dialect = self._provider._get_engine().dialect.name
+            dialect = self._provider.dialect_name
             if dialect == "postgresql":
                 return "postgresql"
             return "sqlite"

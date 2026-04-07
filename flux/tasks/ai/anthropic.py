@@ -76,7 +76,22 @@ class AnthropicFormatter(LLMFormatter):
                 )
             elif role in ("user", "assistant"):
                 converted.append({"role": role, "content": content})
-        return converted
+        if not converted:
+            return converted
+        merged = [converted[0]]
+        for msg in converted[1:]:
+            if msg.get("role") == merged[-1].get("role"):
+                prev_content = merged[-1].get("content", "")
+                curr_content = msg.get("content", "")
+                if isinstance(prev_content, str) and isinstance(curr_content, str):
+                    merged[-1]["content"] = prev_content + "\n" + curr_content
+                elif isinstance(prev_content, list) and isinstance(curr_content, list):
+                    merged[-1]["content"] = prev_content + curr_content
+                else:
+                    merged.append(msg)
+            else:
+                merged.append(msg)
+        return merged
 
     def build_messages(
         self,

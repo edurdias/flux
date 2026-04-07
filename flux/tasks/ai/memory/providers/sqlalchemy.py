@@ -42,6 +42,10 @@ class SqlAlchemyProvider:
             _metadata.create_all(self._engine)
         return self._engine
 
+    @property
+    def dialect_name(self) -> str:
+        return self._get_engine().dialect.name
+
     def _upsert_stmt(self, agent: str, scope: str, key: str, serialized: str) -> Any:
         """Build a dialect-aware atomic upsert statement."""
         engine = self._get_engine()

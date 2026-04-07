@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 
 def _wm_messages_with_tools():
     return [
@@ -81,3 +83,30 @@ class TestOllamaFormatterMemory:
         assert "tool" in roles
         has_tool_calls = any("tool_calls" in m for m in messages if m.get("role") == "assistant")
         assert has_tool_calls
+
+
+class TestGeminiFormatterMemory:
+    def test_build_messages_reconstitutes_tool_roles(self):
+        pytest.importorskip("google.genai")
+        from flux.tasks.ai.gemini import GeminiFormatter
+
+        formatter = GeminiFormatter("gemini-test", max_tokens=4096)
+
+        wm = type("FakeWM", (), {"recall": lambda self: _wm_messages_with_tools()})()
+
+        contents, _ = formatter.build_messages("system prompt", "new question", wm)
+
+        has_function_call = any(
+            hasattr(c, "parts")
+            and any(hasattr(p, "function_call") and p.function_call for p in c.parts)
+            for c in contents
+            if hasattr(c, "parts")
+        )
+        assert has_function_call
+        has_function_response = any(
+            hasattr(c, "parts")
+            and any(hasattr(p, "function_response") and p.function_response for p in c.parts)
+            for c in contents
+            if hasattr(c, "parts")
+        )
+        assert has_function_response

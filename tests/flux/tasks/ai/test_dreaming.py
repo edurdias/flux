@@ -175,3 +175,21 @@ class TestAgentDreamWorkflow:
         from flux.workflow import workflow as workflow_cls
 
         assert isinstance(agent_dream, workflow_cls)
+
+
+class TestAgentDreamExecution:
+    def test_agent_dream_rejects_missing_agent(self):
+        from flux.tasks.ai.dreaming import agent_dream
+
+        result = agent_dream.run({"scope": "test", "working_memory": []})
+        assert result.has_succeeded
+        assert result.output["status"] == "failed"
+        assert "agent" in result.output["error"].lower()
+
+    def test_agent_dream_rejects_missing_scope(self):
+        from flux.tasks.ai.dreaming import agent_dream
+
+        result = agent_dream.run({"agent": "test", "working_memory": []})
+        assert result.has_succeeded
+        assert result.output["status"] == "failed"
+        assert "scope" in result.output["error"].lower()

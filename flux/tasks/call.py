@@ -28,6 +28,9 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
     if isinstance(workflow, workflow_cls):
         workflow = workflow.name
 
+    if mode not in ("sync", "async"):
+        raise ValueError(f"mode must be 'sync' or 'async', got: '{mode}'")
+
     import httpx
     from flux.config import Configuration
 
