@@ -22,7 +22,10 @@ class OIDCProvider(AuthProvider):
         self._jwks_client: PyJWKClient | None = None
 
     async def _ensure_discovery(self):
-        if self._discovery and (time.monotonic() - self._discovery_fetched_at) < self.config.jwks_cache_ttl:
+        if (
+            self._discovery
+            and (time.monotonic() - self._discovery_fetched_at) < self.config.jwks_cache_ttl
+        ):
             return
         discovery_url = f"{self.config.issuer.rstrip('/')}/.well-known/openid-configuration"
         async with httpx.AsyncClient() as client:

@@ -94,10 +94,13 @@ class TestOIDCProvider:
         )
         provider = OIDCProvider(config)
         _, public_key = rsa_keys
-        token = self._make_token(rsa_keys, {
-            "roles": [],
-            "realm_access": {"roles": ["admin"]},
-        })
+        token = self._make_token(
+            rsa_keys,
+            {
+                "roles": [],
+                "realm_access": {"roles": ["admin"]},
+            },
+        )
 
         with patch.object(provider, "_get_signing_key") as mock_key:
             mock_key.return_value = public_key

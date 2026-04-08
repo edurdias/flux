@@ -20,11 +20,7 @@ class APIKeyProvider(AuthProvider):
         key_hash = hashlib.sha256(token.encode()).hexdigest()
         session = self._session_factory()
         try:
-            key_model = (
-                session.query(APIKeyModel)
-                .filter(APIKeyModel.key_hash == key_hash)
-                .first()
-            )
+            key_model = session.query(APIKeyModel).filter(APIKeyModel.key_hash == key_hash).first()
             if not key_model:
                 return None
             if key_model.expires_at and key_model.expires_at < datetime.now():
