@@ -187,7 +187,7 @@ class EncryptedType(TypeDecorator):
         self.protocol = dill.HIGHEST_PROTOCOL
 
     def _get_key(self) -> str:
-        key = Configuration.get().settings.security.encryption_key
+        key = Configuration.get().settings.security.encryption.encryption_key
         if not key:
             raise ValueError("Encryption key is not set in the configuration.")
         return key
