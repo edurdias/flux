@@ -1,8 +1,5 @@
-import pytest
-
 from flux.task import task
 from flux.security.identity import FluxIdentity
-from flux.security.errors import TaskAuthorizationError
 
 
 class TestAuthExempt:

@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import uvicorn
 from fastapi import Body
+from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import File
 from fastapi import Header
@@ -34,6 +35,9 @@ from flux.worker_registry import WorkerInfo
 from flux.worker_registry import WorkerRegistry
 from flux.schedule_manager import create_schedule_manager
 from flux.domain.schedule import schedule_factory
+from flux.security.auth_service import AuthService
+from flux.security.dependencies import init_auth_service, get_identity, require_permission
+from flux.security.identity import FluxIdentity
 from datetime import datetime, timezone
 
 logger = get_logger(__name__)
@@ -116,6 +120,44 @@ class ScheduleUpdateRequest(BaseModel):
     schedule_config: dict | None = None
     description: str | None = None
     input_data: Any | None = None
+
+
+class RoleRequest(BaseModel):
+    name: str
+    permissions: list[str]
+
+
+class RoleUpdateRequest(BaseModel):
+    add_permissions: list[str] | None = None
+    remove_permissions: list[str] | None = None
+
+
+class RoleCloneRequest(BaseModel):
+    new_name: str
+
+
+class ServiceAccountRequest(BaseModel):
+    name: str
+    roles: list[str]
+
+
+class ServiceAccountUpdateRequest(BaseModel):
+    add_roles: list[str] | None = None
+    remove_roles: list[str] | None = None
+
+
+class APIKeyRequest(BaseModel):
+    name: str
+    expires_in_days: int | None = None
+
+
+class TestTokenRequest(BaseModel):
+    token: str
+
+
+class IsAuthorizedRequest(BaseModel):
+    subject: str
+    permission: str
 
 
 # New response models for missing endpoints
@@ -231,6 +273,12 @@ class Server:
             logger.debug("Observability packages not installed, skipping setup")
         except Exception:
             logger.warning("Observability setup failed", exc_info=True)
+
+    def _get_db_session(self):
+        from flux.models import RepositoryFactory
+
+        repo = RepositoryFactory.create_repository()
+        return repo.session()
 
     def _notify_next_worker(self):
         """Signal the next connected worker in round-robin order."""
@@ -407,16 +455,8 @@ class Server:
         workflow_name: str,
         input_data: Any = None,
         version: int | None = None,
+        identity: FluxIdentity | None = None,
     ) -> ExecutionContext:
-        """
-        Internal method to create a workflow execution.
-        This is used by both the HTTP API and the scheduler.
-
-        Args:
-            workflow_name: Name of the workflow to execute
-            input_data: Optional input data for the workflow
-            version: Optional specific version to execute (defaults to latest)
-        """
         workflow = WorkflowCatalog.create().get(workflow_name, version)
         if not workflow:
             raise WorkflowNotFoundError(f"Workflow '{workflow_name}' not found")
@@ -429,6 +469,8 @@ class Server:
                 requests=workflow.requests,
             ),
         )
+        if identity is not None:
+            ctx.set_identity(identity)
 
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
@@ -678,6 +720,11 @@ class Server:
             allow_headers=["*"],
         )
 
+        auth_config = Configuration.get().settings.security.auth
+        auth_service = AuthService(config=auth_config, session_factory=self._get_db_session)
+        auth_service.seed_built_in_roles()
+        init_auth_service(auth_service)
+
         from flux.observability import get_metrics, is_enabled
 
         if is_enabled():
@@ -702,7 +749,10 @@ class Server:
                     )
 
         @api.post("/workflows")
-        async def workflows_save(file: UploadFile = File(...)):
+        async def workflows_save(
+            file: UploadFile = File(...),
+            identity: FluxIdentity = Depends(require_permission("workflow:*:register")),
+        ):
             source = await file.read()
             logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
             try:
@@ -723,7 +773,9 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
 
         @api.get("/workflows")
-        async def workflows_all():
+        async def workflows_all(
+            identity: FluxIdentity = Depends(require_permission("workflow:*:read")),
+        ):
             try:
                 logger.debug("Fetching all workflows")
                 catalog = WorkflowCatalog.create()
@@ -736,7 +788,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error listing workflows: {str(e)}")
 
         @api.get("/workflows/{workflow_name}")
-        async def workflows_get(workflow_name: str):
+        async def workflows_get(
+            workflow_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             try:
                 logger.debug(f"Fetching workflow: {workflow_name}")
                 catalog = WorkflowCatalog.create()
@@ -755,6 +810,7 @@ class Server:
             mode: str = "async",
             detailed: bool = False,
             version: int | None = None,
+            identity: FluxIdentity = Depends(get_identity),
         ):
             try:
                 logger.debug(
@@ -772,8 +828,7 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
-                # Use internal method to create execution
-                ctx = self._create_execution(workflow_name, input, version)
+                ctx = self._create_execution(workflow_name, input, version, identity)
                 manager = ContextManager.create()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
@@ -912,6 +967,7 @@ class Server:
             input: Any = Body(None),
             mode: str = "async",
             detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
         ):
             try:
                 logger.debug(
@@ -1080,7 +1136,12 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
 
         @api.get("/workflows/{workflow_name}/status/{execution_id}")
-        async def workflows_status(workflow_name: str, execution_id: str, detailed: bool = False):
+        async def workflows_status(
+            workflow_name: str,
+            execution_id: str,
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             try:
                 logger.debug(
                     f"Checking status for workflow: {workflow_name} | Execution ID: {execution_id}",
@@ -1100,6 +1161,7 @@ class Server:
             execution_id: str,
             mode: str = "async",
             detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
         ):
             try:
                 logger.debug(
@@ -1557,9 +1619,10 @@ class Server:
                     pass
             return {"status": "ok"}
 
-        # Admin API - Secrets Management
         @api.get("/admin/secrets")
-        async def admin_list_secrets():
+        async def admin_list_secrets(
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:read")),
+        ):
             try:
                 logger.info("Admin API: Listing all secrets")
                 # List all secrets (names only for security)
@@ -1579,7 +1642,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(ex))
 
         @api.get("/admin/secrets/{name}")
-        async def admin_get_secret(name: str):
+        async def admin_get_secret(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:read")),
+        ):
             try:
                 logger.info(f"Admin API: Getting secret '{name}'")
 
@@ -1607,6 +1673,7 @@ class Server:
         @api.post("/admin/secrets")
         async def admin_create_or_update_secret(
             secret: SecretRequest = Body(...),
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:manage")),
         ):
             try:
                 logger.info(f"Admin API: Creating/updating secret '{secret.name}'")
@@ -1632,7 +1699,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(ex))
 
         @api.delete("/admin/secrets/{name}")
-        async def admin_delete_secret(name: str):
+        async def admin_delete_secret(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:manage")),
+        ):
             try:
                 logger.info(f"Admin API: Deleting secret '{name}'")
 
@@ -1700,7 +1770,10 @@ class Server:
             return None
 
         @api.post("/schedules", response_model=ScheduleResponse)
-        async def create_schedule(request: ScheduleRequest):
+        async def create_schedule(
+            request: ScheduleRequest,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:manage")),
+        ):
             """Create a new schedule for a workflow"""
             try:
                 logger.info(
@@ -1747,6 +1820,7 @@ class Server:
             active_only: bool = True,
             limit: int | None = None,
             offset: int | None = None,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:read")),
         ):
             """List all schedules, optionally filtered by workflow with pagination support"""
             try:
@@ -1791,7 +1865,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error listing schedules: {str(e)}")
 
         @api.get("/schedules/{schedule_id}", response_model=ScheduleResponse)
-        async def get_schedule(schedule_id: str):
+        async def get_schedule(
+            schedule_id: str,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:read")),
+        ):
             """Get a specific schedule by ID or name"""
             try:
                 logger.debug(f"Getting schedule '{schedule_id}'")
@@ -1815,7 +1892,11 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error getting schedule: {str(e)}")
 
         @api.put("/schedules/{schedule_id}", response_model=ScheduleResponse)
-        async def update_schedule(schedule_id: str, request: ScheduleUpdateRequest):
+        async def update_schedule(
+            schedule_id: str,
+            request: ScheduleUpdateRequest,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:manage")),
+        ):
             """Update an existing schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Updating schedule '{schedule_id}'")
@@ -1853,7 +1934,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error updating schedule: {str(e)}")
 
         @api.post("/schedules/{schedule_id}/pause", response_model=ScheduleResponse)
-        async def pause_schedule(schedule_id: str):
+        async def pause_schedule(
+            schedule_id: str,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:manage")),
+        ):
             """Pause a schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Pausing schedule '{schedule_id}'")
@@ -1881,7 +1965,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error pausing schedule: {str(e)}")
 
         @api.post("/schedules/{schedule_id}/resume", response_model=ScheduleResponse)
-        async def resume_schedule(schedule_id: str):
+        async def resume_schedule(
+            schedule_id: str,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:manage")),
+        ):
             """Resume a paused schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Resuming schedule '{schedule_id}'")
@@ -1909,7 +1996,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error resuming schedule: {str(e)}")
 
         @api.delete("/schedules/{schedule_id}")
-        async def delete_schedule(schedule_id: str):
+        async def delete_schedule(
+            schedule_id: str,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:manage")),
+        ):
             """Delete a schedule (accepts either schedule ID or name)"""
             try:
                 logger.info(f"Deleting schedule '{schedule_id}'")
@@ -1950,7 +2040,11 @@ class Server:
         # ===========================================
 
         @api.delete("/workflows/{workflow_name}")
-        async def workflow_delete(workflow_name: str, version: int | None = None):
+        async def workflow_delete(
+            workflow_name: str,
+            version: int | None = None,
+            identity: FluxIdentity = Depends(require_permission("workflow:*:register")),
+        ):
             """Delete workflow by name, optionally specific version."""
             try:
                 logger.info(
@@ -1994,7 +2088,10 @@ class Server:
             "/workflows/{workflow_name}/versions",
             response_model=list[WorkflowVersionResponse],
         )
-        async def workflow_versions(workflow_name: str):
+        async def workflow_versions(
+            workflow_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             """List all versions of a workflow."""
             try:
                 logger.debug(f"Fetching versions for workflow: {workflow_name}")
@@ -2029,7 +2126,11 @@ class Server:
                 )
 
         @api.get("/workflows/{workflow_name}/versions/{version}")
-        async def workflow_version_get(workflow_name: str, version: int):
+        async def workflow_version_get(
+            workflow_name: str,
+            version: int,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             """Get specific workflow version."""
             try:
                 logger.debug(f"Fetching workflow '{workflow_name}' version {version}")
@@ -2059,6 +2160,7 @@ class Server:
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
+            identity: FluxIdentity = Depends(require_permission("execution:*:read")),
         ):
             """List executions with optional filtering."""
             try:
@@ -2118,7 +2220,11 @@ class Server:
                 )
 
         @api.get("/executions/{execution_id}")
-        async def execution_get(execution_id: str, detailed: bool = False):
+        async def execution_get(
+            execution_id: str,
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(require_permission("execution:*:read")),
+        ):
             """Get execution by ID."""
             try:
                 logger.debug(f"Fetching execution: {execution_id}")
@@ -2153,6 +2259,7 @@ class Server:
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
+            identity: FluxIdentity = Depends(get_identity),
         ):
             """List executions for a specific workflow."""
             try:
@@ -2266,7 +2373,10 @@ class Server:
             return worker_response
 
         @api.get("/workers", response_model=list[WorkerResponse])
-        async def workers_list(status: Literal["online", "offline"] | None = Query(None)):
+        async def workers_list(
+            status: Literal["online", "offline"] | None = Query(None),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             """List workers from in-memory cache. Optional ?status=online|offline filter."""
             try:
                 logger.debug(f"Listing workers (filter={status})")
@@ -2295,7 +2405,10 @@ class Server:
                 )
 
         @api.get("/workers/{name}", response_model=WorkerResponse)
-        async def worker_get(name: str):
+        async def worker_get(
+            name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
             """Get worker details, from cache first, DB fallback."""
             try:
                 logger.debug(f"Fetching worker: {name}")
@@ -2365,6 +2478,7 @@ class Server:
             schedule_id: str,
             limit: int = 50,
             offset: int = 0,
+            identity: FluxIdentity = Depends(require_permission("schedule:*:read")),
         ):
             """Get execution history for a schedule."""
             try:
@@ -2417,6 +2531,300 @@ class Server:
                     status_code=500,
                     detail=f"Error getting schedule history: {str(e)}",
                 )
+
+        # ===========================================
+        # Auth & Admin: Roles
+        # ===========================================
+
+        @api.get("/admin/roles")
+        async def admin_list_roles(
+            identity: FluxIdentity = Depends(require_permission("admin:roles:read")),
+        ):
+            try:
+                roles = await auth_service.list_roles()
+                return [
+                    {
+                        "name": r.name,
+                        "permissions": r.permissions,
+                        "built_in": r.built_in,
+                    }
+                    for r in roles
+                ]
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/roles/{name}")
+        async def admin_get_role(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:roles:read")),
+        ):
+            try:
+                role = await auth_service.get_role(name)
+                if not role:
+                    raise HTTPException(status_code=404, detail=f"Role '{name}' not found")
+                return {
+                    "name": role.name,
+                    "permissions": role.permissions,
+                    "built_in": role.built_in,
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/roles")
+        async def admin_create_role(
+            request: RoleRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:roles:manage")),
+        ):
+            try:
+                role = await auth_service.create_role(request.name, request.permissions)
+                return {
+                    "name": role.name,
+                    "permissions": role.permissions,
+                    "built_in": role.built_in,
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.patch("/admin/roles/{name}")
+        async def admin_update_role(
+            name: str,
+            request: RoleUpdateRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:roles:manage")),
+        ):
+            try:
+                role = await auth_service.update_role(
+                    name,
+                    add_permissions=request.add_permissions,
+                    remove_permissions=request.remove_permissions,
+                )
+                return {
+                    "name": role.name,
+                    "permissions": role.permissions,
+                    "built_in": role.built_in,
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/roles/{name}")
+        async def admin_delete_role(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:roles:manage")),
+        ):
+            try:
+                await auth_service.delete_role(name)
+                return {"status": "success", "message": f"Role '{name}' deleted"}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/roles/{name}/clone")
+        async def admin_clone_role(
+            name: str,
+            request: RoleCloneRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:roles:manage")),
+        ):
+            try:
+                role = await auth_service.clone_role(name, request.new_name)
+                return {
+                    "name": role.name,
+                    "permissions": role.permissions,
+                    "built_in": role.built_in,
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # ===========================================
+        # Auth & Admin: Service Accounts
+        # ===========================================
+
+        @api.post("/admin/service-accounts")
+        async def admin_create_service_account(
+            request: ServiceAccountRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
+        ):
+            try:
+                sa = await auth_service.create_service_account(request.name, request.roles)
+                return {"name": sa.name, "roles": sa.roles}
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/service-accounts")
+        async def admin_list_service_accounts(
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
+        ):
+            try:
+                accounts = await auth_service.list_service_accounts()
+                return [{"name": sa.name, "roles": sa.roles} for sa in accounts]
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/service-accounts/{name}")
+        async def admin_get_service_account(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
+        ):
+            try:
+                sa = await auth_service.get_service_account(name)
+                if not sa:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Service account '{name}' not found",
+                    )
+                return {"name": sa.name, "roles": sa.roles}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.patch("/admin/service-accounts/{name}")
+        async def admin_update_service_account(
+            name: str,
+            request: ServiceAccountUpdateRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
+        ):
+            try:
+                sa = await auth_service.update_service_account(
+                    name,
+                    add_roles=request.add_roles,
+                    remove_roles=request.remove_roles,
+                )
+                return {"name": sa.name, "roles": sa.roles}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/service-accounts/{name}")
+        async def admin_delete_service_account(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
+        ):
+            try:
+                await auth_service.delete_service_account(name)
+                return {
+                    "status": "success",
+                    "message": f"Service account '{name}' deleted",
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/service-accounts/{name}/keys")
+        async def admin_create_api_key(
+            name: str,
+            request: APIKeyRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
+        ):
+            try:
+                from datetime import timedelta
+
+                expires = (
+                    timedelta(days=request.expires_in_days) if request.expires_in_days else None
+                )
+                key_plaintext = await auth_service.create_api_key(name, request.name, expires)
+                return {"key": key_plaintext}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/service-accounts/{name}/keys")
+        async def admin_list_api_keys(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
+        ):
+            try:
+                keys = await auth_service.list_api_keys(name)
+                return [
+                    {
+                        "name": k.name,
+                        "key_prefix": k.key_prefix,
+                        "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+                        "created_at": k.created_at.isoformat() if k.created_at else None,
+                    }
+                    for k in keys
+                ]
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/service-accounts/{name}/keys/{key_name}")
+        async def admin_revoke_api_key(
+            name: str,
+            key_name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
+        ):
+            try:
+                await auth_service.revoke_api_key(name, key_name)
+                return {
+                    "status": "success",
+                    "message": f"API key '{key_name}' revoked",
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # ===========================================
+        # Auth: Permissions, Test Token, Is-Authorized
+        # ===========================================
+
+        @api.get("/auth/permissions")
+        async def auth_permissions(
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            try:
+                permissions = await auth_service.resolve_permissions(identity)
+                return {
+                    "subject": identity.subject,
+                    "roles": sorted(identity.roles),
+                    "permissions": sorted(permissions),
+                }
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/auth/test-token")
+        async def auth_test_token(request: TestTokenRequest):
+            try:
+                identity = await auth_service.authenticate(request.token)
+                permissions = await auth_service.resolve_permissions(identity)
+                return {
+                    "valid": True,
+                    "subject": identity.subject,
+                    "roles": sorted(identity.roles),
+                    "permissions": sorted(permissions),
+                }
+            except Exception as e:
+                return {"valid": False, "error": str(e)}
+
+        @api.post("/auth/is-authorized")
+        async def auth_is_authorized(
+            request: IsAuthorizedRequest,
+            authorization: str = Header(None),
+        ):
+            self._extract_token(authorization)
+            try:
+                test_identity = FluxIdentity(
+                    subject=request.subject,
+                    roles=frozenset(),
+                )
+                authorized = await auth_service.is_authorized(test_identity, request.permission)
+                return {"authorized": authorized}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
 
         return api
 
