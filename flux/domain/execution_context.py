@@ -207,6 +207,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_SCHEDULED,
                 source_id=worker.name,
                 name=worker.name,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -219,6 +220,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CLAIMED,
                 source_id=worker.name,
                 name=worker.name,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -231,6 +233,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=self.input,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -244,6 +247,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                     source_id=self._current_worker,
                     name=self.workflow_name,
                     value=input,
+                    subject=self._get_subject(),
                 ),
             )
         return self
@@ -267,6 +271,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=self._current_worker,
                 name=self.workflow_name,
                 value=event.value,
+                subject=self._get_subject(),
             ),
         )
         return event.value
@@ -279,6 +284,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value={"name": name, "output": output},
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -291,6 +297,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -303,6 +310,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -314,6 +322,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLING,
                 source_id=self._current_worker,
                 name=self.workflow_name,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -328,6 +337,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLED,
                 source_id=self._current_worker,
                 name=self.workflow_name,
+                subject=self._get_subject(),
             ),
         )
         return self
@@ -352,6 +362,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
     def set_identity(self, identity) -> None:
         self._identity = identity
+
+    def _get_subject(self) -> str | None:
+        if self._identity is not None:
+            return self._identity.subject
+        return None
 
     def __getstate__(self):
         state = self.__dict__.copy()

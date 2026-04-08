@@ -828,6 +828,22 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
+                if auth_service is not None and auth_config.enabled:
+                    workflow_info = WorkflowCatalog.create().get(workflow_name)
+                    result = await auth_service.authorize(
+                        identity,
+                        workflow_name,
+                        workflow_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
+
                 ctx = self._create_execution(workflow_name, input, version, identity)
                 manager = ContextManager.create()
                 logger.debug(
@@ -986,6 +1002,22 @@ class Server:
                         status_code=400,
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
+
+                if auth_service is not None and auth_config.enabled:
+                    workflow_info = WorkflowCatalog.create().get(workflow_name)
+                    result = await auth_service.authorize(
+                        identity,
+                        workflow_name,
+                        workflow_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
 
                 manager = ContextManager.create()
 
@@ -1146,6 +1178,17 @@ class Server:
                 logger.debug(
                     f"Checking status for workflow: {workflow_name} | Execution ID: {execution_id}",
                 )
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                        )
+
                 manager = ContextManager.create()
                 context = manager.get(execution_id)
                 dto = ExecutionContextDTO.from_domain(context)
@@ -1167,6 +1210,16 @@ class Server:
                 logger.debug(
                     f"Cancelling workflow: {workflow_name} | Execution ID: {execution_id} | Mode: {mode}",
                 )
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:run",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:run'",
+                        )
 
                 if not workflow_name:
                     raise HTTPException(status_code=400, detail="Workflow name is required.")

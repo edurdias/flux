@@ -12,9 +12,7 @@ from flux.security.errors import AuthenticationError
 class TestGetIdentity:
     @pytest.mark.asyncio
     async def test_returns_anonymous_when_no_auth_service(self):
-        with patch(
-            "flux.security.dependencies._get_auth_service", return_value=None
-        ):
+        with patch("flux.security.dependencies._get_auth_service", return_value=None):
             identity = await get_identity(authorization=None)
         assert identity.subject == "anonymous"
 
@@ -32,9 +30,7 @@ class TestGetIdentity:
     @pytest.mark.asyncio
     async def test_raises_401_on_auth_error(self):
         mock_auth_service = AsyncMock()
-        mock_auth_service.authenticate.side_effect = AuthenticationError(
-            "Token required"
-        )
+        mock_auth_service.authenticate.side_effect = AuthenticationError("Token required")
         with patch(
             "flux.security.dependencies._get_auth_service",
             return_value=mock_auth_service,
@@ -45,9 +41,7 @@ class TestGetIdentity:
 
     @pytest.mark.asyncio
     async def test_extracts_bearer_token(self):
-        expected = FluxIdentity(
-            subject="alice@acme.com", roles=frozenset({"operator"})
-        )
+        expected = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
         mock_auth_service = AsyncMock()
         mock_auth_service.authenticate.return_value = expected
         with patch(
@@ -74,9 +68,7 @@ class TestRequirePermission:
     @pytest.mark.asyncio
     async def test_returns_identity_when_no_auth_service(self):
         dep = require_permission("workflow:*:read")
-        with patch(
-            "flux.security.dependencies._get_auth_service", return_value=None
-        ):
+        with patch("flux.security.dependencies._get_auth_service", return_value=None):
             identity = await dep(identity=ANONYMOUS)
         assert identity.subject == "anonymous"
 
@@ -85,9 +77,7 @@ class TestRequirePermission:
         mock_auth_service = AsyncMock()
         mock_auth_service.is_authorized.return_value = True
         dep = require_permission("workflow:*:read")
-        identity = FluxIdentity(
-            subject="alice@acme.com", roles=frozenset({"viewer"})
-        )
+        identity = FluxIdentity(subject="alice@acme.com", roles=frozenset({"viewer"}))
         with patch(
             "flux.security.dependencies._get_auth_service",
             return_value=mock_auth_service,
@@ -100,9 +90,7 @@ class TestRequirePermission:
         mock_auth_service = AsyncMock()
         mock_auth_service.is_authorized.return_value = False
         dep = require_permission("admin:secrets:manage")
-        identity = FluxIdentity(
-            subject="bob@acme.com", roles=frozenset({"viewer"})
-        )
+        identity = FluxIdentity(subject="bob@acme.com", roles=frozenset({"viewer"}))
         with patch(
             "flux.security.dependencies._get_auth_service",
             return_value=mock_auth_service,
