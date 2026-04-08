@@ -37,6 +37,7 @@ from flux.schedule_manager import create_schedule_manager
 from flux.domain.schedule import schedule_factory
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service, get_identity, require_permission
+from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity
 from datetime import datetime, timezone
 
@@ -156,7 +157,7 @@ class TestTokenRequest(BaseModel):
 
 
 class IsAuthorizedRequest(BaseModel):
-    subject: str
+    token: str
     permission: str
 
 
@@ -793,6 +794,15 @@ class Server:
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                        )
                 logger.debug(f"Fetching workflow: {workflow_name}")
                 catalog = WorkflowCatalog.create()
                 workflow = catalog.get(workflow_name)
@@ -800,6 +810,8 @@ class Server:
                 return workflow.to_dict()
             except WorkflowNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error retrieving workflow: {str(e)}")
 
@@ -830,7 +842,7 @@ class Server:
                     )
 
                 if auth_service is not None and auth_config.enabled:
-                    workflow_info = WorkflowCatalog.create().get(workflow_name)
+                    workflow_info = WorkflowCatalog.create().get(workflow_name, version)
                     result = await auth_service.authorize(
                         identity,
                         workflow_name,
@@ -2162,6 +2174,15 @@ class Server:
         ):
             """List all versions of a workflow."""
             try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                        )
                 logger.debug(f"Fetching versions for workflow: {workflow_name}")
 
                 catalog = WorkflowCatalog.create()
@@ -2201,6 +2222,15 @@ class Server:
         ):
             """Get specific workflow version."""
             try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                        )
                 logger.debug(f"Fetching workflow '{workflow_name}' version {version}")
 
                 catalog = WorkflowCatalog.create()
@@ -2896,16 +2926,13 @@ class Server:
         @api.post("/auth/is-authorized")
         async def auth_is_authorized(
             request: IsAuthorizedRequest,
-            authorization: str = Header(None),
         ):
-            self._extract_token(authorization)
             try:
-                test_identity = FluxIdentity(
-                    subject=request.subject,
-                    roles=frozenset(),
-                )
-                authorized = await auth_service.is_authorized(test_identity, request.permission)
+                identity = await auth_service.authenticate(request.token)
+                authorized = await auth_service.is_authorized(identity, request.permission)
                 return {"authorized": authorized}
+            except AuthenticationError as e:
+                raise HTTPException(status_code=401, detail=str(e))
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 

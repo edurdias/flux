@@ -274,6 +274,15 @@ class AuthService:
             sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
             if not sa:
                 raise ValueError(f"Service account '{account_name}' not found")
+            existing_key = (
+                session.query(APIKeyModel)
+                .filter_by(service_account_id=sa.id, name=key_name)
+                .first()
+            )
+            if existing_key:
+                raise ValueError(
+                    f"API key '{key_name}' already exists for service account '{account_name}'",
+                )
             key_plaintext = f"flux_sk_{secrets.token_hex(24)}"
             key_hash = hashlib.sha256(key_plaintext.encode()).hexdigest()
             key_prefix = key_plaintext[:12]

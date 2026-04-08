@@ -335,7 +335,7 @@ def sa_create_key(name, key_name, expires):
     url = get_server_url()
     body = {"name": key_name}
     if expires:
-        body["expires_days"] = int(expires.rstrip("d"))
+        body["expires_in_days"] = int(expires.rstrip("d"))
     resp = httpx.post(
         f"{url}/admin/service-accounts/{name}/keys",
         json=body,

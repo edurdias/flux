@@ -223,20 +223,20 @@ flux service-accounts create-key ci-pipeline \
 The key is displayed **once** and never stored in plaintext. Flux stores a SHA-256 hash of the key. Copy the key immediately — it cannot be retrieved later.
 
 ```
-Key created: flxk_a3f9d2e1b4c8...
+Key created: flux_sk_a3f9d2e1b4c8...
 Store this key securely. It will not be shown again.
 ```
 
 ### Key Expiry
 
-Keys accept a `--expires` duration (`30d`, `90d`, `365d`) or a fixed date (`--expires 2026-12-31`). Keys without an expiry are valid indefinitely. Expired keys are rejected at validation time and can be pruned with `revoke-key`.
+Keys accept a `--expires` duration in the `Nd` format (`30d`, `90d`, `365d`). Keys without an expiry are valid indefinitely. Expired keys are rejected at validation time and can be pruned with `revoke-key`.
 
 ### Using an API Key
 
-Include the key in the `Authorization` header with the `ApiKey` scheme:
+Include the key in the `Authorization` header with the `Bearer` scheme:
 
 ```bash
-curl -H "Authorization: ApiKey flxk_a3f9d2e1b4c8..." \
+curl -H "Authorization: Bearer flux_sk_a3f9d2e1b4c8..." \
   http://localhost:8000/workflows
 ```
 
