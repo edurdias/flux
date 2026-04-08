@@ -423,6 +423,7 @@ class WorkflowModel(Base):
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
     requests = Column(Base64Type(), nullable=True)
+    wf_metadata = Column(Base64Type(), nullable=True)
 
     # Add a uniqueness constraint on name and version
     __table_args__ = (UniqueConstraint("name", "version", name="uix_workflow_name_version"),)
@@ -443,6 +444,7 @@ class WorkflowModel(Base):
         imports: list[str],
         source: bytes,
         requests: ResourceRequest | None = None,
+        metadata: dict | None = None,
     ):
         self.id = id
         self.name = name
@@ -450,6 +452,7 @@ class WorkflowModel(Base):
         self.imports = imports
         self.source = source
         self.requests = requests
+        self.wf_metadata = metadata
 
 
 class ExecutionContextModel(Base):

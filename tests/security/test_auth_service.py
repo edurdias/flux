@@ -1,13 +1,12 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
 
 from flux.security.auth_service import AuthService
-from flux.security.identity import FluxIdentity, ANONYMOUS
+from flux.security.identity import FluxIdentity
 from flux.security.config import AuthConfig, OIDCConfig, APIKeyAuthConfig
-from flux.security.models import RoleModel, ServiceAccountModel
-from flux.security.errors import AuthenticationError, AuthorizationError
+from flux.security.models import RoleModel
+from flux.security.errors import AuthenticationError
 
 
 class TestAuthServiceAuthenticate:
@@ -35,8 +34,12 @@ class TestAuthServiceIsAuthorized:
         role = MagicMock(spec=RoleModel)
         role.name = "operator"
         role.permissions = [
-            "workflow:*:run", "workflow:*:read", "workflow:*:register",
-            "workflow:*:task:*:execute", "schedule:*", "execution:*",
+            "workflow:*:run",
+            "workflow:*:read",
+            "workflow:*:register",
+            "workflow:*:task:*:execute",
+            "schedule:*",
+            "execution:*",
         ]
         session.query.return_value.filter_by.return_value.first.return_value = role
         return AuthService(config=config, session_factory=lambda: session)

@@ -30,6 +30,7 @@ class WorkflowInfo:
         version: int = 1,
         requests: ResourceRequest | None = None,
         schedule: Any | None = None,
+        metadata: dict | None = None,
     ):
         self.id = id
         self.name = name
@@ -38,6 +39,7 @@ class WorkflowInfo:
         self.version = version
         self.requests = requests
         self.schedule = schedule
+        self.metadata = metadata
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -53,12 +55,11 @@ class WorkflowInfo:
             "imports": self.imports,
             "source": self.source,
             "requests": {},
+            "metadata": self.metadata,
         }
 
-        # Convert WorkflowRequests to dict if present
         if self.requests:
             requests_dict = {}
-            # Only include non-None attributes
             for attr in ["cpu", "memory", "gpu", "disk", "packages"]:
                 value = getattr(self.requests, attr, None)
                 if value is not None:
@@ -155,6 +156,7 @@ class WorkflowCatalog(ABC):
                             break
 
                     if workflow_name:
+                        wf_metadata = self._extract_workflow_metadata(node, tree)
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=workflow_name,
@@ -162,6 +164,7 @@ class WorkflowCatalog(ABC):
                                 imports=imports,
                                 source=source,
                                 requests=workflow_requests,
+                                metadata=wf_metadata,
                             ),
                         )
 
@@ -174,6 +177,48 @@ class WorkflowCatalog(ABC):
             raise SyntaxError(f"Invalid syntax: {e.msg}")
         except Exception as e:
             raise SyntaxError(f"Error parsing source code: {str(e)}")
+
+    def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
+        task_decorated = set()
+        workflow_decorated = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for dec in node.decorator_list:
+                    if isinstance(dec, ast.Name) and dec.id == "task":
+                        task_decorated.add(node.name)
+                    elif isinstance(dec, ast.Name) and dec.id == "workflow":
+                        workflow_decorated.add(node.name)
+                    elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+                        if isinstance(dec.func.value, ast.Name):
+                            if dec.func.value.id == "task" and dec.func.attr == "with_options":
+                                task_decorated.add(node.name)
+                            elif (
+                                dec.func.value.id == "workflow" and dec.func.attr == "with_options"
+                            ):
+                                workflow_decorated.add(node.name)
+
+        called_tasks = set()
+        called_workflows = set()
+
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Call):
+                func_name = None
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    func_name = node.func.attr
+
+                if func_name:
+                    if func_name in task_decorated:
+                        called_tasks.add(func_name)
+                    elif func_name in workflow_decorated:
+                        called_workflows.add(func_name)
+
+        return {
+            "task_names": sorted(called_tasks),
+            "nested_workflows": sorted(called_workflows),
+        }
 
     def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """
@@ -315,6 +360,7 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         source=model.source,
                         version=model.version,
                         requests=requests,
+                        metadata=model.wf_metadata,
                     ),
                 )
 
@@ -356,6 +402,7 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
             source=model.source,
             version=model.version,
             requests=requests,
+            metadata=model.wf_metadata,
         )
 
     def save(self, workflows: list[WorkflowInfo]):
@@ -432,6 +479,7 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         source=model.source,
                         version=model.version,
                         requests=requests,
+                        metadata=model.wf_metadata,
                     ),
                 )
 

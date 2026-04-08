@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from flux.security.config import AuthConfig
-from flux.security.errors import AuthenticationError, AuthorizationError
+from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity, ANONYMOUS
 from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
 from flux.security.providers import AuthProvider
@@ -19,11 +19,17 @@ logger = get_logger(__name__)
 BUILT_IN_ROLES = {
     "admin": ["*"],
     "operator": [
-        "workflow:*:run", "workflow:*:read", "workflow:*:register",
-        "workflow:*:task:*:execute", "schedule:*", "execution:*",
+        "workflow:*:run",
+        "workflow:*:read",
+        "workflow:*:register",
+        "workflow:*:task:*:execute",
+        "schedule:*",
+        "execution:*",
     ],
     "viewer": [
-        "workflow:*:read", "execution:*:read", "schedule:*:read",
+        "workflow:*:read",
+        "execution:*:read",
+        "schedule:*:read",
     ],
 }
 
@@ -77,7 +83,10 @@ class AuthService:
         return identity.has_permission(required, permissions)
 
     async def authorize(
-        self, identity: FluxIdentity, workflow_name: str, workflow_metadata: dict,
+        self,
+        identity: FluxIdentity,
+        workflow_name: str,
+        workflow_metadata: dict,
     ) -> AuthorizationResult:
         permissions = await self.resolve_permissions(identity)
         required_perms = self._collect_required_permissions(workflow_name, workflow_metadata)
@@ -87,7 +96,9 @@ class AuthService:
         return AuthorizationResult(ok=True)
 
     def _collect_required_permissions(
-        self, workflow_name: str, workflow_metadata: dict,
+        self,
+        workflow_name: str,
+        workflow_metadata: dict,
     ) -> list[str]:
         perms = [f"workflow:{workflow_name}:run"]
         task_names = workflow_metadata.get("task_names", [])
@@ -102,6 +113,7 @@ class AuthService:
 
     def _get_workflow_metadata(self, workflow_name: str) -> dict | None:
         from flux.catalogs import WorkflowCatalog
+
         try:
             catalog = WorkflowCatalog.create()
             workflow = catalog.get(workflow_name)
@@ -181,7 +193,7 @@ class AuthService:
             refs = [sa.name for sa in referencing if name in sa.roles]
             if refs:
                 raise ValueError(
-                    f"Cannot delete role '{name}': referenced by service accounts: {', '.join(refs)}"
+                    f"Cannot delete role '{name}': referenced by service accounts: {', '.join(refs)}",
                 )
             session.delete(role)
             session.commit()
@@ -252,7 +264,10 @@ class AuthService:
             session.close()
 
     async def create_api_key(
-        self, account_name: str, key_name: str, expires: timedelta | None = None,
+        self,
+        account_name: str,
+        key_name: str,
+        expires: timedelta | None = None,
     ) -> str:
         session = self._session_factory()
         try:
