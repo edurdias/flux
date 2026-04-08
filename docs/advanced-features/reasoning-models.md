@@ -28,7 +28,7 @@ its response. Flux automatically:
 
 1. **Captures** the reasoning from the model response
 2. **Passes it back** on subsequent turns (required by Anthropic, OpenAI, Gemini)
-3. **Stores it** in working memory as a `thinking` role for pause/resume persistence
+3. **Stores it** in working memory as a `reasoning` role for pause/resume persistence
 
 ## Provider Support
 
@@ -41,16 +41,16 @@ its response. Flux automatically:
 
 ## Working Memory
 
-Reasoning is stored as `thinking` role messages in working memory, positioned
+Reasoning is stored as `reasoning` role messages in working memory, positioned
 before the associated assistant response or tool call. This preserves the
 reasoning context across pause/resume cycles.
 
 ```
 user       → "Find all Python files"
-thinking   → {"text": "I should use find_files...", "opaque": {...}}
+reasoning  → {"text": "I should use find_files...", "opaque": {...}}
 tool_call  → {"calls": [...]}
 tool_result → {"call_id": "...", "output": "..."}
-thinking   → {"text": "Now I need to read each...", "opaque": {...}}
+reasoning  → {"text": "Now I need to read each...", "opaque": {...}}
 assistant  → "I found 3 Python files..."
 ```
 

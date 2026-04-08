@@ -88,12 +88,12 @@ class TestOllamaReasoning:
         formatter = OllamaFormatter("test-model")
         messages = [
             {"role": "user", "content": "hi"},
-            {"role": "thinking", "content": '{"text": "hmm", "opaque": null}'},
+            {"role": "reasoning", "content": '{"text": "hmm", "opaque": null}'},
             {"role": "assistant", "content": "hello"},
         ]
         converted = formatter._convert_memory_messages(messages)
         roles = [m["role"] for m in converted]
-        assert "thinking" not in roles
+        assert "reasoning" not in roles
         assert len(converted) == 2
 
     def test_reasoning_effort_adds_think_param(self):
@@ -194,7 +194,7 @@ class TestAnthropicReasoning:
         messages = [
             {"role": "user", "content": "question"},
             {
-                "role": "thinking",
+                "role": "reasoning",
                 "content": json.dumps(
                     {
                         "text": "reasoning...",
@@ -289,7 +289,7 @@ class TestOpenAIReasoning:
         messages = [
             {"role": "user", "content": "question"},
             {
-                "role": "thinking",
+                "role": "reasoning",
                 "content": json.dumps(
                     {
                         "text": "reasoning",
@@ -463,8 +463,8 @@ class TestAgentLoopReasoning:
             )
             messages = wm.recall()
             roles = [m["role"] for m in messages]
-            assert "thinking" in roles
-            thinking_msgs = [m for m in messages if m["role"] == "thinking"]
+            assert "reasoning" in roles
+            thinking_msgs = [m for m in messages if m["role"] == "reasoning"]
             assert len(thinking_msgs) >= 1
         finally:
             ExecutionContext.reset(token)
@@ -529,7 +529,7 @@ class TestAgentLoopReasoning:
             )
             messages = wm.recall()
             roles = [m["role"] for m in messages]
-            thinking_idx = roles.index("thinking")
+            thinking_idx = roles.index("reasoning")
             tool_call_idx = roles.index("tool_call")
             assert thinking_idx < tool_call_idx
         finally:

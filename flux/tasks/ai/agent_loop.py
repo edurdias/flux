@@ -40,7 +40,7 @@ async def _store_reasoning(working_memory: Any, response: Any) -> None:
         import json
 
         await working_memory.memorize(
-            "thinking",
+            "reasoning",
             json.dumps(
                 {
                     "text": response.reasoning.text,

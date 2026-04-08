@@ -84,7 +84,7 @@ class OpenAIFormatter(LLMFormatter):
                         "content": data["output"],
                     },
                 )
-            elif role == "thinking":
+            elif role == "reasoning":
                 data = json.loads(content)
                 pending_reasoning = (data.get("opaque") or {}).get("reasoning_content")
                 continue

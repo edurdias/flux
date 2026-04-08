@@ -99,7 +99,7 @@ class GeminiFormatter(LLMFormatter):
                         ],
                     ),
                 )
-            elif role == "thinking":
+            elif role == "reasoning":
                 data = json.loads(content)
                 opaque = data.get("opaque") or {}
                 thought_text = opaque.get("text", data.get("text", ""))
@@ -240,12 +240,12 @@ def _to_llm_response(response: Any) -> LLMResponse:
     candidates = getattr(response, "candidates", None)
     if candidates:
         parts = getattr(candidates[0].content, "parts", None) or []
-        thinking_parts: list[str] = []
+        reasoning_parts: list[str] = []
         text_parts: list[str] = []
         for part in parts:
             if getattr(part, "thought", False):
                 if part.text:
-                    thinking_parts.append(part.text)
+                    reasoning_parts.append(part.text)
             elif getattr(part, "function_call", None):
                 fc = part.function_call
                 tool_calls.append(
@@ -258,8 +258,8 @@ def _to_llm_response(response: Any) -> LLMResponse:
             elif getattr(part, "text", None):
                 text_parts.append(part.text)
 
-        if thinking_parts:
-            joined = "".join(thinking_parts)
+        if reasoning_parts:
+            joined = "".join(reasoning_parts)
             reasoning = ReasoningContent(
                 text=joined,
                 opaque={"text": joined, "thought": True},

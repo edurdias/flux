@@ -54,18 +54,18 @@ class AnthropicFormatter(LLMFormatter):
         import json
 
         converted = []
-        pending_thinking: dict | None = None
+        pending_reasoning: dict | None = None
         for msg in memory_messages:
             role, content = msg["role"], msg["content"]
-            if role == "thinking":
+            if role == "reasoning":
                 data = json.loads(content)
-                pending_thinking = data.get("opaque")
+                pending_reasoning = data.get("opaque")
             elif role == "tool_call":
                 data = json.loads(content)
                 blocks: list[dict] = []
-                if pending_thinking is not None:
-                    blocks.append(pending_thinking)
-                    pending_thinking = None
+                if pending_reasoning is not None:
+                    blocks.append(pending_reasoning)
+                    pending_reasoning = None
                 blocks.extend(
                     {
                         "type": "tool_use",
@@ -91,9 +91,9 @@ class AnthropicFormatter(LLMFormatter):
                     },
                 )
             elif role == "assistant":
-                if pending_thinking is not None:
-                    blocks = [pending_thinking, {"type": "text", "text": content}]
-                    pending_thinking = None
+                if pending_reasoning is not None:
+                    blocks = [pending_reasoning, {"type": "text", "text": content}]
+                    pending_reasoning = None
                     converted.append({"role": "assistant", "content": blocks})
                 else:
                     converted.append({"role": "assistant", "content": content})

@@ -79,7 +79,7 @@ class OllamaFormatter(LLMFormatter):
             elif role == "tool_result":
                 data = json.loads(content)
                 converted.append({"role": "tool", "content": data["output"]})
-            elif role == "thinking":
+            elif role == "reasoning":
                 continue
             elif role in ("user", "assistant"):
                 converted.append({"role": role, "content": content})
