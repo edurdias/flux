@@ -39,12 +39,18 @@ async def _store_reasoning(working_memory: Any, response: Any) -> None:
     if working_memory and hasattr(response, "reasoning") and response.reasoning:
         import json
 
+        opaque = response.reasoning.opaque
+        try:
+            json.dumps(opaque)
+        except (TypeError, ValueError):
+            opaque = str(opaque) if opaque is not None else None
+
         await working_memory.memorize(
             "reasoning",
             json.dumps(
                 {
                     "text": response.reasoning.text,
-                    "opaque": response.reasoning.opaque,
+                    "opaque": opaque,
                 },
             ),
         )

@@ -86,7 +86,9 @@ class OpenAIFormatter(LLMFormatter):
                 )
             elif role == "reasoning":
                 data = json.loads(content)
-                pending_reasoning = (data.get("opaque") or {}).get("reasoning_content")
+                pending_reasoning = (data.get("opaque") or {}).get(
+                    "reasoning_content",
+                ) or data.get("text")
                 continue
             elif role == "assistant":
                 msg_out: dict[str, Any] = {"role": "assistant", "content": content}
