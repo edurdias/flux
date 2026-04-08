@@ -44,7 +44,7 @@ def auth_status():
         click.echo("Not logged in. Run 'flux auth login' or set FLUX_AUTH_TOKEN.")
         return
     try:
-        resp = httpx.get(f"{url}/health", headers=headers)
+        httpx.get(f"{url}/health", headers=headers)
         click.echo(f"Authenticated. Server: {url}")
     except Exception as e:
         click.echo(f"Error connecting to server: {e}")
@@ -89,9 +89,7 @@ def auth_test_token(token):
 
 @auth.command("permissions")
 @click.option("--workflow", "-w", default=None, help="Filter by workflow name")
-@click.option(
-    "--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple"
-)
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
 def auth_permissions(workflow, fmt):
     """List auto-derived permissions from registered workflows."""
     url = get_server_url()
@@ -127,9 +125,7 @@ def roles():
 
 
 @roles.command("list")
-@click.option(
-    "--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple"
-)
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
 def roles_list(fmt):
     """List all roles."""
     url = get_server_url()
@@ -242,9 +238,7 @@ def service_accounts():
 
 
 @service_accounts.command("list")
-@click.option(
-    "--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple"
-)
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
 def sa_list(fmt):
     """List all service accounts."""
     url = get_server_url()

@@ -115,6 +115,15 @@
    - [Metrics](advanced-features/observability.md#metrics)
    - [Distributed Tracing](advanced-features/observability.md#distributed-tracing)
 
+### [Authentication & Authorization](advanced-features/authentication.md)
+   - [Overview](advanced-features/authentication.md#overview)
+   - [Configuration](advanced-features/authentication.md#configuration)
+   - [Role-Based Access Control](advanced-features/authentication.md#role-based-access-control)
+   - [Task-Level Authorization](advanced-features/authentication.md#task-level-authorization)
+   - [Service Accounts & API Keys](advanced-features/authentication.md#service-accounts--api-keys)
+   - [CLI Reference](advanced-features/authentication.md#cli-reference)
+   - [Dev Environment](advanced-features/authentication.md#dev-environment)
+
 ## Appendix
 - [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
 - [API Reference](https://github.com/flux-framework/flux/tree/main/flux)

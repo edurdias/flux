@@ -970,11 +970,11 @@ class Server:
                     )
 
                 dto = ExecutionContextDTO.from_domain(ctx)
-                result = dto.summary() if not detailed else dto
+                response = dto.summary() if not detailed else dto
                 logger.debug(
                     f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
                 )
-                return result
+                return response
 
             except WorkflowNotFoundError as e:
                 logger.error(f"Workflow not found: {str(e)}")
@@ -1161,11 +1161,11 @@ class Server:
                     )
 
                 dto = ExecutionContextDTO.from_domain(ctx)
-                result = dto.summary() if not detailed else dto
+                response = dto.summary() if not detailed else dto
                 logger.debug(
                     f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
                 )
-                return result
+                return response
 
             except WorkflowNotFoundError as e:
                 logger.error(f"Workflow not found: {str(e)}")

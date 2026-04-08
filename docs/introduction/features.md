@@ -25,9 +25,12 @@
 - **Subworkflow Support**: Compose complex workflows from simpler ones
 
 ## Security
+- **OIDC/OAuth 2.0 Authentication**: Validate JWTs from Keycloak, Auth0, Okta, Microsoft Entra ID
+- **Role-Based Access Control**: Built-in roles (admin, operator, viewer) plus custom roles
+- **Task-Level Authorization**: Name-derived permissions with pre-flight and runtime checks
+- **Service Accounts & API Keys**: Machine-to-machine authentication with optional expiry
 - **Secret Management**: Securely handle sensitive data during workflow execution
 - **Encrypted Storage**: Protect sensitive data at rest
-- **Access Control**: Manage who can execute and modify workflows
 
 ## AI & MCP Integration
 - **AI Agents**: LLM-powered tasks with tool use, structured output, and conversation history

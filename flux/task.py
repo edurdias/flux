@@ -128,7 +128,10 @@ class task:
 
                 auth_service = _get_auth_service()
                 required = f"workflow:{ctx.workflow_name}:task:{self.name}:execute"
-                if not await auth_service.is_authorized(ctx.identity, required):
+                if auth_service is not None and not await auth_service.is_authorized(
+                    ctx.identity,
+                    required,
+                ):
                     raise TaskAuthorizationError(
                         task_name=full_name,
                         task_id=task_id,

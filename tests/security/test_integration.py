@@ -103,14 +103,18 @@ class TestFullAuthorizationFlow:
     async def test_authorize_preflight(self, auth_service):
         op = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
         result = await auth_service.authorize(
-            op, "wf", {"task_names": ["load"], "nested_workflows": []}
+            op,
+            "wf",
+            {"task_names": ["load"], "nested_workflows": []},
         )
         assert result.ok is True
 
         await auth_service.create_role("limited", ["workflow:read-only:run"])
         limited = FluxIdentity(subject="charlie@acme.com", roles=frozenset({"limited"}))
         result = await auth_service.authorize(
-            limited, "wf", {"task_names": ["load"], "nested_workflows": []}
+            limited,
+            "wf",
+            {"task_names": ["load"], "nested_workflows": []},
         )
         assert result.ok is False
         assert "workflow:wf:run" in result.missing_permissions

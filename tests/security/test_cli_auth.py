@@ -25,10 +25,7 @@ class TestAuthCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["auth", "login"])
         assert result.exit_code == 0
-        assert (
-            "not yet implemented" in result.output.lower()
-            or "FLUX_AUTH_TOKEN" in result.output
-        )
+        assert "not yet implemented" in result.output.lower() or "FLUX_AUTH_TOKEN" in result.output
 
     def test_auth_logout(self):
         runner = CliRunner()

@@ -41,6 +41,7 @@ class OIDCProvider(AuthProvider):
 
     async def _get_signing_key(self, token: str):
         await self._ensure_discovery()
+        assert self._jwks_client is not None
         return self._jwks_client.get_signing_key_from_jwt(token).key
 
     async def authenticate(self, token: str) -> FluxIdentity | None:
