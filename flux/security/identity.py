@@ -28,7 +28,11 @@ class FluxIdentity:
 def _wildcard_match(pattern_parts: list[str], target_parts: list[str]) -> bool:
     for i, part in enumerate(pattern_parts):
         if part == "*":
-            return True
+            if i == len(pattern_parts) - 1:
+                return True
+            if i >= len(target_parts):
+                return False
+            continue
         if i >= len(target_parts) or part != target_parts[i]:
             return False
     return len(pattern_parts) == len(target_parts)

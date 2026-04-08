@@ -26,7 +26,11 @@ module_cache_ttl = 300                                      # Seconds to cache c
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security.encryption]
-encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P
+encryption_key = "SUPER_SECRET_KEY"
+
+# Uncomment to enable API key authentication:
+# [flux.security.auth.api_keys]
+# enabled = true
 
 [flux.mcp]
 name = "flux-workflows"                 # Name for the MCP server

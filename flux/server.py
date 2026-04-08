@@ -2848,15 +2848,30 @@ class Server:
 
         @api.get("/auth/permissions")
         async def auth_permissions(
+            workflow: str | None = None,
             identity: FluxIdentity = Depends(get_identity),
         ):
+            from flux.security.permissions import generate_permission_tree
+
             try:
-                permissions = await auth_service.resolve_permissions(identity)
-                return {
-                    "subject": identity.subject,
-                    "roles": sorted(identity.roles),
-                    "permissions": sorted(permissions),
-                }
+                catalog = WorkflowCatalog.create()
+                if workflow:
+                    wf = catalog.get(workflow)
+                    meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
+                    return generate_permission_tree(
+                        wf.name,
+                        meta.get("task_names", []),
+                        meta.get("nested_workflows", []),
+                    )
+                result = {}
+                for wf in catalog.all():
+                    meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
+                    result[wf.name] = generate_permission_tree(
+                        wf.name,
+                        meta.get("task_names", []),
+                        meta.get("nested_workflows", []),
+                    )
+                return result
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 

@@ -181,7 +181,7 @@ def roles_clone(source, name):
     url = get_server_url()
     resp = httpx.post(
         f"{url}/admin/roles/{source}/clone",
-        json={"name": name},
+        json={"new_name": name},
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
