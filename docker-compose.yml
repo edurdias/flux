@@ -51,15 +51,29 @@ services:
       - FLUX_MODE=mcp
       - FLUX_MCP_NAME=flux-workflows
       - FLUX_MCP_HOST=0.0.0.0
-      - FLUX_MCP_PORT=8080
+      - FLUX_MCP_PORT=8081
       - FLUX_MCP_TRANSPORT=streamable-http
       - FLUX_SERVER_URL=http://flux-server:8000
     ports:
-      - "8080:8080"
+      - "8081:8081"
     depends_on:
       - flux-server
     volumes:
       - ./flux.toml:/app/flux.toml
+    networks:
+      - flux-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: flux-keycloak
+    command: start-dev --import-realm
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    volumes:
+      - ./dev/keycloak/flux-realm.json:/opt/keycloak/data/import/flux-realm.json
+    ports:
+      - "8080:8080"
     networks:
       - flux-network
 
