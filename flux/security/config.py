@@ -37,6 +37,7 @@ class AuthConfig(_BaseConfig):
 
 def _make_encryption_config():
     from flux.config import EncryptionConfig
+
     return EncryptionConfig()
 
 

@@ -53,7 +53,10 @@ class TestWildcardMatching:
 
     def test_wildcard_at_end(self):
         identity = FluxIdentity(subject="alice@acme.com")
-        assert identity.has_permission("workflow:report:task:load:execute", {"workflow:report:*"}) is True
+        assert (
+            identity.has_permission("workflow:report:task:load:execute", {"workflow:report:*"})
+            is True
+        )
 
     def test_wildcard_partial_path(self):
         identity = FluxIdentity(subject="alice@acme.com")
@@ -61,7 +64,13 @@ class TestWildcardMatching:
 
     def test_wildcard_in_middle(self):
         identity = FluxIdentity(subject="alice@acme.com")
-        assert identity.has_permission("workflow:report:task:load:execute", {"workflow:report:task:*:execute"}) is True
+        assert (
+            identity.has_permission(
+                "workflow:report:task:load:execute",
+                {"workflow:report:task:*:execute"},
+            )
+            is True
+        )
 
     def test_wildcard_no_match_different_prefix(self):
         identity = FluxIdentity(subject="alice@acme.com")
@@ -69,4 +78,10 @@ class TestWildcardMatching:
 
     def test_multiple_permissions_any_match(self):
         identity = FluxIdentity(subject="alice@acme.com")
-        assert identity.has_permission("workflow:report:run", {"workflow:other:run", "workflow:report:*"}) is True
+        assert (
+            identity.has_permission(
+                "workflow:report:run",
+                {"workflow:other:run", "workflow:report:*"},
+            )
+            is True
+        )

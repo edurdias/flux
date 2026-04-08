@@ -547,6 +547,7 @@ class ExecutionEventModel(Base):
     name = Column(String, nullable=False)
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
+    subject = Column(String, nullable=True)
     execution = relationship(
         "ExecutionContextModel",
         back_populates="events",
@@ -561,6 +562,7 @@ class ExecutionEventModel(Base):
         name: str,
         time: datetime,
         value: Any | None = None,
+        subject: str | None = None,
     ):
         self.source_id = source_id
         self.event_id = event_id
@@ -569,6 +571,7 @@ class ExecutionEventModel(Base):
         self.name = name
         self.time = time
         self.value = value
+        self.subject = subject
 
     def to_plain(self) -> ExecutionEvent:
         return ExecutionEvent(
@@ -578,6 +581,7 @@ class ExecutionEventModel(Base):
             name=self.name,
             time=self.time,
             value=self.value,
+            subject=self.subject,
         )
 
     @classmethod
@@ -590,6 +594,7 @@ class ExecutionEventModel(Base):
             name=obj.name,
             time=obj.time,
             value=obj.value,
+            subject=obj.subject,
         )
 
 

@@ -8,7 +8,11 @@ class AuthenticationError(Exception):
 
 
 class AuthorizationError(Exception):
-    def __init__(self, message: str = "Authorization denied", required_permission: str | None = None):
+    def __init__(
+        self,
+        message: str = "Authorization denied",
+        required_permission: str | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.required_permission = required_permission

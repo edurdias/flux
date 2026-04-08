@@ -8,7 +8,9 @@ class TestAuthConfig:
         assert config.enabled is False
 
     def test_auth_enabled_when_oidc_enabled(self):
-        config = AuthConfig(oidc=OIDCConfig(enabled=True, issuer="https://example.com", audience="flux"))
+        config = AuthConfig(
+            oidc=OIDCConfig(enabled=True, issuer="https://example.com", audience="flux"),
+        )
         assert config.enabled is True
 
     def test_auth_enabled_when_api_keys_enabled(self):
