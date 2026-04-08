@@ -35,6 +35,27 @@ async def _fire_hooks(hooks: list[Any] | None, agent_name: str, value: Any) -> N
             logger.warning("Hook %s failed", hook, exc_info=True)
 
 
+async def _store_reasoning(working_memory: Any, response: Any) -> None:
+    if working_memory and hasattr(response, "reasoning") and response.reasoning:
+        import json
+
+        opaque = response.reasoning.opaque
+        try:
+            json.dumps(opaque)
+        except (TypeError, ValueError):
+            opaque = str(opaque) if opaque is not None else None
+
+        await working_memory.memorize(
+            "reasoning",
+            json.dumps(
+                {
+                    "text": response.reasoning.text,
+                    "opaque": opaque,
+                },
+            ),
+        )
+
+
 async def run_agent_loop(
     *,
     llm_task: TaskType,
@@ -94,6 +115,7 @@ async def run_agent_loop(
     result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
     call_counter += 1
     response = _ensure_llm_response(result)
+    await _store_reasoning(working_memory, response)
 
     always_approved: set[str] = set()
 
@@ -167,6 +189,7 @@ async def run_agent_loop(
         result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
         call_counter += 1
         response = _ensure_llm_response(result)
+        await _store_reasoning(working_memory, response)
 
         if (
             not response.tool_calls
@@ -186,6 +209,7 @@ async def run_agent_loop(
             )
             call_counter += 1
             response = _ensure_llm_response(result)
+            await _store_reasoning(working_memory, response)
 
     if response.tool_calls and tool_call_count >= max_tool_calls:
         messages.append(formatter.format_assistant_message(response))
@@ -198,6 +222,7 @@ async def run_agent_loop(
         result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **no_tool_kwargs)
         call_counter += 1
         response = _ensure_llm_response(result)
+        await _store_reasoning(working_memory, response)
 
     content = response.text
 

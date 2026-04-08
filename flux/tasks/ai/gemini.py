@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
 
 try:
     from google import genai
@@ -21,6 +21,7 @@ def build_gemini_provider(
     model_name: str,
     max_tokens: int = 4096,
     response_format: type[BaseModel] | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[task, LLMFormatter]:
     if genai is None:
         raise ImportError(
@@ -47,7 +48,7 @@ def build_gemini_provider(
         )
         return _to_llm_response(response)
 
-    formatter = GeminiFormatter(model_name, max_tokens, response_format)
+    formatter = GeminiFormatter(model_name, max_tokens, response_format, reasoning_effort)
     return gemini_llm, formatter
 
 
@@ -57,10 +58,12 @@ class GeminiFormatter(LLMFormatter):
         model_name: str,
         max_tokens: int,
         response_format: type[BaseModel] | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._model_name = model_name
         self._max_tokens = max_tokens
         self._response_format = response_format
+        self._reasoning_effort = reasoning_effort
 
     def _convert_memory_messages(self, memory_messages: list[dict]) -> list:
         import json
@@ -96,6 +99,16 @@ class GeminiFormatter(LLMFormatter):
                         ],
                     ),
                 )
+            elif role == "reasoning":
+                data = json.loads(content)
+                opaque = data.get("opaque") or {}
+                thought_text = opaque.get("text", data.get("text", ""))
+                converted.append(
+                    _types.Content(
+                        role="model",
+                        parts=[_types.Part(text=thought_text, thought=True)],
+                    ),
+                )
             elif role in ("user", "assistant"):
                 converted.append(_to_content(role, content))
         return converted
@@ -120,6 +133,11 @@ class GeminiFormatter(LLMFormatter):
         if self._response_format:
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = self._response_format
+        if self._reasoning_effort:
+            budget_map = {"low": 1024, "medium": 4096, "high": 16384}
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=budget_map.get(self._reasoning_effort, 4096),
+            )
 
         config = types.GenerateContentConfig(**config_kwargs)
 
@@ -131,6 +149,9 @@ class GeminiFormatter(LLMFormatter):
 
     def format_assistant_message(self, response: LLMResponse) -> Any:
         parts = []
+        if response.reasoning and response.reasoning.opaque:
+            opaque = response.reasoning.opaque
+            parts.append(types.Part(text=opaque["text"], thought=True))
         if response.text:
             parts.append(types.Part(text=response.text))
         for tc in response.tool_calls:
@@ -213,18 +234,60 @@ def _to_content(role: str, text: str) -> Any:
 
 
 def _to_llm_response(response: Any) -> LLMResponse:
-    text = response.text or ""
+    reasoning: ReasoningContent | None = None
     tool_calls: list[ToolCall] = []
-    if response.function_calls:
-        for fc in response.function_calls:
-            tool_calls.append(
-                ToolCall(
-                    id=fc.name,
-                    name=fc.name,
-                    arguments=dict(fc.args),
-                ),
+
+    candidates = getattr(response, "candidates", None)
+    if candidates:
+        parts = getattr(candidates[0].content, "parts", None) or []
+        reasoning_parts: list[str] = []
+        text_parts: list[str] = []
+        for part in parts:
+            if getattr(part, "thought", False):
+                if part.text:
+                    reasoning_parts.append(part.text)
+            elif getattr(part, "function_call", None):
+                fc = part.function_call
+                tool_calls.append(
+                    ToolCall(
+                        id=fc.name,
+                        name=fc.name,
+                        arguments=dict(fc.args),
+                    ),
+                )
+            elif getattr(part, "text", None):
+                text_parts.append(part.text)
+
+        if reasoning_parts:
+            joined = "".join(reasoning_parts)
+            reasoning = ReasoningContent(
+                text=joined,
+                opaque={"text": joined, "thought": True},
             )
-    return LLMResponse(text=text, tool_calls=tool_calls)
+
+        text = "".join(text_parts) if text_parts else (response.text or "")
+        if not tool_calls and response.function_calls:
+            for fc in response.function_calls:
+                tool_calls.append(
+                    ToolCall(
+                        id=fc.name,
+                        name=fc.name,
+                        arguments=dict(fc.args),
+                    ),
+                )
+    else:
+        text = response.text or ""
+        if response.function_calls:
+            for fc in response.function_calls:
+                tool_calls.append(
+                    ToolCall(
+                        id=fc.name,
+                        name=fc.name,
+                        arguments=dict(fc.args),
+                    ),
+                )
+
+    return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _to_gemini_tools(schemas: list[dict[str, Any]]) -> list:

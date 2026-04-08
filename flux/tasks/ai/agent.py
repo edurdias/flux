@@ -40,6 +40,7 @@ async def agent(
     approval_mode: str = "default",
     on_complete: list[Callable] | None = None,
     on_pause: list[Callable] | None = None,
+    reasoning_effort: str | None = None,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -77,10 +78,17 @@ async def agent(
             Failures are logged but never affect the return value.
         on_pause: List of hook callables fired when the agent pauses (PauseRequested).
             Same signature as on_complete. Fired before the pause propagates.
+        reasoning_effort: Configure reasoning/thinking depth. "low", "medium", "high",
+            or None (disabled). Provider-specific mapping is applied internally.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
     """
+    if reasoning_effort is not None and reasoning_effort not in ("low", "medium", "high"):
+        raise ValueError(
+            f"reasoning_effort must be 'low', 'medium', 'high', or None, got: '{reasoning_effort}'",
+        )
+
     if skills is not None:
         from flux.tasks.ai.skills import build_skills_preamble, build_use_skill
 
@@ -147,7 +155,11 @@ async def agent(
         from flux.tasks.ai.ollama import OllamaFormatter, _to_ollama_tools, build_ollama_provider
         from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        llm_task, formatter = build_ollama_provider(model_name, response_format=response_format)
+        llm_task, formatter = build_ollama_provider(
+            model_name,
+            response_format=response_format,
+            reasoning_effort=reasoning_effort,
+        )
 
         tool_schemas = build_tool_schemas(tools) if tools else None
         ollama_tools = _to_ollama_tools(tool_schemas) if tool_schemas else None
@@ -186,7 +198,11 @@ async def agent(
         from flux.tasks.ai.openai import _to_openai_tools, build_openai_provider
         from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        llm_task, formatter = build_openai_provider(model_name, response_format=response_format)
+        llm_task, formatter = build_openai_provider(
+            model_name,
+            response_format=response_format,
+            reasoning_effort=reasoning_effort,
+        )
 
         tool_schemas = build_tool_schemas(tools) if tools else None
         openai_tools = _to_openai_tools(tool_schemas) if tool_schemas else None
@@ -221,7 +237,11 @@ async def agent(
         from flux.tasks.ai.anthropic import _to_anthropic_tools, build_anthropic_provider
         from flux.tasks.ai.tool_executor import build_tool_schemas
 
-        llm_task, formatter = build_anthropic_provider(model_name, max_tokens=max_tokens)
+        llm_task, formatter = build_anthropic_provider(
+            model_name,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
 
         tool_schemas = build_tool_schemas(tools) if tools else None
         anthropic_tools = _to_anthropic_tools(tool_schemas) if tool_schemas else None
@@ -260,6 +280,7 @@ async def agent(
             model_name,
             max_tokens=max_tokens,
             response_format=response_format,
+            reasoning_effort=reasoning_effort,
         )
 
         tool_schemas = build_tool_schemas(tools) if tools else None

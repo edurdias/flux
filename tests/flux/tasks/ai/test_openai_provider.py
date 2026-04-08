@@ -182,6 +182,7 @@ def test_to_llm_response_text_only():
     message = MagicMock()
     message.content = "Hello world"
     message.tool_calls = None
+    message.reasoning_content = None
 
     response = MagicMock()
     response.choices = [MagicMock()]
@@ -205,6 +206,7 @@ def test_to_llm_response_with_tool_calls():
     message = MagicMock()
     message.content = "Let me search."
     message.tool_calls = [tc]
+    message.reasoning_content = None
 
     response = MagicMock()
     response.choices = [MagicMock()]
@@ -225,6 +227,7 @@ def test_to_llm_response_empty():
     message = MagicMock()
     message.content = None
     message.tool_calls = None
+    message.reasoning_content = None
 
     response = MagicMock()
     response.choices = [MagicMock()]
@@ -265,6 +268,7 @@ def test_llm_task_returns_llm_response():
         message = MagicMock()
         message.content = "Hello!"
         message.tool_calls = None
+        message.reasoning_content = None
 
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
