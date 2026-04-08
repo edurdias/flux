@@ -36,6 +36,7 @@ class WorkflowDefinition(BaseModel):
 class WorkflowExecutionRequest(BaseModel):
     workflow: WorkflowDefinition
     context: ExecutionContext
+    auth_token: str | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -56,6 +57,7 @@ class WorkflowExecutionRequest(BaseModel):
                 events=[ExecutionEvent(**event) for event in data["context"]["events"]],
                 checkpoint=checkpoint,
             ),
+            auth_token=data.get("auth_token"),
         )
 
 

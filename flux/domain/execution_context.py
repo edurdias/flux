@@ -37,6 +37,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         requests: ResourceRequest | None = None,
         current_worker: str | None = None,
         progress_callback: Callable | None = None,
+        auth_token: str | None = None,
     ):
         self._workflow_id = workflow_id
         self._workflow_name = workflow_name
@@ -49,6 +50,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
         self._identity = None
+        self._auth_token = auth_token
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -363,6 +365,13 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def set_identity(self, identity) -> None:
         self._identity = identity
 
+    @property
+    def auth_token(self) -> str | None:
+        return self._auth_token
+
+    def set_auth_token(self, token: str | None) -> None:
+        self._auth_token = token
+
     def _get_subject(self) -> str | None:
         if self._identity is not None:
             return self._identity.subject
@@ -403,6 +412,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             state=data["state"],
             events=[ExecutionEvent(**event) for event in data["events"]],
             checkpoint=checkpoint,
+            auth_token=data.get("auth_token"),
         )
 
     def _is_last_event(self, event_type: ExecutionEventType) -> bool:

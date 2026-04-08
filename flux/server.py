@@ -811,6 +811,7 @@ class Server:
             detailed: bool = False,
             version: int | None = None,
             identity: FluxIdentity = Depends(get_identity),
+            authorization: str = Header(None),
         ):
             try:
                 logger.debug(
@@ -844,7 +845,13 @@ class Server:
                             },
                         )
 
+                auth_token = None
+                if authorization and authorization.startswith("Bearer "):
+                    auth_token = authorization.split(" ", 1)[1]
+
                 ctx = self._create_execution(workflow_name, input, version, identity)
+                if auth_token:
+                    ctx.set_auth_token(auth_token)
                 manager = ContextManager.create()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
@@ -1455,9 +1462,10 @@ class Server:
                                         f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
 
-                                    data_payload = to_json(
-                                        {"workflow": workflow, "context": ctx},
-                                    )
+                                    payload_dict = {"workflow": workflow, "context": ctx}
+                                    if ctx.auth_token:
+                                        payload_dict["auth_token"] = ctx.auth_token
+                                    data_payload = to_json(payload_dict)
 
                                     from flux.observability import is_enabled
 
@@ -1510,10 +1518,13 @@ class Server:
                                         f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
 
+                                    resume_payload_dict = {"workflow": workflow, "context": ctx}
+                                    if ctx.auth_token:
+                                        resume_payload_dict["auth_token"] = ctx.auth_token
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
-                                        "data": to_json({"workflow": workflow, "context": ctx}),
+                                        "data": to_json(resume_payload_dict),
                                     }
 
                                     logger.debug(
