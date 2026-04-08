@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import AsyncMock
 
 from flux.worker import WorkflowExecutionRequest
