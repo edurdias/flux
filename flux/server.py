@@ -979,6 +979,8 @@ class Server:
             except WorkflowNotFoundError as e:
                 logger.error(f"Workflow not found: {str(e)}")
                 raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
@@ -1170,6 +1172,8 @@ class Server:
             except WorkflowNotFoundError as e:
                 logger.error(f"Workflow not found: {str(e)}")
                 raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
