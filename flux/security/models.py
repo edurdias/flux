@@ -43,7 +43,11 @@ class ServiceAccountModel(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
-    keys = relationship("APIKeyModel", back_populates="service_account", cascade="all, delete-orphan")
+    keys = relationship(
+        "APIKeyModel",
+        back_populates="service_account",
+        cascade="all, delete-orphan",
+    )
 
     def __init__(
         self,
