@@ -20,7 +20,7 @@ class FakeCatalog(WorkflowCatalog):
 
 class TestWorkflowMetadataExtraction:
     def test_extract_task_names(self):
-        source = b'''
+        source = b"""
 from flux import workflow, task
 
 @task
@@ -35,7 +35,7 @@ async def generate_report(data: dict) -> str:
 async def my_workflow(ctx):
     data = await load_data("db")
     return await generate_report(data)
-'''
+"""
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         assert len(workflows) == 1
@@ -45,7 +45,7 @@ async def my_workflow(ctx):
         assert "generate_report" in wf.metadata.get("task_names", [])
 
     def test_extract_nested_workflow_calls(self):
-        source = b'''
+        source = b"""
 from flux import workflow, task
 
 @task
@@ -60,7 +60,7 @@ async def inner_workflow(ctx):
 async def outer_workflow(ctx):
     await step_one()
     await inner_workflow(ctx)
-'''
+"""
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         outer = [w for w in workflows if w.name == "outer_workflow"][0]
@@ -68,7 +68,7 @@ async def outer_workflow(ctx):
         assert "inner_workflow" in outer.metadata.get("nested_workflows", [])
 
     def test_extract_task_with_options_name(self):
-        source = b'''
+        source = b"""
 from flux import workflow, task
 
 @task.with_options(name="custom_name")
@@ -78,7 +78,7 @@ async def my_func():
 @workflow
 async def my_workflow(ctx):
     return await my_func()
-'''
+"""
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         wf = workflows[0]

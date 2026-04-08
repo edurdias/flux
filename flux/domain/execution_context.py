@@ -48,6 +48,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._requests = requests or None
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
+        self._identity = None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -344,6 +345,13 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def set_progress_callback(self, callback: Callable) -> Self:
         self._progress_callback = callback
         return self
+
+    @property
+    def identity(self):
+        return self._identity
+
+    def set_identity(self, identity) -> None:
+        self._identity = identity
 
     def __getstate__(self):
         state = self.__dict__.copy()

@@ -47,6 +47,7 @@ class _WithOptions:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
+        auth_exempt: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -62,6 +63,7 @@ class _WithOptions:
                 output_storage=output_storage,
                 cache=cache,
                 metadata=metadata,
+                auth_exempt=auth_exempt,
             )
 
         return wrapper
@@ -84,6 +86,7 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
+        auth_exempt: bool = False,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -98,6 +101,7 @@ class task:
         self.output_storage = output_storage if output_storage else InlineOutputStorage()
         self.cache = cache
         self.metadata = metadata
+        self.auth_exempt = auth_exempt
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -113,6 +117,24 @@ class task:
         task_id = f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
 
         ctx = await ExecutionContext.get()
+
+        if not self.auth_exempt and ctx.identity is not None:
+            from flux.config import Configuration
+
+            auth_config = Configuration.get().settings.security.auth
+            if auth_config.enabled:
+                from flux.security.errors import TaskAuthorizationError
+                from flux.security.dependencies import _get_auth_service
+
+                auth_service = _get_auth_service()
+                required = f"workflow:{ctx.workflow_name}:task:{self.name}:execute"
+                if not await auth_service.is_authorized(ctx.identity, required):
+                    raise TaskAuthorizationError(
+                        task_name=full_name,
+                        task_id=task_id,
+                        subject=ctx.identity.subject,
+                        required_permission=required,
+                    )
 
         finished = [
             e
@@ -266,6 +288,7 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool | None = None,
         metadata: bool | None = None,
+        auth_exempt: bool | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -285,6 +308,7 @@ class task:
             output_storage=output_storage if output_storage is not None else self.output_storage,
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
+            auth_exempt=auth_exempt if auth_exempt is not None else self.auth_exempt,
         )
 
     async def map(self, args):
