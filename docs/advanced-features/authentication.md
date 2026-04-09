@@ -408,3 +408,60 @@ audience = "flux-api"
 roles_claim = "realm_access.roles"
 clock_skew = 60
 ```
+
+## Scheduled Workflows
+
+When auth is enabled, every schedule must specify a `run_as_service_account`. The scheduler mints a short-lived HMAC-signed internal JWT encoding the service account's identity; this token flows through the execution lifecycle so workers can authenticate callbacks back to the server.
+
+### Requirements
+
+- `run_as_service_account` is **required** when `[flux.security.auth]` is enabled. Creating a schedule without it returns HTTP 400.
+- The named service account must exist at schedule creation time and at each scheduled run.
+- If the service account is deleted or loses required permissions between runs, that run is skipped and the schedule's failure counter is incremented.
+- The internal token is valid for one hour from the time the run is triggered.
+
+### Creating a Schedule with a Service Account
+
+Via CLI:
+
+```bash
+flux schedule create my-workflow nightly-report \
+  --cron "0 2 * * *" \
+  --run-as svc-reports
+```
+
+Via API:
+
+```bash
+curl -X POST http://localhost:8000/schedules \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_name": "my-workflow",
+    "name": "nightly-report",
+    "schedule_config": {"type": "cron", "cron_expression": "0 2 * * *"},
+    "run_as_service_account": "svc-reports"
+  }'
+```
+
+### Setting Up the Service Account
+
+```bash
+# Create the service account with the operator role
+flux service-accounts create svc-reports --roles operator
+
+# Or create a narrowly scoped custom role
+flux roles create reports-runner \
+  --permissions "workflow:my-workflow:run"
+
+flux service-accounts create svc-reports --roles reports-runner
+```
+
+### How It Works
+
+1. The scheduler checks for due schedules on each poll interval.
+2. For each due schedule with auth enabled, the scheduler looks up the service account from the database.
+3. A short-lived HMAC-signed JWT is minted encoding the service account's subject and roles.
+4. The execution context is created with the service account's identity and the internal token attached.
+5. Workers receive the token and can present it back to the server for any authorization checks during execution.
+6. The HMAC secret is auto-generated on first server start and stored at `$FLUX_HOME/internal_secret` with `0600` permissions.

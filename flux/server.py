@@ -100,6 +100,7 @@ class ScheduleRequest(BaseModel):
     schedule_config: dict  # Schedule configuration (cron expression, interval, etc.)
     description: str | None = None
     input_data: Any | None = None
+    run_as_service_account: str | None = None
 
 
 class ScheduleResponse(BaseModel):
@@ -118,6 +119,7 @@ class ScheduleResponse(BaseModel):
     next_run_at: str | None
     run_count: int
     failure_count: int
+    run_as_service_account: str | None = None
 
 
 class ScheduleUpdateRequest(BaseModel):
@@ -126,6 +128,7 @@ class ScheduleUpdateRequest(BaseModel):
     schedule_config: dict | None = None
     description: str | None = None
     input_data: Any | None = None
+    run_as_service_account: str | None = None
 
 
 class RoleRequest(BaseModel):
@@ -642,7 +645,7 @@ class Server:
                     # Trigger each due schedule
                     for schedule in due_schedules:
                         try:
-                            self._trigger_scheduled_workflow(schedule, current_time)
+                            await self._trigger_scheduled_workflow(schedule, current_time)
                         except Exception as e:
                             logger.error(
                                 f"Failed to trigger schedule '{schedule.name}': {str(e)}",
@@ -656,7 +659,7 @@ class Server:
         except asyncio.CancelledError:
             logger.info("Scheduler loop cancelled")
 
-    def _trigger_scheduled_workflow(self, schedule, scheduled_time: datetime):
+    async def _trigger_scheduled_workflow(self, schedule, scheduled_time: datetime):
         """
         Trigger a scheduled workflow execution.
         Simple trigger-and-forget pattern - creates execution and lets workers handle it.
@@ -666,8 +669,56 @@ class Server:
         )
 
         try:
-            # Use the common execution creation method
-            ctx = self._create_execution(schedule.workflow_name, schedule.input_data)
+            from flux.security.auth_service import AuthService
+
+            auth_config = Configuration.get().settings.security.auth
+            identity = None
+
+            if auth_config.enabled:
+                sa_name = getattr(schedule, "run_as_service_account", None)
+                if not sa_name:
+                    logger.error(
+                        f"Schedule '{schedule.name}': no service account configured, skipping",
+                    )
+                    schedule.mark_failure()
+                    return
+
+                db_auth_service = AuthService(
+                    config=auth_config,
+                    session_factory=self._get_db_session,
+                )
+                sa = await db_auth_service.get_service_account(sa_name)
+                if sa is None:
+                    logger.error(
+                        f"Schedule '{schedule.name}': SA '{sa_name}' not found, skipping run",
+                    )
+                    schedule.mark_failure()
+                    return
+
+                from flux.security.identity import FluxIdentity
+                from flux.security.providers.internal import mint_internal_token
+
+                identity = FluxIdentity(
+                    subject=f"sa:{sa.name}",
+                    roles=frozenset(sa.roles),
+                    metadata={"token_type": "service_account", "via": "scheduler"},
+                )
+
+                auth_token = mint_internal_token(
+                    subject=identity.subject,
+                    roles=identity.roles,
+                    ttl_seconds=3600,
+                )
+            else:
+                auth_token = None
+
+            ctx = self._create_execution(
+                schedule.workflow_name,
+                schedule.input_data,
+                identity=identity,
+            )
+            if auth_token:
+                ctx.set_auth_token(auth_token)
 
             # Update schedule tracking
             schedule.mark_run(scheduled_time)
@@ -1840,6 +1891,7 @@ class Server:
                 next_run_at=schedule.next_run_at.isoformat() if schedule.next_run_at else None,
                 run_count=schedule.run_count,
                 failure_count=schedule.failure_count,
+                run_as_service_account=getattr(schedule, "run_as_service_account", None),
             )
 
         def _resolve_schedule_id_or_name(schedule_id_or_name: str, schedule_manager):
@@ -1882,6 +1934,19 @@ class Server:
                     f"Creating schedule '{request.name}' for workflow '{request.workflow_name}'",
                 )
 
+                if auth_config.enabled:
+                    if not request.run_as_service_account:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="run_as_service_account is required when auth is enabled",
+                        )
+                    sa = await auth_service.get_service_account(request.run_as_service_account)
+                    if sa is None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Service account '{request.run_as_service_account}' not found",
+                        )
+
                 # Get workflow from catalog to ensure it exists
                 catalog = WorkflowCatalog.create()
                 workflow_def = catalog.get(request.workflow_name)
@@ -1903,6 +1968,7 @@ class Server:
                     schedule=schedule,
                     description=request.description,
                     input_data=request.input_data,
+                    run_as_service_account=request.run_as_service_account,
                 )
 
                 logger.info(
@@ -2003,6 +2069,14 @@ class Server:
             try:
                 logger.info(f"Updating schedule '{schedule_id}'")
 
+                if auth_config.enabled and request.run_as_service_account is not None:
+                    sa = await auth_service.get_service_account(request.run_as_service_account)
+                    if sa is None:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Service account '{request.run_as_service_account}' not found",
+                        )
+
                 schedule_manager = create_schedule_manager()
 
                 # Resolve by ID or name
@@ -2024,6 +2098,7 @@ class Server:
                     schedule=schedule_param,
                     description=request.description,
                     input_data=request.input_data,
+                    run_as_service_account=request.run_as_service_account,
                 )
 
                 logger.info(f"Successfully updated schedule '{schedule_id}'")

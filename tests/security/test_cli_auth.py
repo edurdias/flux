@@ -103,7 +103,9 @@ class TestSaveCredentials:
         }
         with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
             save_credentials(
-                token_response, "https://issuer.example.com", client_id="custom-client",
+                token_response,
+                "https://issuer.example.com",
+                client_id="custom-client",
             )
 
         data = json.loads(creds_file.read_text())

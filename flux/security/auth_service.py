@@ -11,6 +11,7 @@ from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity, ANONYMOUS
 from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
 from flux.security.providers import AuthProvider
+from flux.security.providers.internal import InternalTokenProvider
 from flux.security.providers.oidc import OIDCProvider
 from flux.security.providers.api_key import APIKeyProvider
 from flux.utils import get_logger
@@ -48,6 +49,8 @@ class AuthService:
         self._config = config
         self._session_factory = session_factory
         self._providers: list[AuthProvider] = []
+
+        self._providers.append(InternalTokenProvider())
 
         if config.oidc.enabled:
             self._providers.append(OIDCProvider(config.oidc))

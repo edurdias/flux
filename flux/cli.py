@@ -847,6 +847,11 @@ def schedule():
     help="Input data for scheduled workflow executions (JSON format)",
 )
 @click.option(
+    "--run-as",
+    default=None,
+    help="Service account to run the schedule as (required when auth is enabled)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -861,6 +866,7 @@ def create_schedule(
     timezone: str,
     description: str | None,
     input: str | None,
+    run_as: str | None,
     server_url: str | None,
 ):
     """Create a new schedule for a workflow."""
@@ -900,6 +906,7 @@ def create_schedule(
             "schedule_config": schedule_config,
             "description": description,
             "input_data": input_data,
+            "run_as_service_account": run_as,
         }
 
         base_url = server_url or get_server_url()

@@ -65,6 +65,15 @@ def _migrate_schema(engine) -> None:
                 conn.execute(text("ALTER TABLE execution_events ADD COLUMN subject VARCHAR"))
                 conn.commit()
 
+    if "schedules" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("schedules")]
+        if "run_as_service_account" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("ALTER TABLE schedules ADD COLUMN run_as_service_account VARCHAR"),
+                )
+                conn.commit()
+
 
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
@@ -654,6 +663,9 @@ class ScheduleModel(Base):
     # Optional input for scheduled executions
     input_data = Column(PickleType(pickler=dill), nullable=True)
 
+    # Service account to run scheduled executions as (required when auth is enabled)
+    run_as_service_account = Column(String, nullable=True)
+
     # Statistics
     run_count = Column(Integer, nullable=False, default=0)
     failure_count = Column(Integer, nullable=False, default=0)
@@ -679,6 +691,7 @@ class ScheduleModel(Base):
         description: str | None = None,
         input_data: Any = None,
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
+        run_as_service_account: str | None = None,
     ):
         self.workflow_id = workflow_id
         self.workflow_name = workflow_name
@@ -688,6 +701,7 @@ class ScheduleModel(Base):
         self.schedule_type = schedule.type
         self.status = status
         self.input_data = input_data
+        self.run_as_service_account = run_as_service_account
         self.next_run_at = schedule.next_run_time()
 
     def get_schedule(self) -> Schedule:
