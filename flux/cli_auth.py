@@ -4,7 +4,6 @@ import json
 import os
 import stat
 import time
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -21,19 +20,25 @@ def get_server_url():
     return f"http://{settings.server_host}:{settings.server_port}"
 
 
-def save_credentials(token_response: dict, issuer: str) -> None:
-    """Save OIDC tokens to ~/.flux/credentials.json with 0600 permissions."""
+def save_credentials(token_response: dict, issuer: str, client_id: str = "flux-api") -> None:
+    """Save only the refresh token to ~/.flux/credentials.json with 0600 permissions.
+
+    Zero-trust: access tokens are never persisted to disk. On each CLI invocation
+    the access token is fetched fresh using the refresh token (held in memory only).
+    """
     CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    expires_in = token_response.get("expires_in", 3600)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    refresh_token = token_response.get("refresh_token")
+    if not refresh_token:
+        raise ValueError(
+            "OIDC token response did not include a refresh_token. "
+            "Enable offline_access scope or configure the client to issue refresh tokens.",
+        )
 
     credentials = {
-        "access_token": token_response["access_token"],
-        "refresh_token": token_response.get("refresh_token"),
-        "expires_at": expires_at.isoformat(),
-        "token_type": token_response.get("token_type", "Bearer"),
+        "refresh_token": refresh_token,
         "issuer": issuer,
+        "client_id": client_id,
     }
 
     CREDENTIALS_FILE.write_text(json.dumps(credentials, indent=2))
@@ -50,14 +55,22 @@ def load_credentials() -> dict | None:
         return None
 
 
-def refresh_access_token(credentials: dict) -> dict | None:
-    """Refresh the access token using the refresh token. Returns new credentials or None."""
-    if not credentials.get("refresh_token"):
+def fetch_access_token(credentials: dict) -> str | None:
+    """Exchange a refresh token for a fresh access token.
+
+    Returns the access token string on success. The access token is never persisted.
+    If the refresh fails, the stored credentials file is left intact so the user
+    can see the error and decide whether to re-login.
+    """
+    refresh_token = credentials.get("refresh_token")
+    if not refresh_token:
         return None
 
     issuer = credentials.get("issuer")
     if not issuer:
         return None
+
+    client_id = credentials.get("client_id", "flux-api")
 
     try:
         discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
@@ -65,45 +78,46 @@ def refresh_access_token(credentials: dict) -> dict | None:
         resp.raise_for_status()
         token_endpoint = resp.json()["token_endpoint"]
 
-        for client_id in ["flux-api", "flux-cli"]:
-            resp = httpx.post(
-                token_endpoint,
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": credentials["refresh_token"],
-                    "client_id": client_id,
-                },
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                token_data = resp.json()
-                save_credentials(token_data, issuer)
-                return load_credentials()
-        return None
+        resp = httpx.post(
+            token_endpoint,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+
+        token_data = resp.json()
+
+        new_refresh_token = token_data.get("refresh_token")
+        if new_refresh_token and new_refresh_token != refresh_token:
+            updated = {**credentials, "refresh_token": new_refresh_token}
+            CREDENTIALS_FILE.write_text(json.dumps(updated, indent=2))
+            os.chmod(CREDENTIALS_FILE, stat.S_IRUSR | stat.S_IWUSR)
+
+        return token_data.get("access_token")
     except Exception:
         return None
 
 
 def get_auth_headers() -> dict:
-    """Get auth headers from env var or stored credentials."""
+    """Get auth headers from env var or refresh-token-derived access token.
+
+    Zero-trust: never returns a persisted access token. Always fetches a fresh
+    access token via refresh token exchange.
+    """
     token = os.environ.get("FLUX_AUTH_TOKEN")
     if token:
         return {"Authorization": f"Bearer {token}"}
 
     credentials = load_credentials()
     if credentials:
-        try:
-            expires_at = datetime.fromisoformat(credentials["expires_at"])
-            if expires_at <= datetime.now(timezone.utc) + timedelta(seconds=30):
-                refreshed = refresh_access_token(credentials)
-                if refreshed:
-                    credentials = refreshed
-        except (KeyError, ValueError):
-            pass
-
-        return {
-            "Authorization": f"{credentials.get('token_type', 'Bearer')} {credentials['access_token']}",
-        }
+        access_token = fetch_access_token(credentials)
+        if access_token:
+            return {"Authorization": f"Bearer {access_token}"}
 
     return {}
 
@@ -128,9 +142,9 @@ def auth_status():
 
     credentials = load_credentials()
     if credentials:
-        click.echo("Logged in via OIDC")
+        click.echo("Logged in via OIDC (refresh token stored, access tokens in-memory only)")
         click.echo(f"  Issuer: {credentials.get('issuer', 'unknown')}")
-        click.echo(f"  Expires: {credentials.get('expires_at', 'unknown')}")
+        click.echo(f"  Client: {credentials.get('client_id', 'unknown')}")
     else:
         click.echo("Using FLUX_AUTH_TOKEN from environment")
     click.echo(f"  Server: {url}")
@@ -167,7 +181,10 @@ def auth_login(issuer, client_id):
     try:
         resp = httpx.post(
             device_auth_endpoint,
-            data={"client_id": client_id, "scope": "openid profile email"},
+            data={
+                "client_id": client_id,
+                "scope": "openid profile email offline_access",
+            },
             timeout=10,
         )
         resp.raise_for_status()
@@ -203,8 +220,16 @@ def auth_login(issuer, client_id):
             )
             if resp.status_code == 200:
                 token_data = resp.json()
-                save_credentials(token_data, issuer)
+                try:
+                    save_credentials(token_data, issuer, client_id)
+                except ValueError as err:
+                    click.echo(f"Authentication succeeded but cannot persist: {err}")
+                    return
                 click.echo("Authentication successful!")
+                click.echo(
+                    "Refresh token stored at ~/.flux/credentials.json (0600). "
+                    "Access tokens are fetched per-invocation and never persisted.",
+                )
                 return
             elif resp.status_code == 400:
                 error = resp.json().get("error", "")

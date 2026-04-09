@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 import stat
-from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
 from flux.cli import cli
@@ -65,7 +65,7 @@ class TestSaveCredentials:
         mode = stat.S_IMODE(file_stat.st_mode)
         assert mode == (stat.S_IRUSR | stat.S_IWUSR)
 
-    def test_saves_correct_structure(self, tmp_path):
+    def test_saves_only_refresh_token_no_access_token(self, tmp_path):
         creds_file = tmp_path / ".flux" / "credentials.json"
         token_response = {
             "access_token": "my-access-token",
@@ -78,24 +78,36 @@ class TestSaveCredentials:
             save_credentials(token_response, issuer)
 
         data = json.loads(creds_file.read_text())
-        assert data["access_token"] == "my-access-token"
+        # Zero-trust: access token must NEVER be persisted
+        assert "access_token" not in data
+        assert "expires_at" not in data
+        # Only refresh token + metadata is stored
         assert data["refresh_token"] == "my-refresh-token"
-        assert data["token_type"] == "Bearer"
         assert data["issuer"] == issuer
-        assert "expires_at" in data
+        assert data["client_id"] == "flux-api"
 
-    def test_expires_at_is_in_future(self, tmp_path):
+    def test_raises_when_no_refresh_token(self, tmp_path):
         creds_file = tmp_path / ".flux" / "credentials.json"
         token_response = {
             "access_token": "tok",
             "expires_in": 3600,
         }
         with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
-            save_credentials(token_response, "https://issuer.example.com")
+            with pytest.raises(ValueError, match="refresh_token"):
+                save_credentials(token_response, "https://issuer.example.com")
+
+    def test_custom_client_id_persisted(self, tmp_path):
+        creds_file = tmp_path / ".flux" / "credentials.json"
+        token_response = {
+            "refresh_token": "refresh-123",
+        }
+        with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
+            save_credentials(
+                token_response, "https://issuer.example.com", client_id="custom-client",
+            )
 
         data = json.loads(creds_file.read_text())
-        expires_at = datetime.fromisoformat(data["expires_at"])
-        assert expires_at > datetime.now(timezone.utc)
+        assert data["client_id"] == "custom-client"
 
 
 class TestLoadCredentials:
@@ -108,9 +120,9 @@ class TestLoadCredentials:
     def test_returns_dict_when_file_valid(self, tmp_path):
         creds_file = tmp_path / "credentials.json"
         expected = {
-            "access_token": "valid-token",
-            "token_type": "Bearer",
+            "refresh_token": "valid-refresh",
             "issuer": "https://auth.example.com",
+            "client_id": "flux-api",
         }
         creds_file.write_text(json.dumps(expected))
         with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
@@ -133,21 +145,35 @@ class TestGetAuthHeaders:
                 headers = get_auth_headers()
         assert headers == {"Authorization": "Bearer env-token"}
 
-    def test_returns_credentials_token_when_file_exists(self, tmp_path):
+    def test_returns_fresh_access_token_from_refresh(self, tmp_path):
         creds_file = tmp_path / "credentials.json"
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
         credentials = {
-            "access_token": "stored-token",
-            "token_type": "Bearer",
-            "expires_at": expires_at,
+            "refresh_token": "refresh-xyz",
             "issuer": "https://auth.example.com",
+            "client_id": "flux-api",
         }
         creds_file.write_text(json.dumps(credentials))
         env = {k: v for k, v in os.environ.items() if k != "FLUX_AUTH_TOKEN"}
         with patch.dict(os.environ, env, clear=True):
             with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
-                headers = get_auth_headers()
-        assert headers == {"Authorization": "Bearer stored-token"}
+                with patch("flux.cli_auth.fetch_access_token", return_value="fresh-access-token"):
+                    headers = get_auth_headers()
+        assert headers == {"Authorization": "Bearer fresh-access-token"}
+
+    def test_returns_empty_when_refresh_fails(self, tmp_path):
+        creds_file = tmp_path / "credentials.json"
+        credentials = {
+            "refresh_token": "refresh-xyz",
+            "issuer": "https://auth.example.com",
+            "client_id": "flux-api",
+        }
+        creds_file.write_text(json.dumps(credentials))
+        env = {k: v for k, v in os.environ.items() if k != "FLUX_AUTH_TOKEN"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
+                with patch("flux.cli_auth.fetch_access_token", return_value=None):
+                    headers = get_auth_headers()
+        assert headers == {}
 
     def test_returns_empty_when_no_auth(self, tmp_path):
         creds_file = tmp_path / "credentials.json"
@@ -159,12 +185,10 @@ class TestGetAuthHeaders:
 
     def test_env_var_takes_priority_over_credentials_file(self, tmp_path):
         creds_file = tmp_path / "credentials.json"
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
         credentials = {
-            "access_token": "file-token",
-            "token_type": "Bearer",
-            "expires_at": expires_at,
+            "refresh_token": "refresh-xyz",
             "issuer": "https://auth.example.com",
+            "client_id": "flux-api",
         }
         creds_file.write_text(json.dumps(credentials))
         with patch.dict(os.environ, {"FLUX_AUTH_TOKEN": "env-wins"}):
