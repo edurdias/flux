@@ -82,9 +82,9 @@ async def my_workflow(ctx):
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         wf = workflows[0]
-        assert "my_func" in wf.metadata.get("task_names", [])
+        assert "custom_name" in wf.metadata.get("task_names", [])
 
-    def test_task_with_options_uses_function_name_not_custom(self):
+    def test_task_with_options_uses_custom_name_in_metadata(self):
         source = b"""
 from flux import workflow, task
 
@@ -99,5 +99,28 @@ async def my_workflow(ctx):
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         wf = workflows[0]
-        assert "load_data" in wf.metadata.get("task_names", [])
-        assert "custom_{source}" not in wf.metadata.get("task_names", [])
+        assert "custom_{source}" in wf.metadata.get("task_names", [])
+        assert "load_data" not in wf.metadata.get("task_names", [])
+
+    def test_task_without_custom_name_uses_function_name(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def simple_task():
+    return 1
+
+@task.with_options(retry_max_attempts=3)
+async def retryable_task():
+    return 2
+
+@workflow
+async def my_workflow(ctx):
+    await simple_task()
+    return await retryable_task()
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "simple_task" in wf.metadata.get("task_names", [])
+        assert "retryable_task" in wf.metadata.get("task_names", [])

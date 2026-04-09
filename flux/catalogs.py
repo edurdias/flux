@@ -179,20 +179,21 @@ class WorkflowCatalog(ABC):
             raise SyntaxError(f"Error parsing source code: {str(e)}")
 
     def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
-        task_decorated = set()
+        task_func_to_name: dict[str, str] = {}
         workflow_decorated = set()
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for dec in node.decorator_list:
                     if isinstance(dec, ast.Name) and dec.id == "task":
-                        task_decorated.add(node.name)
+                        task_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Name) and dec.id == "workflow":
                         workflow_decorated.add(node.name)
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
-                                task_decorated.add(node.name)
+                                task_name = self._extract_task_name_from_decorator(dec) or node.name
+                                task_func_to_name[node.name] = task_name
                             elif (
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
                             ):
@@ -210,8 +211,8 @@ class WorkflowCatalog(ABC):
                     func_name = node.func.attr
 
                 if func_name:
-                    if func_name in task_decorated:
-                        called_tasks.add(func_name)
+                    if func_name in task_func_to_name:
+                        called_tasks.add(task_func_to_name[func_name])
                     elif func_name in workflow_decorated:
                         called_workflows.add(func_name)
 
@@ -219,6 +220,13 @@ class WorkflowCatalog(ABC):
             "task_names": sorted(called_tasks),
             "nested_workflows": sorted(called_workflows),
         }
+
+    @staticmethod
+    def _extract_task_name_from_decorator(decorator: ast.Call) -> str | None:
+        for kw in decorator.keywords:
+            if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                return kw.value.value
+        return None
 
     def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """
