@@ -46,6 +46,26 @@ class Base(DeclarativeBase):
     pass
 
 
+def _migrate_schema(engine) -> None:
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(engine)
+
+    if "workflows" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("workflows")]
+        if "wf_metadata" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE workflows ADD COLUMN wf_metadata BLOB"))
+                conn.commit()
+
+    if "execution_events" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("execution_events")]
+        if "subject" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE execution_events ADD COLUMN subject VARCHAR"))
+                conn.commit()
+
+
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
 
@@ -57,6 +77,7 @@ class DatabaseRepository(ABC):
         if engine_key not in DatabaseRepository._engines:
             DatabaseRepository._engines[engine_key] = self._create_engine()
             Base.metadata.create_all(DatabaseRepository._engines[engine_key])
+            _migrate_schema(DatabaseRepository._engines[engine_key])
         self._engine = DatabaseRepository._engines[engine_key]
 
     @abstractmethod

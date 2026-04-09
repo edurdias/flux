@@ -75,6 +75,9 @@ class OIDCProvider(AuthProvider):
         except jwt.InvalidTokenError as e:
             logger.warning(f"OIDC token validation failed: {e}")
             return None
+        except Exception as e:
+            logger.error(f"OIDC provider error: {type(e).__name__}: {e}")
+            return None
 
     @staticmethod
     def _resolve_claim(payload: dict, claim_path: str) -> list | None:

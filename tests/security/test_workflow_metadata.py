@@ -124,3 +124,86 @@ async def my_workflow(ctx):
         wf = workflows[0]
         assert "simple_task" in wf.metadata.get("task_names", [])
         assert "retryable_task" in wf.metadata.get("task_names", [])
+
+    def test_auth_exempt_task_excluded_from_metadata(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def normal_task():
+    return 1
+
+@task.with_options(auth_exempt=True)
+async def exempt_task():
+    return 2
+
+@workflow
+async def my_workflow(ctx):
+    await normal_task()
+    return await exempt_task()
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "normal_task" in wf.metadata.get("task_names", [])
+        assert "exempt_task" not in wf.metadata.get("task_names", [])
+
+    def test_auth_exempt_false_task_included_in_metadata(self):
+        source = b"""
+from flux import workflow, task
+
+@task.with_options(auth_exempt=False)
+async def non_exempt_task():
+    return 1
+
+@workflow
+async def my_workflow(ctx):
+    return await non_exempt_task()
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "non_exempt_task" in wf.metadata.get("task_names", [])
+
+    def test_nested_workflow_with_options_name_used(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def step_one():
+    return 1
+
+@workflow.with_options(name="renamed_inner")
+async def inner_workflow(ctx):
+    return await step_one()
+
+@workflow
+async def outer_workflow(ctx):
+    await inner_workflow(ctx)
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        outer = [w for w in workflows if w.name == "outer_workflow"][0]
+        assert "renamed_inner" in outer.metadata.get("nested_workflows", [])
+        assert "inner_workflow" not in outer.metadata.get("nested_workflows", [])
+
+    def test_nested_workflow_plain_decorator_uses_function_name(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def step():
+    return 1
+
+@workflow
+async def sub_workflow(ctx):
+    return await step()
+
+@workflow
+async def main_workflow(ctx):
+    await sub_workflow(ctx)
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        main = [w for w in workflows if w.name == "main_workflow"][0]
+        assert "sub_workflow" in main.metadata.get("nested_workflows", [])

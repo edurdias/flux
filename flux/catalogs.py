@@ -180,7 +180,7 @@ class WorkflowCatalog(ABC):
 
     def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
         task_func_to_name: dict[str, str] = {}
-        workflow_decorated = set()
+        workflow_func_to_name: dict[str, str] = {}
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -188,16 +188,20 @@ class WorkflowCatalog(ABC):
                     if isinstance(dec, ast.Name) and dec.id == "task":
                         task_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Name) and dec.id == "workflow":
-                        workflow_decorated.add(node.name)
+                        workflow_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
-                                task_name = self._extract_task_name_from_decorator(dec) or node.name
-                                task_func_to_name[node.name] = task_name
+                                if not self._is_auth_exempt(dec):
+                                    task_name = (
+                                        self._extract_task_name_from_decorator(dec) or node.name
+                                    )
+                                    task_func_to_name[node.name] = task_name
                             elif (
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
                             ):
-                                workflow_decorated.add(node.name)
+                                wf_name = self._extract_task_name_from_decorator(dec) or node.name
+                                workflow_func_to_name[node.name] = wf_name
 
         called_tasks = set()
         called_workflows = set()
@@ -213,8 +217,8 @@ class WorkflowCatalog(ABC):
                 if func_name:
                     if func_name in task_func_to_name:
                         called_tasks.add(task_func_to_name[func_name])
-                    elif func_name in workflow_decorated:
-                        called_workflows.add(func_name)
+                    elif func_name in workflow_func_to_name:
+                        called_workflows.add(workflow_func_to_name[func_name])
 
         return {
             "task_names": sorted(called_tasks),
@@ -227,6 +231,13 @@ class WorkflowCatalog(ABC):
             if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                 return kw.value.value
         return None
+
+    @staticmethod
+    def _is_auth_exempt(decorator: ast.Call) -> bool:
+        for kw in decorator.keywords:
+            if kw.arg == "auth_exempt" and isinstance(kw.value, ast.Constant):
+                return bool(kw.value.value)
+        return False
 
     def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """

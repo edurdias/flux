@@ -55,6 +55,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._progress_callback = progress_callback or (lambda *_: None)
         self._identity: FluxIdentity | None = None
         self._auth_token = auth_token
+        self._identity_subject: str | None = None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -368,6 +369,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
     def set_identity(self, identity: FluxIdentity) -> None:
         self._identity = identity
+        self._identity_subject = identity.subject
 
     @property
     def auth_token(self) -> str | None:
@@ -379,7 +381,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def _get_subject(self) -> str | None:
         if self._identity is not None:
             return self._identity.subject
-        return None
+        return self._identity_subject
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -408,7 +410,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         data: dict,
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
     ) -> ExecutionContext:
-        return ExecutionContext(
+        ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["workflow_id"],
             workflow_name=data["workflow_name"],
             input=data["input"],
@@ -418,6 +420,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
             checkpoint=checkpoint,
             auth_token=data.get("auth_token"),
         )
+        ctx._identity_subject = data.get("identity_subject")
+        return ctx
 
     def _is_last_event(self, event_type: ExecutionEventType) -> bool:
         """

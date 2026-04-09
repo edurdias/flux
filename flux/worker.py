@@ -46,18 +46,22 @@ class WorkflowExecutionRequest(BaseModel):
         data: dict,
         checkpoint: Callable[[ExecutionContext], Awaitable],
     ) -> WorkflowExecutionRequest:
+        auth_token = data.get("auth_token") or data["context"].get("auth_token")
+        ctx: ExecutionContext = ExecutionContext(
+            workflow_id=data["context"]["workflow_id"],
+            workflow_name=data["context"]["workflow_name"],
+            input=data["context"]["input"],
+            execution_id=data["context"]["execution_id"],
+            state=data["context"]["state"],
+            events=[ExecutionEvent(**event) for event in data["context"]["events"]],
+            checkpoint=checkpoint,
+            auth_token=auth_token,
+        )
+        ctx._identity_subject = data["context"].get("identity_subject")
         return WorkflowExecutionRequest(
             workflow=WorkflowDefinition(**data["workflow"]),
-            context=ExecutionContext(
-                workflow_id=data["context"]["workflow_id"],
-                workflow_name=data["context"]["workflow_name"],
-                input=data["context"]["input"],
-                execution_id=data["context"]["execution_id"],
-                state=data["context"]["state"],
-                events=[ExecutionEvent(**event) for event in data["context"]["events"]],
-                checkpoint=checkpoint,
-            ),
-            auth_token=data.get("auth_token"),
+            context=ctx,
+            auth_token=auth_token,
         )
 
 

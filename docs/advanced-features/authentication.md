@@ -142,7 +142,10 @@ Roles beyond the three built-in ones can be created via the CLI or API:
 
 ```bash
 flux roles create data-pipeline \
-  --permissions "workflow:ingest:run,workflow:transform:run,workflow:ingest:read,workflow:transform:read"
+  --permissions "workflow:ingest:run" \
+  --permissions "workflow:transform:run" \
+  --permissions "workflow:ingest:read" \
+  --permissions "workflow:transform:read"
 ```
 
 Roles can be cloned from an existing role and modified:
@@ -281,17 +284,17 @@ The event log provides a full audit trail: who ran, paused, resumed, or cancelle
 | `POST` | `/schedules` | `schedule:*:manage` |
 | `PUT` | `/schedules/{name}` | `schedule:*:manage` |
 | `DELETE` | `/schedules/{name}` | `schedule:*:manage` |
-| `GET` | `/secrets` | `admin:secrets:manage` |
-| `PUT` | `/secrets/{name}` | `admin:secrets:manage` |
-| `DELETE` | `/secrets/{name}` | `admin:secrets:manage` |
-| `GET` | `/roles` | `admin:roles:manage` |
-| `POST` | `/roles` | `admin:roles:manage` |
-| `PUT` | `/roles/{name}` | `admin:roles:manage` |
-| `DELETE` | `/roles/{name}` | `admin:roles:manage` |
-| `GET` | `/service-accounts` | `admin:service-accounts:manage` |
-| `POST` | `/service-accounts` | `admin:service-accounts:manage` |
-| `POST` | `/service-accounts/{name}/keys` | `admin:service-accounts:manage` |
-| `DELETE` | `/service-accounts/{name}/keys/{key}` | `admin:service-accounts:manage` |
+| `GET` | `/admin/secrets` | `admin:secrets:manage` |
+| `PUT` | `/admin/secrets/{name}` | `admin:secrets:manage` |
+| `DELETE` | `/admin/secrets/{name}` | `admin:secrets:manage` |
+| `GET` | `/admin/roles` | `admin:roles:manage` |
+| `POST` | `/admin/roles` | `admin:roles:manage` |
+| `PUT` | `/admin/roles/{name}` | `admin:roles:manage` |
+| `DELETE` | `/admin/roles/{name}` | `admin:roles:manage` |
+| `GET` | `/admin/service-accounts` | `admin:service-accounts:manage` |
+| `POST` | `/admin/service-accounts` | `admin:service-accounts:manage` |
+| `POST` | `/admin/service-accounts/{name}/keys` | `admin:service-accounts:manage` |
+| `DELETE` | `/admin/service-accounts/{name}/keys/{key}` | `admin:service-accounts:manage` |
 
 ## CLI Reference
 
@@ -317,7 +320,7 @@ flux auth permissions --format json
 flux auth logout
 ```
 
-> `flux auth login` using the Device Authorization Grant is planned for a future release.
+`flux auth login` supports the Device Authorization Grant for CLI authentication.
 
 ### Roles
 
@@ -331,7 +334,9 @@ flux roles show operator
 
 # Create a custom role
 flux roles create data-engineer \
-  --permissions "workflow:*:run,workflow:*:read,schedule:*:read"
+  --permissions "workflow:*:run" \
+  --permissions "workflow:*:read" \
+  --permissions "schedule:*:read"
 
 # Clone a role and modify it
 flux roles clone operator --name limited-operator

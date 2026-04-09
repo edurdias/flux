@@ -1,7 +1,13 @@
 import hashlib
 from datetime import datetime, timedelta
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
+from flux.models import Base
 
 
 class TestRoleModel:
@@ -57,6 +63,63 @@ class TestAPIKeyModel:
             expires_at=datetime.now() + timedelta(days=90),
         )
         assert key.expires_at is not None
+
+
+class TestAPIKeyModelUniqueConstraints:
+    @pytest.fixture
+    def db_session(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            yield session
+
+    def test_duplicate_key_name_per_service_account_raises(self, db_session):
+        sa = ServiceAccountModel(name="svc", roles=["operator"])
+        db_session.add(sa)
+        db_session.flush()
+
+        key1 = APIKeyModel(
+            service_account_id=sa.id,
+            name="my-key",
+            key_hash="hash1",
+            key_prefix="flux_sk_aa",
+        )
+        db_session.add(key1)
+        db_session.flush()
+
+        key2 = APIKeyModel(
+            service_account_id=sa.id,
+            name="my-key",
+            key_hash="hash2",
+            key_prefix="flux_sk_bb",
+        )
+        db_session.add(key2)
+        with pytest.raises(IntegrityError):
+            db_session.flush()
+
+    def test_duplicate_key_hash_raises(self, db_session):
+        sa = ServiceAccountModel(name="svc2", roles=["operator"])
+        db_session.add(sa)
+        db_session.flush()
+
+        key1 = APIKeyModel(
+            service_account_id=sa.id,
+            name="key-a",
+            key_hash="same_hash",
+            key_prefix="flux_sk_aa",
+        )
+        db_session.add(key1)
+        db_session.flush()
+
+        key2 = APIKeyModel(
+            service_account_id=sa.id,
+            name="key-b",
+            key_hash="same_hash",
+            key_prefix="flux_sk_bb",
+        )
+        db_session.add(key2)
+        with pytest.raises(IntegrityError):
+            db_session.flush()
 
 
 class TestExecutionEventSubject:

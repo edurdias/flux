@@ -63,9 +63,13 @@ class AuthService:
             raise AuthenticationError("Authorization token required")
 
         for provider in self._providers:
-            identity = await provider.authenticate(token)
-            if identity is not None:
-                return identity
+            try:
+                identity = await provider.authenticate(token)
+                if identity is not None:
+                    return identity
+            except Exception as e:
+                logger.error(f"Provider {type(provider).__name__} error: {e}")
+                continue
 
         raise AuthenticationError("Invalid or expired token")
 

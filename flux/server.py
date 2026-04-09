@@ -2953,17 +2953,17 @@ class Server:
         async def auth_is_authorized(
             http_request: Request,
             request: IsAuthorizedRequest,
-            authorization: str = Header(None),
+            caller: FluxIdentity = Depends(get_identity),
         ):
-            self._extract_token(authorization)
+            """Check if a token has a permission. Caller must be authenticated."""
             try:
                 identity = await auth_service.authenticate(request.token)
                 authorized = await auth_service.is_authorized(identity, request.permission)
                 return {"authorized": authorized}
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+            except AuthenticationError:
+                return {"authorized": False}
+            except Exception:
+                return {"authorized": False}
 
         return api
 

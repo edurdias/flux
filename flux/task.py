@@ -118,7 +118,7 @@ class task:
 
         ctx = await ExecutionContext.get()
 
-        if not self.auth_exempt and ctx.identity is not None:
+        if not self.auth_exempt:
             from flux.config import Configuration
 
             auth_config = Configuration.get().settings.security.auth
@@ -126,9 +126,10 @@ class task:
                 from flux.security.errors import TaskAuthorizationError
                 from flux.security.dependencies import _get_auth_service
 
-                auth_service = _get_auth_service()
                 required = f"workflow:{ctx.workflow_name}:task:{self.name}:execute"
-                if auth_service is not None:
+                auth_service = _get_auth_service()
+
+                if auth_service is not None and ctx.identity is not None:
                     if not await auth_service.is_authorized(ctx.identity, required):
                         raise TaskAuthorizationError(
                             task_name=full_name,
@@ -136,23 +137,23 @@ class task:
                             subject=ctx.identity.subject,
                             required_permission=required,
                         )
-                elif ctx.auth_token:
+                elif hasattr(ctx, "auth_token") and ctx.auth_token:
                     import httpx
 
-                    from flux.config import Configuration as _Config
-
-                    server_url = _Config.get().settings.workers.server_url
+                    server_url = Configuration.get().settings.workers.server_url
                     try:
                         async with httpx.AsyncClient() as client:
                             resp = await client.post(
                                 f"{server_url}/auth/is-authorized",
                                 json={"token": ctx.auth_token, "permission": required},
+                                headers={"Authorization": f"Bearer {ctx.auth_token}"},
+                                timeout=10.0,
                             )
-                            if resp.status_code == 200 and not resp.json().get("authorized", False):
+                            if resp.status_code != 200 or not resp.json().get("authorized", False):
                                 raise TaskAuthorizationError(
                                     task_name=full_name,
                                     task_id=task_id,
-                                    subject=ctx.identity.subject,
+                                    subject="unknown",
                                     required_permission=required,
                                 )
                     except httpx.HTTPError as auth_err:
@@ -162,8 +163,6 @@ class task:
                         logger.error(
                             f"Task authorization check failed for '{full_name}': {auth_err}",
                         )
-                        from flux.security.errors import TaskAuthorizationError
-
                         raise TaskAuthorizationError(
                             task_name=full_name,
                             task_id=task_id,

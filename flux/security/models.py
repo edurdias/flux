@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from flux.models import Base
@@ -84,6 +84,11 @@ class APIKeyModel(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     service_account = relationship("ServiceAccountModel", back_populates="keys")
+
+    __table_args__ = (
+        UniqueConstraint("service_account_id", "name", name="uix_api_key_sa_name"),
+        UniqueConstraint("key_hash", name="uix_api_key_hash"),
+    )
 
     def __init__(
         self,

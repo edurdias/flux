@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from unittest.mock import patch
 
+import httpx
 import jwt as pyjwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -118,3 +119,25 @@ class TestOIDCProvider:
 
     def test_resolve_claim_missing(self):
         assert OIDCProvider._resolve_claim({"other": "value"}, "roles") is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_returns_none_on_discovery_failure(self, provider):
+        with patch.object(
+            provider,
+            "_get_signing_key",
+            side_effect=Exception("Network error fetching JWKS"),
+        ):
+            identity = await provider.authenticate("some.token.value")
+
+        assert identity is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_returns_none_on_http_error(self, provider):
+        with patch.object(
+            provider,
+            "_get_signing_key",
+            side_effect=httpx.ConnectError("Connection refused"),
+        ):
+            identity = await provider.authenticate("some.token.value")
+
+        assert identity is None
