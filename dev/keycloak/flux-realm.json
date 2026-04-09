@@ -18,6 +18,9 @@
       "standardFlowEnabled": true,
       "redirectUris": ["http://localhost:*"],
       "webOrigins": ["*"],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
       "protocolMappers": [
         {
           "name": "audience-mapper",
