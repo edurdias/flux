@@ -128,16 +128,35 @@ class task:
 
                 auth_service = _get_auth_service()
                 required = f"workflow:{ctx.workflow_name}:task:{self.name}:execute"
-                if auth_service is not None and not await auth_service.is_authorized(
-                    ctx.identity,
-                    required,
-                ):
-                    raise TaskAuthorizationError(
-                        task_name=full_name,
-                        task_id=task_id,
-                        subject=ctx.identity.subject,
-                        required_permission=required,
-                    )
+                if auth_service is not None:
+                    if not await auth_service.is_authorized(ctx.identity, required):
+                        raise TaskAuthorizationError(
+                            task_name=full_name,
+                            task_id=task_id,
+                            subject=ctx.identity.subject,
+                            required_permission=required,
+                        )
+                elif ctx.auth_token:
+                    import httpx
+
+                    from flux.config import Configuration as _Config
+
+                    server_url = _Config.get().settings.workers.server_url
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            resp = await client.post(
+                                f"{server_url}/auth/is-authorized",
+                                json={"token": ctx.auth_token, "permission": required},
+                            )
+                            if resp.status_code == 200 and not resp.json().get("authorized", False):
+                                raise TaskAuthorizationError(
+                                    task_name=full_name,
+                                    task_id=task_id,
+                                    subject=ctx.identity.subject,
+                                    required_permission=required,
+                                )
+                    except httpx.HTTPError:
+                        pass
 
         finished = [
             e

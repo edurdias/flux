@@ -251,7 +251,7 @@ Revoked keys are deleted immediately. In-flight requests using the revoked key w
 
 ## Identity on Events
 
-Every workflow execution event carries the subject identifier of the principal who triggered that event. This means different users can act on different lifecycle events of the same execution.
+Workflow-level lifecycle events (scheduled, claimed, started, completed, failed, paused, resumed, cancelled) carry the subject identifier of the principal who triggered that event. This means different users can act on different lifecycle events of the same execution. Individual task events do not carry a subject.
 
 ```
 execution started by: alice@example.com

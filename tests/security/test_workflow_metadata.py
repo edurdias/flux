@@ -83,3 +83,21 @@ async def my_workflow(ctx):
         workflows = catalog.parse(source)
         wf = workflows[0]
         assert "my_func" in wf.metadata.get("task_names", [])
+
+    def test_task_with_options_uses_function_name_not_custom(self):
+        source = b"""
+from flux import workflow, task
+
+@task.with_options(name="custom_{source}")
+async def load_data(source: str):
+    return source
+
+@workflow
+async def my_workflow(ctx):
+    return await load_data("db")
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "load_data" in wf.metadata.get("task_names", [])
+        assert "custom_{source}" not in wf.metadata.get("task_names", [])

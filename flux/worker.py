@@ -467,6 +467,8 @@ class Worker:
                 self._module_cache[cache_key] = (module, time.monotonic())
 
         ctx = request.context
+        if request.auth_token:
+            ctx.set_auth_token(request.auth_token)
         self._setup_progress(ctx)
 
         for obj in module.__dict__.values():
