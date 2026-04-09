@@ -17,10 +17,6 @@ class APIKeyProvider(AuthProvider):
         self._session_factory = session_factory
 
     async def authenticate(self, token: str) -> FluxIdentity | None:
-        # SHA-256 is appropriate for API keys (unlike passwords) because keys are
-        # high-entropy secrets (192 bits from secrets.token_hex(24)). Brute-forcing
-        # SHA-256 of a 192-bit random value is computationally infeasible. Slow hashes
-        # like bcrypt would add unnecessary latency on every API request.
         key_hash = hashlib.sha256(token.encode()).hexdigest()
         session = self._session_factory()
         try:
