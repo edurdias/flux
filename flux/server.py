@@ -264,6 +264,9 @@ class Server:
         self._execution_events: dict[str, asyncio.Event] = {}
         self._progress_buffers: dict[str, asyncio.Queue] = {}
         self._execution_queue_times: dict[str, float] = {}
+        # In-memory map of execution_id → auth_token for dispatch.
+        # Tokens are NOT persisted to DB (zero-trust).
+        self._execution_auth_tokens: dict[str, str] = {}
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
@@ -712,6 +715,33 @@ class Server:
                     metadata={"token_type": "service_account", "via": "scheduler"},
                 )
 
+                # Pre-flight authorization check: verify SA has permissions to run
+                # the workflow and all its tasks BEFORE execution is created.
+                try:
+                    workflow = WorkflowCatalog.create().get(schedule.workflow_name)
+                    workflow_metadata = (
+                        workflow.metadata or {} if hasattr(workflow, "metadata") else {}
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Schedule '{schedule.name}': workflow '{schedule.workflow_name}' not found: {e}",
+                    )
+                    schedule.mark_failure()
+                    return
+
+                auth_result = await db_auth_service.authorize(
+                    identity,
+                    schedule.workflow_name,
+                    workflow_metadata,
+                )
+                if not auth_result.ok:
+                    logger.error(
+                        f"Schedule '{schedule.name}': SA '{sa.name}' lacks permissions: "
+                        f"{auth_result.missing_permissions}",
+                    )
+                    schedule.mark_failure()
+                    return
+
                 auth_token = mint_internal_token(
                     subject=identity.subject,
                     roles=identity.roles,
@@ -727,6 +757,7 @@ class Server:
             )
             if auth_token:
                 ctx.set_auth_token(auth_token)
+                self._execution_auth_tokens[ctx.execution_id] = auth_token
 
             # Update schedule tracking
             schedule.mark_run(scheduled_time)
@@ -945,6 +976,7 @@ class Server:
                 ctx = self._create_execution(workflow_name, input, version, identity)
                 if auth_token:
                     ctx.set_auth_token(auth_token)
+                    self._execution_auth_tokens[ctx.execution_id] = auth_token
                 manager = ContextManager.create()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
@@ -1142,6 +1174,7 @@ class Server:
                     )
                 if auth_token:
                     ctx.set_auth_token(auth_token)
+                    self._execution_auth_tokens[ctx.execution_id] = auth_token
 
                 if ctx.has_finished:
                     raise HTTPException(
@@ -1572,8 +1605,16 @@ class Server:
                                     )
 
                                     payload_dict = {"workflow": workflow, "context": ctx}
-                                    if ctx.auth_token:
-                                        payload_dict["auth_token"] = ctx.auth_token
+                                    # Prefer in-memory auth token (zero-trust, not persisted).
+                                    # Falls back to ctx.auth_token for resume scenarios.
+                                    auth_token_for_dispatch = (
+                                        self._execution_auth_tokens.get(
+                                            ctx.execution_id,
+                                        )
+                                        or ctx.auth_token
+                                    )
+                                    if auth_token_for_dispatch:
+                                        payload_dict["auth_token"] = auth_token_for_dispatch
                                     data_payload = to_json(payload_dict)
 
                                     from flux.observability import is_enabled
@@ -1628,8 +1669,14 @@ class Server:
                                     )
 
                                     resume_payload_dict = {"workflow": workflow, "context": ctx}
-                                    if ctx.auth_token:
-                                        resume_payload_dict["auth_token"] = ctx.auth_token
+                                    resume_auth_token = (
+                                        self._execution_auth_tokens.get(
+                                            ctx.execution_id,
+                                        )
+                                        or ctx.auth_token
+                                    )
+                                    if resume_auth_token:
+                                        resume_payload_dict["auth_token"] = resume_auth_token
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
@@ -1749,6 +1796,7 @@ class Server:
 
                 if ctx.has_finished:
                     self._execution_queue_times.pop(execution_id, None)
+                    self._execution_auth_tokens.pop(execution_id, None)
                     worker_execs = self._worker_executions.get(name)
                     if worker_execs:
                         worker_execs.discard(execution_id)
@@ -3033,17 +3081,20 @@ class Server:
         @api.post("/auth/test-token")
         @limiter.limit("10/minute")
         async def auth_test_token(
-            http_request: Request,
-            request: TestTokenRequest,
+            request: Request,
+            body: dict,
             identity: FluxIdentity = Depends(require_permission("admin:*")),
         ):
             try:
-                identity = await auth_service.authenticate(request.token)
-                permissions = await auth_service.resolve_permissions(identity)
+                token = body.get("token")
+                if not token:
+                    return {"valid": False, "error": "Missing 'token' in request body"}
+                tested_identity = await auth_service.authenticate(token)
+                permissions = await auth_service.resolve_permissions(tested_identity)
                 return {
                     "valid": True,
-                    "subject": identity.subject,
-                    "roles": sorted(identity.roles),
+                    "subject": tested_identity.subject,
+                    "roles": sorted(tested_identity.roles),
                     "permissions": sorted(permissions),
                 }
             except Exception:
@@ -3052,14 +3103,18 @@ class Server:
         @api.post("/auth/is-authorized")
         @limiter.limit("60/minute")
         async def auth_is_authorized(
-            http_request: Request,
-            request: IsAuthorizedRequest,
+            request: Request,
+            body: dict,
             caller: FluxIdentity = Depends(get_identity),
         ):
             """Check if a token has a permission. Caller must be authenticated."""
             try:
-                identity = await auth_service.authenticate(request.token)
-                authorized = await auth_service.is_authorized(identity, request.permission)
+                token = body.get("token")
+                permission = body.get("permission")
+                if not token or not permission:
+                    return {"authorized": False}
+                identity = await auth_service.authenticate(token)
+                authorized = await auth_service.is_authorized(identity, permission)
                 return {"authorized": authorized}
             except AuthenticationError:
                 return {"authorized": False}

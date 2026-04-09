@@ -271,13 +271,20 @@ def auth_test_token(token):
     )
     if resp.status_code == 200:
         data = resp.json()
+        if not data.get("valid"):
+            click.echo(f"Error: {data.get('error', 'Invalid token')}")
+            return
         click.echo(f"Subject: {data.get('subject')}")
         click.echo(f"Roles: {', '.join(data.get('roles', []))}")
         click.echo("Effective Permissions:")
         for perm in data.get("permissions", []):
             click.echo(f"  - {perm}")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        click.echo(f"Error: {detail}")
 
 
 @auth.command("permissions")
@@ -323,6 +330,13 @@ def roles_list(fmt):
     """List all roles."""
     url = get_server_url()
     resp = httpx.get(f"{url}/admin/roles", headers=get_auth_headers())
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        click.echo(f"Error: {detail}")
+        return
     data = resp.json()
     if fmt == "json":
         click.echo(json.dumps(data, indent=2))
@@ -439,6 +453,13 @@ def sa_list(fmt):
         f"{url}/admin/service-accounts",
         headers=get_auth_headers(),
     )
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        click.echo(f"Error: {detail}")
+        return
     data = resp.json()
     if fmt == "json":
         click.echo(json.dumps(data, indent=2))
@@ -551,6 +572,13 @@ def sa_list_keys(name):
         f"{url}/admin/service-accounts/{name}/keys",
         headers=get_auth_headers(),
     )
+    if resp.status_code != 200:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        click.echo(f"Error: {detail}")
+        return
     data = resp.json()
     for key in data:
         expires = key.get("expires_at", "never")
