@@ -813,13 +813,6 @@ class Server:
         api.add_middleware(SlowAPIMiddleware)
         api.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-        @api.exception_handler(RateLimitExceeded)
-        async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Rate limit exceeded. Try again later."},
-            )
-
         api.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -2531,6 +2524,16 @@ class Server:
                     f"(state: {state}, limit: {limit}, offset: {offset})",
                 )
 
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{workflow_name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                        )
+
                 from flux.domain import ExecutionState
 
                 # Check workflow exists
@@ -3101,13 +3104,19 @@ class Server:
                 return {"valid": False, "error": "Invalid or expired token"}
 
         @api.post("/auth/is-authorized")
-        @limiter.limit("60/minute")
         async def auth_is_authorized(
             request: Request,
             body: dict,
             caller: FluxIdentity = Depends(get_identity),
         ):
-            """Check if a token has a permission. Caller must be authenticated."""
+            """Check if a token has a permission. Caller must be authenticated.
+
+            Not rate-limited: this endpoint is called by workers on every task
+            execution for runtime authorization checks. Rate limiting here would
+            break legitimate workloads that run many tasks per minute. The
+            endpoint requires authentication, so brute-force attacks are not
+            possible without a valid token.
+            """
             try:
                 token = body.get("token")
                 permission = body.get("permission")
