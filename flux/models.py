@@ -55,7 +55,7 @@ def _migrate_schema(engine) -> None:
         cols = [c["name"] for c in inspector.get_columns("workflows")]
         if "wf_metadata" not in cols:
             with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE workflows ADD COLUMN wf_metadata BLOB"))
+                conn.execute(text("ALTER TABLE workflows ADD COLUMN wf_metadata TEXT"))
                 conn.commit()
 
     if "execution_events" in inspector.get_table_names():

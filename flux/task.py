@@ -169,6 +169,19 @@ class task:
                             subject="unknown",
                             required_permission=required,
                         )
+                else:
+                    from flux.utils import get_logger
+
+                    logger = get_logger(__name__)
+                    logger.error(
+                        f"Task '{full_name}' authorization failed: auth enabled but no identity or token available",
+                    )
+                    raise TaskAuthorizationError(
+                        task_name=full_name,
+                        task_id=task_id,
+                        subject="unknown",
+                        required_permission=required,
+                    )
 
         finished = [
             e

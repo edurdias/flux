@@ -102,8 +102,18 @@ class TestWildcardMatching:
     def test_all_wildcards(self):
         identity = FluxIdentity(subject="test")
         assert identity.has_permission("a:b:c", {"*:*:*"}) is True
-        assert identity.has_permission("a:b", {"*:*:*"}) is False
+        assert identity.has_permission("a:b", {"*:*:*"}) is True
 
     def test_empty_permissions_set(self):
         identity = FluxIdentity(subject="test")
         assert identity.has_permission("anything", set()) is False
+
+    def test_terminal_wildcard_matches_zero_segments(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("workflow:report", {"workflow:report:*"}) is True
+
+    def test_schedule_star_matches_all_schedule_ops(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("schedule:daily:manage", {"schedule:*"}) is True
+        assert identity.has_permission("schedule:daily:read", {"schedule:*"}) is True
+        assert identity.has_permission("schedule", {"schedule:*"}) is True

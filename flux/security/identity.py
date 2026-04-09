@@ -41,7 +41,7 @@ def _wildcard_match(pattern_parts: list[str], target_parts: list[str]) -> bool:
     for i, part in enumerate(pattern_parts):
         if part == "*":
             if i == len(pattern_parts) - 1:
-                return i < len(target_parts)
+                return True
             if i >= len(target_parts):
                 return False
             continue

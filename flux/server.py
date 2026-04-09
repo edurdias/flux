@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from pydantic import BaseModel
 from sse_starlette import EventSourceResponse
 
@@ -43,10 +44,17 @@ from flux.domain.schedule import schedule_factory
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service, get_identity, require_permission
 from flux.security.errors import AuthenticationError
-from flux.security.identity import FluxIdentity
+from flux.security.identity import FluxIdentity, ANONYMOUS
 from datetime import datetime, timezone
 
 logger = get_logger(__name__)
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."},
+    )
 
 
 class WorkerRuntimeModel(BaseModel):
@@ -771,6 +779,8 @@ class Server:
 
         limiter = Limiter(key_func=get_remote_address)
         api.state.limiter = limiter
+        api.add_middleware(SlowAPIMiddleware)
+        api.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
         @api.exception_handler(RateLimitExceeded)
         async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -889,7 +899,6 @@ class Server:
             detailed: bool = False,
             version: int | None = None,
             identity: FluxIdentity = Depends(get_identity),
-            authorization: str = Header(None),
         ):
             try:
                 logger.debug(
@@ -924,8 +933,14 @@ class Server:
                         )
 
                 auth_token = None
-                if authorization and authorization.startswith("Bearer "):
-                    auth_token = authorization.split(" ", 1)[1]
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.providers.internal import mint_internal_token
+
+                    auth_token = mint_internal_token(
+                        subject=identity.subject,
+                        roles=identity.roles,
+                        ttl_seconds=3600 * 24,
+                    )
 
                 ctx = self._create_execution(workflow_name, input, version, identity)
                 if auth_token:
@@ -1071,7 +1086,6 @@ class Server:
             mode: str = "async",
             detailed: bool = False,
             identity: FluxIdentity = Depends(get_identity),
-            authorization: str = Header(None),
         ):
             try:
                 logger.debug(
@@ -1118,8 +1132,14 @@ class Server:
                     )
 
                 auth_token = None
-                if authorization and authorization.startswith("Bearer "):
-                    auth_token = authorization.split(" ", 1)[1]
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.providers.internal import mint_internal_token
+
+                    auth_token = mint_internal_token(
+                        subject=identity.subject,
+                        roles=identity.roles,
+                        ttl_seconds=3600 * 24,
+                    )
                 if auth_token:
                     ctx.set_auth_token(auth_token)
 
@@ -2784,7 +2804,10 @@ class Server:
                     "built_in": role.built_in,
                 }
             except ValueError as e:
-                raise HTTPException(status_code=409, detail=str(e))
+                msg = str(e)
+                if "already exists" in msg.lower():
+                    raise HTTPException(status_code=409, detail=msg)
+                raise HTTPException(status_code=400, detail=msg)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
@@ -2837,7 +2860,10 @@ class Server:
                     "built_in": role.built_in,
                 }
             except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
+                msg = str(e)
+                if "already exists" in msg.lower():
+                    raise HTTPException(status_code=409, detail=msg)
+                raise HTTPException(status_code=400, detail=msg)
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 

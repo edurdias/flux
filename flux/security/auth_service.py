@@ -18,7 +18,7 @@ from flux.utils import get_logger
 
 logger = get_logger(__name__)
 
-PERMISSION_PATTERN = re.compile(r"^[a-zA-Z0-9_*-]+(:[a-zA-Z0-9_*-]+)*$")
+PERMISSION_PATTERN = re.compile(r"^[a-zA-Z0-9_*\-{}]+(:[a-zA-Z0-9_*\-{}]+)*$")
 
 BUILT_IN_ROLES = {
     "admin": ["*"],

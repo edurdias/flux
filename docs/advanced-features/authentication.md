@@ -197,7 +197,7 @@ Every task is also authorized at runtime when the worker is about to execute it.
 Tasks that perform purely internal work (logging helpers, formatters, in-process computations) can opt out of authorization checks:
 
 ```python
-@task(auth_exempt=True)
+@task.with_options(auth_exempt=True)
 async def format_output(data: dict) -> str:
     return json.dumps(data, indent=2)
 ```
