@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -10,19 +13,98 @@ import httpx
 from flux.config import Configuration
 
 
+CREDENTIALS_FILE = Path.home() / ".flux" / "credentials.json"
+
+
 def get_server_url():
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
 
 
+def save_credentials(token_response: dict, issuer: str) -> None:
+    """Save OIDC tokens to ~/.flux/credentials.json with 0600 permissions."""
+    CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    expires_in = token_response.get("expires_in", 3600)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+    credentials = {
+        "access_token": token_response["access_token"],
+        "refresh_token": token_response.get("refresh_token"),
+        "expires_at": expires_at.isoformat(),
+        "token_type": token_response.get("token_type", "Bearer"),
+        "issuer": issuer,
+    }
+
+    CREDENTIALS_FILE.write_text(json.dumps(credentials, indent=2))
+    os.chmod(CREDENTIALS_FILE, stat.S_IRUSR | stat.S_IWUSR)
+
+
+def load_credentials() -> dict | None:
+    """Load credentials from file, return None if missing or invalid."""
+    if not CREDENTIALS_FILE.exists():
+        return None
+    try:
+        return json.loads(CREDENTIALS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def refresh_access_token(credentials: dict) -> dict | None:
+    """Refresh the access token using the refresh token. Returns new credentials or None."""
+    if not credentials.get("refresh_token"):
+        return None
+
+    issuer = credentials.get("issuer")
+    if not issuer:
+        return None
+
+    try:
+        discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+        resp = httpx.get(discovery_url, timeout=10)
+        resp.raise_for_status()
+        token_endpoint = resp.json()["token_endpoint"]
+
+        for client_id in ["flux-api", "flux-cli"]:
+            resp = httpx.post(
+                token_endpoint,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": credentials["refresh_token"],
+                    "client_id": client_id,
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                token_data = resp.json()
+                save_credentials(token_data, issuer)
+                return load_credentials()
+        return None
+    except Exception:
+        return None
+
+
 def get_auth_headers() -> dict:
+    """Get auth headers from env var or stored credentials."""
     token = os.environ.get("FLUX_AUTH_TOKEN")
-    if not token:
-        creds_path = Path.home() / ".flux" / "credentials"
-        if creds_path.exists():
-            token = creds_path.read_text().strip()
     if token:
         return {"Authorization": f"Bearer {token}"}
+
+    credentials = load_credentials()
+    if credentials:
+        try:
+            expires_at = datetime.fromisoformat(credentials["expires_at"])
+            if expires_at <= datetime.now(timezone.utc) + timedelta(seconds=30):
+                refreshed = refresh_access_token(credentials)
+                if refreshed:
+                    credentials = refreshed
+        except (KeyError, ValueError):
+            pass
+
+        return {
+            "Authorization": f"{credentials.get('token_type', 'Bearer')} {credentials['access_token']}",
+        }
+
     return {}
 
 
@@ -43,26 +125,112 @@ def auth_status():
     if not headers:
         click.echo("Not logged in. Run 'flux auth login' or set FLUX_AUTH_TOKEN.")
         return
-    try:
-        httpx.get(f"{url}/health", headers=headers)
-        click.echo(f"Authenticated. Server: {url}")
-    except Exception as e:
-        click.echo(f"Error connecting to server: {e}")
+
+    credentials = load_credentials()
+    if credentials:
+        click.echo("Logged in via OIDC")
+        click.echo(f"  Issuer: {credentials.get('issuer', 'unknown')}")
+        click.echo(f"  Expires: {credentials.get('expires_at', 'unknown')}")
+    else:
+        click.echo("Using FLUX_AUTH_TOKEN from environment")
+    click.echo(f"  Server: {url}")
 
 
 @auth.command("login")
-def auth_login():
-    """Login via Device Authorization Grant."""
-    click.echo("Device Authorization Grant flow not yet implemented.")
-    click.echo("Set FLUX_AUTH_TOKEN environment variable as a workaround.")
+@click.option("--issuer", default=None, help="OIDC issuer URL (defaults to config)")
+@click.option("--client-id", default="flux-api", help="OIDC client ID")
+def auth_login(issuer, client_id):
+    """Authenticate via OIDC Device Authorization Grant."""
+    if issuer is None:
+        oidc_config = Configuration.get().settings.security.auth.oidc
+        if not oidc_config.enabled or not oidc_config.issuer:
+            click.echo("Error: OIDC not configured. Pass --issuer or enable OIDC in flux.toml.")
+            return
+        issuer = oidc_config.issuer
+
+    discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+    try:
+        resp = httpx.get(discovery_url, timeout=10)
+        resp.raise_for_status()
+        discovery = resp.json()
+    except Exception as e:
+        click.echo(f"Error fetching OIDC discovery: {e}")
+        return
+
+    device_auth_endpoint = discovery.get("device_authorization_endpoint")
+    token_endpoint = discovery.get("token_endpoint")
+
+    if not device_auth_endpoint:
+        click.echo("Error: IdP does not support Device Authorization Grant.")
+        return
+
+    try:
+        resp = httpx.post(
+            device_auth_endpoint,
+            data={"client_id": client_id, "scope": "openid profile email"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        device_data = resp.json()
+    except Exception as e:
+        click.echo(f"Error requesting device code: {e}")
+        return
+
+    device_code = device_data["device_code"]
+    user_code = device_data["user_code"]
+    verification_uri = device_data.get("verification_uri", device_data.get("verification_url"))
+    verification_uri_complete = device_data.get("verification_uri_complete")
+    interval = device_data.get("interval", 5)
+
+    click.echo("\nTo authenticate, visit:")
+    click.echo(f"  {verification_uri_complete or verification_uri}")
+    click.echo(f"\nAnd enter this code: {user_code}\n")
+    click.echo("Waiting for authentication...")
+
+    start = time.time()
+    timeout = device_data.get("expires_in", 600)
+    while time.time() - start < timeout:
+        time.sleep(interval)
+        try:
+            resp = httpx.post(
+                token_endpoint,
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code,
+                    "client_id": client_id,
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                token_data = resp.json()
+                save_credentials(token_data, issuer)
+                click.echo("Authentication successful!")
+                return
+            elif resp.status_code == 400:
+                error = resp.json().get("error", "")
+                if error == "authorization_pending":
+                    continue
+                elif error == "slow_down":
+                    interval += 5
+                    continue
+                else:
+                    click.echo(f"Authentication failed: {error}")
+                    return
+        except Exception as e:
+            click.echo(f"Polling error: {e}")
+            return
+
+    click.echo("Authentication timed out.")
 
 
 @auth.command("logout")
 def auth_logout():
     """Clear stored credentials."""
-    creds_path = Path.home() / ".flux" / "credentials"
-    if creds_path.exists():
-        creds_path.unlink()
+    if CREDENTIALS_FILE.exists():
+        CREDENTIALS_FILE.unlink()
+    old_creds = Path.home() / ".flux" / "credentials"
+    if old_creds.exists():
+        old_creds.unlink()
     click.echo("Logged out.")
 
 
