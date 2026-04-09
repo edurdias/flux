@@ -93,8 +93,15 @@ class AuthService:
         workflow_name: str,
         workflow_metadata: dict,
     ) -> AuthorizationResult:
+        from flux.catalogs import WorkflowCatalog
+
+        catalog = WorkflowCatalog.create()
         permissions = await self.resolve_permissions(identity)
-        required_perms = self._collect_required_permissions(workflow_name, workflow_metadata)
+        required_perms = self._collect_required_permissions(
+            workflow_name,
+            workflow_metadata,
+            catalog=catalog,
+        )
         missing = [p for p in required_perms if not identity.has_permission(p, permissions)]
         if missing:
             return AuthorizationResult(ok=False, missing_permissions=missing)
@@ -105,6 +112,7 @@ class AuthService:
         workflow_name: str,
         workflow_metadata: dict,
         _visited: set[str] | None = None,
+        catalog=None,
     ) -> list[str]:
         if _visited is None:
             _visited = set()
@@ -117,16 +125,24 @@ class AuthService:
             perms.append(f"workflow:{workflow_name}:task:{task_name}:execute")
         nested_workflows = workflow_metadata.get("nested_workflows", [])
         for nested_name in nested_workflows:
-            nested_meta = self._get_workflow_metadata(nested_name)
+            nested_meta = self._get_workflow_metadata(nested_name, catalog=catalog)
             if nested_meta:
-                perms.extend(self._collect_required_permissions(nested_name, nested_meta, _visited))
+                perms.extend(
+                    self._collect_required_permissions(
+                        nested_name,
+                        nested_meta,
+                        _visited,
+                        catalog=catalog,
+                    ),
+                )
         return perms
 
-    def _get_workflow_metadata(self, workflow_name: str) -> dict | None:
-        from flux.catalogs import WorkflowCatalog
+    def _get_workflow_metadata(self, workflow_name: str, catalog=None) -> dict | None:
+        if catalog is None:
+            from flux.catalogs import WorkflowCatalog
 
-        try:
             catalog = WorkflowCatalog.create()
+        try:
             workflow = catalog.get(workflow_name)
             return workflow.metadata if hasattr(workflow, "metadata") and workflow.metadata else {}
         except Exception as e:

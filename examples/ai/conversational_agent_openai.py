@@ -47,7 +47,7 @@ async def call_openai_api(
     """Call OpenAI API to generate a response using the official SDK."""
     if not secrets or "OPENAI_API_KEY" not in secrets:
         raise ValueError(
-            "OPENAI_API_KEY not found. Set it using: " "flux secrets set OPENAI_API_KEY 'your-key'",
+            "OPENAI_API_KEY not found. Set it using: flux secrets set OPENAI_API_KEY 'your-key'",
         )
 
     try:

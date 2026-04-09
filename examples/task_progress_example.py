@@ -12,6 +12,7 @@ Usage:
         -H "Content-Type: application/json" \\
         -d '{"items": 20}'
 """
+
 from __future__ import annotations
 
 import asyncio

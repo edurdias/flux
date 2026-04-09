@@ -14,8 +14,13 @@ from fastapi import File
 from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
+from fastapi import Request
 from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from pydantic import BaseModel
 from sse_starlette import EventSourceResponse
 
@@ -713,6 +718,16 @@ class Server:
             lifespan=lifespan,
         )
 
+        limiter = Limiter(key_func=get_remote_address)
+        api.state.limiter = limiter
+
+        @api.exception_handler(RateLimitExceeded)
+        async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Try again later."},
+            )
+
         api.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -1005,6 +1020,7 @@ class Server:
             mode: str = "async",
             detailed: bool = False,
             identity: FluxIdentity = Depends(get_identity),
+            authorization: str = Header(None),
         ):
             try:
                 logger.debug(
@@ -1049,6 +1065,12 @@ class Server:
                         status_code=404,
                         detail=f"Execution context with ID {execution_id} not found.",
                     )
+
+                auth_token = None
+                if authorization and authorization.startswith("Bearer "):
+                    auth_token = authorization.split(" ", 1)[1]
+                if auth_token:
+                    ctx.set_auth_token(auth_token)
 
                 if ctx.has_finished:
                     raise HTTPException(
@@ -2889,32 +2911,28 @@ class Server:
             workflow: str | None = None,
             identity: FluxIdentity = Depends(get_identity),
         ):
-            from flux.security.permissions import generate_permission_tree
-
             try:
                 catalog = WorkflowCatalog.create()
                 if workflow:
                     wf = catalog.get(workflow)
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
-                    return generate_permission_tree(
-                        wf.name,
-                        meta.get("task_names", []),
-                        meta.get("nested_workflows", []),
-                    )
+                    perms = [f"workflow:{wf.name}:read"]
+                    perms.extend(auth_service._collect_required_permissions(wf.name, meta))
+                    return perms
                 result = {}
                 for wf in catalog.all():
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
-                    result[wf.name] = generate_permission_tree(
-                        wf.name,
-                        meta.get("task_names", []),
-                        meta.get("nested_workflows", []),
-                    )
+                    perms = [f"workflow:{wf.name}:read"]
+                    perms.extend(auth_service._collect_required_permissions(wf.name, meta))
+                    result[wf.name] = perms
                 return result
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @api.post("/auth/test-token")
+        @limiter.limit("10/minute")
         async def auth_test_token(
+            http_request: Request,
             request: TestTokenRequest,
             identity: FluxIdentity = Depends(require_permission("admin:*")),
         ):
@@ -2927,13 +2945,17 @@ class Server:
                     "roles": sorted(identity.roles),
                     "permissions": sorted(permissions),
                 }
-            except Exception as e:
-                return {"valid": False, "error": str(e)}
+            except Exception:
+                return {"valid": False, "error": "Invalid or expired token"}
 
         @api.post("/auth/is-authorized")
+        @limiter.limit("60/minute")
         async def auth_is_authorized(
+            http_request: Request,
             request: IsAuthorizedRequest,
+            authorization: str = Header(None),
         ):
+            self._extract_token(authorization)
             try:
                 identity = await auth_service.authenticate(request.token)
                 authorized = await auth_service.is_authorized(identity, request.permission)

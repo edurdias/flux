@@ -68,3 +68,23 @@ class TestAuthServiceIsAuthorized:
         identity = FluxIdentity(subject="admin@acme.com", roles=frozenset({"admin"}))
         result = await service.is_authorized(identity, "anything:at:all")
         assert result is True
+
+    @pytest.mark.asyncio
+    async def test_identity_with_unknown_role(self):
+        config = AuthConfig(api_keys=APIKeyAuthConfig(enabled=True))
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        service = AuthService(config=config, session_factory=lambda: session)
+        identity = FluxIdentity(subject="test", roles=frozenset({"nonexistent"}))
+        result = await service.is_authorized(identity, "anything")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_builtin_role_fallback_without_db(self):
+        config = AuthConfig(api_keys=APIKeyAuthConfig(enabled=True))
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.first.return_value = None
+        service = AuthService(config=config, session_factory=lambda: session)
+        identity = FluxIdentity(subject="admin@test", roles=frozenset({"admin"}))
+        result = await service.is_authorized(identity, "anything:at:all")
+        assert result is True

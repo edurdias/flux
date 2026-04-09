@@ -19,6 +19,7 @@ Usage (server/worker):
     flux workflow register examples/ai/reasoning_agent_ollama.py
     flux workflow run reasoning_agent '{"question": "Compare Python and Rust for building web APIs"}'
 """
+
 from __future__ import annotations
 
 import asyncio

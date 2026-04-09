@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String
 from sqlalchemy.orm import relationship
 
 from flux.models import Base
@@ -75,7 +75,7 @@ class ServiceAccountModel(Base):
 class APIKeyModel(Base):
     __tablename__ = "api_keys"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     service_account_id = Column(String, ForeignKey("service_accounts.id"), nullable=False)
     name = Column(String, nullable=False)
     key_hash = Column(String, nullable=False)
@@ -92,10 +92,9 @@ class APIKeyModel(Base):
         key_hash: str,
         key_prefix: str,
         expires_at: datetime | None = None,
-        id: int | None = None,
+        id: str | None = None,
     ):
-        if id is not None:
-            self.id = id
+        self.id = id or uuid4().hex
         self.service_account_id = service_account_id
         self.name = name
         self.key_hash = key_hash

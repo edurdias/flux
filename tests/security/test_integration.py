@@ -126,6 +126,41 @@ class TestFullAuthorizationFlow:
         roles = await auth_service.list_roles()
         assert sum(1 for r in roles if r.built_in) == 3
 
+    @pytest.mark.asyncio
+    async def test_authorize_nested_workflows(self, auth_service):
+        """Test that authorize works with nested workflow metadata."""
+        identity = FluxIdentity(subject="op@test", roles=frozenset({"operator"}))
+        metadata = {
+            "task_names": ["step_one"],
+            "nested_workflows": [],
+        }
+        result = await auth_service.authorize(identity, "parent_wf", metadata)
+        assert result.ok is True
+
+    @pytest.mark.asyncio
+    async def test_authorize_circular_workflows_no_crash(self, auth_service):
+        """Verify circular workflow references don't cause infinite recursion."""
+        identity = FluxIdentity(subject="op@test", roles=frozenset({"operator"}))
+        metadata = {
+            "task_names": ["step"],
+            "nested_workflows": ["self_referencing"],
+        }
+        result = await auth_service.authorize(identity, "self_referencing", metadata)
+        assert result.ok is True
+
+    @pytest.mark.asyncio
+    async def test_role_with_empty_permissions(self, auth_service):
+        await auth_service.create_role("empty-role", [])
+        identity = FluxIdentity(subject="test", roles=frozenset({"empty-role"}))
+        assert await auth_service.is_authorized(identity, "anything") is False
+
+    @pytest.mark.asyncio
+    async def test_permission_validation_rejects_invalid(self, auth_service):
+        with pytest.raises(ValueError, match="Invalid permission format"):
+            await auth_service.create_role("bad-role", ["has spaces"])
+        with pytest.raises(ValueError, match="Invalid permission format"):
+            await auth_service.create_role("bad-role2", [""])
+
 
 class TestEventSubjectIntegration:
     def test_identity_subject_on_events(self):

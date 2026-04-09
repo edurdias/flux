@@ -6,6 +6,7 @@ Working memory stores messages as task events — durable, replay-safe.
 Usage:
     flux run examples/ai/memory_chatbot_ollama.py
 """
+
 from __future__ import annotations
 
 from typing import Any

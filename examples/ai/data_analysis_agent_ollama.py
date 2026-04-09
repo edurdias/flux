@@ -169,14 +169,14 @@ async def call_ollama_for_insights(
 You are a data analyst AI assistant. You have access to a dataset with the following characteristics:
 
 Dataset Information:
-- File: {metadata['file_name']}
-- Rows: {metadata['row_count']:,}
-- Columns: {metadata['column_count']}
-- Column names: {', '.join(metadata['columns'])}
-- Data types: {json.dumps(metadata['dtypes'], indent=2)}
+- File: {metadata["file_name"]}
+- Rows: {metadata["row_count"]:,}
+- Columns: {metadata["column_count"]}
+- Column names: {", ".join(metadata["columns"])}
+- Data types: {json.dumps(metadata["dtypes"], indent=2)}
 
 Sample Data (first 3 rows):
-{json.dumps(metadata['sample_rows'], indent=2)}
+{json.dumps(metadata["sample_rows"], indent=2)}
 
 Analysis Results:
 {analysis_results}

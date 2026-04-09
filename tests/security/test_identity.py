@@ -85,3 +85,25 @@ class TestWildcardMatching:
             )
             is True
         )
+
+    def test_empty_permission_string(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("", set()) is False
+
+    def test_single_segment_permission(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("admin", {"admin"}) is True
+        assert identity.has_permission("admin", {"other"}) is False
+
+    def test_pattern_longer_than_target(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("workflow:report", {"workflow:report:run:extra"}) is False
+
+    def test_all_wildcards(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("a:b:c", {"*:*:*"}) is True
+        assert identity.has_permission("a:b", {"*:*:*"}) is False
+
+    def test_empty_permissions_set(self):
+        identity = FluxIdentity(subject="test")
+        assert identity.has_permission("anything", set()) is False

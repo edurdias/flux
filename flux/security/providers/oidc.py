@@ -57,7 +57,7 @@ class OIDCProvider(AuthProvider):
                 issuer=self.config.issuer,
                 audience=self.config.audience,
                 leeway=self.config.clock_skew,
-                options={"require": ["exp", "iss", "sub"]},
+                options={"require": ["exp", "iss", "sub", "aud"]},
             )
             roles = set(self._resolve_claim(payload, self.config.roles_claim) or [])
             return FluxIdentity(

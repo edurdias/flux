@@ -6,6 +6,7 @@ Long-term memory is exposed as tools — the LLM decides what to store and recal
 Usage:
     flux run examples/ai/memory_long_term_ollama.py
 """
+
 from __future__ import annotations
 
 from typing import Any
