@@ -423,6 +423,8 @@ class WorkflowModel(Base):
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
     requests = Column(Base64Type(), nullable=True)
+    # Named wf_metadata instead of metadata to avoid conflict with SQLAlchemy's
+    # reserved `metadata` attribute on declarative base classes.
     wf_metadata = Column(Base64Type(), nullable=True)
 
     # Add a uniqueness constraint on name and version

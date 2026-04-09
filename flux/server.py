@@ -2475,7 +2475,11 @@ class Server:
             status: Literal["online", "offline"] | None = Query(None),
             identity: FluxIdentity = Depends(get_identity),
         ):
-            """List workers from in-memory cache. Optional ?status=online|offline filter."""
+            """List workers from in-memory cache. Optional ?status=online|offline filter.
+
+            Worker visibility is intentionally unpermissioned — any authenticated user
+            may discover available workers. Sensitive details are not exposed.
+            """
             try:
                 logger.debug(f"Listing workers (filter={status})")
 
@@ -2910,7 +2914,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @api.post("/auth/test-token")
-        async def auth_test_token(request: TestTokenRequest):
+        async def auth_test_token(
+            request: TestTokenRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:*")),
+        ):
             try:
                 identity = await auth_service.authenticate(request.token)
                 permissions = await auth_service.resolve_permissions(identity)

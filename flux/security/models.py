@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
@@ -16,8 +16,13 @@ class RoleModel(Base):
     name = Column(String, unique=True, nullable=False)
     permissions = Column(JSON, nullable=False)
     built_in = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     def __init__(
         self,
@@ -30,8 +35,8 @@ class RoleModel(Base):
         self.name = name
         self.permissions = permissions
         self.built_in = built_in
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
+        self.created_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
 
 class ServiceAccountModel(Base):
@@ -40,8 +45,13 @@ class ServiceAccountModel(Base):
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     name = Column(String, unique=True, nullable=False)
     roles = Column(JSON, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     keys = relationship(
         "APIKeyModel",
@@ -58,8 +68,8 @@ class ServiceAccountModel(Base):
         self.id = id or uuid4().hex
         self.name = name
         self.roles = roles
-        self.created_at = datetime.now()
-        self.updated_at = datetime.now()
+        self.created_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(timezone.utc)
 
 
 class APIKeyModel(Base):
@@ -71,7 +81,7 @@ class APIKeyModel(Base):
     key_hash = Column(String, nullable=False)
     key_prefix = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     service_account = relationship("ServiceAccountModel", back_populates="keys")
 
@@ -91,4 +101,4 @@ class APIKeyModel(Base):
         self.key_hash = key_hash
         self.key_prefix = key_prefix
         self.expires_at = expires_at
-        self.created_at = datetime.now()
+        self.created_at = datetime.now(timezone.utc)

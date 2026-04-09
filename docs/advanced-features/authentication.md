@@ -131,7 +131,10 @@ Examples:
 | `admin:roles:manage` | Create, update, and delete roles |
 | `admin:service-accounts:manage` | Manage service accounts and their API keys |
 
-**Wildcard matching**: a `*` segment terminates the match and grants access to all remaining path segments. `workflow:*:run` matches `workflow:any-name:run`. `*` alone grants unrestricted access (admin).
+**Wildcard matching** uses two distinct rules depending on position:
+
+- **Terminal `*` (last segment)**: matches any number of remaining segments. Example: `workflow:report:*` matches `workflow:report:run`, `workflow:report:task:load:execute`, and any other path starting with `workflow:report:`. `*` alone grants unrestricted access (admin).
+- **Non-terminal `*` (middle segment)**: matches exactly one segment. Example: `workflow:*:read` matches `workflow:report:read` but **not** `workflow:report:sub:read` (two segments after `workflow:`).
 
 ### Custom Roles
 

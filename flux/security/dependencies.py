@@ -30,8 +30,15 @@ async def get_identity(
 
         return ANONYMOUS
     token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ", 1)[1]
+    if authorization:
+        if authorization.startswith("Bearer "):
+            token = authorization.split(" ", 1)[1]
+        else:
+            raise HTTPException(
+                status_code=401,
+                detail="Unsupported authorization scheme. Use 'Bearer <token>'.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     try:
         return await auth_service.authenticate(token)
     except AuthenticationError as e:

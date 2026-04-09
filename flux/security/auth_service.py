@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from flux.security.config import AuthConfig
@@ -15,6 +16,8 @@ from flux.security.providers.api_key import APIKeyProvider
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
+
+PERMISSION_PATTERN = re.compile(r"^[a-zA-Z0-9_*-]+(:[a-zA-Z0-9_*-]+)*$")
 
 BUILT_IN_ROLES = {
     "admin": ["*"],
@@ -74,6 +77,8 @@ class AuthService:
                 role = session.query(RoleModel).filter_by(name=role_name).first()
                 if role:
                     all_permissions.update(role.permissions)
+                elif role_name in BUILT_IN_ROLES:
+                    all_permissions.update(BUILT_IN_ROLES[role_name])
             return all_permissions
         finally:
             session.close()
@@ -99,7 +104,13 @@ class AuthService:
         self,
         workflow_name: str,
         workflow_metadata: dict,
+        _visited: set[str] | None = None,
     ) -> list[str]:
+        if _visited is None:
+            _visited = set()
+        if workflow_name in _visited:
+            return []
+        _visited.add(workflow_name)
         perms = [f"workflow:{workflow_name}:run"]
         task_names = workflow_metadata.get("task_names", [])
         for task_name in task_names:
@@ -108,7 +119,7 @@ class AuthService:
         for nested_name in nested_workflows:
             nested_meta = self._get_workflow_metadata(nested_name)
             if nested_meta:
-                perms.extend(self._collect_required_permissions(nested_name, nested_meta))
+                perms.extend(self._collect_required_permissions(nested_name, nested_meta, _visited))
         return perms
 
     def _get_workflow_metadata(self, workflow_name: str) -> dict | None:
@@ -118,8 +129,14 @@ class AuthService:
             catalog = WorkflowCatalog.create()
             workflow = catalog.get(workflow_name)
             return workflow.metadata if hasattr(workflow, "metadata") and workflow.metadata else {}
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to get metadata for workflow '{workflow_name}': {e}")
             return None
+
+    def _validate_permissions(self, permissions: list[str]) -> None:
+        for perm in permissions:
+            if not PERMISSION_PATTERN.match(perm):
+                raise ValueError(f"Invalid permission format: '{perm}'")
 
     async def list_roles(self) -> list[RoleModel]:
         session = self._session_factory()
@@ -136,6 +153,7 @@ class AuthService:
             session.close()
 
     async def create_role(self, name: str, permissions: list[str]) -> RoleModel:
+        self._validate_permissions(permissions)
         session = self._session_factory()
         try:
             existing = session.query(RoleModel).filter_by(name=name).first()
@@ -146,6 +164,9 @@ class AuthService:
             session.commit()
             session.refresh(role)
             return role
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -161,6 +182,8 @@ class AuthService:
         add_permissions: list[str] | None = None,
         remove_permissions: list[str] | None = None,
     ) -> RoleModel:
+        if add_permissions:
+            self._validate_permissions(add_permissions)
         session = self._session_factory()
         try:
             role = session.query(RoleModel).filter_by(name=name).first()
@@ -174,10 +197,13 @@ class AuthService:
             if remove_permissions:
                 perms -= set(remove_permissions)
             role.permissions = list(perms)
-            role.updated_at = datetime.now()
+            role.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(role)
             return role
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -197,6 +223,9 @@ class AuthService:
                 )
             session.delete(role)
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -225,6 +254,9 @@ class AuthService:
             session.commit()
             session.refresh(sa)
             return sa
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -245,10 +277,13 @@ class AuthService:
             if remove_roles:
                 roles -= set(remove_roles)
             sa.roles = list(roles)
-            sa.updated_at = datetime.now()
+            sa.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(sa)
             return sa
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -260,6 +295,9 @@ class AuthService:
                 raise ValueError(f"Service account '{name}' not found")
             session.delete(sa)
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -286,7 +324,7 @@ class AuthService:
             key_plaintext = f"flux_sk_{secrets.token_hex(24)}"
             key_hash = hashlib.sha256(key_plaintext.encode()).hexdigest()
             key_prefix = key_plaintext[:12]
-            expires_at = (datetime.now() + expires) if expires else None
+            expires_at = (datetime.now(timezone.utc) + expires) if expires else None
             key_model = APIKeyModel(
                 service_account_id=sa.id,
                 name=key_name,
@@ -297,6 +335,9 @@ class AuthService:
             session.add(key_model)
             session.commit()
             return key_plaintext
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -315,6 +356,9 @@ class AuthService:
                 raise ValueError(f"API key '{key_name}' not found")
             session.delete(key)
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
@@ -336,5 +380,8 @@ class AuthService:
                 if not existing:
                     session.add(RoleModel(name=name, permissions=permissions, built_in=True))
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()

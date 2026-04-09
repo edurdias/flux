@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
 class FluxIdentity:
     subject: str
     roles: frozenset[str] = frozenset()
-    metadata: dict = field(default_factory=dict)
+    metadata: MappingProxyType | dict = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self):
+        if isinstance(self.metadata, dict):
+            object.__setattr__(self, "metadata", MappingProxyType(self.metadata))
 
     def has_role(self, role: str) -> bool:
         return role in self.roles
@@ -25,6 +30,13 @@ class FluxIdentity:
         return False
 
 
+# Wildcard semantics:
+#   Terminal `*` (last segment): matches any number of remaining segments.
+#     e.g. `workflow:report:*` matches `workflow:report:run` and
+#     `workflow:report:task:load:execute`.
+#   Non-terminal `*` (middle segment): matches exactly one segment.
+#     e.g. `workflow:*:read` matches `workflow:report:read` but NOT
+#     `workflow:report:sub:read`.
 def _wildcard_match(pattern_parts: list[str], target_parts: list[str]) -> bool:
     for i, part in enumerate(pattern_parts):
         if part == "*":

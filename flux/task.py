@@ -155,8 +155,21 @@ class task:
                                     subject=ctx.identity.subject,
                                     required_permission=required,
                                 )
-                    except httpx.HTTPError:
-                        pass
+                    except httpx.HTTPError as auth_err:
+                        from flux.utils import get_logger
+
+                        logger = get_logger(__name__)
+                        logger.error(
+                            f"Task authorization check failed for '{full_name}': {auth_err}",
+                        )
+                        from flux.security.errors import TaskAuthorizationError
+
+                        raise TaskAuthorizationError(
+                            task_name=full_name,
+                            task_id=task_id,
+                            subject="unknown",
+                            required_permission=required,
+                        )
 
         finished = [
             e

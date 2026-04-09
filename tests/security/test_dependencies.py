@@ -53,15 +53,17 @@ class TestGetIdentity:
         assert identity.subject == "alice@acme.com"
 
     @pytest.mark.asyncio
-    async def test_passes_none_when_no_bearer_prefix(self):
+    async def test_raises_401_on_non_bearer_scheme(self):
         mock_auth_service = AsyncMock()
         mock_auth_service.authenticate.return_value = ANONYMOUS
         with patch(
             "flux.security.dependencies._get_auth_service",
             return_value=mock_auth_service,
         ):
-            await get_identity(authorization="Basic abc123")
-        mock_auth_service.authenticate.assert_called_once_with(None)
+            with pytest.raises(HTTPException) as exc_info:
+                await get_identity(authorization="Basic abc123")
+        assert exc_info.value.status_code == 401
+        assert "Bearer" in exc_info.value.detail
 
 
 class TestRequirePermission:

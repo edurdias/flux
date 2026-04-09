@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -46,7 +46,7 @@ class TestAPIKeyProvider:
 
         mock_key = MagicMock(spec=APIKeyModel)
         mock_key.key_hash = key_hash
-        mock_key.expires_at = datetime.now() - timedelta(days=1)
+        mock_key.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
         mock_key.service_account = MagicMock(spec=ServiceAccountModel)
 
         mock_session.query.return_value.filter.return_value.first.return_value = mock_key

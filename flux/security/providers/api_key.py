@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable
 
 from flux.security.identity import FluxIdentity
@@ -17,13 +17,17 @@ class APIKeyProvider(AuthProvider):
         self._session_factory = session_factory
 
     async def authenticate(self, token: str) -> FluxIdentity | None:
+        # SHA-256 is appropriate for API keys (unlike passwords) because keys are
+        # high-entropy secrets (192 bits from secrets.token_hex(24)). Brute-forcing
+        # SHA-256 of a 192-bit random value is computationally infeasible. Slow hashes
+        # like bcrypt would add unnecessary latency on every API request.
         key_hash = hashlib.sha256(token.encode()).hexdigest()
         session = self._session_factory()
         try:
             key_model = session.query(APIKeyModel).filter(APIKeyModel.key_hash == key_hash).first()
             if not key_model:
                 return None
-            if key_model.expires_at and key_model.expires_at < datetime.now():
+            if key_model.expires_at and key_model.expires_at < datetime.now(timezone.utc):
                 logger.warning(f"API key '{key_model.name}' has expired")
                 return None
             sa = key_model.service_account
