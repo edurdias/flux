@@ -7,8 +7,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from flux.models import RepositoryFactory
 from flux.models import SecretModel
-from flux.models import SQLiteRepository
 
 
 class SecretManager(ABC):
@@ -31,12 +31,17 @@ class SecretManager(ABC):
 
     @staticmethod
     def current() -> SecretManager:
-        return SQLiteSecretManager()
+        return DatabaseSecretManager()
 
 
-class SQLiteSecretManager(SecretManager, SQLiteRepository):
+class DatabaseSecretManager(SecretManager):
+    """Dialect-agnostic secret manager. Delegates to ``RepositoryFactory``."""
+
     def __init__(self):
-        super().__init__()
+        self._repository = RepositoryFactory.create_repository()
+
+    def session(self):
+        return self._repository.session()
 
     def save(self, name: str, value: Any):
         if value is None:

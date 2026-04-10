@@ -93,15 +93,16 @@ class WorkerRegistry(ABC):
 
     @staticmethod
     def create() -> WorkerRegistry:
-        return SQLiteWorkerRegistry()
+        return DatabaseWorkerRegistry()
 
 
-class SQLiteWorkerRegistry(WorkerRegistry):
+class DatabaseWorkerRegistry(WorkerRegistry):
+    """Dialect-agnostic worker registry. Delegates to ``RepositoryFactory``."""
+
     def __init__(self):
-        # Import here to avoid circular imports
-        from flux.models import SQLiteRepository
+        from flux.models import RepositoryFactory
 
-        self.repository = SQLiteRepository()
+        self.repository = RepositoryFactory.create_repository()
 
     def session(self):
         return self.repository.session()

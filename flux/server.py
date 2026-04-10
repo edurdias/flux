@@ -1565,6 +1565,10 @@ class Server:
             except HTTPException:
                 raise
             except Exception as e:
+                logger.error(
+                    f"Worker registration failed for {registration.name}: {type(e).__name__}: {e}",
+                    exc_info=True,
+                )
                 raise HTTPException(
                     status_code=400,
                     detail=str(e),

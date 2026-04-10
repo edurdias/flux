@@ -12,8 +12,8 @@ from flux.domain import ExecutionState
 from flux.domain import ResourceRequest
 from flux.errors import ExecutionContextNotFoundError
 from flux.models import ExecutionEventModel
-from flux.models import SQLiteRepository
 from flux.models import ExecutionContextModel
+from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
 from flux.worker_registry import WorkerInfo
 
@@ -77,12 +77,22 @@ class ContextManager(ABC):
 
     @staticmethod
     def create() -> ContextManager:
-        return SQLiteContextManager()
+        return DatabaseContextManager()
 
 
-class SQLiteContextManager(ContextManager, SQLiteRepository):
+class DatabaseContextManager(ContextManager):
+    """Dialect-agnostic context manager.
+
+    Delegates engine creation to ``RepositoryFactory`` so the same query
+    implementation works against SQLite and PostgreSQL. All query methods
+    use SQLAlchemy ORM constructs that are portable across both backends.
+    """
+
     def __init__(self):
-        super().__init__()
+        self._repository = RepositoryFactory.create_repository()
+
+    def session(self) -> Session:
+        return self._repository.session()
 
     def get(self, execution_id: str | None) -> ExecutionContext:
         with self.session() as session:
@@ -227,7 +237,10 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
     ):
         no_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
-            .join(WorkflowModel)
+            .join(
+                WorkflowModel,
+                ExecutionContextModel.workflow_id == WorkflowModel.id,
+            )
             .filter(
                 ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_(None),
@@ -248,7 +261,10 @@ class SQLiteContextManager(ContextManager, SQLiteRepository):
     ):
         with_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
-            .join(WorkflowModel)
+            .join(
+                WorkflowModel,
+                ExecutionContextModel.workflow_id == WorkflowModel.id,
+            )
             .filter(
                 ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_not(None),

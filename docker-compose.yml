@@ -77,7 +77,27 @@ services:
     networks:
       - flux-network
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: flux-postgres
+    environment:
+      - POSTGRES_USER=flux
+      - POSTGRES_PASSWORD=flux
+      - POSTGRES_DB=flux
+    ports:
+      - "5432:5432"
+    volumes:
+      - flux-postgres-data:/var/lib/postgresql/data
+    networks:
+      - flux-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flux -d flux"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
+  flux-postgres-data:
   flux-data:
 
 networks:

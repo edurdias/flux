@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from sqlalchemy.sql import text
 
 from flux import ExecutionContext
-from flux.context_managers import ContextManager, SQLiteContextManager
+from flux.context_managers import ContextManager, DatabaseContextManager
 from flux.domain.events import ExecutionState
 from flux.worker_registry import WorkerInfo
 
@@ -19,7 +19,7 @@ def clean_context_manager():
     manager = ContextManager.create()
 
     # Clean up any existing test contexts
-    if isinstance(manager, SQLiteContextManager):
+    if isinstance(manager, DatabaseContextManager):
         with manager.session() as session:
             # Delete any test contexts from previous test runs
             session.execute(text("DELETE FROM executions WHERE workflow_name = 'test'"))
