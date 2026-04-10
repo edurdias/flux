@@ -9,10 +9,9 @@ from typing import Callable
 from flux.security.config import AuthConfig
 from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity, ANONYMOUS
-from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
-from flux.security.principals import PrincipalModel
+from flux.security.models import RoleModel, APIKeyModel
+from flux.security.principals import PrincipalRegistry
 from flux.security.providers import AuthProvider
-from flux.security.providers.internal import InternalTokenProvider
 from flux.security.providers.oidc import OIDCProvider
 from flux.security.providers.api_key import APIKeyProvider
 from flux.utils import get_logger
@@ -46,12 +45,16 @@ class AuthorizationResult:
 
 
 class AuthService:
-    def __init__(self, config: AuthConfig, session_factory: Callable):
+    def __init__(
+        self,
+        config: AuthConfig,
+        session_factory: Callable,
+        registry: PrincipalRegistry | None = None,
+    ):
         self._config = config
         self._session_factory = session_factory
+        self._registry = registry
         self._providers: list[AuthProvider] = []
-
-        self._providers.append(InternalTokenProvider())
 
         if config.oidc.enabled:
             self._providers.append(OIDCProvider(config.oidc))
@@ -80,8 +83,14 @@ class AuthService:
     async def resolve_permissions(self, identity: FluxIdentity) -> set[str]:
         session = self._session_factory()
         try:
+            role_names: list[str] = []
+            if self._registry and identity.metadata.get("principal_id"):
+                role_names = self._registry.get_roles(identity.metadata["principal_id"])
+            else:
+                role_names = list(identity.roles)
+
             all_permissions: set[str] = set()
-            for role_name in identity.roles:
+            for role_name in role_names:
                 role = session.query(RoleModel).filter_by(name=role_name).first()
                 if role:
                     all_permissions.update(role.permissions)
@@ -239,12 +248,6 @@ class AuthService:
                 raise ValueError(f"Role '{name}' not found")
             if role.built_in:
                 raise ValueError(f"Cannot delete built-in role '{name}'")
-            referencing = session.query(ServiceAccountModel).all()
-            refs = [sa.name for sa in referencing if name in sa.roles]
-            if refs:
-                raise ValueError(
-                    f"Cannot delete role '{name}': referenced by service accounts: {', '.join(refs)}",
-                )
             session.delete(role)
             session.commit()
         except Exception:
@@ -253,120 +256,102 @@ class AuthService:
         finally:
             session.close()
 
-    async def list_service_accounts(self) -> list[ServiceAccountModel]:
-        session = self._session_factory()
-        try:
-            return session.query(ServiceAccountModel).all()
-        finally:
-            session.close()
+    async def list_principals(self) -> list:
+        if not self._registry:
+            return []
+        return self._registry.list_all()
 
-    async def get_service_account(self, name: str) -> ServiceAccountModel | None:
-        session = self._session_factory()
-        try:
-            return session.query(ServiceAccountModel).filter_by(name=name).first()
-        finally:
-            session.close()
+    async def get_principal(self, principal_id: str):
+        if not self._registry:
+            return None
+        return self._registry.get(principal_id)
 
-    async def create_service_account(self, name: str, roles: list[str]) -> ServiceAccountModel:
-        session = self._session_factory()
-        try:
-            existing = session.query(ServiceAccountModel).filter_by(name=name).first()
-            if existing:
-                raise ValueError(f"Service account '{name}' already exists")
-            sa = ServiceAccountModel(name=name, roles=roles)
-            session.add(sa)
-            session.commit()
-            session.refresh(sa)
-            return sa
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    async def update_service_account(
+    async def create_principal(
         self,
-        name: str,
-        add_roles: list[str] | None = None,
-        remove_roles: list[str] | None = None,
-    ) -> ServiceAccountModel:
-        session = self._session_factory()
-        try:
-            sa = session.query(ServiceAccountModel).filter_by(name=name).first()
-            if not sa:
-                raise ValueError(f"Service account '{name}' not found")
-            roles = set(sa.roles)
-            if add_roles:
-                roles.update(add_roles)
-            if remove_roles:
-                roles -= set(remove_roles)
-            sa.roles = list(roles)
-            sa.updated_at = datetime.now(timezone.utc)
-            session.commit()
-            session.refresh(sa)
-            return sa
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    async def delete_service_account(self, name: str) -> None:
-        session = self._session_factory()
-        try:
-            sa = session.query(ServiceAccountModel).filter_by(name=name).first()
-            if not sa:
-                raise ValueError(f"Service account '{name}' not found")
-            session.delete(sa)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
-
-    def _get_or_create_principal_for_sa(self, session, sa: ServiceAccountModel) -> PrincipalModel:
-        principal = (
-            session.query(PrincipalModel).filter_by(subject=sa.name, external_issuer="flux").first()
+        type: str,
+        subject: str,
+        external_issuer: str,
+        display_name: str | None = None,
+        metadata: dict | None = None,
+        roles: list[str] | None = None,
+        enabled: bool = True,
+    ):
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        principal = self._registry.create(
+            type=type,
+            subject=subject,
+            external_issuer=external_issuer,
+            display_name=display_name,
+            metadata=metadata or {},
+            enabled=enabled,
         )
-        if not principal:
-            principal = PrincipalModel(
-                type="service_account",
-                subject=sa.name,
-                external_issuer="flux",
-                display_name=sa.name,
-            )
-            session.add(principal)
-            session.flush()
+        for role_name in roles or []:
+            self._registry.assign_role(principal.id, role_name, assigned_by=None)
         return principal
+
+    async def update_principal(
+        self,
+        principal_id: str,
+        display_name: str | None = None,
+        metadata: dict | None = None,
+    ):
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.update_metadata(principal_id, display_name=display_name, metadata=metadata)
+        return self._registry.get(principal_id)
+
+    async def delete_principal(self, principal_id: str, force: bool = False) -> None:
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.delete(principal_id, force=force)
+
+    async def enable_principal(self, principal_id: str) -> None:
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.set_enabled(principal_id, True)
+
+    async def disable_principal(self, principal_id: str) -> None:
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.set_enabled(principal_id, False)
+
+    async def grant_role(
+        self,
+        principal_id: str,
+        role_name: str,
+        granted_by: str | None = None,
+    ) -> None:
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.assign_role(principal_id, role_name, assigned_by=granted_by)
+
+    async def revoke_role(self, principal_id: str, role_name: str) -> None:
+        if not self._registry:
+            raise RuntimeError("PrincipalRegistry not configured")
+        self._registry.revoke_role(principal_id, role_name)
 
     async def create_api_key(
         self,
-        account_name: str,
+        principal_id: str,
         key_name: str,
         expires: timedelta | None = None,
     ) -> str:
         session = self._session_factory()
         try:
-            sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
-            if not sa:
-                raise ValueError(f"Service account '{account_name}' not found")
-            principal = self._get_or_create_principal_for_sa(session, sa)
-            existing_key = (
+            existing = (
                 session.query(APIKeyModel)
-                .filter_by(principal_id=principal.id, name=key_name)
+                .filter_by(principal_id=principal_id, name=key_name)
                 .first()
             )
-            if existing_key:
-                raise ValueError(
-                    f"API key '{key_name}' already exists for service account '{account_name}'",
-                )
+            if existing:
+                raise ValueError(f"API key '{key_name}' already exists for this principal")
             key_plaintext = f"flux_sk_{secrets.token_hex(24)}"
             key_hash = hashlib.sha256(key_plaintext.encode()).hexdigest()
             key_prefix = key_plaintext[:12]
             expires_at = (datetime.now(timezone.utc) + expires) if expires else None
             key_model = APIKeyModel(
-                principal_id=principal.id,
+                principal_id=principal_id,
                 name=key_name,
                 key_hash=key_hash,
                 key_prefix=key_prefix,
@@ -381,16 +366,19 @@ class AuthService:
         finally:
             session.close()
 
-    async def revoke_api_key(self, account_name: str, key_name: str) -> None:
+    async def list_api_keys(self, principal_id: str) -> list:
         session = self._session_factory()
         try:
-            sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
-            if not sa:
-                raise ValueError(f"Service account '{account_name}' not found")
-            principal = self._get_or_create_principal_for_sa(session, sa)
+            return session.query(APIKeyModel).filter_by(principal_id=principal_id).all()
+        finally:
+            session.close()
+
+    async def revoke_api_key(self, principal_id: str, key_name: str) -> None:
+        session = self._session_factory()
+        try:
             key = (
                 session.query(APIKeyModel)
-                .filter_by(principal_id=principal.id, name=key_name)
+                .filter_by(principal_id=principal_id, name=key_name)
                 .first()
             )
             if not key:
@@ -400,17 +388,6 @@ class AuthService:
         except Exception:
             session.rollback()
             raise
-        finally:
-            session.close()
-
-    async def list_api_keys(self, account_name: str) -> list[APIKeyModel]:
-        session = self._session_factory()
-        try:
-            sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
-            if not sa:
-                raise ValueError(f"Service account '{account_name}' not found")
-            principal = self._get_or_create_principal_for_sa(session, sa)
-            return session.query(APIKeyModel).filter_by(principal_id=principal.id).all()
         finally:
             session.close()
 

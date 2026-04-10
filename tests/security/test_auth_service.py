@@ -88,3 +88,90 @@ class TestAuthServiceIsAuthorized:
         identity = FluxIdentity(subject="admin@test", roles=frozenset({"admin"}))
         result = await service.is_authorized(identity, "anything:at:all")
         assert result is True
+
+
+class TestAuthServicePrincipalDependency:
+    def test_auth_service_accepts_registry(self):
+        from flux.security.auth_service import AuthService
+        from flux.security.config import AuthConfig
+        from flux.security.principals import PrincipalRegistry
+
+        config = AuthConfig()
+        registry = MagicMock(spec=PrincipalRegistry)
+        service = AuthService(config=config, session_factory=MagicMock(), registry=registry)
+        assert service._registry is registry
+
+    def test_auth_service_no_service_account_methods(self):
+        from flux.security.auth_service import AuthService
+
+        assert not hasattr(AuthService, "list_service_accounts")
+        assert not hasattr(AuthService, "create_service_account")
+        assert not hasattr(AuthService, "update_service_account")
+        assert not hasattr(AuthService, "delete_service_account")
+
+
+class TestAuthServicePrincipalCRUD:
+    @pytest.fixture
+    def registry(self):
+        from flux.security.principals import PrincipalRegistry
+
+        return MagicMock(spec=PrincipalRegistry)
+
+    @pytest.fixture
+    def service(self, registry):
+        from flux.security.auth_service import AuthService
+        from flux.security.config import AuthConfig
+
+        config = AuthConfig()
+        return AuthService(config=config, session_factory=MagicMock(), registry=registry)
+
+    @pytest.mark.asyncio
+    async def test_create_principal_delegates_to_registry(self, service, registry):
+        from flux.security.principals import PrincipalModel
+
+        mock_principal = MagicMock(spec=PrincipalModel)
+        mock_principal.id = "abc123"
+        registry.create.return_value = mock_principal
+
+        result = await service.create_principal(
+            type="service_account",
+            subject="svc-test",
+            external_issuer="flux",
+            display_name="Test SA",
+            roles=["operator"],
+        )
+        registry.create.assert_called_once()
+        assert result is mock_principal
+
+    @pytest.mark.asyncio
+    async def test_list_principals_delegates_to_registry(self, service, registry):
+        registry.list_all = MagicMock(return_value=[])
+        result = await service.list_principals()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_enable_principal_calls_set_enabled(self, service, registry):
+        await service.enable_principal("abc123")
+        registry.set_enabled.assert_called_once_with("abc123", True)
+
+    @pytest.mark.asyncio
+    async def test_disable_principal_calls_set_enabled(self, service, registry):
+        await service.disable_principal("abc123")
+        registry.set_enabled.assert_called_once_with("abc123", False)
+
+    @pytest.mark.asyncio
+    async def test_grant_role_calls_assign_role(self, service, registry):
+        await service.grant_role("abc123", "operator", granted_by="admin")
+        registry.assign_role.assert_called_once_with("abc123", "operator", assigned_by="admin")
+
+    @pytest.mark.asyncio
+    async def test_revoke_role_calls_registry(self, service, registry):
+        await service.revoke_role("abc123", "operator")
+        registry.revoke_role.assert_called_once_with("abc123", "operator")
+
+
+def test_internal_provider_module_removed():
+    import importlib
+
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("flux.security.providers.internal")

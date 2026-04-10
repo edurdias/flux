@@ -11,6 +11,7 @@ from flux.models import Base
 def engine():
     import flux.security  # noqa: F401 — ensure PrincipalModel is registered
     import flux.security.models  # noqa: F401 — ensure RoleModel and APIKeyModel are registered
+
     eng = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(eng)
     return eng
@@ -26,6 +27,7 @@ def session(engine):
 
 def test_principal_model_exists():
     from flux.security.principals import PrincipalModel
+
     p = PrincipalModel(
         type="user",
         subject="alice@acme.com",
@@ -38,6 +40,7 @@ def test_principal_model_exists():
 
 def test_principal_role_model_exists():
     from flux.security.principals import PrincipalRoleModel
+
     pr = PrincipalRoleModel(
         principal_id="abc123",
         role_name="operator",

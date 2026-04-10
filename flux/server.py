@@ -698,7 +698,7 @@ class Server:
                     config=auth_config,
                     session_factory=self._get_db_session,
                 )
-                sa = await db_auth_service.get_service_account(sa_name)
+                sa = await db_auth_service.get_service_account(sa_name)  # type: ignore[attr-defined]
                 if sa is None:
                     logger.error(
                         f"Schedule '{schedule.name}': SA '{sa_name}' not found, skipping run",
@@ -2001,7 +2001,7 @@ class Server:
                             status_code=400,
                             detail="run_as_service_account is required when auth is enabled",
                         )
-                    sa = await auth_service.get_service_account(request.run_as_service_account)
+                    sa = await auth_service.get_service_account(request.run_as_service_account)  # type: ignore[attr-defined]
                     if sa is None:
                         raise HTTPException(
                             status_code=400,
@@ -2131,7 +2131,7 @@ class Server:
                 logger.info(f"Updating schedule '{schedule_id}'")
 
                 if auth_config.enabled and request.run_as_service_account is not None:
-                    sa = await auth_service.get_service_account(request.run_as_service_account)
+                    sa = await auth_service.get_service_account(request.run_as_service_account)  # type: ignore[attr-defined]
                     if sa is None:
                         raise HTTPException(
                             status_code=400,
@@ -2919,140 +2919,10 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(e))
 
         # ===========================================
-        # Auth & Admin: Service Accounts
+        # Auth & Admin: Service Accounts (Phase 6 will rewrite these routes)
         # ===========================================
 
-        @api.post("/admin/service-accounts")
-        async def admin_create_service_account(
-            request: ServiceAccountRequest,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
-        ):
-            try:
-                sa = await auth_service.create_service_account(request.name, request.roles)
-                return {"name": sa.name, "roles": sa.roles}
-            except ValueError as e:
-                raise HTTPException(status_code=409, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.get("/admin/service-accounts")
-        async def admin_list_service_accounts(
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
-        ):
-            try:
-                accounts = await auth_service.list_service_accounts()
-                return [{"name": sa.name, "roles": sa.roles} for sa in accounts]
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.get("/admin/service-accounts/{name}")
-        async def admin_get_service_account(
-            name: str,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
-        ):
-            try:
-                sa = await auth_service.get_service_account(name)
-                if not sa:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Service account '{name}' not found",
-                    )
-                return {"name": sa.name, "roles": sa.roles}
-            except HTTPException:
-                raise
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.patch("/admin/service-accounts/{name}")
-        async def admin_update_service_account(
-            name: str,
-            request: ServiceAccountUpdateRequest,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
-        ):
-            try:
-                sa = await auth_service.update_service_account(
-                    name,
-                    add_roles=request.add_roles,
-                    remove_roles=request.remove_roles,
-                )
-                return {"name": sa.name, "roles": sa.roles}
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.delete("/admin/service-accounts/{name}")
-        async def admin_delete_service_account(
-            name: str,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
-        ):
-            try:
-                await auth_service.delete_service_account(name)
-                return {
-                    "status": "success",
-                    "message": f"Service account '{name}' deleted",
-                }
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.post("/admin/service-accounts/{name}/keys")
-        async def admin_create_api_key(
-            name: str,
-            request: APIKeyRequest,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
-        ):
-            try:
-                from datetime import timedelta
-
-                expires = (
-                    timedelta(days=request.expires_in_days) if request.expires_in_days else None
-                )
-                key_plaintext = await auth_service.create_api_key(name, request.name, expires)
-                return {"key": key_plaintext}
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.get("/admin/service-accounts/{name}/keys")
-        async def admin_list_api_keys(
-            name: str,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:read")),
-        ):
-            try:
-                keys = await auth_service.list_api_keys(name)
-                return [
-                    {
-                        "name": k.name,
-                        "key_prefix": k.key_prefix,
-                        "expires_at": k.expires_at.isoformat() if k.expires_at else None,
-                        "created_at": k.created_at.isoformat() if k.created_at else None,
-                    }
-                    for k in keys
-                ]
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
-
-        @api.delete("/admin/service-accounts/{name}/keys/{key_name}")
-        async def admin_revoke_api_key(
-            name: str,
-            key_name: str,
-            identity: FluxIdentity = Depends(require_permission("admin:service-accounts:manage")),
-        ):
-            try:
-                await auth_service.revoke_api_key(name, key_name)
-                return {
-                    "status": "success",
-                    "message": f"API key '{key_name}' revoked",
-                }
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=str(e))
+        # SA CRUD routes removed in Phase 2 — rewritten against PrincipalRegistry in Phase 6.
 
         # ===========================================
         # Auth: Permissions, Test Token, Is-Authorized

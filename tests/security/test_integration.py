@@ -10,12 +10,14 @@ class TestFullAuthorizationFlow:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         from flux.models import Base
+        from flux.security.principals import PrincipalRegistry
 
         engine = create_engine(f"sqlite:///{tmp_path}/test.db")
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
+        registry = PrincipalRegistry(session_factory=Session)
         config = AuthConfig(api_keys=APIKeyAuthConfig(enabled=True))
-        service = AuthService(config=config, session_factory=Session)
+        service = AuthService(config=config, session_factory=Session, registry=registry)
         service.seed_built_in_roles()
         return service
 
@@ -56,11 +58,10 @@ class TestFullAuthorizationFlow:
         assert await auth_service.is_authorized(identity, "admin:secrets:write") is False
 
     @pytest.mark.asyncio
-    async def test_role_deletion_blocked_by_sa(self, auth_service):
+    async def test_role_deletion_not_blocked(self, auth_service):
         await auth_service.create_role("temp", ["workflow:*:read"])
-        await auth_service.create_service_account("svc-test", ["temp"])
-        with pytest.raises(ValueError, match="referenced by service accounts"):
-            await auth_service.delete_role("temp")
+        await auth_service.delete_role("temp")
+        assert await auth_service.get_role("temp") is None
 
     @pytest.mark.asyncio
     async def test_builtin_role_immutable(self, auth_service):
@@ -79,25 +80,38 @@ class TestFullAuthorizationFlow:
 
     @pytest.mark.asyncio
     async def test_api_key_lifecycle(self, auth_service):
-        await auth_service.create_service_account("svc-ci", ["operator"])
-        key = await auth_service.create_api_key("svc-ci", "deploy-key")
+        principal = await auth_service.create_principal(
+            type="service_account",
+            subject="svc-ci",
+            external_issuer="flux",
+            roles=["operator"],
+        )
+        key = await auth_service.create_api_key(principal.id, "deploy-key")
         assert key.startswith("flux_sk_")
-        keys = await auth_service.list_api_keys("svc-ci")
+        keys = await auth_service.list_api_keys(principal.id)
         assert len(keys) == 1
-        await auth_service.revoke_api_key("svc-ci", "deploy-key")
-        keys = await auth_service.list_api_keys("svc-ci")
+        await auth_service.revoke_api_key(principal.id, "deploy-key")
+        keys = await auth_service.list_api_keys(principal.id)
         assert len(keys) == 0
 
     @pytest.mark.asyncio
-    async def test_sa_lifecycle(self, auth_service):
-        sa = await auth_service.create_service_account("svc-deploy", ["operator"])
-        assert "operator" in sa.roles
-        sa = await auth_service.update_service_account("svc-deploy", add_roles=["viewer"])
-        assert "viewer" in sa.roles
-        sa = await auth_service.update_service_account("svc-deploy", remove_roles=["operator"])
-        assert "operator" not in sa.roles
-        await auth_service.delete_service_account("svc-deploy")
-        assert await auth_service.get_service_account("svc-deploy") is None
+    async def test_principal_lifecycle(self, auth_service):
+        principal = await auth_service.create_principal(
+            type="service_account",
+            subject="svc-deploy",
+            external_issuer="flux",
+            roles=["operator"],
+        )
+        roles = auth_service._registry.get_roles(principal.id)
+        assert "operator" in roles
+        await auth_service.grant_role(principal.id, "viewer")
+        roles = auth_service._registry.get_roles(principal.id)
+        assert "viewer" in roles
+        await auth_service.revoke_role(principal.id, "operator")
+        roles = auth_service._registry.get_roles(principal.id)
+        assert "operator" not in roles
+        await auth_service.delete_principal(principal.id, force=False)
+        assert await auth_service.get_principal(principal.id) is None
 
     @pytest.mark.asyncio
     async def test_authorize_preflight(self, auth_service):

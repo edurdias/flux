@@ -29,7 +29,11 @@ class PrincipalModel(Base):
     )
     last_seen_at = Column(DateTime, nullable=True)
 
-    roles = relationship("PrincipalRoleModel", back_populates="principal", cascade="all, delete-orphan")
+    roles = relationship(
+        "PrincipalRoleModel",
+        back_populates="principal",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("subject", "external_issuer", name="uix_principal_subject_issuer"),
@@ -126,7 +130,12 @@ class PrincipalRegistry:
         finally:
             session.close()
 
-    def assign_role(self, principal_id: str, role_name: str, assigned_by: str | None = None) -> None:
+    def assign_role(
+        self,
+        principal_id: str,
+        role_name: str,
+        assigned_by: str | None = None,
+    ) -> None:
         session = self._session_factory()
         try:
             existing = (
@@ -135,11 +144,13 @@ class PrincipalRegistry:
                 .first()
             )
             if not existing:
-                session.add(PrincipalRoleModel(
-                    principal_id=principal_id,
-                    role_name=role_name,
-                    assigned_by=assigned_by,
-                ))
+                session.add(
+                    PrincipalRoleModel(
+                        principal_id=principal_id,
+                        role_name=role_name,
+                        assigned_by=assigned_by,
+                    ),
+                )
                 session.commit()
         except Exception:
             session.rollback()
@@ -213,13 +224,28 @@ class PrincipalRegistry:
         finally:
             session.close()
 
-    def delete(self, principal_id: str) -> None:
+    def get(self, principal_id: str) -> PrincipalModel | None:
+        session = self._session_factory()
+        try:
+            return session.query(PrincipalModel).filter_by(id=principal_id).first()
+        finally:
+            session.close()
+
+    def delete(self, principal_id: str, force: bool = False) -> None:
         session = self._session_factory()
         try:
             principal = session.query(PrincipalModel).filter_by(id=principal_id).first()
-            if principal:
-                session.delete(principal)
-                session.commit()
+            if not principal:
+                raise ValueError(f"Principal '{principal_id}' not found")
+            from flux.security.models import APIKeyModel
+
+            has_keys = session.query(APIKeyModel).filter_by(principal_id=principal_id).first()
+            if has_keys and not force:
+                raise ValueError(
+                    f"Principal '{principal_id}' has active API keys. Use force=True to delete.",
+                )
+            session.delete(principal)
+            session.commit()
         except Exception:
             session.rollback()
             raise
