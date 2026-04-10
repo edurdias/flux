@@ -1344,9 +1344,15 @@
 </ul>
 <h2 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h2>
 <ul>
+<li><strong>Principals Registry</strong>: Unified store for users and service accounts with RBAC; supports auto-provisioning, soft-disable, and full audit trail</li>
+<li><strong>OIDC/OAuth 2.0 Authentication</strong>: Validate JWTs from Keycloak, Auth0, Okta, Microsoft Entra ID; users auto-provisioned on first login</li>
+<li><strong>Role-Based Access Control</strong>: Built-in roles (admin, operator, viewer) plus custom roles; roles assigned in Flux, not read from IdP tokens</li>
+<li><strong>Execution Tokens</strong>: Server-minted, HMAC-signed, execution-bound JWTs — workers never hold user credentials</li>
+<li><strong>Zero-Trust Worker Callbacks</strong>: Per-task authorization re-resolved from DB on every callback; in-flight revocation supported</li>
+<li><strong>Task-Level Authorization</strong>: Name-derived permissions with pre-flight and runtime checks; <code>auth_exempt</code> opt-out for utility tasks</li>
+<li><strong>API Keys</strong>: Machine-to-machine authentication tied to service account principals, with optional expiry</li>
 <li><strong>Secret Management</strong>: Securely handle sensitive data during workflow execution</li>
 <li><strong>Encrypted Storage</strong>: Protect sensitive data at rest</li>
-<li><strong>Access Control</strong>: Manage who can execute and modify workflows</li>
 </ul>
 <h2 id="ai-mcp-integration">AI &amp; MCP Integration<a class="headerlink" href="#ai-mcp-integration" title="Permanent link">&para;</a></h2>
 <ul>
