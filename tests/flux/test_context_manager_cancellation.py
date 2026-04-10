@@ -7,22 +7,42 @@ from unittest.mock import MagicMock
 from sqlalchemy.sql import text
 
 from flux import ExecutionContext
-from flux.context_managers import ContextManager, SQLiteContextManager
+from flux.context_managers import ContextManager, DatabaseContextManager
 from flux.domain.events import ExecutionState
 from flux.worker_registry import WorkerInfo
 
 
 @pytest.fixture
 def clean_context_manager():
-    """Fixture for creating a clean context manager with test isolation."""
-    # Create the context manager
+    """Fixture for creating a clean context manager with test isolation.
+
+    Seeds a ``test-workflow`` row and a ``test-worker`` row so that
+    executions created by these tests satisfy the foreign-key
+    constraints on ``executions.workflow_id`` and
+    ``executions.worker_name``.
+    """
+    from flux.models import WorkflowModel, WorkerModel
+
     manager = ContextManager.create()
 
-    # Clean up any existing test contexts
-    if isinstance(manager, SQLiteContextManager):
+    if isinstance(manager, DatabaseContextManager):
         with manager.session() as session:
-            # Delete any test contexts from previous test runs
             session.execute(text("DELETE FROM executions WHERE workflow_name = 'test'"))
+
+            if session.get(WorkflowModel, "test-workflow") is None:
+                session.add(
+                    WorkflowModel(
+                        id="test-workflow",
+                        name="test",
+                        version=1,
+                        imports=[],
+                        source=b"",
+                    ),
+                )
+
+            if session.query(WorkerModel).filter_by(name="test-worker").first() is None:
+                session.add(WorkerModel(name="test-worker"))
+
             session.commit()
 
     return manager

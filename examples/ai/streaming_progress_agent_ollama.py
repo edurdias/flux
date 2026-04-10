@@ -17,6 +17,7 @@ Usage:
         -H "Content-Type: application/json" \\
         -d '{"prompt": "Explain quantum computing in 3 sentences"}'
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -198,6 +198,7 @@ class TestConfigurationLoading:
         """Test configuration reload functionality."""
         config = Configuration.get()
         original_url = config.settings.database_url
+        original_type = config.settings.database_type
 
         # Test that we can reset configuration
         config.reset()
@@ -205,9 +206,10 @@ class TestConfigurationLoading:
         # Ensure original_url was captured
         assert original_url is not None
 
-        # Should have a valid SQLite URL after reset
-        assert "sqlite" in new_config.settings.database_url
-        assert new_config.settings.database_type == "sqlite"
+        # After reset, the configuration should reload from flux.toml and match
+        # the pre-reset state (both values come from the same source file).
+        assert new_config.settings.database_url == original_url
+        assert new_config.settings.database_type == original_type
 
     def test_configuration_override(self):
         """Test configuration override functionality."""

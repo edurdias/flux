@@ -22,6 +22,7 @@ def clean_db():
     with patch("flux.config.Configuration.get") as mock_config:
         mock_config.return_value.settings.database_url = db_url
         mock_config.return_value.settings.database_type = "sqlite"
+        mock_config.return_value.settings.security.auth.enabled = False
 
         manager = ContextManager.create()
         yield manager

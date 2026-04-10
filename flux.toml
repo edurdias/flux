@@ -25,8 +25,19 @@ retry_backoff = 2                                           # Multiplier for sub
 module_cache_ttl = 300                                      # Seconds to cache compiled workflow modules (0 to disable)
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
-[flux.security]
-encryption_key = "SUPER_SECRET_KEY" # Master encryption key for sensitive data, this is just an example :P
+[flux.security.encryption]
+encryption_key = "SUPER_SECRET_KEY"
+
+# Uncomment to enable API key authentication:
+# [flux.security.auth.api_keys]
+# enabled = true
+
+# [flux.security.auth]
+# default_user_roles = ["viewer"]
+
+# [flux.security]
+# execution_token_ttl = 604800
+# execution_token_secret = "<generate with openssl rand -hex 32>"
 
 [flux.mcp]
 name = "flux-workflows"                 # Name for the MCP server

@@ -9,6 +9,7 @@ from uuid import uuid4
 import click
 import httpx
 
+from flux.cli_auth import auth, roles, principals
 from flux.config import Configuration
 from flux.server import Server
 from flux.worker import Worker
@@ -33,6 +34,18 @@ def get_server_url():
     return f"http://{settings.server_host}:{settings.server_port}"
 
 
+def get_http_client(timeout: float = 30.0) -> httpx.Client:
+    """Create an HTTP client with auth headers from the current CLI credentials.
+
+    Auth headers come from ``FLUX_AUTH_TOKEN`` if set, otherwise from a fresh
+    access token exchanged from the stored OIDC refresh token. See
+    ``cli_auth.get_auth_headers`` for details.
+    """
+    from flux.cli_auth import get_auth_headers
+
+    return httpx.Client(timeout=timeout, headers=get_auth_headers())
+
+
 @workflow.command("list")
 @click.option(
     "--format",
@@ -52,7 +65,7 @@ def list_workflows(format: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/workflows")
             response.raise_for_status()
             workflows = response.json()
@@ -87,7 +100,7 @@ def register_workflows(filename: str, server_url: str | None):
 
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             with open(file_path, "rb") as f:
                 files = {"file": (file_path.name, f, "text/x-python")}
                 response = client.post(f"{base_url}/workflows", files=files)
@@ -122,7 +135,7 @@ def show_workflow(workflow_name: str, version: int | None, server_url: str | Non
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             if version is not None:
                 url = f"{base_url}/workflows/{workflow_name}/versions/{version}"
             else:
@@ -190,7 +203,7 @@ def delete_workflow(
         if version is not None:
             params["version"] = version
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.delete(
                 f"{base_url}/workflows/{workflow_name}",
                 params=params,
@@ -232,7 +245,7 @@ def list_workflow_versions(
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/workflows/{workflow_name}/versions")
             response.raise_for_status()
             versions = response.json()
@@ -304,7 +317,7 @@ def run_workflow(
         if version is not None:
             params["version"] = version
 
-        with httpx.Client(timeout=60.0) as client:
+        with get_http_client(timeout=60.0) as client:
             response = client.post(
                 f"{base_url}/workflows/{workflow_name}/run/{mode}",
                 json=parsed_input,
@@ -373,7 +386,7 @@ def resume_workflow(
         base_url = server_url or get_server_url()
         parsed_input = parse_value(input)
 
-        with httpx.Client(timeout=60.0) as client:
+        with get_http_client(timeout=60.0) as client:
             response = client.post(
                 f"{base_url}/workflows/{workflow_name}/resume/{execution_id}/{mode}",
                 json=parsed_input,
@@ -431,7 +444,7 @@ def workflow_status(
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(
                 f"{base_url}/workflows/{workflow_name}/status/{execution_id}",
                 params={"detailed": detailed},
@@ -522,7 +535,7 @@ def list_executions(
         if state:
             params["state"] = state
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/executions", params=params)
             response.raise_for_status()
             result = response.json()
@@ -572,7 +585,7 @@ def show_execution(execution_id: str, detailed: bool, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(
                 f"{base_url}/executions/{execution_id}",
                 params={"detailed": detailed},
@@ -621,7 +634,7 @@ def list_workers(format: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/workers")
             response.raise_for_status()
             workers = response.json()
@@ -659,7 +672,7 @@ def show_worker(name: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/workers/{name}")
             response.raise_for_status()
             result = response.json()
@@ -692,7 +705,7 @@ def health_check(server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=10.0) as client:
+        with get_http_client(timeout=10.0) as client:
             response = client.get(f"{base_url}/health")
             response.raise_for_status()
             result = response.json()
@@ -839,6 +852,11 @@ def schedule():
     help="Input data for scheduled workflow executions (JSON format)",
 )
 @click.option(
+    "--run-as",
+    default=None,
+    help="Service account to run the schedule as (required when auth is enabled)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -853,6 +871,7 @@ def create_schedule(
     timezone: str,
     description: str | None,
     input: str | None,
+    run_as: str | None,
     server_url: str | None,
 ):
     """Create a new schedule for a workflow."""
@@ -892,11 +911,12 @@ def create_schedule(
             "schedule_config": schedule_config,
             "description": description,
             "input_data": input_data,
+            "run_as_service_account": run_as,
         }
 
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.post(f"{base_url}/schedules", json=request_data)
             response.raise_for_status()
             result = response.json()
@@ -946,7 +966,7 @@ def list_schedules(workflow: str | None, show_all: bool, format: str, server_url
         if workflow:
             params["workflow_name"] = workflow
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/schedules", params=params)
             response.raise_for_status()
             schedules = response.json()
@@ -989,7 +1009,7 @@ def show_schedule(schedule_id: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/schedules/{schedule_id}")
             response.raise_for_status()
             schedule = response.json()
@@ -1031,7 +1051,7 @@ def pause_schedule(schedule_id: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.post(f"{base_url}/schedules/{schedule_id}/pause")
             response.raise_for_status()
             result = response.json()
@@ -1060,7 +1080,7 @@ def resume_schedule(schedule_id: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.post(f"{base_url}/schedules/{schedule_id}/resume")
             response.raise_for_status()
             result = response.json()
@@ -1091,7 +1111,7 @@ def delete_schedule(schedule_id: str, server_url: str | None):
     try:
         base_url = server_url or get_server_url()
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.delete(f"{base_url}/schedules/{schedule_id}")
             response.raise_for_status()
 
@@ -1134,7 +1154,7 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
         base_url = server_url or get_server_url()
         params = {"limit": limit}
 
-        with httpx.Client(timeout=30.0) as client:
+        with get_http_client() as client:
             response = client.get(f"{base_url}/schedules/{schedule_id}/history", params=params)
             response.raise_for_status()
             history = response.json()
@@ -1252,6 +1272,11 @@ def remove_secret(name: str):
         click.echo(f"Secret '{name}' has been removed successfully.")
     except Exception as ex:
         click.echo(f"Error removing secret: {str(ex)}", err=True)
+
+
+cli.add_command(auth)
+cli.add_command(roles)
+cli.add_command(principals)
 
 
 if __name__ == "__main__":  # pragma: no cover

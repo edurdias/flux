@@ -36,6 +36,7 @@ class WorkflowDefinition(BaseModel):
 class WorkflowExecutionRequest(BaseModel):
     workflow: WorkflowDefinition
     context: ExecutionContext
+    exec_token: str | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -45,17 +46,22 @@ class WorkflowExecutionRequest(BaseModel):
         data: dict,
         checkpoint: Callable[[ExecutionContext], Awaitable],
     ) -> WorkflowExecutionRequest:
+        exec_token = data.get("exec_token")
+        ctx: ExecutionContext = ExecutionContext(
+            workflow_id=data["context"]["workflow_id"],
+            workflow_name=data["context"]["workflow_name"],
+            input=data["context"]["input"],
+            execution_id=data["context"]["execution_id"],
+            state=data["context"]["state"],
+            events=[ExecutionEvent(**event) for event in data["context"]["events"]],
+            checkpoint=checkpoint,
+        )
+        if exec_token:
+            ctx.set_exec_token(exec_token)
         return WorkflowExecutionRequest(
             workflow=WorkflowDefinition(**data["workflow"]),
-            context=ExecutionContext(
-                workflow_id=data["context"]["workflow_id"],
-                workflow_name=data["context"]["workflow_name"],
-                input=data["context"]["input"],
-                execution_id=data["context"]["execution_id"],
-                state=data["context"]["state"],
-                events=[ExecutionEvent(**event) for event in data["context"]["events"]],
-                checkpoint=checkpoint,
-            ),
+            context=ctx,
+            exec_token=exec_token,
         )
 
 

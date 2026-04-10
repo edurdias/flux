@@ -36,7 +36,7 @@ class TestEncryptedType:
         # Mock the encryption key
         with patch("flux.config.Configuration.get") as mock_config:
             mock_settings = MagicMock()
-            mock_settings.security.encryption_key = "test_encryption_key"
+            mock_settings.security.encryption.encryption_key = "test_encryption_key"
             mock_config.return_value.settings = mock_settings
 
             # Test data
@@ -205,7 +205,7 @@ class TestTypeCompatibilityIntegration:
 
         with patch("flux.config.Configuration.get") as mock_config:
             mock_settings = MagicMock()
-            mock_settings.security.encryption_key = "test_key"
+            mock_settings.security.encryption.encryption_key = "test_key"
             mock_config.return_value.settings = mock_settings
 
             # Both types should handle the same data consistently
@@ -255,7 +255,7 @@ class TestErrorHandling:
         # Mock configuration to raise error during encryption
         with patch("flux.config.Configuration.get") as mock_config:
             mock_settings = MagicMock()
-            mock_settings.security.encryption_key = None  # Missing key
+            mock_settings.security.encryption.encryption_key = None  # Missing key
             mock_config.return_value.settings = mock_settings
 
             with pytest.raises(ValueError, match="Encryption key is not set"):

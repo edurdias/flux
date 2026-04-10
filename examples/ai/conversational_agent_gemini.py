@@ -62,7 +62,7 @@ async def call_gemini_api(
     """
     if not secrets or "GEMINI_API_KEY" not in secrets:
         raise ValueError(
-            "GEMINI_API_KEY not found. Set it using: " "flux secrets set GEMINI_API_KEY 'your-key'",
+            "GEMINI_API_KEY not found. Set it using: flux secrets set GEMINI_API_KEY 'your-key'",
         )
 
     try:

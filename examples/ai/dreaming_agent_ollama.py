@@ -31,6 +31,7 @@ Usage (server/worker):
     # End the conversation:
     flux workflow resume dreaming_agent <execution_id> '{"message": ""}'
 """
+
 from __future__ import annotations
 
 from pathlib import Path

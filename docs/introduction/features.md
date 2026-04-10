@@ -25,9 +25,15 @@
 - **Subworkflow Support**: Compose complex workflows from simpler ones
 
 ## Security
+- **Principals Registry**: Unified store for users and service accounts with RBAC; supports auto-provisioning, soft-disable, and full audit trail
+- **OIDC/OAuth 2.0 Authentication**: Validate JWTs from Keycloak, Auth0, Okta, Microsoft Entra ID; users auto-provisioned on first login
+- **Role-Based Access Control**: Built-in roles (admin, operator, viewer) plus custom roles; roles assigned in Flux, not read from IdP tokens
+- **Execution Tokens**: Server-minted, HMAC-signed, execution-bound JWTs — workers never hold user credentials
+- **Zero-Trust Worker Callbacks**: Per-task authorization re-resolved from DB on every callback; in-flight revocation supported
+- **Task-Level Authorization**: Name-derived permissions with pre-flight and runtime checks; `auth_exempt` opt-out for utility tasks
+- **API Keys**: Machine-to-machine authentication tied to service account principals, with optional expiry
 - **Secret Management**: Securely handle sensitive data during workflow execution
 - **Encrypted Storage**: Protect sensitive data at rest
-- **Access Control**: Manage who can execute and modify workflows
 
 ## AI & MCP Integration
 - **AI Agents**: LLM-powered tasks with tool use, structured output, and conversation history

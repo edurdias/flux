@@ -62,30 +62,30 @@ async def generate_report_summary(metrics: dict, kpis: dict) -> str:
 📊 Daily Business Report - {timestamp}
 
 💰 SALES METRICS:
-   • Total Revenue: ${metrics['sales']['total_revenue']:,.2f}
-   • Orders: {metrics['sales']['orders_count']}
-   • Avg Order Value: ${metrics['sales']['average_order_value']:,.2f}
+   • Total Revenue: ${metrics["sales"]["total_revenue"]:,.2f}
+   • Orders: {metrics["sales"]["orders_count"]}
+   • Avg Order Value: ${metrics["sales"]["average_order_value"]:,.2f}
 
 👥 USER METRICS:
-   • New Registrations: {metrics['users']['new_registrations']}
-   • Active Users: {metrics['users']['active_users']}
-   • Churn Rate: {metrics['users']['churn_rate']:.1%}
+   • New Registrations: {metrics["users"]["new_registrations"]}
+   • Active Users: {metrics["users"]["active_users"]}
+   • Churn Rate: {metrics["users"]["churn_rate"]:.1%}
 
 📦 INVENTORY:
-   • Low Stock Items: {metrics['inventory']['low_stock_items']}
-   • Out of Stock: {metrics['inventory']['out_of_stock_items']}
-   • Total Products: {metrics['inventory']['total_products']}
+   • Low Stock Items: {metrics["inventory"]["low_stock_items"]}
+   • Out of Stock: {metrics["inventory"]["out_of_stock_items"]}
+   • Total Products: {metrics["inventory"]["total_products"]}
 
 📈 KEY PERFORMANCE INDICATORS:
-   • Revenue per User: ${kpis['revenue_per_user']:,.2f}
-   • Conversion Rate: {kpis['conversion_rate']:.2f}%
-   • Inventory Health: {kpis['inventory_health']:.1f}%
-   • User Growth Rate: {kpis['user_growth_rate']:.2f}%
+   • Revenue per User: ${kpis["revenue_per_user"]:,.2f}
+   • Conversion Rate: {kpis["conversion_rate"]:.2f}%
+   • Inventory Health: {kpis["inventory_health"]:.1f}%
+   • User Growth Rate: {kpis["user_growth_rate"]:.2f}%
 
 🎯 ACTION ITEMS:
-   {'• Review low stock items for restocking' if metrics['inventory']['low_stock_items'] > 5 else '• Inventory levels healthy'}
-   {'• Investigate high churn rate' if metrics['users']['churn_rate'] > 0.05 else '• User retention is stable'}
-   {'• Celebrate strong sales performance!' if metrics['sales']['total_revenue'] > 40000 else '• Focus on sales optimization'}
+   {"• Review low stock items for restocking" if metrics["inventory"]["low_stock_items"] > 5 else "• Inventory levels healthy"}
+   {"• Investigate high churn rate" if metrics["users"]["churn_rate"] > 0.05 else "• User retention is stable"}
+   {"• Celebrate strong sales performance!" if metrics["sales"]["total_revenue"] > 40000 else "• Focus on sales optimization"}
 """
 
     return summary.strip()

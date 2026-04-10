@@ -1,6 +1,7 @@
 """
 Scripts for testing GitHub Actions workflows locally.
 """
+
 from __future__ import annotations
 
 import json

@@ -86,6 +86,40 @@ docker-compose down
 - `FLUX_VERSION`: flux-core package version (default: latest)
 - `EXTRA_PACKAGES`: Additional pip packages to install
 
+## Authentication Dev Environment
+
+The docker-compose includes a Keycloak instance for local OIDC development:
+
+```bash
+# Start with Keycloak
+docker-compose up -d keycloak
+```
+
+Keycloak admin console: `http://localhost:8080`
+Admin credentials: `admin` / `admin`
+
+Pre-seeded users in the `flux` realm:
+
+| User | Password | Role |
+|------|----------|------|
+| `admin@local` | `admin` | admin |
+| `operator@local` | `operator` | operator |
+| `viewer@local` | `viewer` | viewer |
+
+Get a test token:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/realms/flux/protocol/openid-connect/token \
+  -d "grant_type=password&client_id=flux-api&username=admin@local&password=admin" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+```
+
+Use with Flux:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/workflows
+```
+
 ## Troubleshooting
 
 ### GPUtil and Python 3.12 Compatibility
