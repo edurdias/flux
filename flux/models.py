@@ -74,29 +74,6 @@ def _migrate_schema(engine) -> None:
                 )
                 conn.commit()
 
-    if "principals" not in inspector.get_table_names():
-        with engine.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                CREATE TABLE principals (
-                    id VARCHAR NOT NULL PRIMARY KEY,
-                    type VARCHAR NOT NULL,
-                    subject VARCHAR NOT NULL,
-                    external_issuer VARCHAR NOT NULL,
-                    display_name VARCHAR,
-                    enabled BOOLEAN NOT NULL DEFAULT 1,
-                    metadata JSON,
-                    created_at DATETIME NOT NULL,
-                    updated_at DATETIME NOT NULL,
-                    last_seen_at DATETIME,
-                    UNIQUE (subject, external_issuer)
-                )
-            """,
-                ),
-            )
-            conn.commit()
-
     if "executions" in inspector.get_table_names():
         cols = [c["name"] for c in inspector.get_columns("executions")]
         if "exec_token" not in cols:
@@ -117,23 +94,6 @@ def _migrate_schema(engine) -> None:
                     ),
                 )
                 conn.commit()
-
-    if "principal_roles" not in inspector.get_table_names():
-        with engine.connect() as conn:
-            conn.execute(
-                text(
-                    """
-                CREATE TABLE principal_roles (
-                    principal_id VARCHAR NOT NULL,
-                    role_name VARCHAR NOT NULL,
-                    assigned_at DATETIME NOT NULL,
-                    assigned_by VARCHAR,
-                    PRIMARY KEY (principal_id, role_name)
-                )
-            """,
-                ),
-            )
-            conn.commit()
 
 
 class DatabaseRepository(ABC):

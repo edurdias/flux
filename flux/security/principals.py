@@ -244,6 +244,10 @@ class PrincipalRegistry:
                 raise ValueError(
                     f"Principal '{principal_id}' has active API keys. Use force=True to delete.",
                 )
+            if has_keys:
+                session.query(APIKeyModel).filter_by(principal_id=principal_id).delete(
+                    synchronize_session=False,
+                )
             session.delete(principal)
             session.commit()
         except Exception:

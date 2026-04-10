@@ -227,16 +227,16 @@ class TestTaskNewAuthCheck:
         mock_response.status_code = 200
         mock_response.json.return_value = {"authorized": True}
 
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
         with (
             patch("flux.config.Configuration.get") as mock_config,
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("flux.task._get_auth_http_client", return_value=mock_client),
         ):
             mock_settings = mock_config.return_value.settings
             mock_settings.security.auth.enabled = True
             mock_settings.workers.server_url = "http://localhost:8000"
-
-            mock_client = mock_client_cls.return_value.__aenter__.return_value
-            mock_client.post = AsyncMock(return_value=mock_response)
 
             token = CURRENT_CONTEXT.set(ctx)
             try:
@@ -267,16 +267,16 @@ class TestTaskNewAuthCheck:
         mock_response.status_code = 403
         mock_response.json.return_value = {"authorized": False}
 
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
         with (
             patch("flux.config.Configuration.get") as mock_config,
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("flux.task._get_auth_http_client", return_value=mock_client),
         ):
             mock_settings = mock_config.return_value.settings
             mock_settings.security.auth.enabled = True
             mock_settings.workers.server_url = "http://localhost:8000"
-
-            mock_client = mock_client_cls.return_value.__aenter__.return_value
-            mock_client.post = AsyncMock(return_value=mock_response)
 
             token = CURRENT_CONTEXT.set(ctx)
             try:
@@ -288,7 +288,7 @@ class TestTaskNewAuthCheck:
     @pytest.mark.asyncio
     async def test_http_error_fails_closed(self):
         import httpx
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
         from flux.security.errors import TaskAuthorizationError
@@ -301,16 +301,16 @@ class TestTaskNewAuthCheck:
         ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
         ctx.set_exec_token("exec.tok.net-error")
 
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
         with (
             patch("flux.config.Configuration.get") as mock_config,
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("flux.task._get_auth_http_client", return_value=mock_client),
         ):
             mock_settings = mock_config.return_value.settings
             mock_settings.security.auth.enabled = True
             mock_settings.workers.server_url = "http://localhost:8000"
-
-            mock_client = mock_client_cls.return_value.__aenter__.return_value
-            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
 
             token = CURRENT_CONTEXT.set(ctx)
             try:

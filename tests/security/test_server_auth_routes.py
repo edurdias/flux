@@ -363,11 +363,11 @@ class TestDispatcherReadsExecTokenFromDB:
 
 
 class TestWorkflowsRunMintsExecToken:
-    def test_exec_token_persisted_after_run(self):
+    def test_server_has_no_execution_auth_tokens_dict(self):
         from flux.server import Server
 
         server = Server(host="localhost", port=8000)
-        assert not hasattr(server, "_execution_auth_tokens") or True
+        assert not hasattr(server, "_execution_auth_tokens")
 
 
 class TestWorkflowsResumeMintsExecToken:

@@ -33,7 +33,6 @@ class APIKeyAuthConfig(_BaseConfig):
 class AuthConfig(_BaseConfig):
     oidc: OIDCConfig = Field(default_factory=OIDCConfig)
     api_keys: APIKeyAuthConfig = Field(default_factory=APIKeyAuthConfig)
-    default_user_roles: list[str] = Field(default_factory=list)
 
     @property
     def enabled(self) -> bool:

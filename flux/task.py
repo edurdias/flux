@@ -13,8 +13,25 @@ import asyncio
 import time
 from functools import wraps
 from typing import Any, Callable, TypeVar
+from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+_auth_http_client = None
+
+
+def _get_auth_http_client():
+    """Return a process-wide httpx.AsyncClient for runtime authorization callbacks.
+
+    Reused across task invocations so repeated task calls within a workflow share
+    TCP/TLS connections instead of reconnecting for every authorize check.
+    """
+    global _auth_http_client
+    if _auth_http_client is None:
+        import httpx
+
+        _auth_http_client = httpx.AsyncClient(timeout=10.0)
+    return _auth_http_client
 
 
 class TaskMetadata:
@@ -141,22 +158,24 @@ class task:
                     )
 
                 server_url = Configuration.get().settings.workers.server_url
-                authorize_url = f"{server_url}/executions/{ctx.execution_id}/authorize/{self.name}"
+                task_name_escaped = quote(self.name, safe="")
+                authorize_url = (
+                    f"{server_url}/executions/{ctx.execution_id}/authorize/{task_name_escaped}"
+                )
 
                 try:
-                    async with httpx.AsyncClient() as _client:
-                        resp = await _client.post(
-                            authorize_url,
-                            headers={"Authorization": f"Bearer {exec_token}"},
-                            timeout=10.0,
+                    client = _get_auth_http_client()
+                    resp = await client.post(
+                        authorize_url,
+                        headers={"Authorization": f"Bearer {exec_token}"},
+                    )
+                    if resp.status_code != 200 or not resp.json().get("authorized", False):
+                        raise TaskAuthorizationError(
+                            task_name=full_name,
+                            task_id=task_id,
+                            subject="unknown",
+                            required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
                         )
-                        if resp.status_code != 200 or not resp.json().get("authorized", False):
-                            raise TaskAuthorizationError(
-                                task_name=full_name,
-                                task_id=task_id,
-                                subject="unknown",
-                                required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
-                            )
                 except TaskAuthorizationError:
                     raise
                 except httpx.HTTPError as _auth_err:
