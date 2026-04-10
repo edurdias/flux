@@ -96,6 +96,43 @@ def _migrate_schema(engine) -> None:
                 )
                 conn.commit()
 
+    # Widen the byte-count columns on worker_resources and
+    # worker_resources_gpus to BIGINT on PostgreSQL. Fresh databases get
+    # the correct type via `Base.metadata.create_all()`; this branch
+    # migrates existing installs that were created while the ORM still
+    # declared these as Integer. SQLite uses dynamic integer affinity
+    # so no migration is needed there.
+    if engine.dialect.name == "postgresql":
+        _widen_int_to_bigint = {
+            "worker_resources": (
+                "memory_total",
+                "memory_available",
+                "disk_total",
+                "disk_free",
+            ),
+            "worker_resources_gpus": (
+                "memory_total",
+                "memory_available",
+            ),
+            "execution_events": ("id",),
+        }
+        for table, columns in _widen_int_to_bigint.items():
+            if table not in inspector.get_table_names():
+                continue
+            existing = {c["name"]: c["type"] for c in inspector.get_columns(table)}
+            for col in columns:
+                col_type = existing.get(col)
+                if col_type is None:
+                    continue
+                if col_type.__class__.__name__ == "INTEGER":
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} " f"ALTER COLUMN {col} TYPE BIGINT",
+                            ),
+                        )
+                        conn.commit()
+
 
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
@@ -605,7 +642,11 @@ class ExecutionEventModel(Base):
         nullable=False,
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(
+        Integer().with_variant(BigInteger, "postgresql"),
+        primary_key=True,
+        autoincrement=True,
+    )
     source_id = Column(String, nullable=False)
     event_id = Column(String, nullable=False)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)

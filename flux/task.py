@@ -163,25 +163,28 @@ class task:
                     f"{server_url}/executions/{ctx.execution_id}/authorize/{task_name_escaped}"
                 )
 
+                authorized = False
                 try:
                     client = _get_auth_http_client()
                     resp = await client.post(
                         authorize_url,
                         headers={"Authorization": f"Bearer {exec_token}"},
                     )
-                    if resp.status_code != 200 or not resp.json().get("authorized", False):
-                        raise TaskAuthorizationError(
-                            task_name=full_name,
-                            task_id=task_id,
-                            subject="unknown",
-                            required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
-                        )
-                except TaskAuthorizationError:
-                    raise
+                    if resp.status_code == 200:
+                        try:
+                            authorized = bool(resp.json().get("authorized", False))
+                        except ValueError as _json_err:
+                            _get_logger(__name__).error(
+                                f"Task '{full_name}' authorize response not JSON "
+                                f"(status={resp.status_code}, {len(resp.content)} bytes): "
+                                f"{_json_err} — failing closed",
+                            )
                 except httpx.HTTPError as _auth_err:
                     _get_logger(__name__).error(
                         f"Task '{full_name}' authorization HTTP error: {_auth_err} — failing closed",
                     )
+
+                if not authorized:
                     raise TaskAuthorizationError(
                         task_name=full_name,
                         task_id=task_id,
