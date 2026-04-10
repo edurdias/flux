@@ -126,7 +126,12 @@ class TestExecutionTokenProvider:
     @pytest.mark.asyncio
     async def test_validate_wrong_signature(self, provider):
         bad_token = jwt.encode(
-            {"iss": "flux-server", "sub": "alice", "scope": "execution", "exp": int(time.time()) + 600},
+            {
+                "iss": "flux-server",
+                "sub": "alice",
+                "scope": "execution",
+                "exp": int(time.time()) + 600,
+            },
             "wrong-secret",
             algorithm="HS256",
         )

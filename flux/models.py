@@ -97,6 +97,27 @@ def _migrate_schema(engine) -> None:
             )
             conn.commit()
 
+    if "executions" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("executions")]
+        if "exec_token" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE executions ADD COLUMN exec_token VARCHAR"))
+                conn.commit()
+        if "scheduling_subject" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("ALTER TABLE executions ADD COLUMN scheduling_subject VARCHAR"),
+                )
+                conn.commit()
+        if "scheduling_principal_issuer" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE executions ADD COLUMN scheduling_principal_issuer VARCHAR",
+                    ),
+                )
+                conn.commit()
+
     if "principal_roles" not in inspector.get_table_names():
         with engine.connect() as conn:
             conn.execute(
@@ -542,6 +563,9 @@ class ExecutionContextModel(Base):
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
     worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
+    exec_token = Column(String, nullable=True)
+    scheduling_subject = Column(String, nullable=True)
+    scheduling_principal_issuer = Column(String, nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -571,6 +595,9 @@ class ExecutionContextModel(Base):
         output: Any | None = None,
         state: ExecutionState = ExecutionState.CREATED,
         worker_name: str | None = None,
+        exec_token: str | None = None,
+        scheduling_subject: str | None = None,
+        scheduling_principal_issuer: str | None = None,
     ):
         self.execution_id = execution_id
         self.workflow_id = workflow_id
@@ -580,6 +607,9 @@ class ExecutionContextModel(Base):
         self.output = output
         self.state = state
         self.worker_name = worker_name
+        self.exec_token = exec_token
+        self.scheduling_subject = scheduling_subject
+        self.scheduling_principal_issuer = scheduling_principal_issuer
 
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(

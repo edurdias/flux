@@ -144,3 +144,107 @@ class TestExecutionEventSubject:
             name="test_workflow",
         )
         assert event.subject is None
+
+
+class TestExecutionContextModelNewColumns:
+    def test_model_has_exec_token_column(self):
+        from flux.models import ExecutionContextModel
+        from sqlalchemy import inspect as sa_inspect
+
+        cols = {c.key for c in sa_inspect(ExecutionContextModel).mapper.column_attrs}
+        assert "exec_token" in cols
+
+    def test_model_has_scheduling_subject_column(self):
+        from flux.models import ExecutionContextModel
+        from sqlalchemy import inspect as sa_inspect
+
+        cols = {c.key for c in sa_inspect(ExecutionContextModel).mapper.column_attrs}
+        assert "scheduling_subject" in cols
+
+    def test_model_has_scheduling_principal_issuer_column(self):
+        from flux.models import ExecutionContextModel
+        from sqlalchemy import inspect as sa_inspect
+
+        cols = {c.key for c in sa_inspect(ExecutionContextModel).mapper.column_attrs}
+        assert "scheduling_principal_issuer" in cols
+
+    def test_model_init_accepts_new_fields(self):
+        from flux.models import ExecutionContextModel
+
+        m = ExecutionContextModel(
+            execution_id="ex-1",
+            workflow_id="wf-1",
+            workflow_name="wf",
+            input=None,
+            exec_token="tok.abc",
+            scheduling_subject="alice@acme.com",
+            scheduling_principal_issuer="https://issuer",
+        )
+        assert m.exec_token == "tok.abc"
+        assert m.scheduling_subject == "alice@acme.com"
+        assert m.scheduling_principal_issuer == "https://issuer"
+
+
+class TestMigrateSchemaExecTokenColumns:
+    def test_migrate_adds_exec_token_to_existing_executions_table(self, tmp_path):
+        from sqlalchemy import create_engine, text, inspect as sa_inspect
+        from flux.models import _migrate_schema
+
+        db_url = f"sqlite:///{tmp_path}/test_migrate.db"
+        engine = create_engine(db_url)
+
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE executions ("
+                    "  execution_id VARCHAR PRIMARY KEY,"
+                    "  workflow_id VARCHAR NOT NULL,"
+                    "  workflow_name VARCHAR NOT NULL,"
+                    "  input BLOB,"
+                    "  output BLOB,"
+                    "  state VARCHAR NOT NULL,"
+                    "  worker_name VARCHAR"
+                    ")",
+                ),
+            )
+            conn.commit()
+
+        _migrate_schema(engine)
+
+        inspector = sa_inspect(engine)
+        cols = [c["name"] for c in inspector.get_columns("executions")]
+        assert "exec_token" in cols
+        assert "scheduling_subject" in cols
+        assert "scheduling_principal_issuer" in cols
+
+
+class TestExecutionContextModelRoundtrip:
+    def test_from_plain_preserves_exec_token_on_model(self):
+        from flux.models import ExecutionContextModel
+        from flux.domain.execution_context import ExecutionContext
+        from flux.domain.events import ExecutionState
+
+        ctx = ExecutionContext(
+            workflow_id="wf-1",
+            workflow_name="wf",
+            input=None,
+            execution_id="ex-1",
+            state=ExecutionState.SCHEDULED,
+        )
+        m = ExecutionContextModel.from_plain(ctx)
+        assert m.exec_token is None
+
+    def test_exec_token_stored_separately_from_context(self):
+        from flux.models import ExecutionContextModel
+
+        m = ExecutionContextModel(
+            execution_id="ex-1",
+            workflow_id="wf-1",
+            workflow_name="wf",
+            input=None,
+            exec_token="tok.abc",
+            scheduling_subject="alice@acme.com",
+            scheduling_principal_issuer="https://issuer",
+        )
+        ctx = m.to_plain()
+        assert not hasattr(ctx, "exec_token")

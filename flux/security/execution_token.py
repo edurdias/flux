@@ -34,13 +34,13 @@ def _get_execution_token_secret() -> str:
     if debug_mode:
         logger.warning(
             "execution_token_secret is not configured — auto-generating ephemeral secret. "
-            "This is only safe for development. Set security.execution_token_secret in production."
+            "This is only safe for development. Set security.execution_token_secret in production.",
         )
         return secrets.token_hex(32)
 
     raise RuntimeError(
         "execution_token_secret is not configured. "
-        "Set FLUX_EXECUTION_TOKEN_SECRET env var or security.execution_token_secret in flux.toml."
+        "Set FLUX_EXECUTION_TOKEN_SECRET env var or security.execution_token_secret in flux.toml.",
     )
 
 
@@ -95,7 +95,9 @@ class ExecutionTokenProvider(AuthProvider):
             if self._registry is not None:
                 principal = self._registry.find(subject, principal_issuer)
                 if principal is None:
-                    logger.warning(f"Execution token references unknown principal ({subject}, {principal_issuer})")
+                    logger.warning(
+                        f"Execution token references unknown principal ({subject}, {principal_issuer})",
+                    )
                     return None
                 if not principal.enabled:
                     logger.warning(f"Execution token principal '{subject}' is disabled")

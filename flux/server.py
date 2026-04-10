@@ -43,8 +43,7 @@ from flux.schedule_manager import create_schedule_manager
 from flux.domain.schedule import schedule_factory
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service, get_identity, require_permission
-from flux.security.errors import AuthenticationError
-from flux.security.identity import FluxIdentity
+from flux.security.identity import ANONYMOUS, FluxIdentity
 from datetime import datetime, timezone
 
 logger = get_logger(__name__)
@@ -153,16 +152,6 @@ class RoleCloneRequest(BaseModel):
     new_name: str
 
 
-class ServiceAccountRequest(BaseModel):
-    name: str
-    roles: list[str]
-
-
-class ServiceAccountUpdateRequest(BaseModel):
-    add_roles: list[str] | None = None
-    remove_roles: list[str] | None = None
-
-
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -172,9 +161,31 @@ class TestTokenRequest(BaseModel):
     token: str
 
 
-class IsAuthorizedRequest(BaseModel):
-    token: str
-    permission: str
+class PrincipalCreateRequest(BaseModel):
+    subject: str
+    type: str
+    external_issuer: str | None = None
+    display_name: str | None = None
+    roles: list[str] = []
+
+
+class PrincipalUpdateRequest(BaseModel):
+    display_name: str | None = None
+    enabled: bool | None = None
+
+
+class RoleGrantRequest(BaseModel):
+    role: str
+
+
+class PrincipalResponse(BaseModel):
+    id: str
+    subject: str
+    type: str
+    external_issuer: str
+    display_name: str | None
+    enabled: bool
+    roles: list[str]
 
 
 # New response models for missing endpoints
@@ -264,9 +275,6 @@ class Server:
         self._execution_events: dict[str, asyncio.Event] = {}
         self._progress_buffers: dict[str, asyncio.Queue] = {}
         self._execution_queue_times: dict[str, float] = {}
-        # In-memory map of execution_id → auth_token for dispatch.
-        # Tokens are NOT persisted to DB (zero-trust).
-        self._execution_auth_tokens: dict[str, str] = {}
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
@@ -684,6 +692,7 @@ class Server:
 
             auth_config = Configuration.get().settings.security.auth
             identity = None
+            sa_principal = None
 
             if auth_config.enabled:
                 sa_name = getattr(schedule, "run_as_service_account", None)
@@ -700,27 +709,28 @@ class Server:
                     config=auth_config,
                     session_factory=self._get_db_session,
                 )
-                registry = PrincipalRegistry(self._get_db_session)
-                sa = None
-                if registry is not None:
-                    sa = registry.find(sa_name, "flux")
-                if sa is None or not sa.enabled:
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                sa_principal = registry.find(sa_name, "flux")
+                if sa_principal is None or not sa_principal.enabled:
                     logger.error(
-                        f"Schedule '{schedule.name}': SA '{sa_name}' not found or disabled, skipping",
+                        f"Schedule '{schedule.name}': SA principal '{sa_name}' not found or disabled, skipping",
                     )
                     schedule.mark_failure()
                     return
 
                 from flux.security.identity import FluxIdentity
 
+                current_roles = registry.get_roles(sa_principal.id)
                 identity = FluxIdentity(
-                    subject=f"sa:{sa.subject}",
-                    roles=frozenset(registry.get_roles(sa.id)),
-                    metadata={"token_type": "service_account", "via": "scheduler"},
+                    subject=sa_principal.subject,
+                    roles=frozenset(current_roles),
+                    metadata={
+                        "token_type": "service_account",
+                        "issuer": "flux",
+                        "via": "scheduler",
+                    },
                 )
 
-                # Pre-flight authorization check: verify SA has permissions to run
-                # the workflow and all its tasks BEFORE execution is created.
                 try:
                     workflow = WorkflowCatalog.create().get(schedule.workflow_name)
                     workflow_metadata = (
@@ -740,19 +750,39 @@ class Server:
                 )
                 if not auth_result.ok:
                     logger.error(
-                        f"Schedule '{schedule.name}': SA '{sa.subject}' lacks permissions: "
+                        f"Schedule '{schedule.name}': SA '{sa_principal.subject}' lacks permissions: "
                         f"{auth_result.missing_permissions}",
                     )
                     schedule.mark_failure()
                     return
-
-                # TODO(Phase 6): Mint execution token here
 
             ctx = self._create_execution(
                 schedule.workflow_name,
                 schedule.input_data,
                 identity=identity,
             )
+
+            if auth_config.enabled and sa_principal is not None:
+                from flux.security.execution_token import mint_execution_token
+
+                exec_token = mint_execution_token(
+                    subject=sa_principal.subject,
+                    principal_issuer="flux",
+                    execution_id=ctx.execution_id,
+                    on_behalf_of=f"schedule:{schedule.name}",
+                )
+                sched_token_session = self._get_db_session()
+                try:
+                    from flux.models import ExecutionContextModel as _ECM5
+
+                    exec_row = sched_token_session.get(_ECM5, ctx.execution_id)
+                    if exec_row:
+                        exec_row.exec_token = exec_token
+                        exec_row.scheduling_subject = sa_principal.subject
+                        exec_row.scheduling_principal_issuer = "flux"
+                        sched_token_session.commit()
+                finally:
+                    sched_token_session.close()
 
             # Update schedule tracking
             schedule.mark_run(scheduled_time)
@@ -951,10 +981,31 @@ class Server:
                             },
                         )
 
-                # TODO(Phase 6): Mint execution token here
-
                 ctx = self._create_execution(workflow_name, input, version, identity)
                 manager = ContextManager.create()
+
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM3
+
+                        exec_row = token_session.get(_ECM3, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            token_session.commit()
+                    finally:
+                        token_session.close()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
                 )
@@ -1140,7 +1191,28 @@ class Server:
                         detail=f"Execution context with ID {execution_id} not found.",
                     )
 
-                # TODO(Phase 6): Mint execution token here
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    resume_token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM4
+
+                        exec_row = resume_token_session.get(_ECM4, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            resume_token_session.commit()
+                    finally:
+                        resume_token_session.close()
 
                 if ctx.has_finished:
                     raise HTTPException(
@@ -1571,16 +1643,21 @@ class Server:
                                     )
 
                                     payload_dict = {"workflow": workflow, "context": ctx}
-                                    # Prefer in-memory auth token (zero-trust, not persisted).
-                                    # Falls back to ctx.auth_token for resume scenarios.
-                                    auth_token_for_dispatch = (
-                                        self._execution_auth_tokens.get(
+                                    exec_model_session = self._get_db_session()
+                                    try:
+                                        from flux.models import ExecutionContextModel as _ECM
+
+                                        exec_row = exec_model_session.get(
+                                            _ECM,
                                             ctx.execution_id,
                                         )
-                                        or ctx.auth_token
-                                    )
-                                    if auth_token_for_dispatch:
-                                        payload_dict["auth_token"] = auth_token_for_dispatch
+                                        exec_token_for_dispatch = (
+                                            exec_row.exec_token if exec_row else None
+                                        )
+                                    finally:
+                                        exec_model_session.close()
+                                    if exec_token_for_dispatch:
+                                        payload_dict["exec_token"] = exec_token_for_dispatch
                                     data_payload = to_json(payload_dict)
 
                                     from flux.observability import is_enabled
@@ -1635,14 +1712,21 @@ class Server:
                                     )
 
                                     resume_payload_dict = {"workflow": workflow, "context": ctx}
-                                    resume_auth_token = (
-                                        self._execution_auth_tokens.get(
+                                    resume_model_session = self._get_db_session()
+                                    try:
+                                        from flux.models import ExecutionContextModel as _ECM2
+
+                                        resume_exec_row = resume_model_session.get(
+                                            _ECM2,
                                             ctx.execution_id,
                                         )
-                                        or ctx.auth_token
-                                    )
-                                    if resume_auth_token:
-                                        resume_payload_dict["auth_token"] = resume_auth_token
+                                        resume_exec_token = (
+                                            resume_exec_row.exec_token if resume_exec_row else None
+                                        )
+                                    finally:
+                                        resume_model_session.close()
+                                    if resume_exec_token:
+                                        resume_payload_dict["exec_token"] = resume_exec_token
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
@@ -1762,7 +1846,6 @@ class Server:
 
                 if ctx.has_finished:
                     self._execution_queue_times.pop(execution_id, None)
-                    self._execution_auth_tokens.pop(execution_id, None)
                     worker_execs = self._worker_executions.get(name)
                     if worker_execs:
                         worker_execs.discard(execution_id)
@@ -2902,13 +2985,356 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(e))
 
         # ===========================================
-        # Auth & Admin: Service Accounts (Phase 6 will rewrite these routes)
+        # Auth & Admin: Principals
         # ===========================================
 
-        # SA CRUD routes removed in Phase 2 — rewritten against PrincipalRegistry in Phase 6.
+        @api.get("/admin/principals")
+        async def admin_list_principals(
+            type: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:read")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principals = registry.list_all(type=type)
+                return [
+                    {
+                        "id": str(p.id),
+                        "subject": p.subject,
+                        "type": p.type,
+                        "external_issuer": p.external_issuer,
+                        "display_name": p.display_name,
+                        "enabled": p.enabled,
+                        "roles": registry.get_roles(p.id),
+                    }
+                    for p in principals
+                ]
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/principals/{subject}")
+        async def admin_get_principal(
+            subject: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:read")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal and issuer is None:
+                    principal = registry.find(subject, "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                return {
+                    "id": str(principal.id),
+                    "subject": principal.subject,
+                    "type": principal.type,
+                    "external_issuer": principal.external_issuer,
+                    "display_name": principal.display_name,
+                    "enabled": principal.enabled,
+                    "roles": registry.get_roles(principal.id),
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals", status_code=201)
+        async def admin_create_principal(
+            request: PrincipalCreateRequest,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                external_issuer = request.external_issuer or (
+                    "flux" if request.type == "service_account" else "flux"
+                )
+                principal = registry.create(
+                    type=request.type,
+                    subject=request.subject,
+                    external_issuer=external_issuer,
+                    display_name=request.display_name,
+                )
+                for role in request.roles:
+                    registry.assign_role(principal.id, role)
+                return {
+                    "id": str(principal.id),
+                    "subject": principal.subject,
+                    "type": principal.type,
+                    "external_issuer": principal.external_issuer,
+                    "display_name": principal.display_name,
+                    "enabled": principal.enabled,
+                    "roles": request.roles,
+                }
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.patch("/admin/principals/{subject}")
+        async def admin_update_principal(
+            subject: str,
+            request: PrincipalUpdateRequest,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                if request.display_name is not None:
+                    registry.update_metadata(principal.id, display_name=request.display_name)
+                if request.enabled is not None:
+                    registry.set_enabled(principal.id, request.enabled)
+                updated = registry.get(principal.id) or principal
+                return {
+                    "id": str(updated.id),
+                    "subject": updated.subject,
+                    "display_name": updated.display_name,
+                    "enabled": updated.enabled,
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/principals/{subject}", status_code=200)
+        async def admin_delete_principal(
+            subject: str,
+            issuer: str | None = None,
+            force: bool = False,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.delete(principal.id, force=force)
+                return {"status": "success", "message": f"Principal '{subject}' deleted"}
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/roles")
+        async def admin_grant_principal_role(
+            subject: str,
+            request: RoleGrantRequest,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.assign_role(principal.id, request.role, assigned_by=identity.subject)
+                return {"status": "success", "role": request.role}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/principals/{subject}/roles/{role_name}")
+        async def admin_revoke_principal_role(
+            subject: str,
+            role_name: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.revoke_role(principal.id, role_name)
+                return {"status": "success", "role": role_name}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/enable")
+        async def admin_enable_principal(
+            subject: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.set_enabled(principal.id, True)
+                return {"status": "success", "subject": subject, "enabled": True}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/disable")
+        async def admin_disable_principal(
+            subject: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.set_enabled(principal.id, False)
+                return {"status": "success", "subject": subject, "enabled": False}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/keys", status_code=201)
+        async def admin_create_principal_key(
+            subject: str,
+            request: APIKeyRequest,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from datetime import timedelta
+
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                if principal.type != "service_account":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="API keys can only be created for service_account principals",
+                    )
+                expires = (
+                    timedelta(days=request.expires_in_days) if request.expires_in_days else None
+                )
+                key_plaintext = await auth_service.create_api_key(
+                    principal.id,
+                    request.name,
+                    expires,
+                )
+                return {"key": key_plaintext}
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.get("/admin/principals/{subject}/keys")
+        async def admin_list_principal_keys(
+            subject: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:read")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                keys = await auth_service.list_api_keys(principal.id)
+                return [
+                    {
+                        "name": k.name,
+                        "prefix": k.key_prefix,
+                        "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+                        "created_at": k.created_at.isoformat(),
+                    }
+                    for k in keys
+                ]
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.delete("/admin/principals/{subject}/keys/{key_name}")
+        async def admin_revoke_principal_key(
+            subject: str,
+            key_name: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                await auth_service.revoke_api_key(principal.id, key_name)
+                return {"status": "success", "message": f"Key '{key_name}' revoked"}
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
 
         # ===========================================
-        # Auth: Permissions, Test Token, Is-Authorized
+        # Auth: Permissions, Test Token
         # ===========================================
 
         @api.get("/auth/permissions")
@@ -2956,32 +3382,109 @@ class Server:
             except Exception:
                 return {"valid": False, "error": "Invalid or expired token"}
 
-        @api.post("/auth/is-authorized")
-        async def auth_is_authorized(
-            request: Request,
-            body: dict,
-            caller: FluxIdentity = Depends(get_identity),
-        ):
-            """Check if a token has a permission. Caller must be authenticated.
+        # ===========================================
+        # Execution Authorization (task callbacks)
+        # ===========================================
 
-            Not rate-limited: this endpoint is called by workers on every task
-            execution for runtime authorization checks. Rate limiting here would
-            break legitimate workloads that run many tasks per minute. The
-            endpoint requires authentication, so brute-force attacks are not
-            possible without a valid token.
+        @api.post("/executions/{exec_id}/authorize/{task_name}")
+        async def execution_authorize_task(
+            exec_id: str,
+            task_name: str,
+            request: Request,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """Runtime task authorization callback — called by workers before each task.
+
+            Not rate-limited: workers call this on every task execution. The endpoint
+            requires a valid execution token bound to this specific exec_id, making
+            brute-force impossible without a valid HMAC-signed token.
             """
             try:
-                token = body.get("token")
-                permission = body.get("permission")
-                if not token or not permission:
-                    return {"authorized": False}
-                identity = await auth_service.authenticate(token)
-                authorized = await auth_service.is_authorized(identity, permission)
-                return {"authorized": authorized}
-            except AuthenticationError:
-                return {"authorized": False}
-            except Exception:
-                return {"authorized": False}
+                token_type = identity.metadata.get("token_type") if identity.metadata else None
+                if token_type != "execution":
+                    raise HTTPException(
+                        status_code=403,
+                        detail="This endpoint requires an execution token",
+                    )
+
+                token_exec_id = identity.metadata.get("execution_id")
+                if token_exec_id != exec_id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Execution token is not bound to this execution",
+                    )
+
+                manager = ContextManager.create()
+                try:
+                    ctx = manager.get(exec_id)
+                except Exception:
+                    ctx = None
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution '{exec_id}' not found",
+                    )
+
+                from flux.domain import ExecutionState
+
+                terminal_states = {
+                    ExecutionState.COMPLETED,
+                    ExecutionState.FAILED,
+                    ExecutionState.CANCELLED,
+                }
+                if ctx.state in terminal_states:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Execution is not active (state: {ctx.state.value})",
+                    )
+
+                principal_subject = identity.metadata.get("principal_subject") or identity.subject
+                principal_issuer = identity.metadata.get("principal_issuer", "flux")
+
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(principal_subject, principal_issuer)
+                if not principal:
+                    raise HTTPException(status_code=403, detail="Principal not found")
+                if not principal.enabled:
+                    raise HTTPException(status_code=403, detail="Principal is disabled")
+
+                workflow_meta = {}
+                try:
+                    wf = WorkflowCatalog.create().get(ctx.workflow_name)
+                    workflow_meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
+                except Exception:
+                    pass
+
+                auth_exempt_tasks = set(workflow_meta.get("auth_exempt_tasks", []))
+                if task_name in auth_exempt_tasks:
+                    return {"authorized": True}
+
+                if auth_service is not None:
+                    roles = registry.get_roles(principal.id)
+                    exec_identity = FluxIdentity(
+                        subject=principal_subject,
+                        roles=frozenset(roles),
+                        metadata={"type": principal.type, "issuer": principal_issuer},
+                    )
+                    required = f"workflow:{ctx.workflow_name}:task:{task_name}:execute"
+                    authorized = await auth_service.is_authorized(exec_identity, required)
+                    if not authorized:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={"authorized": False, "missing_permission": required},
+                        )
+
+                return {"authorized": True}
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Execution authorize error for {exec_id}/{task_name}: {e}",
+                )
+                raise HTTPException(status_code=500, detail=str(e))
 
         return api
 
