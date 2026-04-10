@@ -441,6 +441,67 @@ class TestMintInternalTokenRemovedFromServer:
         assert "mint_internal_token" not in src, "server.py still references mint_internal_token"
 
 
+class TestSchedulerAuthIntegration:
+    @pytest.mark.asyncio
+    async def test_trigger_skips_when_principal_not_found(self):
+        from unittest.mock import MagicMock, patch
+
+        from flux.server import Server
+
+        server = Server(host="localhost", port=8000)
+
+        schedule = MagicMock()
+        schedule.name = "test-schedule"
+        schedule.workflow_name = "my_workflow"
+        schedule.run_as_service_account = "svc-missing"
+        schedule.input_data = None
+
+        mock_registry_instance = MagicMock()
+        mock_registry_instance.find.return_value = None
+        mock_registry_cls = MagicMock(return_value=mock_registry_instance)
+
+        with (
+            patch("flux.security.principals.PrincipalRegistry", mock_registry_cls),
+            patch("flux.server.Configuration") as mock_cfg,
+        ):
+            mock_auth = mock_cfg.get.return_value.settings.security.auth
+            mock_auth.enabled = True
+
+            await server._trigger_scheduled_workflow(schedule, None)
+            schedule.mark_failure.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_trigger_skips_when_principal_disabled(self):
+        from unittest.mock import MagicMock, patch
+
+        from flux.server import Server
+
+        server = Server(host="localhost", port=8000)
+
+        schedule = MagicMock()
+        schedule.name = "test-schedule"
+        schedule.workflow_name = "my_workflow"
+        schedule.run_as_service_account = "svc-disabled"
+        schedule.input_data = None
+
+        disabled_principal = MagicMock()
+        disabled_principal.enabled = False
+
+        mock_registry_instance = MagicMock()
+        mock_registry_instance.find.return_value = disabled_principal
+        mock_registry_cls = MagicMock(return_value=mock_registry_instance)
+
+        with (
+            patch("flux.security.principals.PrincipalRegistry", mock_registry_cls),
+            patch("flux.server.Configuration") as mock_cfg,
+        ):
+            mock_auth = mock_cfg.get.return_value.settings.security.auth
+            mock_auth.enabled = True
+
+            await server._trigger_scheduled_workflow(schedule, None)
+            schedule.mark_failure.assert_called_once()
+
+
 class TestOldAuthIsAuthorizedTestUpdated:
     def test_no_references_to_old_is_authorized_endpoint_in_tests(self):
         import pathlib
