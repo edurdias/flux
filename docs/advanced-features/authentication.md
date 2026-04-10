@@ -1,7 +1,5 @@
 # Authentication & Authorization
 
-> **Breaking change:** This design supersedes the previous auth system (`2026-04-07`). No backward compatibility. The `service_accounts` CLI group, `/admin/service-accounts/*` routes, `InternalTokenProvider`, and identity-forwarding fields on `ExecutionContext` are all removed.
-
 ## Overview
 
 Flux supports opt-in authentication and authorization. When no auth provider is enabled, all API requests succeed without credentials. When any provider is enabled, every request must carry valid credentials.
