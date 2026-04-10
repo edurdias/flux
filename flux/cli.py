@@ -35,7 +35,12 @@ def get_server_url():
 
 
 def get_http_client(timeout: float = 30.0) -> httpx.Client:
-    """Create an HTTP client with auth headers if FLUX_AUTH_TOKEN is set."""
+    """Create an HTTP client with auth headers from the current CLI credentials.
+
+    Auth headers come from ``FLUX_AUTH_TOKEN`` if set, otherwise from a fresh
+    access token exchanged from the stored OIDC refresh token. See
+    ``cli_auth.get_auth_headers`` for details.
+    """
     from flux.cli_auth import get_auth_headers
 
     return httpx.Client(timeout=timeout, headers=get_auth_headers())
