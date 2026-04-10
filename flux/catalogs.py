@@ -180,6 +180,7 @@ class WorkflowCatalog(ABC):
 
     def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
         task_func_to_name: dict[str, str] = {}
+        exempt_func_to_name: dict[str, str] = {}
         workflow_func_to_name: dict[str, str] = {}
 
         for node in ast.walk(tree):
@@ -192,10 +193,12 @@ class WorkflowCatalog(ABC):
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
-                                if not self._is_auth_exempt(dec):
-                                    task_name = (
-                                        self._extract_task_name_from_decorator(dec) or node.name
-                                    )
+                                task_name = (
+                                    self._extract_task_name_from_decorator(dec) or node.name
+                                )
+                                if self._is_auth_exempt(dec):
+                                    exempt_func_to_name[node.name] = task_name
+                                else:
                                     task_func_to_name[node.name] = task_name
                             elif (
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
@@ -204,6 +207,7 @@ class WorkflowCatalog(ABC):
                                 workflow_func_to_name[node.name] = wf_name
 
         called_tasks = set()
+        called_exempt = set()
         called_workflows = set()
 
         for node in ast.walk(func_node):
@@ -217,12 +221,15 @@ class WorkflowCatalog(ABC):
                 if func_name:
                     if func_name in task_func_to_name:
                         called_tasks.add(task_func_to_name[func_name])
+                    elif func_name in exempt_func_to_name:
+                        called_exempt.add(exempt_func_to_name[func_name])
                     elif func_name in workflow_func_to_name:
                         called_workflows.add(workflow_func_to_name[func_name])
 
         return {
             "task_names": sorted(called_tasks),
             "nested_workflows": sorted(called_workflows),
+            "auth_exempt_tasks": sorted(called_exempt),
         }
 
     @staticmethod

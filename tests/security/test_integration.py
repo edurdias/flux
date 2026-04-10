@@ -176,6 +176,36 @@ class TestFullAuthorizationFlow:
             await auth_service.create_role("bad-role2", [""])
 
 
+    @pytest.mark.asyncio
+    async def test_authorize_excludes_auth_exempt_tasks(self, auth_service):
+        """Tasks in auth_exempt_tasks are not required for authorize."""
+        op = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
+        metadata = {
+            "task_names": ["load"],
+            "nested_workflows": [],
+            "auth_exempt_tasks": ["format_output"],
+        }
+        result = await auth_service.authorize(op, "wf", metadata)
+        assert result.ok is True
+
+    @pytest.mark.asyncio
+    async def test_create_and_disable_principal_blocks_nothing_in_service(self, auth_service):
+        """create_principal + disable_principal round-trip via principals API."""
+        principal = await auth_service.create_principal(
+            type="user",
+            subject="temp@acme.com",
+            external_issuer="https://idp.example.com",
+            roles=["viewer"],
+        )
+        assert principal.enabled is True
+        await auth_service.disable_principal(principal.id)
+        disabled = await auth_service.get_principal(principal.id)
+        assert disabled.enabled is False
+        await auth_service.enable_principal(principal.id)
+        enabled = await auth_service.get_principal(principal.id)
+        assert enabled.enabled is True
+
+
 class TestEventSubjectIntegration:
     def test_events_have_none_subject_by_default(self):
         from flux.domain.execution_context import ExecutionContext

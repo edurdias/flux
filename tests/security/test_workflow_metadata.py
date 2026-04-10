@@ -148,6 +148,47 @@ async def my_workflow(ctx):
         assert "normal_task" in wf.metadata.get("task_names", [])
         assert "exempt_task" not in wf.metadata.get("task_names", [])
 
+    def test_auth_exempt_task_included_in_auth_exempt_tasks(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def normal_task():
+    return 1
+
+@task.with_options(auth_exempt=True)
+async def exempt_task():
+    return 2
+
+@workflow
+async def my_workflow(ctx):
+    await normal_task()
+    return await exempt_task()
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "exempt_task" in wf.metadata.get("auth_exempt_tasks", [])
+        assert "normal_task" not in wf.metadata.get("auth_exempt_tasks", [])
+
+    def test_metadata_has_auth_exempt_tasks_key(self):
+        source = b"""
+from flux import workflow, task
+
+@task
+async def my_task():
+    return 1
+
+@workflow
+async def my_workflow(ctx):
+    return await my_task()
+"""
+        catalog = FakeCatalog()
+        workflows = catalog.parse(source)
+        wf = workflows[0]
+        assert "auth_exempt_tasks" in wf.metadata
+        assert wf.metadata["auth_exempt_tasks"] == []
+
     def test_auth_exempt_false_task_included_in_metadata(self):
         source = b"""
 from flux import workflow, task
