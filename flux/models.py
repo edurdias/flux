@@ -446,13 +446,10 @@ class WorkerModel(Base):
     packages = relationship("WorkerPackageModel", back_populates="worker")
     resources = relationship("WorkerResourcesModel", back_populates="worker", uselist=False)
 
-    # Soft link to executions — see ExecutionContextModel.worker
     executions = relationship(
         "ExecutionContextModel",
         back_populates="worker",
-        primaryjoin="WorkerModel.name == foreign(ExecutionContextModel.worker_name)",
         lazy="dynamic",
-        viewonly=True,
     )
 
     def __init__(
@@ -484,13 +481,12 @@ class WorkflowModel(Base):
     # Add a uniqueness constraint on name and version
     __table_args__ = (UniqueConstraint("name", "version", name="uix_workflow_name_version"),)
 
-    # Relationship to executions (soft link — see ExecutionContextModel.workflow)
+    # Relationship to executions
     executions = relationship(
         "ExecutionContextModel",
         back_populates="workflow",
-        primaryjoin="WorkflowModel.id == foreign(ExecutionContextModel.workflow_id)",
+        cascade="all, delete-orphan",
         lazy="dynamic",
-        viewonly=True,
     )
 
     def __init__(
@@ -521,12 +517,12 @@ class ExecutionContextModel(Base):
         unique=True,
         nullable=False,
     )
-    workflow_id = Column(String, nullable=False)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
     workflow_name = Column(String, nullable=False)
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
-    worker_name = Column(String, nullable=True)
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
     exec_token = Column(String, nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
@@ -539,20 +535,9 @@ class ExecutionContextModel(Base):
         order_by="ExecutionEventModel.id",
     )
 
-    # Relationship to workflow (soft link — no FK so inline runs without a
-    # registered workflow row don't violate referential integrity).
-    workflow = relationship(
-        "WorkflowModel",
-        back_populates="executions",
-        primaryjoin="foreign(ExecutionContextModel.workflow_id) == WorkflowModel.id",
-        viewonly=True,
-    )
-    worker = relationship(
-        "WorkerModel",
-        back_populates="executions",
-        primaryjoin="foreign(ExecutionContextModel.worker_name) == WorkerModel.name",
-        viewonly=True,
-    )
+    # Relationship to workflow
+    workflow = relationship("WorkflowModel", back_populates="executions")
+    worker = relationship("WorkerModel", back_populates="executions")
 
     __table_args__ = (
         Index("idx_execution_state", "state"),

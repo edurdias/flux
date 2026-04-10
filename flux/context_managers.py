@@ -237,10 +237,7 @@ class DatabaseContextManager(ContextManager):
     ):
         no_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
-            .join(
-                WorkflowModel,
-                ExecutionContextModel.workflow_id == WorkflowModel.id,
-            )
+            .join(WorkflowModel)
             .filter(
                 ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_(None),
@@ -261,10 +258,7 @@ class DatabaseContextManager(ContextManager):
     ):
         with_requests_query = (
             session.query(ExecutionContextModel, WorkflowModel)
-            .join(
-                WorkflowModel,
-                ExecutionContextModel.workflow_id == WorkflowModel.id,
-            )
+            .join(WorkflowModel)
             .filter(
                 ExecutionContextModel.state == state,
                 WorkflowModel.requests.is_not(None),
