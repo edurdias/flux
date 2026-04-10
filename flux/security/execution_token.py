@@ -15,6 +15,10 @@ logger = get_logger(__name__)
 EXECUTION_TOKEN_ISSUER = "flux-server"
 EXECUTION_TOKEN_SCOPE = "execution"
 
+_DEFAULT_EXECUTION_TOKEN_TTL = 604800
+
+_ephemeral_secret: str | None = None
+
 
 def _get_execution_token_secret() -> str:
     secret = os.environ.get("FLUX_EXECUTION_TOKEN_SECRET")
@@ -32,11 +36,14 @@ def _get_execution_token_secret() -> str:
 
     debug_mode = getattr(settings, "debug", False)
     if debug_mode:
-        logger.warning(
-            "execution_token_secret is not configured — auto-generating ephemeral secret. "
-            "This is only safe for development. Set security.execution_token_secret in production.",
-        )
-        return secrets.token_hex(32)
+        global _ephemeral_secret
+        if _ephemeral_secret is None:
+            logger.warning(
+                "execution_token_secret is not configured — auto-generating ephemeral secret. "
+                "This is only safe for development. Set security.execution_token_secret in production.",
+            )
+            _ephemeral_secret = secrets.token_hex(32)
+        return _ephemeral_secret
 
     raise RuntimeError(
         "execution_token_secret is not configured. "
@@ -44,14 +51,28 @@ def _get_execution_token_secret() -> str:
     )
 
 
+def _get_execution_token_ttl() -> int:
+    from flux.config import Configuration
+
+    settings = Configuration.get().settings
+    security_cfg = getattr(settings, "security", None)
+    if security_cfg is not None:
+        ttl = getattr(security_cfg, "execution_token_ttl", None)
+        if ttl:
+            return int(ttl)
+    return _DEFAULT_EXECUTION_TOKEN_TTL
+
+
 def mint_execution_token(
     subject: str,
     principal_issuer: str,
     execution_id: str,
     on_behalf_of: str,
-    ttl_seconds: int = 604800,
+    ttl_seconds: int | None = None,
 ) -> str:
     secret = _get_execution_token_secret()
+    if ttl_seconds is None:
+        ttl_seconds = _get_execution_token_ttl()
     now = int(time.time())
     payload = {
         "iss": EXECUTION_TOKEN_ISSUER,
