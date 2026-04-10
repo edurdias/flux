@@ -1,62 +1,226 @@
 # Authentication & Authorization
 
-Flux supports opt-in authentication and authorization. When no auth provider is enabled, Flux operates with full access — all API requests succeed without credentials. This preserves backward compatibility for local development and trusted environments. When an auth provider is enabled, every API request must carry valid credentials.
+> **Breaking change:** This design supersedes the previous auth system (`2026-04-07`). No backward compatibility. The `service_accounts` CLI group, `/admin/service-accounts/*` routes, `InternalTokenProvider`, and identity-forwarding fields on `ExecutionContext` are all removed.
 
 ## Overview
 
-Flux acts as a **resource server** — it validates credentials and enforces access control but never issues tokens. Identity providers remain entirely external.
+Flux supports opt-in authentication and authorization. When no auth provider is enabled, all API requests succeed without credentials. When any provider is enabled, every request must carry valid credentials.
 
-Two complementary auth mechanisms are supported:
+Two primitives underpin the system:
 
-- **OIDC/OAuth 2.0**: Validate JWTs from any standards-compliant identity provider
-- **API Keys**: Service-to-machine authentication with hashed keys tied to service accounts
+- **Principals registry** — unified store for users and service accounts with RBAC
+- **Execution tokens** — server-minted, HMAC-signed, execution-bound JWTs for worker callbacks
 
-Both can be enabled simultaneously. A request authenticated by either mechanism receives the same RBAC treatment.
+Flux acts as a **resource server** only. It validates credentials from external IdPs but never issues long-lived user tokens.
+
+## Principals
+
+A **principal** is anything that can be an actor in Flux authorization. Users and service accounts are stored in one `principals` table keyed by `(subject, external_issuer)`.
+
+```
+principals:
+  id              UUID PK
+  type            user | service_account
+  subject         TEXT  -- OIDC sub for users; chosen name for SAs
+  external_issuer TEXT  -- OIDC issuer URL or sentinel "flux"
+  display_name    TEXT
+  enabled         BOOLEAN
+  metadata        JSON  -- IdP claims (informational, refreshed on login)
+  created_at      TIMESTAMP
+  updated_at      TIMESTAMP
+  last_seen_at    TIMESTAMP
+  UNIQUE(subject, external_issuer)
+```
+
+**Key properties:**
+
+- SAs use `external_issuer = "flux"`. Only SA principals can hold API keys.
+- `enabled = false` provides soft revocation. Disabled principals cannot authenticate even if their external credentials are valid.
+- `metadata` stores display-oriented claims (`name`, `given_name`, etc.). Email is not stored — the IdP remains the source of truth.
+- `last_seen_at` is updated on each successful authentication.
+
+### Role assignments
+
+```
+principal_roles:
+  principal_id    FK → principals(id)
+  role_name       FK → roles(name)
+  assigned_at     TIMESTAMP
+  assigned_by     TEXT  -- audit trail
+  PRIMARY KEY(principal_id, role_name)
+```
+
+### API keys
+
+```
+api_keys:
+  id              UUID PK
+  principal_id    FK → principals(id)
+  name            TEXT
+  key_hash        TEXT  -- SHA-256
+  key_prefix      TEXT
+  expires_at      TIMESTAMP NULL
+  UNIQUE(principal_id, name)
+```
+
+## Auto-provisioning
+
+OIDC users are auto-provisioned on first login. When a valid JWT arrives and no matching principal exists, Flux creates one with `type=user` and assigns `default_user_roles` from config.
+
+```toml
+[flux.security.auth]
+default_user_roles = ["viewer"]
+```
+
+Subsequent logins update `last_seen_at` and refresh `metadata` (display name, locale, etc.) but do not change roles. Roles are managed exclusively via the principals registry.
+
+## RBAC
+
+Flux enforces RBAC at API and task level. Roles are collections of permissions.
+
+### Built-in roles
+
+| Role | Permissions |
+|------|-------------|
+| `admin` | `*` — full access |
+| `operator` | Run and manage workflows, schedules, executions |
+| `viewer` | Read-only access |
+
+### Permission format
+
+```
+resource:name:action
+```
+
+| Permission | Grants |
+|-----------|--------|
+| `workflow:*:run` | Run any workflow |
+| `workflow:report:run` | Run `report` specifically |
+| `workflow:report:task:load:execute` | Execute task `load` in `report` |
+| `schedule:*:manage` | Create, update, delete any schedule |
+| `admin:secrets:manage` | Create and delete secrets |
+| `admin:roles:manage` | Manage roles |
+| `admin:principals:manage` | Manage principals and API keys |
+
+**Wildcard rules:**
+
+- Terminal `*` (last segment): matches any number of remaining segments. `workflow:report:*` matches `workflow:report:run`, `workflow:report:task:load:execute`, etc.
+- Non-terminal `*` (middle segment): matches exactly one segment. `workflow:*:read` matches `workflow:report:read` but not `workflow:report:sub:read`.
+
+### Custom roles
+
+```bash
+flux roles create data-pipeline \
+  --permissions "workflow:ingest:run" \
+  --permissions "workflow:transform:run"
+
+flux roles clone operator --name restricted-operator
+flux roles update restricted-operator --remove-permissions "schedule:*:manage"
+```
+
+### Pre-flight authorization
+
+Before any task executes, Flux resolves the full permission set for the caller across the entire workflow call tree (including nested workflows). If any permission is missing, the execution is rejected immediately.
+
+### Task-level authorization
+
+Workers call back to `/executions/{exec_id}/authorize/{task_name}` before executing each task. The server re-resolves permissions from current DB state on every callback — role changes take effect immediately, even for in-flight executions.
+
+Auth-exempt tasks skip the runtime check:
+
+```python
+@task.with_options(auth_exempt=True)
+async def format_output(data: dict) -> str:
+    return json.dumps(data, indent=2)
+```
+
+`auth_exempt=True` is recorded in workflow metadata as `auth_exempt_tasks`. These tasks are excluded from both pre-flight and runtime permission checks.
+
+## Execution Tokens
+
+An **execution token** is a server-minted, HMAC-signed JWT bound to a single workflow execution. It is the only credential a worker holds during task execution.
+
+```json
+{
+  "iss": "flux-server",
+  "sub": "alice@acme.com",
+  "principal_issuer": "https://auth.example.com/realms/flux",
+  "exec_id": "7f3c...",
+  "scope": "execution",
+  "iat": 1234567890,
+  "exp": 1234567890 + 604800,
+  "jti": "a1b2c3d4"
+}
+```
+
+The server mints execution tokens when a workflow run or resume is triggered. The token is persisted with the execution record. Workers receive the token via dispatch and present it when calling the authorize endpoint.
+
+Workers never present user JWTs. User JWTs are consumed at the API boundary and never forwarded.
+
+### Configuration
+
+```toml
+[flux.security]
+execution_token_ttl = 604800
+execution_token_secret = "<generate with: openssl rand -hex 32>"
+```
+
+`execution_token_secret` is required in production. If unset, a random secret is generated per process restart (tokens from previous restarts become invalid).
+
+## Scheduled Workflows
+
+When auth is enabled, every schedule must specify `--run-as <subject>`. The named principal must be a service account. The scheduler mints an execution token using the SA's identity.
+
+```bash
+flux principals create svc-reports --type service_account --role operator
+flux schedule create my-workflow nightly-report \
+  --cron "0 2 * * *" \
+  --run-as svc-reports
+```
+
+If the principal is deleted or disabled between schedule creation and trigger time, that run is skipped.
 
 ## Configuration
-
-Add an `[flux.security.auth]` section to your `flux.toml`:
 
 ```toml
 [flux.security.auth.oidc]
 enabled = true
 issuer = "https://auth.example.com"
 audience = "flux-api"
-roles_claim = "roles"
 jwks_cache_ttl = 3600
 clock_skew = 30
 
 [flux.security.auth.api_keys]
 enabled = true
+
+[flux.security.auth]
+default_user_roles = ["viewer"]
+
+[flux.security]
+execution_token_ttl = 604800
+execution_token_secret = "<openssl rand -hex 32>"
 ```
 
-Or use environment variables:
+Environment variable equivalents:
 
 ```bash
 FLUX_SECURITY__AUTH__OIDC__ENABLED=true
 FLUX_SECURITY__AUTH__OIDC__ISSUER=https://auth.example.com
-FLUX_SECURITY__AUTH__OIDC__AUDIENCE=flux-api
 FLUX_SECURITY__AUTH__API_KEYS__ENABLED=true
+FLUX_SECURITY__EXECUTION_TOKEN_SECRET=<secret>
 ```
 
-### OIDC Configuration Reference
+### OIDC config reference
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `enabled` | `false` | Enable OIDC/JWT validation |
-| `issuer` | — | OIDC issuer URL; JWKS fetched from `{issuer}/.well-known/openid-configuration` |
-| `audience` | — | Expected `aud` claim value |
-| `roles_claim` | `"roles"` | JWT claim containing the user's roles |
-| `jwks_cache_ttl` | `3600` | How long to cache JWKS keys (seconds) |
-| `clock_skew` | `30` | Allowable clock skew for `exp`/`nbf` validation (seconds) |
+| `issuer` | — | OIDC issuer URL |
+| `audience` | — | Expected `aud` claim |
+| `jwks_cache_ttl` | `3600` | JWKS cache TTL (seconds) |
+| `clock_skew` | `30` | Leeway for `exp`/`nbf` (seconds) |
 
-### API Keys Configuration Reference
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `enabled` | `false` | Enable API key authentication |
-
-### Identity Provider Examples
+### Identity provider examples
 
 **Keycloak**
 
@@ -65,7 +229,6 @@ FLUX_SECURITY__AUTH__API_KEYS__ENABLED=true
 enabled = true
 issuer = "https://keycloak.example.com/realms/flux"
 audience = "flux-api"
-roles_claim = "realm_access.roles"
 ```
 
 **Auth0**
@@ -75,7 +238,6 @@ roles_claim = "realm_access.roles"
 enabled = true
 issuer = "https://your-tenant.auth0.com/"
 audience = "https://flux.example.com/api"
-roles_claim = "https://flux.example.com/roles"
 ```
 
 **Okta**
@@ -85,7 +247,6 @@ roles_claim = "https://flux.example.com/roles"
 enabled = true
 issuer = "https://your-org.okta.com/oauth2/default"
 audience = "api://default"
-roles_claim = "groups"
 ```
 
 **Microsoft Entra ID**
@@ -95,191 +256,74 @@ roles_claim = "groups"
 enabled = true
 issuer = "https://login.microsoftonline.com/{tenant-id}/v2.0"
 audience = "api://{client-id}"
-roles_claim = "roles"
 ```
 
-## Role-Based Access Control
+## CLI Reference
 
-Flux enforces RBAC at the API and task level. Roles are collections of permissions. Every authenticated principal must have at least one role.
-
-### Built-in Roles
-
-| Role | Permissions |
-|------|-------------|
-| `admin` | `*` — full access to everything |
-| `operator` | Run and manage workflows, schedules, and executions |
-| `viewer` | Read-only access to workflows, executions, and schedules |
-
-### Permission Format
-
-Permissions follow a colon-separated path format:
-
-```
-resource:name:action
-```
-
-Examples:
-
-| Permission | Grants |
-|-----------|--------|
-| `workflow:*:run` | Run any workflow |
-| `workflow:my-workflow:run` | Run `my-workflow` specifically |
-| `workflow:*:read` | Read any workflow definition |
-| `workflow:my-workflow:task:process:execute` | Execute task `process` in `my-workflow` |
-| `schedule:*:manage` | Create, update, and delete any schedule |
-| `admin:secrets:manage` | Create and delete secrets |
-| `admin:roles:manage` | Create, update, and delete roles |
-| `admin:service-accounts:manage` | Manage service accounts and their API keys |
-
-**Wildcard matching** uses two distinct rules depending on position:
-
-- **Terminal `*` (last segment)**: matches any number of remaining segments. Example: `workflow:report:*` matches `workflow:report:run`, `workflow:report:task:load:execute`, and any other path starting with `workflow:report:`. `*` alone grants unrestricted access (admin).
-- **Non-terminal `*` (middle segment)**: matches exactly one segment. Example: `workflow:*:read` matches `workflow:report:read` but **not** `workflow:report:sub:read` (two segments after `workflow:`).
-
-### Custom Roles
-
-Roles beyond the three built-in ones can be created via the CLI or API:
+### Authentication
 
 ```bash
-flux roles create data-pipeline \
-  --permissions "workflow:ingest:run" \
-  --permissions "workflow:transform:run" \
-  --permissions "workflow:ingest:read" \
-  --permissions "workflow:transform:read"
+flux auth login                        # Device Authorization Grant
+flux auth status                       # Show current auth status
+flux auth test-token <jwt>             # Decode and validate a JWT
+flux auth permissions                  # List effective permissions
+flux auth permissions --workflow report
+flux auth logout
 ```
 
-Roles can be cloned from an existing role and modified:
+### Roles
 
 ```bash
-flux roles clone operator --name restricted-operator
-flux roles update restricted-operator \
-  --remove-permissions "schedule:*:manage"
+flux roles list [--format json]
+flux roles show <name>
+flux roles create <name> --permissions "workflow:*:run"
+flux roles clone <source> --name <new>
+flux roles update <name> --add-permissions "x:y:z" --remove-permissions "a:b:c"
+flux roles delete <name>
 ```
 
-## Name-Derived Permissions
-
-Flux automatically derives the required permissions from workflow and task names. No manual annotation is needed in workflow code — permission names come directly from the `@workflow` decorator name and the `@task` decorator name.
-
-A workflow named `process-orders` with a task named `validate` produces these permissions:
-
-- `workflow:process-orders:run` — required to start an execution
-- `workflow:process-orders:read` — required to read the workflow definition or execution events
-- `workflow:process-orders:task:validate:execute` — checked at runtime before `validate` runs
-
-### Nested Workflow Resolution
-
-When a workflow calls sub-workflows, Flux resolves permissions for the entire call tree before execution begins. The caller must hold `run` permission for the top-level workflow and each nested workflow, plus `execute` permission for every task in each workflow.
-
-```python
-@workflow
-async def pipeline(ctx: ExecutionContext):
-    await ingest(ctx)        # requires workflow:ingest:run
-    await transform(ctx)     # requires workflow:transform:run
-```
-
-The caller of `pipeline` must have:
-
-- `workflow:pipeline:run`
-- `workflow:ingest:run`
-- `workflow:transform:run`
-- All task-level permissions within each workflow
-
-### Pre-flight Authorization
-
-Flux validates the full permission set before any task executes. If the caller lacks any permission in the call tree, the execution is rejected immediately with an authorization error rather than failing mid-run.
-
-## Task-Level Authorization
-
-Every task is also authorized at runtime when the worker is about to execute it. This provides defense in depth — the pre-flight check catches most cases, but per-task checks ensure that dynamic or conditionally executed tasks are also protected.
-
-### Exempting Utility Tasks
-
-Tasks that perform purely internal work (logging helpers, formatters, in-process computations) can opt out of authorization checks:
-
-```python
-@task.with_options(auth_exempt=True)
-async def format_output(data: dict) -> str:
-    return json.dumps(data, indent=2)
-```
-
-`auth_exempt=True` removes the runtime authorization check for that task. Pre-flight authorization is not affected — the task simply will not require an `execute` permission entry.
-
-### Worker Authorization Callback
-
-Workers call back to the Flux server to authorize each task before executing it. The server evaluates the stored identity of the execution (captured at run time) against the task's derived permission. Workers never perform local authorization decisions.
-
-## Service Accounts & API Keys
-
-Service accounts represent machine identities — CI pipelines, workers, external integrations. Each service account holds one or more roles and can generate multiple API keys.
-
-### Creating a Service Account
+### Principals
 
 ```bash
-flux service-accounts create ci-pipeline --roles operator
+# List all principals
+flux principals list [--type user|service_account] [--format json]
+
+# Show a principal (smart lookup: OIDC issuer first, then "flux")
+flux principals show <subject> [--type <type>] [--issuer <url>]
+
+# Create a principal
+flux principals create <subject> --type user|service_account [--role <role>]... \
+  [--issuer <url>] [--display-name <name>]
+
+# Manage roles
+flux principals grant <subject> --role <role>
+flux principals revoke <subject> --role <role>
+
+# Enable/disable
+flux principals enable <subject>
+flux principals disable <subject>
+
+# Delete (--force cascades API keys and roles)
+flux principals delete <subject> [--force] [--yes]
+
+# API keys (service accounts only)
+flux principals create-key <subject> --key-name <name> [--expires 90d]
+flux principals list-keys <subject>
+flux principals revoke-key <subject> --key-name <name>
 ```
 
-### Generating an API Key
-
-```bash
-flux service-accounts create-key ci-pipeline \
-  --key-name "github-actions" \
-  --expires 90d
-```
-
-The key is displayed **once** and never stored in plaintext. Flux stores a SHA-256 hash of the key. Copy the key immediately — it cannot be retrieved later.
-
-```
-Key created: flux_sk_a3f9d2e1b4c8...
-Store this key securely. It will not be shown again.
-```
-
-### Key Expiry
-
-Keys accept a `--expires` duration in the `Nd` format (`30d`, `90d`, `365d`). Keys without an expiry are valid indefinitely. Expired keys are rejected at validation time and can be pruned with `revoke-key`.
-
-### Using an API Key
-
-Include the key in the `Authorization` header with the `Bearer` scheme:
-
-```bash
-curl -H "Authorization: Bearer flux_sk_a3f9d2e1b4c8..." \
-  http://localhost:8000/workflows
-```
-
-### Listing and Revoking Keys
-
-```bash
-flux service-accounts list-keys ci-pipeline
-flux service-accounts revoke-key ci-pipeline --key-name "github-actions"
-```
-
-Revoked keys are deleted immediately. In-flight requests using the revoked key will fail at their next server interaction.
-
-## Identity on Events
-
-Workflow-level lifecycle events (scheduled, claimed, started, completed, failed, paused, resumed, cancelled) carry the subject identifier of the principal who triggered that event. This means different users can act on different lifecycle events of the same execution. Individual task events do not carry a subject.
-
-```
-execution started by: alice@example.com
-execution resumed by: bob@example.com
-execution cancelled by: alice@example.com
-```
-
-The event log provides a full audit trail: who ran, paused, resumed, or cancelled each execution, and when.
-
-## API Endpoints Reference
+## API Endpoints
 
 | Method | Path | Required Permission |
 |--------|------|---------------------|
 | `GET` | `/workflows` | `workflow:*:read` |
 | `GET` | `/workflows/{name}` | `workflow:{name}:read` |
 | `POST` | `/workflows/{name}/run` | `workflow:{name}:run` |
-| `POST` | `/workflows/{name}/run/async` | `workflow:{name}:run` |
 | `GET` | `/executions` | `workflow:*:read` |
 | `GET` | `/executions/{id}` | `workflow:*:read` |
-| `GET` | `/executions/{id}/events` | `workflow:*:read` |
 | `POST` | `/executions/{id}/resume` | `workflow:*:run` |
 | `POST` | `/executions/{id}/cancel` | `workflow:*:run` |
+| `POST` | `/executions/{id}/authorize/{task}` | exec_token (internal) |
 | `GET` | `/schedules` | `schedule:*:read` |
 | `POST` | `/schedules` | `schedule:*:manage` |
 | `PUT` | `/schedules/{name}` | `schedule:*:manage` |
@@ -289,93 +333,21 @@ The event log provides a full audit trail: who ran, paused, resumed, or cancelle
 | `DELETE` | `/admin/secrets/{name}` | `admin:secrets:manage` |
 | `GET` | `/admin/roles` | `admin:roles:manage` |
 | `POST` | `/admin/roles` | `admin:roles:manage` |
-| `PUT` | `/admin/roles/{name}` | `admin:roles:manage` |
+| `PATCH` | `/admin/roles/{name}` | `admin:roles:manage` |
 | `DELETE` | `/admin/roles/{name}` | `admin:roles:manage` |
-| `GET` | `/admin/service-accounts` | `admin:service-accounts:manage` |
-| `POST` | `/admin/service-accounts` | `admin:service-accounts:manage` |
-| `POST` | `/admin/service-accounts/{name}/keys` | `admin:service-accounts:manage` |
-| `DELETE` | `/admin/service-accounts/{name}/keys/{key}` | `admin:service-accounts:manage` |
-
-## CLI Reference
-
-### Authentication
-
-```bash
-# Check current auth status (token, expiry, identity)
-flux auth status
-
-# Validate a JWT against the configured OIDC provider
-flux auth test-token <jwt>
-
-# List effective permissions for the current identity
-flux auth permissions
-
-# Filter permissions to a specific workflow
-flux auth permissions --workflow my-workflow
-
-# Output permissions as JSON
-flux auth permissions --format json
-
-# Log out (clear stored credentials)
-flux auth logout
-```
-
-`flux auth login` supports the Device Authorization Grant for CLI authentication.
-
-### Roles
-
-```bash
-# List all roles
-flux roles list
-flux roles list --format json
-
-# Show a role and its permissions
-flux roles show operator
-
-# Create a custom role
-flux roles create data-engineer \
-  --permissions "workflow:*:run" \
-  --permissions "workflow:*:read" \
-  --permissions "schedule:*:read"
-
-# Clone a role and modify it
-flux roles clone operator --name limited-operator
-flux roles update limited-operator \
-  --add-permissions "workflow:reports:run" \
-  --remove-permissions "schedule:*:manage"
-
-# Delete a role (fails if any principal still holds the role)
-flux roles delete limited-operator
-```
-
-### Service Accounts
-
-```bash
-# List service accounts
-flux service-accounts list
-
-# Create a service account with a role
-flux service-accounts create ci-pipeline --roles operator
-
-# Generate an API key (shown once)
-flux service-accounts create-key ci-pipeline \
-  --key-name "github-actions" \
-  --expires 90d
-
-# List keys for a service account (names and expiry only; values never shown)
-flux service-accounts list-keys ci-pipeline
-
-# Revoke a key
-flux service-accounts revoke-key ci-pipeline --key-name "github-actions"
-```
+| `GET` | `/admin/principals` | `admin:principals:manage` |
+| `POST` | `/admin/principals` | `admin:principals:manage` |
+| `GET` | `/admin/principals/{id}` | `admin:principals:manage` |
+| `PATCH` | `/admin/principals/{id}` | `admin:principals:manage` |
+| `DELETE` | `/admin/principals/{id}` | `admin:principals:manage` |
+| `POST` | `/admin/principals/{id}/keys` | `admin:principals:manage` |
+| `DELETE` | `/admin/principals/{id}/keys/{name}` | `admin:principals:manage` |
 
 ## Dev Environment
 
-The Docker Compose setup includes a pre-configured Keycloak instance for local OIDC development. See [Authentication Dev Environment](../../DOCKER.md#authentication-dev-environment) in the Docker documentation for setup instructions.
+The Docker Compose setup includes a pre-configured Keycloak instance. See [DOCKER.md](../../DOCKER.md#authentication-dev-environment) for setup.
 
-### Pre-seeded Users
-
-The `flux` realm ships with three users covering each built-in role:
+### Pre-seeded users
 
 | User | Password | Role |
 |------|----------|------|
@@ -383,7 +355,7 @@ The `flux` realm ships with three users covering each built-in role:
 | `operator@local` | `operator` | operator |
 | `viewer@local` | `viewer` | viewer |
 
-### Getting a Test Token
+### Getting a test token
 
 ```bash
 TOKEN=$(curl -s -X POST \
@@ -391,77 +363,19 @@ TOKEN=$(curl -s -X POST \
   -d "grant_type=password&client_id=flux-api&username=admin@local&password=admin" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Inspect the token
 flux auth test-token "$TOKEN"
-
-# Use the token with Flux
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/workflows
 ```
 
-### Flux Configuration for Dev
+### Flux config for dev
 
 ```toml
 [flux.security.auth.oidc]
 enabled = true
 issuer = "http://localhost:8080/realms/flux"
 audience = "flux-api"
-roles_claim = "realm_access.roles"
 clock_skew = 60
+
+[flux.security.auth]
+default_user_roles = ["viewer"]
 ```
-
-## Scheduled Workflows
-
-When auth is enabled, every schedule must specify a `run_as_service_account`. The scheduler mints a short-lived HMAC-signed internal JWT encoding the service account's identity; this token flows through the execution lifecycle so workers can authenticate callbacks back to the server.
-
-### Requirements
-
-- `run_as_service_account` is **required** when `[flux.security.auth]` is enabled. Creating a schedule without it returns HTTP 400.
-- The named service account must exist at schedule creation time and at each scheduled run.
-- If the service account is deleted or loses required permissions between runs, that run is skipped and the schedule's failure counter is incremented.
-- The internal token is valid for one hour from the time the run is triggered.
-
-### Creating a Schedule with a Service Account
-
-Via CLI:
-
-```bash
-flux schedule create my-workflow nightly-report \
-  --cron "0 2 * * *" \
-  --run-as svc-reports
-```
-
-Via API:
-
-```bash
-curl -X POST http://localhost:8000/schedules \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workflow_name": "my-workflow",
-    "name": "nightly-report",
-    "schedule_config": {"type": "cron", "cron_expression": "0 2 * * *"},
-    "run_as_service_account": "svc-reports"
-  }'
-```
-
-### Setting Up the Service Account
-
-```bash
-# Create the service account with the operator role
-flux service-accounts create svc-reports --roles operator
-
-# Or create a narrowly scoped custom role
-flux roles create reports-runner \
-  --permissions "workflow:my-workflow:run"
-
-flux service-accounts create svc-reports --roles reports-runner
-```
-
-### How It Works
-
-1. The scheduler checks for due schedules on each poll interval.
-2. For each due schedule with auth enabled, the scheduler looks up the service account from the database.
-3. A short-lived HMAC-signed JWT is minted encoding the service account's subject and roles.
-4. The execution context is created with the service account's identity and the internal token attached.
-5. Workers receive the token and can present it back to the server for any authorization checks during execution.
-6. The HMAC secret is auto-generated on first server start and stored at `$FLUX_HOME/internal_secret` with `0600` permissions.

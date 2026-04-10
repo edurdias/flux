@@ -27,7 +27,11 @@ def registry(session_factory):
 
 class TestPrincipalModel:
     def test_default_enabled(self):
-        p = PrincipalModel(type="user", subject="alice@example.com", external_issuer="https://idp.example.com")
+        p = PrincipalModel(
+            type="user",
+            subject="alice@example.com",
+            external_issuer="https://idp.example.com",
+        )
         assert p.enabled is True
 
     def test_service_account_type(self):
@@ -40,7 +44,12 @@ class TestPrincipalModel:
         assert len(p.id) > 0
 
     def test_custom_id(self):
-        p = PrincipalModel(type="user", subject="carol@example.com", external_issuer="flux", id="custom-id")
+        p = PrincipalModel(
+            type="user",
+            subject="carol@example.com",
+            external_issuer="flux",
+            id="custom-id",
+        )
         assert p.id == "custom-id"
 
 
@@ -54,7 +63,11 @@ class TestPrincipalRoleModel:
 
 class TestPrincipalRegistry:
     def test_create_and_find(self, registry):
-        registry.create(type="user", subject="alice@example.com", external_issuer="https://idp.example.com")
+        registry.create(
+            type="user",
+            subject="alice@example.com",
+            external_issuer="https://idp.example.com",
+        )
         p = registry.find("alice@example.com", "https://idp.example.com")
         assert p is not None
         assert p.subject == "alice@example.com"
@@ -99,7 +112,12 @@ class TestPrincipalRegistry:
         assert found.enabled is False
 
     def test_set_enabled_true(self, registry):
-        p = registry.create(type="user", subject="frank@example.com", external_issuer="flux", enabled=False)
+        p = registry.create(
+            type="user",
+            subject="frank@example.com",
+            external_issuer="flux",
+            enabled=False,
+        )
         registry.set_enabled(p.id, True)
         found = registry.get(p.id)
         assert found.enabled is True
@@ -117,8 +135,16 @@ class TestPrincipalRegistry:
         assert registry.get(p.id) is None
 
     def test_unique_constraint_subject_issuer(self, registry):
-        registry.create(type="user", subject="shared@example.com", external_issuer="https://idp-a.example.com")
-        registry.create(type="user", subject="shared@example.com", external_issuer="https://idp-b.example.com")
+        registry.create(
+            type="user",
+            subject="shared@example.com",
+            external_issuer="https://idp-a.example.com",
+        )
+        registry.create(
+            type="user",
+            subject="shared@example.com",
+            external_issuer="https://idp-b.example.com",
+        )
         a = registry.find("shared@example.com", "https://idp-a.example.com")
         b = registry.find("shared@example.com", "https://idp-b.example.com")
         assert a.id != b.id

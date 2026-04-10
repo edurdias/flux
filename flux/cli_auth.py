@@ -507,7 +507,12 @@ def principals_show(subject, principal_type, issuer):
 
 @principals.command("create")
 @click.argument("subject")
-@click.option("--type", "principal_type", required=True, type=click.Choice(["user", "service_account"]))
+@click.option(
+    "--type",
+    "principal_type",
+    required=True,
+    type=click.Choice(["user", "service_account"]),
+)
 @click.option("--role", "roles", multiple=True)
 @click.option("--issuer", default=None)
 @click.option("--display-name", default=None)
@@ -603,7 +608,9 @@ def principals_delete(subject, force, yes):
     """Delete a principal."""
     url = get_server_url()
     if force and not yes:
-        click.echo(f"Deleting '{subject}' with --force will cascade-delete all API keys and role assignments.")
+        click.echo(
+            f"Deleting '{subject}' with --force will cascade-delete all API keys and role assignments.",
+        )
         if not click.confirm("Proceed?"):
             click.echo("Cancelled.")
             return

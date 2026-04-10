@@ -175,7 +175,6 @@ class TestFullAuthorizationFlow:
         with pytest.raises(ValueError, match="Invalid permission format"):
             await auth_service.create_role("bad-role2", [""])
 
-
     @pytest.mark.asyncio
     async def test_authorize_excludes_auth_exempt_tasks(self, auth_service):
         """Tasks in auth_exempt_tasks are not required for authorize."""

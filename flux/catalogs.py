@@ -193,9 +193,7 @@ class WorkflowCatalog(ABC):
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
-                                task_name = (
-                                    self._extract_task_name_from_decorator(dec) or node.name
-                                )
+                                task_name = self._extract_task_name_from_decorator(dec) or node.name
                                 if self._is_auth_exempt(dec):
                                     exempt_func_to_name[node.name] = task_name
                                 else:
