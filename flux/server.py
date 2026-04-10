@@ -702,11 +702,12 @@ class Server:
 
                 from flux.security.principals import PrincipalRegistry
 
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
                 db_auth_service = AuthService(
                     config=auth_config,
                     session_factory=self._get_db_session,
+                    registry=registry,
                 )
-                registry = PrincipalRegistry(session_factory=self._get_db_session)
                 sa_principal = registry.find(sa_name, "flux")
                 if sa_principal is None or not sa_principal.enabled:
                     logger.error(
@@ -843,7 +844,14 @@ class Server:
         )
 
         auth_config = Configuration.get().settings.security.auth
-        auth_service = AuthService(config=auth_config, session_factory=self._get_db_session)
+        from flux.security.principals import PrincipalRegistry
+
+        principal_registry = PrincipalRegistry(session_factory=self._get_db_session)
+        auth_service = AuthService(
+            config=auth_config,
+            session_factory=self._get_db_session,
+            registry=principal_registry,
+        )
         auth_service.seed_built_in_roles()
         init_auth_service(auth_service)
 
@@ -3403,7 +3411,7 @@ class Server:
                         detail="This endpoint requires an execution token",
                     )
 
-                token_exec_id = identity.metadata.get("execution_id")
+                token_exec_id = identity.metadata.get("exec_id")
                 if token_exec_id != exec_id:
                     raise HTTPException(
                         status_code=403,

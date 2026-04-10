@@ -23,14 +23,14 @@ def _get_execution_token_secret() -> str:
 
     from flux.config import Configuration
 
-    config = Configuration.get()
-    security_cfg = getattr(config, "security", None)
-    if security_cfg:
+    settings = Configuration.get().settings
+    security_cfg = getattr(settings, "security", None)
+    if security_cfg is not None:
         token_secret = getattr(security_cfg, "execution_token_secret", None)
         if token_secret:
             return token_secret
 
-    debug_mode = getattr(getattr(config, "settings", None), "debug", False)
+    debug_mode = getattr(settings, "debug", False)
     if debug_mode:
         logger.warning(
             "execution_token_secret is not configured — auto-generating ephemeral secret. "

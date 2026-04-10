@@ -476,24 +476,32 @@ def principals_list(principal_type, fmt):
             click.echo(f"  [{p['type']}] {p['subject']}{enabled} roles: {roles}")
 
 
+def _error_detail(resp):
+    try:
+        return resp.json().get("detail", resp.text)
+    except Exception:
+        return resp.text
+
+
 @principals.command("show")
 @click.argument("subject")
-@click.option("--type", "principal_type", default=None)
-@click.option("--issuer", default=None)
-def principals_show(subject, principal_type, issuer):
-    """Show principal details. Tries OIDC issuer first, then 'flux'."""
+@click.option("--issuer", default=None, help="External issuer (defaults to 'flux')")
+def principals_show(subject, issuer):
+    """Show principal details."""
     url = get_server_url()
-    params = {"subject": subject}
+    params = {}
     if issuer:
         params["issuer"] = issuer
-    elif principal_type:
-        params["type"] = principal_type
-    resp = httpx.get(f"{url}/admin/principals/lookup", headers=get_auth_headers(), params=params)
+    resp = httpx.get(
+        f"{url}/admin/principals/{subject}",
+        headers=get_auth_headers(),
+        params=params,
+    )
     if resp.status_code == 404:
         click.echo(f"Principal '{subject}' not found.")
         return
     if resp.status_code != 200:
-        click.echo(f"Error: {resp.text}")
+        click.echo(f"Error: {_error_detail(resp)}")
         return
     p = resp.json()
     click.echo(f"Subject:  {p['subject']}")
@@ -527,84 +535,102 @@ def principals_create(subject, principal_type, roles, issuer, display_name):
     if display_name:
         body["display_name"] = display_name
     resp = httpx.post(f"{url}/admin/principals", json=body, headers=get_auth_headers())
-    if resp.status_code == 200:
+    if resp.status_code in (200, 201):
         p = resp.json()
         click.echo(f"Principal '{subject}' created (id: {p.get('id', '?')}).")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("grant")
 @click.argument("subject")
 @click.option("--role", required=True)
-def principals_grant(subject, role):
+@click.option("--issuer", default=None)
+def principals_grant(subject, role, issuer):
     """Grant a role to a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.post(
-        f"{url}/admin/principals/lookup/roles",
-        json={"subject": subject, "role": role},
+        f"{url}/admin/principals/{subject}/roles",
+        json={"role": role},
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"Role '{role}' granted to '{subject}'.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("revoke")
 @click.argument("subject")
 @click.option("--role", required=True)
-def principals_revoke(subject, role):
+@click.option("--issuer", default=None)
+def principals_revoke(subject, role, issuer):
     """Revoke a role from a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.delete(
-        f"{url}/admin/principals/lookup/roles/{role}",
-        params={"subject": subject},
+        f"{url}/admin/principals/{subject}/roles/{role}",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"Role '{role}' revoked from '{subject}'.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("enable")
 @click.argument("subject")
-def principals_enable(subject):
+@click.option("--issuer", default=None)
+def principals_enable(subject, issuer):
     """Enable a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.post(
-        f"{url}/admin/principals/lookup/enable",
-        json={"subject": subject},
+        f"{url}/admin/principals/{subject}/enable",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"Principal '{subject}' enabled.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("disable")
 @click.argument("subject")
-def principals_disable(subject):
+@click.option("--issuer", default=None)
+def principals_disable(subject, issuer):
     """Disable a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.post(
-        f"{url}/admin/principals/lookup/disable",
-        json={"subject": subject},
+        f"{url}/admin/principals/{subject}/disable",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"Principal '{subject}' disabled.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("delete")
 @click.argument("subject")
 @click.option("--force", is_flag=True, help="Force deletion including cascade effects")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
-def principals_delete(subject, force, yes):
+@click.option("--issuer", default=None)
+def principals_delete(subject, force, yes, issuer):
     """Delete a principal."""
     url = get_server_url()
     if force and not yes:
@@ -614,75 +640,91 @@ def principals_delete(subject, force, yes):
         if not click.confirm("Proceed?"):
             click.echo("Cancelled.")
             return
+    params = {"force": str(force).lower()}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.delete(
-        f"{url}/admin/principals/lookup",
-        params={"subject": subject, "force": force},
+        f"{url}/admin/principals/{subject}",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"Principal '{subject}' deleted.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("create-key")
 @click.argument("subject")
 @click.option("--key-name", "-k", required=True)
 @click.option("--expires", "-e", default=None, help="Expiry in days, e.g. '90d'")
-def principals_create_key(subject, key_name, expires):
+@click.option("--issuer", default=None)
+def principals_create_key(subject, key_name, expires, issuer):
     """Create an API key for a service account principal."""
     url = get_server_url()
-    body = {"name": key_name, "subject": subject}
+    body = {"name": key_name}
     if expires:
         body["expires_in_days"] = int(expires.rstrip("d"))
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.post(
-        f"{url}/admin/principals/lookup/keys",
+        f"{url}/admin/principals/{subject}/keys",
         json=body,
+        params=params,
         headers=get_auth_headers(),
     )
-    if resp.status_code == 200:
+    if resp.status_code in (200, 201):
         key = resp.json().get("key")
         click.echo(f"API key created: {key}")
         click.echo("Store this key securely — it will not be shown again.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")
 
 
 @principals.command("list-keys")
 @click.argument("subject")
-def principals_list_keys(subject):
+@click.option("--issuer", default=None)
+def principals_list_keys(subject, issuer):
     """List API keys for a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.get(
-        f"{url}/admin/principals/lookup/keys",
-        params={"subject": subject},
+        f"{url}/admin/principals/{subject}/keys",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code != 200:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except Exception:
-            detail = resp.text
-        click.echo(f"Error: {detail}")
+        click.echo(f"Error: {_error_detail(resp)}")
         return
     data = resp.json()
+    if not data:
+        click.echo("(no keys)")
+        return
     for key in data:
-        expires = key.get("expires_at", "never")
-        click.echo(f"  {key['name']} ({key['key_prefix']}...) expires: {expires}")
+        expires = key.get("expires_at") or "never"
+        prefix = key.get("prefix") or key.get("key_prefix", "")
+        click.echo(f"  {key['name']} ({prefix}...) expires: {expires}")
 
 
 @principals.command("revoke-key")
 @click.argument("subject")
 @click.option("--key-name", "-k", required=True)
-def principals_revoke_key(subject, key_name):
+@click.option("--issuer", default=None)
+def principals_revoke_key(subject, key_name, issuer):
     """Revoke an API key from a principal."""
     url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
     resp = httpx.delete(
-        f"{url}/admin/principals/lookup/keys/{key_name}",
-        params={"subject": subject},
+        f"{url}/admin/principals/{subject}/keys/{key_name}",
+        params=params,
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
         click.echo(f"API key '{key_name}' revoked.")
     else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+        click.echo(f"Error: {_error_detail(resp)}")

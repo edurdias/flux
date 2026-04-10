@@ -62,7 +62,7 @@ class AuthService:
         if config.oidc.enabled:
             self._providers.append(OIDCProvider(config.oidc, registry=registry))
         if config.api_keys.enabled:
-            self._providers.append(APIKeyProvider(session_factory))
+            self._providers.append(APIKeyProvider(session_factory, registry=registry))
 
     @property
     def principal_registry(self) -> PrincipalRegistry | None:
