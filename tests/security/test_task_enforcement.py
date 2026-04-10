@@ -148,3 +148,173 @@ class TestNoLegacyIdentityTests:
         legacy_attrs = ["identity", "set_identity", "auth_token", "set_auth_token", "_get_subject"]
         for attr in legacy_attrs:
             assert not hasattr(ctx, attr), f"ExecutionContext still has legacy attribute: {attr}"
+
+
+class TestTaskNoOldAuthCheck:
+    def test_task_py_has_no_is_authorized_call(self):
+        import pathlib
+
+        src = pathlib.Path("flux/task.py").read_text()
+        assert "is_authorized" not in src, "flux/task.py still calls auth_service.is_authorized"
+        assert "/auth/is-authorized" not in src, "flux/task.py still references old endpoint"
+        assert "ctx.identity" not in src, "flux/task.py still reads ctx.identity"
+        assert "ctx.auth_token" not in src, "flux/task.py still reads ctx.auth_token"
+
+
+class TestTaskNewAuthCheck:
+    @pytest.mark.asyncio
+    async def test_auth_disabled_skips_check(self):
+        from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
+        from flux.task import task
+
+        call_count = {"n": 0}
+
+        @task
+        async def simple_task():
+            call_count["n"] += 1
+            return 42
+
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        token = CURRENT_CONTEXT.set(ctx)
+        try:
+            result = await simple_task()
+            assert result == 42
+            assert call_count["n"] == 1
+        finally:
+            CURRENT_CONTEXT.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_auth_enabled_no_exec_token_raises_task_auth_error(self):
+        from unittest.mock import patch
+
+        from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
+        from flux.security.errors import TaskAuthorizationError
+        from flux.task import task
+
+        @task
+        async def secured_task():
+            return 99
+
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+
+        with patch("flux.config.Configuration.get") as mock_config:
+            mock_settings = mock_config.return_value.settings
+            mock_settings.security.auth.enabled = True
+            mock_settings.workers.server_url = "http://localhost:8000"
+
+            token = CURRENT_CONTEXT.set(ctx)
+            try:
+                with pytest.raises(TaskAuthorizationError):
+                    await secured_task()
+            finally:
+                CURRENT_CONTEXT.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_auth_enabled_with_exec_token_calls_authorize_endpoint(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
+        from flux.task import task
+
+        @task
+        async def secured_task():
+            return 42
+
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        ctx.set_exec_token("exec.tok.test")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"authorized": True}
+
+        with (
+            patch("flux.config.Configuration.get") as mock_config,
+            patch("httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings = mock_config.return_value.settings
+            mock_settings.security.auth.enabled = True
+            mock_settings.workers.server_url = "http://localhost:8000"
+
+            mock_client = mock_client_cls.return_value.__aenter__.return_value
+            mock_client.post = AsyncMock(return_value=mock_response)
+
+            token = CURRENT_CONTEXT.set(ctx)
+            try:
+                result = await secured_task()
+                assert result == 42
+                mock_client.post.assert_called_once()
+                call_args = mock_client.post.call_args
+                assert f"/executions/{ctx.execution_id}/authorize/secured_task" in call_args[0][0]
+            finally:
+                CURRENT_CONTEXT.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_auth_enabled_unauthorized_raises_task_auth_error(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
+        from flux.security.errors import TaskAuthorizationError
+        from flux.task import task
+
+        @task
+        async def secured_task():
+            return 42
+
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        ctx.set_exec_token("exec.tok.revoked")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {"authorized": False}
+
+        with (
+            patch("flux.config.Configuration.get") as mock_config,
+            patch("httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings = mock_config.return_value.settings
+            mock_settings.security.auth.enabled = True
+            mock_settings.workers.server_url = "http://localhost:8000"
+
+            mock_client = mock_client_cls.return_value.__aenter__.return_value
+            mock_client.post = AsyncMock(return_value=mock_response)
+
+            token = CURRENT_CONTEXT.set(ctx)
+            try:
+                with pytest.raises(TaskAuthorizationError):
+                    await secured_task()
+            finally:
+                CURRENT_CONTEXT.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_http_error_fails_closed(self):
+        import httpx
+        from unittest.mock import AsyncMock, patch
+
+        from flux.domain.execution_context import CURRENT_CONTEXT, ExecutionContext
+        from flux.security.errors import TaskAuthorizationError
+        from flux.task import task
+
+        @task
+        async def secured_task():
+            return 42
+
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        ctx.set_exec_token("exec.tok.net-error")
+
+        with (
+            patch("flux.config.Configuration.get") as mock_config,
+            patch("httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_settings = mock_config.return_value.settings
+            mock_settings.security.auth.enabled = True
+            mock_settings.workers.server_url = "http://localhost:8000"
+
+            mock_client = mock_client_cls.return_value.__aenter__.return_value
+            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+
+            token = CURRENT_CONTEXT.set(ctx)
+            try:
+                with pytest.raises(TaskAuthorizationError):
+                    await secured_task()
+            finally:
+                CURRENT_CONTEXT.reset(token)

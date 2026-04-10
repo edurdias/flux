@@ -123,64 +123,53 @@ class task:
 
             auth_config = Configuration.get().settings.security.auth
             if auth_config.enabled:
+                import httpx
+
                 from flux.security.errors import TaskAuthorizationError
-                from flux.security.dependencies import _get_auth_service
+                from flux.utils import get_logger as _get_logger
 
-                required = f"workflow:{ctx.workflow_name}:task:{self.name}:execute"
-                auth_service = _get_auth_service()
-
-                if auth_service is not None and ctx.identity is not None:
-                    if not await auth_service.is_authorized(ctx.identity, required):
-                        raise TaskAuthorizationError(
-                            task_name=full_name,
-                            task_id=task_id,
-                            subject=ctx.identity.subject,
-                            required_permission=required,
-                        )
-                elif hasattr(ctx, "auth_token") and ctx.auth_token:
-                    import httpx
-
-                    server_url = Configuration.get().settings.workers.server_url
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            resp = await client.post(
-                                f"{server_url}/auth/is-authorized",
-                                json={"token": ctx.auth_token, "permission": required},
-                                headers={"Authorization": f"Bearer {ctx.auth_token}"},
-                                timeout=10.0,
-                            )
-                            if resp.status_code != 200 or not resp.json().get("authorized", False):
-                                raise TaskAuthorizationError(
-                                    task_name=full_name,
-                                    task_id=task_id,
-                                    subject="unknown",
-                                    required_permission=required,
-                                )
-                    except httpx.HTTPError as auth_err:
-                        from flux.utils import get_logger
-
-                        logger = get_logger(__name__)
-                        logger.error(
-                            f"Task authorization check failed for '{full_name}': {auth_err}",
-                        )
-                        raise TaskAuthorizationError(
-                            task_name=full_name,
-                            task_id=task_id,
-                            subject="unknown",
-                            required_permission=required,
-                        )
-                else:
-                    from flux.utils import get_logger
-
-                    logger = get_logger(__name__)
-                    logger.error(
-                        f"Task '{full_name}' authorization failed: auth enabled but no identity or token available",
+                exec_token = ctx.exec_token
+                if not exec_token:
+                    _get_logger(__name__).error(
+                        f"Task '{full_name}': auth enabled but no exec_token on context — failing closed",
                     )
                     raise TaskAuthorizationError(
                         task_name=full_name,
                         task_id=task_id,
                         subject="unknown",
-                        required_permission=required,
+                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                    )
+
+                server_url = Configuration.get().settings.workers.server_url
+                authorize_url = (
+                    f"{server_url}/executions/{ctx.execution_id}/authorize/{self.name}"
+                )
+
+                try:
+                    async with httpx.AsyncClient() as _client:
+                        resp = await _client.post(
+                            authorize_url,
+                            headers={"Authorization": f"Bearer {exec_token}"},
+                            timeout=10.0,
+                        )
+                        if resp.status_code != 200 or not resp.json().get("authorized", False):
+                            raise TaskAuthorizationError(
+                                task_name=full_name,
+                                task_id=task_id,
+                                subject="unknown",
+                                required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                            )
+                except TaskAuthorizationError:
+                    raise
+                except httpx.HTTPError as _auth_err:
+                    _get_logger(__name__).error(
+                        f"Task '{full_name}' authorization HTTP error: {_auth_err} — failing closed",
+                    )
+                    raise TaskAuthorizationError(
+                        task_name=full_name,
+                        task_id=task_id,
+                        subject="unknown",
+                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
                     )
 
         finished = [
