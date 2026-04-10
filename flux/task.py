@@ -141,9 +141,7 @@ class task:
                     )
 
                 server_url = Configuration.get().settings.workers.server_url
-                authorize_url = (
-                    f"{server_url}/executions/{ctx.execution_id}/authorize/{self.name}"
-                )
+                authorize_url = f"{server_url}/executions/{ctx.execution_id}/authorize/{self.name}"
 
                 try:
                     async with httpx.AsyncClient() as _client:
