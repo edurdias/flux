@@ -40,33 +40,6 @@ class RoleModel(Base):
         self.updated_at = datetime.now(timezone.utc)
 
 
-class ServiceAccountModel(Base):
-    __tablename__ = "service_accounts"
-
-    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
-    name = Column(String, unique=True, nullable=False)
-    roles = Column(JSON, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(
-        DateTime,
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    def __init__(
-        self,
-        name: str,
-        roles: list[str],
-        id: str | None = None,
-    ):
-        self.id = id or uuid4().hex
-        self.name = name
-        self.roles = roles
-        self.created_at = datetime.now(timezone.utc)
-        self.updated_at = datetime.now(timezone.utc)
-
-
 class APIKeyModel(Base):
     __tablename__ = "api_keys"
 

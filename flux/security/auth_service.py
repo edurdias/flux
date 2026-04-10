@@ -61,6 +61,10 @@ class AuthService:
         if config.api_keys.enabled:
             self._providers.append(APIKeyProvider(session_factory))
 
+    @property
+    def principal_registry(self) -> PrincipalRegistry | None:
+        return self._registry
+
     async def authenticate(self, token: str | None) -> FluxIdentity:
         if not self._config.enabled:
             logger.warning("Auth disabled — request treated as admin (anonymous)")

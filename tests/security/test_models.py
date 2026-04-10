@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
+from flux.security.models import RoleModel, APIKeyModel
 from flux.security.principals import PrincipalModel
 from flux.models import Base
 
@@ -29,16 +29,6 @@ class TestRoleModel:
             built_in=True,
         )
         assert role.built_in is True
-
-
-class TestServiceAccountModel:
-    def test_create_service_account(self):
-        sa = ServiceAccountModel(
-            name="svc-pipeline",
-            roles=["operator"],
-        )
-        assert sa.name == "svc-pipeline"
-        assert "operator" in sa.roles
 
 
 class TestAPIKeyModel:

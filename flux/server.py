@@ -44,7 +44,7 @@ from flux.domain.schedule import schedule_factory
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service, get_identity, require_permission
 from flux.security.errors import AuthenticationError
-from flux.security.identity import FluxIdentity, ANONYMOUS
+from flux.security.identity import FluxIdentity
 from datetime import datetime, timezone
 
 logger = get_logger(__name__)
@@ -694,24 +694,28 @@ class Server:
                     schedule.mark_failure()
                     return
 
+                from flux.security.principals import PrincipalRegistry
+
                 db_auth_service = AuthService(
                     config=auth_config,
                     session_factory=self._get_db_session,
                 )
-                sa = await db_auth_service.get_service_account(sa_name)  # type: ignore[attr-defined]
-                if sa is None:
+                registry = PrincipalRegistry(self._get_db_session)
+                sa = None
+                if registry is not None:
+                    sa = registry.find(sa_name, "flux")
+                if sa is None or not sa.enabled:
                     logger.error(
-                        f"Schedule '{schedule.name}': SA '{sa_name}' not found, skipping run",
+                        f"Schedule '{schedule.name}': SA '{sa_name}' not found or disabled, skipping",
                     )
                     schedule.mark_failure()
                     return
 
                 from flux.security.identity import FluxIdentity
-                from flux.security.providers.internal import mint_internal_token
 
                 identity = FluxIdentity(
-                    subject=f"sa:{sa.name}",
-                    roles=frozenset(sa.roles),
+                    subject=f"sa:{sa.subject}",
+                    roles=frozenset(registry.get_roles(sa.id)),
                     metadata={"token_type": "service_account", "via": "scheduler"},
                 )
 
@@ -736,28 +740,19 @@ class Server:
                 )
                 if not auth_result.ok:
                     logger.error(
-                        f"Schedule '{schedule.name}': SA '{sa.name}' lacks permissions: "
+                        f"Schedule '{schedule.name}': SA '{sa.subject}' lacks permissions: "
                         f"{auth_result.missing_permissions}",
                     )
                     schedule.mark_failure()
                     return
 
-                auth_token = mint_internal_token(
-                    subject=identity.subject,
-                    roles=identity.roles,
-                    ttl_seconds=3600,
-                )
-            else:
-                auth_token = None
+                # TODO(Phase 6): Mint execution token here
 
             ctx = self._create_execution(
                 schedule.workflow_name,
                 schedule.input_data,
                 identity=identity,
             )
-            if auth_token:
-                ctx.set_auth_token(auth_token)
-                self._execution_auth_tokens[ctx.execution_id] = auth_token
 
             # Update schedule tracking
             schedule.mark_run(scheduled_time)
@@ -956,20 +951,9 @@ class Server:
                             },
                         )
 
-                auth_token = None
-                if identity and identity != ANONYMOUS and auth_config.enabled:
-                    from flux.security.providers.internal import mint_internal_token
-
-                    auth_token = mint_internal_token(
-                        subject=identity.subject,
-                        roles=identity.roles,
-                        ttl_seconds=3600 * 24,
-                    )
+                # TODO(Phase 6): Mint execution token here
 
                 ctx = self._create_execution(workflow_name, input, version, identity)
-                if auth_token:
-                    ctx.set_auth_token(auth_token)
-                    self._execution_auth_tokens[ctx.execution_id] = auth_token
                 manager = ContextManager.create()
                 logger.debug(
                     f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
@@ -1156,18 +1140,7 @@ class Server:
                         detail=f"Execution context with ID {execution_id} not found.",
                     )
 
-                auth_token = None
-                if identity and identity != ANONYMOUS and auth_config.enabled:
-                    from flux.security.providers.internal import mint_internal_token
-
-                    auth_token = mint_internal_token(
-                        subject=identity.subject,
-                        roles=identity.roles,
-                        ttl_seconds=3600 * 24,
-                    )
-                if auth_token:
-                    ctx.set_auth_token(auth_token)
-                    self._execution_auth_tokens[ctx.execution_id] = auth_token
+                # TODO(Phase 6): Mint execution token here
 
                 if ctx.has_finished:
                     raise HTTPException(
@@ -2001,7 +1974,12 @@ class Server:
                             status_code=400,
                             detail="run_as_service_account is required when auth is enabled",
                         )
-                    sa = await auth_service.get_service_account(request.run_as_service_account)  # type: ignore[attr-defined]
+                    sa = None
+                    if auth_service.principal_registry is not None:
+                        sa = auth_service.principal_registry.find(
+                            request.run_as_service_account,
+                            "flux",
+                        )
                     if sa is None:
                         raise HTTPException(
                             status_code=400,
@@ -2131,7 +2109,12 @@ class Server:
                 logger.info(f"Updating schedule '{schedule_id}'")
 
                 if auth_config.enabled and request.run_as_service_account is not None:
-                    sa = await auth_service.get_service_account(request.run_as_service_account)  # type: ignore[attr-defined]
+                    sa = None
+                    if auth_service.principal_registry is not None:
+                        sa = auth_service.principal_registry.find(
+                            request.run_as_service_account,
+                            "flux",
+                        )
                     if sa is None:
                         raise HTTPException(
                             status_code=400,
