@@ -36,7 +36,7 @@ class WorkflowDefinition(BaseModel):
 class WorkflowExecutionRequest(BaseModel):
     workflow: WorkflowDefinition
     context: ExecutionContext
-    auth_token: str | None = None
+    exec_token: str | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -46,7 +46,7 @@ class WorkflowExecutionRequest(BaseModel):
         data: dict,
         checkpoint: Callable[[ExecutionContext], Awaitable],
     ) -> WorkflowExecutionRequest:
-        auth_token = data.get("auth_token") or data["context"].get("auth_token")
+        exec_token = data.get("exec_token")
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["context"]["workflow_id"],
             workflow_name=data["context"]["workflow_name"],
@@ -55,13 +55,13 @@ class WorkflowExecutionRequest(BaseModel):
             state=data["context"]["state"],
             events=[ExecutionEvent(**event) for event in data["context"]["events"]],
             checkpoint=checkpoint,
-            auth_token=auth_token,
         )
-        ctx._identity_subject = data["context"].get("identity_subject")
+        if exec_token:
+            ctx.set_exec_token(exec_token)
         return WorkflowExecutionRequest(
             workflow=WorkflowDefinition(**data["workflow"]),
             context=ctx,
-            auth_token=auth_token,
+            exec_token=exec_token,
         )
 
 
@@ -471,8 +471,6 @@ class Worker:
                 self._module_cache[cache_key] = (module, time.monotonic())
 
         ctx = request.context
-        if request.auth_token:
-            ctx.set_auth_token(request.auth_token)
         self._setup_progress(ctx)
 
         for obj in module.__dict__.values():

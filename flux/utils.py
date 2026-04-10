@@ -148,8 +148,6 @@ class FluxEncoder(json.JSONEncoder):
                 "output": obj.output,
                 "state": obj.state,
                 "events": obj.events,
-                "auth_token": obj.auth_token,
-                "identity_subject": obj._get_subject(),
             }
 
         if isinstance(obj, ExecutionError):

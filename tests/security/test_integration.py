@@ -177,19 +177,7 @@ class TestFullAuthorizationFlow:
 
 
 class TestEventSubjectIntegration:
-    def test_identity_subject_on_events(self):
-        from flux.domain.execution_context import ExecutionContext
-        from flux.worker_registry import WorkerInfo
-
-        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
-        identity = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
-        ctx.set_identity(identity)
-        worker = WorkerInfo(name="worker-1")
-        ctx.schedule(worker)
-        event = [e for e in ctx.events if e.type.name == "WORKFLOW_SCHEDULED"][0]
-        assert event.subject == "alice@acme.com"
-
-    def test_events_without_identity(self):
+    def test_events_have_none_subject_by_default(self):
         from flux.domain.execution_context import ExecutionContext
         from flux.worker_registry import WorkerInfo
 

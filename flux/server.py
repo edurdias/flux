@@ -483,7 +483,6 @@ class Server:
         workflow_name: str,
         input_data: Any = None,
         version: int | None = None,
-        identity: FluxIdentity | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(workflow_name, version)
         if not workflow:
@@ -497,8 +496,6 @@ class Server:
                 requests=workflow.requests,
             ),
         )
-        if identity is not None:
-            ctx.set_identity(identity)
 
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
@@ -759,7 +756,6 @@ class Server:
             ctx = self._create_execution(
                 schedule.workflow_name,
                 schedule.input_data,
-                identity=identity,
             )
 
             if auth_config.enabled and sa_principal is not None:
@@ -981,7 +977,7 @@ class Server:
                             },
                         )
 
-                ctx = self._create_execution(workflow_name, input, version, identity)
+                ctx = self._create_execution(workflow_name, input, version)
                 manager = ContextManager.create()
 
                 if identity and identity != ANONYMOUS and auth_config.enabled:

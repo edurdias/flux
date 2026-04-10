@@ -247,4 +247,5 @@ class TestExecutionContextModelRoundtrip:
             scheduling_principal_issuer="https://issuer",
         )
         ctx = m.to_plain()
-        assert not hasattr(ctx, "exec_token")
+        data = ctx.to_dict()
+        assert "exec_token" not in data, "exec_token must not appear in serialized context"

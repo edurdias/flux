@@ -4,16 +4,12 @@ import json
 from collections.abc import Awaitable
 from contextvars import ContextVar
 from contextvars import Token
-from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
 from typing import Generic
 from typing import Self
 from typing import TypeVar
 from uuid import uuid4
-
-if TYPE_CHECKING:
-    from flux.security.identity import FluxIdentity
 
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
@@ -41,7 +37,6 @@ class ExecutionContext(Generic[WorkflowInputType]):
         requests: ResourceRequest | None = None,
         current_worker: str | None = None,
         progress_callback: Callable | None = None,
-        auth_token: str | None = None,
     ):
         self._workflow_id = workflow_id
         self._workflow_name = workflow_name
@@ -53,9 +48,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._requests = requests or None
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
-        self._identity: FluxIdentity | None = None
-        self._auth_token = auth_token
-        self._identity_subject: str | None = None
+        self._exec_token: str | None = None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -214,7 +207,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_SCHEDULED,
                 source_id=worker.name,
                 name=worker.name,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -227,7 +220,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CLAIMED,
                 source_id=worker.name,
                 name=worker.name,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -240,7 +233,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=self.input,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -254,7 +247,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                     source_id=self._current_worker,
                     name=self.workflow_name,
                     value=input,
-                    subject=self._get_subject(),
+                    subject=None,
                 ),
             )
         return self
@@ -278,7 +271,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=self._current_worker,
                 name=self.workflow_name,
                 value=event.value,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return event.value
@@ -291,7 +284,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value={"name": name, "output": output},
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -304,7 +297,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -317,7 +310,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -329,7 +322,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLING,
                 source_id=self._current_worker,
                 name=self.workflow_name,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -344,7 +337,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLED,
                 source_id=self._current_worker,
                 name=self.workflow_name,
-                subject=self._get_subject(),
+                subject=None,
             ),
         )
         return self
@@ -364,29 +357,17 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     @property
-    def identity(self) -> FluxIdentity | None:
-        return self._identity
+    def exec_token(self) -> str | None:
+        return self._exec_token
 
-    def set_identity(self, identity: FluxIdentity) -> None:
-        self._identity = identity
-        self._identity_subject = identity.subject
-
-    @property
-    def auth_token(self) -> str | None:
-        return self._auth_token
-
-    def set_auth_token(self, token: str | None) -> None:
-        self._auth_token = token
-
-    def _get_subject(self) -> str | None:
-        if self._identity is not None:
-            return self._identity.subject
-        return self._identity_subject
+    def set_exec_token(self, token: str | None) -> None:
+        self._exec_token = token
 
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_checkpoint"] = None
         state["_progress_callback"] = None
+        state.pop("_exec_token", None)
         return state
 
     def __setstate__(self, state):
@@ -395,6 +376,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
             self._checkpoint = lambda _: maybe_awaitable(None)
         if self._progress_callback is None:
             self._progress_callback = lambda *_: None
+        if not hasattr(self, "_exec_token"):
+            self._exec_token = None
 
     def summary(self):
         return {key: value for key, value in self.to_dict().items() if key != "events"}
@@ -418,9 +401,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             state=data["state"],
             events=[ExecutionEvent(**event) for event in data["events"]],
             checkpoint=checkpoint,
-            auth_token=data.get("auth_token"),
         )
-        ctx._identity_subject = data.get("identity_subject")
         return ctx
 
     def _is_last_event(self, event_type: ExecutionEventType) -> bool:
