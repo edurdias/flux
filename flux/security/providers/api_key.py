@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from flux.security.identity import FluxIdentity
-from flux.security.models import APIKeyModel
+from flux.security.models import APIKeyModel, ServiceAccountModel
+from flux.security.principals import PrincipalModel, PrincipalRoleModel
 from flux.security.providers import AuthProvider
 from flux.utils import get_logger
 
@@ -26,10 +27,18 @@ class APIKeyProvider(AuthProvider):
             if key_model.expires_at and key_model.expires_at < datetime.now(timezone.utc):
                 logger.warning(f"API key '{key_model.name}' has expired")
                 return None
-            sa = key_model.service_account
+            principal = session.query(PrincipalModel).filter_by(id=key_model.principal_id).first()
+            if not principal or not principal.enabled:
+                return None
+            role_rows = session.query(PrincipalRoleModel).filter_by(principal_id=principal.id).all()
+            if role_rows:
+                roles = frozenset(r.role_name for r in role_rows)
+            else:
+                sa = session.query(ServiceAccountModel).filter_by(name=principal.subject).first()
+                roles = frozenset(sa.roles) if sa else frozenset()
             return FluxIdentity(
-                subject=sa.name,
-                roles=frozenset(sa.roles),
+                subject=principal.subject,
+                roles=roles,
                 metadata={"token_type": "api_key", "key_name": key_model.name},
             )
         finally:

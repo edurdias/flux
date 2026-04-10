@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from flux.security.providers.api_key import APIKeyProvider
-from flux.security.models import APIKeyModel, ServiceAccountModel
+from flux.security.models import APIKeyModel
+from flux.security.principals import PrincipalModel, PrincipalRoleModel
 
 
 class TestAPIKeyProvider:
@@ -27,11 +28,30 @@ class TestAPIKeyProvider:
         mock_key = MagicMock(spec=APIKeyModel)
         mock_key.key_hash = key_hash
         mock_key.expires_at = None
-        mock_key.service_account = MagicMock(spec=ServiceAccountModel)
-        mock_key.service_account.name = "svc-pipeline"
-        mock_key.service_account.roles = ["operator"]
+        mock_key.principal_id = "principal-id-123"
+        mock_key.name = "my-key"
 
-        mock_session.query.return_value.filter.return_value.first.return_value = mock_key
+        mock_principal = MagicMock(spec=PrincipalModel)
+        mock_principal.id = "principal-id-123"
+        mock_principal.subject = "svc-pipeline"
+        mock_principal.enabled = True
+
+        mock_role = MagicMock(spec=PrincipalRoleModel)
+        mock_role.role_name = "operator"
+
+        def query_side_effect(model_class):
+            mock_q = MagicMock()
+            if model_class is APIKeyModel:
+                mock_q.filter.return_value.first.return_value = mock_key
+            elif model_class is PrincipalModel:
+                mock_q.filter_by.return_value.first.return_value = mock_principal
+            elif model_class is PrincipalRoleModel:
+                mock_q.filter_by.return_value.all.return_value = [mock_role]
+            else:
+                mock_q.filter_by.return_value.first.return_value = None
+            return mock_q
+
+        mock_session.query.side_effect = query_side_effect
 
         identity = await provider.authenticate(key_plaintext)
 
@@ -47,7 +67,6 @@ class TestAPIKeyProvider:
         mock_key = MagicMock(spec=APIKeyModel)
         mock_key.key_hash = key_hash
         mock_key.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
-        mock_key.service_account = MagicMock(spec=ServiceAccountModel)
 
         mock_session.query.return_value.filter.return_value.first.return_value = mock_key
 

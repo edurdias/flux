@@ -10,6 +10,7 @@ from flux.security.config import AuthConfig
 from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity, ANONYMOUS
 from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
+from flux.security.principals import PrincipalModel
 from flux.security.providers import AuthProvider
 from flux.security.providers.internal import InternalTokenProvider
 from flux.security.providers.oidc import OIDCProvider
@@ -324,6 +325,21 @@ class AuthService:
         finally:
             session.close()
 
+    def _get_or_create_principal_for_sa(self, session, sa: ServiceAccountModel) -> PrincipalModel:
+        principal = (
+            session.query(PrincipalModel).filter_by(subject=sa.name, external_issuer="flux").first()
+        )
+        if not principal:
+            principal = PrincipalModel(
+                type="service_account",
+                subject=sa.name,
+                external_issuer="flux",
+                display_name=sa.name,
+            )
+            session.add(principal)
+            session.flush()
+        return principal
+
     async def create_api_key(
         self,
         account_name: str,
@@ -335,9 +351,10 @@ class AuthService:
             sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
             if not sa:
                 raise ValueError(f"Service account '{account_name}' not found")
+            principal = self._get_or_create_principal_for_sa(session, sa)
             existing_key = (
                 session.query(APIKeyModel)
-                .filter_by(service_account_id=sa.id, name=key_name)
+                .filter_by(principal_id=principal.id, name=key_name)
                 .first()
             )
             if existing_key:
@@ -349,7 +366,7 @@ class AuthService:
             key_prefix = key_plaintext[:12]
             expires_at = (datetime.now(timezone.utc) + expires) if expires else None
             key_model = APIKeyModel(
-                service_account_id=sa.id,
+                principal_id=principal.id,
                 name=key_name,
                 key_hash=key_hash,
                 key_prefix=key_prefix,
@@ -370,9 +387,10 @@ class AuthService:
             sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
             if not sa:
                 raise ValueError(f"Service account '{account_name}' not found")
+            principal = self._get_or_create_principal_for_sa(session, sa)
             key = (
                 session.query(APIKeyModel)
-                .filter_by(service_account_id=sa.id, name=key_name)
+                .filter_by(principal_id=principal.id, name=key_name)
                 .first()
             )
             if not key:
@@ -391,7 +409,8 @@ class AuthService:
             sa = session.query(ServiceAccountModel).filter_by(name=account_name).first()
             if not sa:
                 raise ValueError(f"Service account '{account_name}' not found")
-            return session.query(APIKeyModel).filter_by(service_account_id=sa.id).all()
+            principal = self._get_or_create_principal_for_sa(session, sa)
+            return session.query(APIKeyModel).filter_by(principal_id=principal.id).all()
         finally:
             session.close()
 

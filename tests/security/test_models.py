@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from flux.security.models import RoleModel, ServiceAccountModel, APIKeyModel
+from flux.security.principals import PrincipalModel
 from flux.models import Base
 
 
@@ -45,7 +46,7 @@ class TestAPIKeyModel:
         key_plaintext = "flux_sk_abc123def456"
         key_hash = hashlib.sha256(key_plaintext.encode()).hexdigest()
         key = APIKeyModel(
-            service_account_id="sa-id-123",
+            principal_id="principal-id-123",
             name="ci-key",
             key_hash=key_hash,
             key_prefix=key_plaintext[:12],
@@ -56,7 +57,7 @@ class TestAPIKeyModel:
 
     def test_api_key_with_expiry(self):
         key = APIKeyModel(
-            service_account_id="sa-id-123",
+            principal_id="principal-id-123",
             name="temp-key",
             key_hash="hash",
             key_prefix="flux_sk_xxxx",
@@ -74,12 +75,17 @@ class TestAPIKeyModelUniqueConstraints:
             yield session
 
     def test_duplicate_key_name_per_service_account_raises(self, db_session):
-        sa = ServiceAccountModel(name="svc", roles=["operator"])
-        db_session.add(sa)
+        principal = PrincipalModel(
+            type="service_account",
+            subject="svc",
+            external_issuer="flux",
+            display_name="svc",
+        )
+        db_session.add(principal)
         db_session.flush()
 
         key1 = APIKeyModel(
-            service_account_id=sa.id,
+            principal_id=principal.id,
             name="my-key",
             key_hash="hash1",
             key_prefix="flux_sk_aa",
@@ -88,7 +94,7 @@ class TestAPIKeyModelUniqueConstraints:
         db_session.flush()
 
         key2 = APIKeyModel(
-            service_account_id=sa.id,
+            principal_id=principal.id,
             name="my-key",
             key_hash="hash2",
             key_prefix="flux_sk_bb",
@@ -98,12 +104,17 @@ class TestAPIKeyModelUniqueConstraints:
             db_session.flush()
 
     def test_duplicate_key_hash_raises(self, db_session):
-        sa = ServiceAccountModel(name="svc2", roles=["operator"])
-        db_session.add(sa)
+        principal = PrincipalModel(
+            type="service_account",
+            subject="svc2",
+            external_issuer="flux",
+            display_name="svc2",
+        )
+        db_session.add(principal)
         db_session.flush()
 
         key1 = APIKeyModel(
-            service_account_id=sa.id,
+            principal_id=principal.id,
             name="key-a",
             key_hash="same_hash",
             key_prefix="flux_sk_aa",
@@ -112,7 +123,7 @@ class TestAPIKeyModelUniqueConstraints:
         db_session.flush()
 
         key2 = APIKeyModel(
-            service_account_id=sa.id,
+            principal_id=principal.id,
             name="key-b",
             key_hash="same_hash",
             key_prefix="flux_sk_bb",

@@ -89,7 +89,6 @@ class TestAuthIsAuthorizedNoRateLimit:
 
     def test_endpoint_is_not_rate_limited(self, client):
         """Call the endpoint 100 times rapidly — none should return 429."""
-        import concurrent.futures
 
         def make_request():
             return client.post(
@@ -116,9 +115,7 @@ class TestRateLimitHandlerSingleRegistration:
         # FastAPI stores exception handlers in app.exception_handlers
         handlers = server_app.exception_handlers
         rate_limit_handlers = [
-            handler
-            for exc_type, handler in handlers.items()
-            if exc_type is RateLimitExceeded
+            handler for exc_type, handler in handlers.items() if exc_type is RateLimitExceeded
         ]
         # Should be exactly one registration (was previously registered twice)
         assert len(rate_limit_handlers) == 1

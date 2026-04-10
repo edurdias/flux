@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String, Uniq
 from sqlalchemy.orm import relationship
 
 from flux.models import Base
+from flux.security import principals as _principals  # noqa: F401 — register PrincipalModel with Base
 
 
 class RoleModel(Base):
@@ -53,12 +54,6 @@ class ServiceAccountModel(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    keys = relationship(
-        "APIKeyModel",
-        back_populates="service_account",
-        cascade="all, delete-orphan",
-    )
-
     def __init__(
         self,
         name: str,
@@ -76,23 +71,23 @@ class APIKeyModel(Base):
     __tablename__ = "api_keys"
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
-    service_account_id = Column(String, ForeignKey("service_accounts.id"), nullable=False)
+    principal_id = Column(String, ForeignKey("principals.id"), nullable=False)
     name = Column(String, nullable=False)
     key_hash = Column(String, nullable=False)
     key_prefix = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
-    service_account = relationship("ServiceAccountModel", back_populates="keys")
+    principal = relationship("PrincipalModel")
 
     __table_args__ = (
-        UniqueConstraint("service_account_id", "name", name="uix_api_key_sa_name"),
+        UniqueConstraint("principal_id", "name", name="uix_api_key_principal_name"),
         UniqueConstraint("key_hash", name="uix_api_key_hash"),
     )
 
     def __init__(
         self,
-        service_account_id: str,
+        principal_id: str,
         name: str,
         key_hash: str,
         key_prefix: str,
@@ -100,7 +95,7 @@ class APIKeyModel(Base):
         id: str | None = None,
     ):
         self.id = id or uuid4().hex
-        self.service_account_id = service_account_id
+        self.principal_id = principal_id
         self.name = name
         self.key_hash = key_hash
         self.key_prefix = key_prefix
