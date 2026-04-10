@@ -25,11 +25,11 @@ class TestAuthCLI:
         assert result.exit_code == 0
         assert "Role management" in result.output
 
-    def test_service_accounts_group_exists(self):
+    def test_principals_group_exists(self):
         runner = CliRunner()
-        result = runner.invoke(cli, ["service-accounts", "--help"])
+        result = runner.invoke(cli, ["principals", "--help"])
         assert result.exit_code == 0
-        assert "Service account" in result.output
+        assert "Principal management" in result.output
 
     def test_auth_login_no_oidc_config(self):
         runner = CliRunner()
@@ -197,3 +197,90 @@ class TestGetAuthHeaders:
             with patch("flux.cli_auth.CREDENTIALS_FILE", creds_file):
                 headers = get_auth_headers()
         assert headers == {"Authorization": "Bearer env-wins"}
+
+
+class TestPrincipalsCLI:
+    def test_principals_list_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "list", "--help"])
+        assert result.exit_code == 0
+
+    def test_principals_show_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "show", "--help"])
+        assert result.exit_code == 0
+
+    def test_principals_create_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "create", "--help"])
+        assert result.exit_code == 0
+        assert "--type" in result.output
+
+    def test_principals_grant_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "grant", "--help"])
+        assert result.exit_code == 0
+        assert "--role" in result.output
+
+    def test_principals_revoke_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "revoke", "--help"])
+        assert result.exit_code == 0
+        assert "--role" in result.output
+
+    def test_principals_enable_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "enable", "--help"])
+        assert result.exit_code == 0
+
+    def test_principals_disable_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "disable", "--help"])
+        assert result.exit_code == 0
+
+    def test_principals_delete_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "delete", "--help"])
+        assert result.exit_code == 0
+        assert "--force" in result.output
+        assert "--yes" in result.output
+
+    def test_principals_create_key_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "create-key", "--help"])
+        assert result.exit_code == 0
+        assert "--key-name" in result.output
+
+    def test_principals_list_keys_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "list-keys", "--help"])
+        assert result.exit_code == 0
+
+    def test_principals_revoke_key_command_exists(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "revoke-key", "--help"])
+        assert result.exit_code == 0
+        assert "--key-name" in result.output
+
+    def test_principals_list_calls_correct_endpoint(self):
+        runner = CliRunner()
+        with patch("httpx.get") as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = []
+            result = runner.invoke(cli, ["principals", "list"])
+        assert result.exit_code == 0
+        called_url = mock_get.call_args[0][0]
+        assert "/admin/principals" in called_url
+
+    def test_principals_delete_force_without_yes_prompts(self):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["principals", "delete", "svc-ci", "--force"], input="n\n")
+        assert "Cancelled" in result.output
+
+    def test_principals_delete_force_yes_skips_prompt(self):
+        runner = CliRunner()
+        with patch("httpx.delete") as mock_del:
+            mock_del.return_value.status_code = 200
+            mock_del.return_value.json.return_value = {}
+            result = runner.invoke(cli, ["principals", "delete", "svc-ci", "--force", "--yes"])
+        assert "Cancelled" not in result.output

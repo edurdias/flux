@@ -435,24 +435,30 @@ def roles_delete(name):
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
 
-# --- Service Accounts group ---
+# --- Principals group ---
 
 
-@click.group("service-accounts")
-def service_accounts():
-    """Service account management commands."""
+@click.group()
+def principals():
+    """Principal management commands."""
     pass
 
 
-@service_accounts.command("list")
+@principals.command("list")
+@click.option(
+    "--type",
+    "principal_type",
+    type=click.Choice(["user", "service_account"]),
+    default=None,
+)
 @click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
-def sa_list(fmt):
-    """List all service accounts."""
+def principals_list(principal_type, fmt):
+    """List all principals."""
     url = get_server_url()
-    resp = httpx.get(
-        f"{url}/admin/service-accounts",
-        headers=get_auth_headers(),
-    )
+    params = {}
+    if principal_type:
+        params["type"] = principal_type
+    resp = httpx.get(f"{url}/admin/principals", headers=get_auth_headers(), params=params)
     if resp.status_code != 200:
         try:
             detail = resp.json().get("detail", resp.text)
@@ -464,94 +470,166 @@ def sa_list(fmt):
     if fmt == "json":
         click.echo(json.dumps(data, indent=2))
     else:
-        for sa in data:
-            click.echo(f"  {sa['name']} (roles: {', '.join(sa.get('roles', []))})")
+        for p in data:
+            enabled = "" if p.get("enabled", True) else " (disabled)"
+            roles = ", ".join(p.get("roles", []))
+            click.echo(f"  [{p['type']}] {p['subject']}{enabled} roles: {roles}")
 
 
-@service_accounts.command("show")
-@click.argument("name")
-def sa_show(name):
-    """Show service account details."""
+@principals.command("show")
+@click.argument("subject")
+@click.option("--type", "principal_type", default=None)
+@click.option("--issuer", default=None)
+def principals_show(subject, principal_type, issuer):
+    """Show principal details. Tries OIDC issuer first, then 'flux'."""
     url = get_server_url()
-    resp = httpx.get(
-        f"{url}/admin/service-accounts/{name}",
-        headers=get_auth_headers(),
-    )
+    params = {"subject": subject}
+    if issuer:
+        params["issuer"] = issuer
+    elif principal_type:
+        params["type"] = principal_type
+    resp = httpx.get(f"{url}/admin/principals/lookup", headers=get_auth_headers(), params=params)
     if resp.status_code == 404:
-        click.echo(f"Service account '{name}' not found.")
+        click.echo(f"Principal '{subject}' not found.")
         return
-    sa = resp.json()
-    click.echo(f"Name: {sa['name']}")
-    click.echo(f"Roles: {', '.join(sa.get('roles', []))}")
+    if resp.status_code != 200:
+        click.echo(f"Error: {resp.text}")
+        return
+    p = resp.json()
+    click.echo(f"Subject:  {p['subject']}")
+    click.echo(f"Type:     {p['type']}")
+    click.echo(f"Issuer:   {p.get('external_issuer', 'flux')}")
+    click.echo(f"Enabled:  {p.get('enabled', True)}")
+    if p.get("display_name"):
+        click.echo(f"Name:     {p['display_name']}")
+    click.echo(f"Roles:    {', '.join(p.get('roles', []))}")
 
 
-@service_accounts.command("create")
-@click.argument("name")
-@click.option("--roles", "-r", multiple=True, required=True)
-def sa_create(name, roles):
-    """Create a service account."""
+@principals.command("create")
+@click.argument("subject")
+@click.option("--type", "principal_type", required=True, type=click.Choice(["user", "service_account"]))
+@click.option("--role", "roles", multiple=True)
+@click.option("--issuer", default=None)
+@click.option("--display-name", default=None)
+def principals_create(subject, principal_type, roles, issuer, display_name):
+    """Create a principal."""
+    url = get_server_url()
+    body = {"subject": subject, "type": principal_type}
+    if roles:
+        body["roles"] = list(roles)
+    if issuer:
+        body["external_issuer"] = issuer
+    if display_name:
+        body["display_name"] = display_name
+    resp = httpx.post(f"{url}/admin/principals", json=body, headers=get_auth_headers())
+    if resp.status_code == 200:
+        p = resp.json()
+        click.echo(f"Principal '{subject}' created (id: {p.get('id', '?')}).")
+    else:
+        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+
+
+@principals.command("grant")
+@click.argument("subject")
+@click.option("--role", required=True)
+def principals_grant(subject, role):
+    """Grant a role to a principal."""
     url = get_server_url()
     resp = httpx.post(
-        f"{url}/admin/service-accounts",
-        json={"name": name, "roles": list(roles)},
+        f"{url}/admin/principals/lookup/roles",
+        json={"subject": subject, "role": role},
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Service account '{name}' created.")
+        click.echo(f"Role '{role}' granted to '{subject}'.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
 
-@service_accounts.command("update")
-@click.argument("name")
-@click.option("--add-roles", "-a", multiple=True)
-@click.option("--remove-roles", "-r", multiple=True)
-def sa_update(name, add_roles, remove_roles):
-    """Update service account roles."""
-    url = get_server_url()
-    body = {}
-    if add_roles:
-        body["add_roles"] = list(add_roles)
-    if remove_roles:
-        body["remove_roles"] = list(remove_roles)
-    resp = httpx.patch(
-        f"{url}/admin/service-accounts/{name}",
-        json=body,
-        headers=get_auth_headers(),
-    )
-    if resp.status_code == 200:
-        click.echo(f"Service account '{name}' updated.")
-    else:
-        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
-
-
-@service_accounts.command("delete")
-@click.argument("name")
-def sa_delete(name):
-    """Delete a service account."""
+@principals.command("revoke")
+@click.argument("subject")
+@click.option("--role", required=True)
+def principals_revoke(subject, role):
+    """Revoke a role from a principal."""
     url = get_server_url()
     resp = httpx.delete(
-        f"{url}/admin/service-accounts/{name}",
+        f"{url}/admin/principals/lookup/roles/{role}",
+        params={"subject": subject},
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Service account '{name}' deleted.")
+        click.echo(f"Role '{role}' revoked from '{subject}'.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
 
-@service_accounts.command("create-key")
-@click.argument("name")
+@principals.command("enable")
+@click.argument("subject")
+def principals_enable(subject):
+    """Enable a principal."""
+    url = get_server_url()
+    resp = httpx.post(
+        f"{url}/admin/principals/lookup/enable",
+        json={"subject": subject},
+        headers=get_auth_headers(),
+    )
+    if resp.status_code == 200:
+        click.echo(f"Principal '{subject}' enabled.")
+    else:
+        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+
+
+@principals.command("disable")
+@click.argument("subject")
+def principals_disable(subject):
+    """Disable a principal."""
+    url = get_server_url()
+    resp = httpx.post(
+        f"{url}/admin/principals/lookup/disable",
+        json={"subject": subject},
+        headers=get_auth_headers(),
+    )
+    if resp.status_code == 200:
+        click.echo(f"Principal '{subject}' disabled.")
+    else:
+        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+
+
+@principals.command("delete")
+@click.argument("subject")
+@click.option("--force", is_flag=True, help="Force deletion including cascade effects")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+def principals_delete(subject, force, yes):
+    """Delete a principal."""
+    url = get_server_url()
+    if force and not yes:
+        click.echo(f"Deleting '{subject}' with --force will cascade-delete all API keys and role assignments.")
+        if not click.confirm("Proceed?"):
+            click.echo("Cancelled.")
+            return
+    resp = httpx.delete(
+        f"{url}/admin/principals/lookup",
+        params={"subject": subject, "force": force},
+        headers=get_auth_headers(),
+    )
+    if resp.status_code == 200:
+        click.echo(f"Principal '{subject}' deleted.")
+    else:
+        click.echo(f"Error: {resp.json().get('detail', resp.text)}")
+
+
+@principals.command("create-key")
+@click.argument("subject")
 @click.option("--key-name", "-k", required=True)
 @click.option("--expires", "-e", default=None, help="Expiry in days, e.g. '90d'")
-def sa_create_key(name, key_name, expires):
-    """Create an API key for a service account."""
+def principals_create_key(subject, key_name, expires):
+    """Create an API key for a service account principal."""
     url = get_server_url()
-    body = {"name": key_name}
+    body = {"name": key_name, "subject": subject}
     if expires:
         body["expires_in_days"] = int(expires.rstrip("d"))
     resp = httpx.post(
-        f"{url}/admin/service-accounts/{name}/keys",
+        f"{url}/admin/principals/lookup/keys",
         json=body,
         headers=get_auth_headers(),
     )
@@ -563,13 +641,14 @@ def sa_create_key(name, key_name, expires):
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
 
-@service_accounts.command("list-keys")
-@click.argument("name")
-def sa_list_keys(name):
-    """List API keys for a service account."""
+@principals.command("list-keys")
+@click.argument("subject")
+def principals_list_keys(subject):
+    """List API keys for a principal."""
     url = get_server_url()
     resp = httpx.get(
-        f"{url}/admin/service-accounts/{name}/keys",
+        f"{url}/admin/principals/lookup/keys",
+        params={"subject": subject},
         headers=get_auth_headers(),
     )
     if resp.status_code != 200:
@@ -585,14 +664,15 @@ def sa_list_keys(name):
         click.echo(f"  {key['name']} ({key['key_prefix']}...) expires: {expires}")
 
 
-@service_accounts.command("revoke-key")
-@click.argument("name")
+@principals.command("revoke-key")
+@click.argument("subject")
 @click.option("--key-name", "-k", required=True)
-def sa_revoke_key(name, key_name):
-    """Revoke an API key."""
+def principals_revoke_key(subject, key_name):
+    """Revoke an API key from a principal."""
     url = get_server_url()
     resp = httpx.delete(
-        f"{url}/admin/service-accounts/{name}/keys/{key_name}",
+        f"{url}/admin/principals/lookup/keys/{key_name}",
+        params={"subject": subject},
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:

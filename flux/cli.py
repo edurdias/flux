@@ -9,7 +9,7 @@ from uuid import uuid4
 import click
 import httpx
 
-from flux.cli_auth import auth, roles, service_accounts
+from flux.cli_auth import auth, roles, principals
 from flux.config import Configuration
 from flux.server import Server
 from flux.worker import Worker
@@ -1271,7 +1271,7 @@ def remove_secret(name: str):
 
 cli.add_command(auth)
 cli.add_command(roles)
-cli.add_command(service_accounts)
+cli.add_command(principals)
 
 
 if __name__ == "__main__":  # pragma: no cover
