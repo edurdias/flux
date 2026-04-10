@@ -211,3 +211,152 @@ class TestExecutionTokenProvider:
         mock_registry.find.return_value = None
         identity = await provider.authenticate(token)
         assert identity is None
+
+    @pytest.mark.asyncio
+    async def test_provider_without_registry_returns_identity_with_empty_roles(self):
+        from flux.security.execution_token import ExecutionTokenProvider
+
+        provider = ExecutionTokenProvider(registry=None)
+        token = self._mint()
+        identity = await provider.authenticate(token)
+
+        assert identity is not None
+        assert identity.subject == "alice@acme.com"
+        assert identity.roles == frozenset()
+        assert identity.metadata["principal_id"] is None
+        assert identity.metadata["token_type"] == "execution"
+
+
+class TestExecutionTokenTTL:
+    def test_uses_config_ttl_when_none_passed(self, monkeypatch):
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        from flux.config import Configuration
+        from flux.security.execution_token import mint_execution_token
+
+        Configuration.get().override(security={"execution_token_ttl": 3600})
+        try:
+            before = int(time.time())
+            token = mint_execution_token(
+                subject="alice",
+                principal_issuer="flux",
+                execution_id="exec-1",
+                on_behalf_of="alice",
+            )
+            payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
+            expires_in = payload["exp"] - before
+            assert 3590 <= expires_in <= 3610
+        finally:
+            Configuration.get().reset()
+
+    def test_explicit_ttl_overrides_config(self, monkeypatch):
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        from flux.config import Configuration
+        from flux.security.execution_token import mint_execution_token
+
+        Configuration.get().override(security={"execution_token_ttl": 3600})
+        try:
+            before = int(time.time())
+            token = mint_execution_token(
+                subject="alice",
+                principal_issuer="flux",
+                execution_id="exec-1",
+                on_behalf_of="alice",
+                ttl_seconds=60,
+            )
+            payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
+            expires_in = payload["exp"] - before
+            assert 55 <= expires_in <= 65
+        finally:
+            Configuration.get().reset()
+
+    def test_falls_back_to_default_when_config_unset(self, monkeypatch):
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "test-secret")
+        from flux.security.execution_token import (
+            _DEFAULT_EXECUTION_TOKEN_TTL,
+            _get_execution_token_ttl,
+        )
+
+        ttl = _get_execution_token_ttl()
+        assert ttl == _DEFAULT_EXECUTION_TOKEN_TTL
+
+
+class TestExecutionTokenSecret:
+    def test_env_var_takes_precedence(self, monkeypatch):
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", "from-env")
+        from flux.config import Configuration
+        from flux.security.execution_token import _get_execution_token_secret
+
+        Configuration.get().override(security={"execution_token_secret": "from-config"})
+        try:
+            assert _get_execution_token_secret() == "from-env"
+        finally:
+            Configuration.get().reset()
+
+    def test_reads_from_config_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv("FLUX_EXECUTION_TOKEN_SECRET", raising=False)
+        from flux.config import Configuration
+        from flux.security.execution_token import _get_execution_token_secret
+
+        Configuration.get().override(security={"execution_token_secret": "from-config"})
+        try:
+            assert _get_execution_token_secret() == "from-config"
+        finally:
+            Configuration.get().reset()
+
+    def test_ephemeral_secret_stable_across_calls(self, monkeypatch):
+        monkeypatch.delenv("FLUX_EXECUTION_TOKEN_SECRET", raising=False)
+        from flux.config import Configuration
+        from flux.security import execution_token as et
+
+        et._ephemeral_secret = None
+        Configuration.get().override(security={"execution_token_secret": None}, debug=True)
+        try:
+            first = et._get_execution_token_secret()
+            second = et._get_execution_token_secret()
+            assert first == second
+            assert len(first) == 64
+        finally:
+            Configuration.get().reset()
+            et._ephemeral_secret = None
+
+    def test_ephemeral_secret_enables_mint_verify_roundtrip(self, monkeypatch):
+        monkeypatch.delenv("FLUX_EXECUTION_TOKEN_SECRET", raising=False)
+        from flux.config import Configuration
+        from flux.security import execution_token as et
+        from flux.security.execution_token import (
+            ExecutionTokenProvider,
+            mint_execution_token,
+        )
+
+        et._ephemeral_secret = None
+        Configuration.get().override(security={"execution_token_secret": None}, debug=True)
+        try:
+            token = mint_execution_token(
+                subject="alice",
+                principal_issuer="flux",
+                execution_id="exec-1",
+                on_behalf_of="alice",
+                ttl_seconds=600,
+            )
+            import asyncio
+
+            provider = ExecutionTokenProvider(registry=None)
+            identity = asyncio.run(provider.authenticate(token))
+            assert identity is not None
+            assert identity.subject == "alice"
+        finally:
+            Configuration.get().reset()
+            et._ephemeral_secret = None
+
+    def test_raises_when_nothing_configured(self, monkeypatch):
+        monkeypatch.delenv("FLUX_EXECUTION_TOKEN_SECRET", raising=False)
+        from flux.config import Configuration
+        from flux.security import execution_token as et
+
+        et._ephemeral_secret = None
+        Configuration.get().override(security={"execution_token_secret": None}, debug=False)
+        try:
+            with pytest.raises(RuntimeError, match="execution_token_secret is not configured"):
+                et._get_execution_token_secret()
+        finally:
+            Configuration.get().reset()
