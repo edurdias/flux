@@ -49,5 +49,13 @@ def _make_encryption_config():
 class SecurityConfig(_BaseConfig):
     encryption: EncryptionConfig = Field(default_factory=_make_encryption_config)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    execution_token_secret: str | None = Field(
+        default=None,
+        description="HMAC secret for signing execution tokens. Required in production.",
+    )
+    execution_token_ttl: int = Field(
+        default=604800,
+        description="Execution token TTL in seconds (default: 7 days).",
+    )
 
     model_config = {"arbitrary_types_allowed": True}

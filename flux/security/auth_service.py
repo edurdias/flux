@@ -14,6 +14,7 @@ from flux.security.principals import PrincipalRegistry
 from flux.security.providers import AuthProvider
 from flux.security.providers.oidc import OIDCProvider
 from flux.security.providers.api_key import APIKeyProvider
+from flux.security.execution_token import ExecutionTokenProvider
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
@@ -55,6 +56,8 @@ class AuthService:
         self._session_factory = session_factory
         self._registry = registry
         self._providers: list[AuthProvider] = []
+
+        self._providers.append(ExecutionTokenProvider(registry=registry))
 
         if config.oidc.enabled:
             self._providers.append(OIDCProvider(config.oidc, registry=registry))
