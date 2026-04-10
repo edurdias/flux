@@ -16,6 +16,7 @@ class ExecutionEvent(BaseModel):
     name: str
     value: Any = None
     time: datetime
+    subject: str | None = None
 
     @field_validator("time", mode="before")
     def parse_datetime(cls, value):
@@ -52,6 +53,7 @@ class ExecutionContext(BaseModel):
                     name=event_model.name,
                     value=event_model.value,
                     time=event_model.time,
+                    subject=event_model.subject,
                 ),
             )
 
@@ -81,6 +83,7 @@ class ExecutionContext(BaseModel):
                     name=event.name,
                     value=event.value,
                     time=event.time,
+                    subject=event.subject,
                 )
                 for event in ctx.events
             ],

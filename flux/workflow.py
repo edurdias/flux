@@ -124,14 +124,67 @@ class workflow:
         if "execution_id" in kwargs:
             return self.resume(kwargs["execution_id"])
 
+        workflow_id = self._ensure_registered()
+
         ctx: ExecutionContext = ExecutionContext(
-            workflow_id=self.name,
+            workflow_id=workflow_id,
             workflow_name=self.name,
             input=args[0] if len(args) > 0 else None,
         )
 
         ctx.set_checkpoint(self._save)
         return asyncio.run(self(ctx))
+
+    def _ensure_registered(self) -> str:
+        """Ensure this workflow has a row in the ``workflows`` table.
+
+        Inline ``workflow.run()`` calls (used in tests, scripts, and dev
+        shells) historically left executions pointing at a ``workflow_id``
+        that did not exist in the ``workflows`` table. SQLite let this
+        slide because foreign-key enforcement is off by default; PostgreSQL
+        rejects the insert. Register on first call and reuse the id on
+        subsequent calls so ``executions.workflow_id`` always refers to a
+        real row.
+        """
+        import inspect
+        from pathlib import Path
+
+        from sqlalchemy.exc import IntegrityError
+
+        from flux.catalogs import WorkflowCatalog
+        from flux.errors import WorkflowNotFoundError
+
+        catalog = WorkflowCatalog.create()
+
+        try:
+            return catalog.get(self.name).id
+        except WorkflowNotFoundError:
+            pass
+
+        module = inspect.getmodule(self._func)
+        source_file = getattr(module, "__file__", None) if module is not None else None
+        if not source_file:
+            raise RuntimeError(
+                f"Cannot register workflow '{self.name}': the defining module "
+                "has no readable source file. Workflows must be importable "
+                "from a .py file to be run inline.",
+            )
+
+        source = Path(source_file).read_bytes()
+        infos = catalog.parse(source)
+        matching = next((w for w in infos if w.name == self.name), None)
+        if matching is None:
+            raise RuntimeError(
+                f"Cannot register workflow '{self.name}': not found in "
+                f"source file {source_file}.",
+            )
+
+        try:
+            catalog.save([matching])
+        except IntegrityError:
+            # Lost a race with another registrant — fall through to re-read.
+            pass
+        return catalog.get(self.name).id
 
     def resume(self, execution_id: str, input: Any = None) -> ExecutionContext:
         """

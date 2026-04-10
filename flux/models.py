@@ -12,6 +12,7 @@ from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
+from sqlalchemy import BigInteger
 from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import DateTime
@@ -46,6 +47,93 @@ class Base(DeclarativeBase):
     pass
 
 
+def _migrate_schema(engine) -> None:
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(engine)
+
+    if "workflows" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("workflows")]
+        if "wf_metadata" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE workflows ADD COLUMN wf_metadata TEXT"))
+                conn.commit()
+
+    if "execution_events" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("execution_events")]
+        if "subject" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE execution_events ADD COLUMN subject VARCHAR"))
+                conn.commit()
+
+    if "schedules" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("schedules")]
+        if "run_as_service_account" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("ALTER TABLE schedules ADD COLUMN run_as_service_account VARCHAR"),
+                )
+                conn.commit()
+
+    if "executions" in inspector.get_table_names():
+        cols = [c["name"] for c in inspector.get_columns("executions")]
+        if "exec_token" not in cols:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE executions ADD COLUMN exec_token VARCHAR"))
+                conn.commit()
+        if "scheduling_subject" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text("ALTER TABLE executions ADD COLUMN scheduling_subject VARCHAR"),
+                )
+                conn.commit()
+        if "scheduling_principal_issuer" not in cols:
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE executions ADD COLUMN scheduling_principal_issuer VARCHAR",
+                    ),
+                )
+                conn.commit()
+
+    # Widen the byte-count columns on worker_resources and
+    # worker_resources_gpus to BIGINT on PostgreSQL. Fresh databases get
+    # the correct type via `Base.metadata.create_all()`; this branch
+    # migrates existing installs that were created while the ORM still
+    # declared these as Integer. SQLite uses dynamic integer affinity
+    # so no migration is needed there.
+    if engine.dialect.name == "postgresql":
+        _widen_int_to_bigint = {
+            "worker_resources": (
+                "memory_total",
+                "memory_available",
+                "disk_total",
+                "disk_free",
+            ),
+            "worker_resources_gpus": (
+                "memory_total",
+                "memory_available",
+            ),
+            "execution_events": ("id",),
+        }
+        for table, columns in _widen_int_to_bigint.items():
+            if table not in inspector.get_table_names():
+                continue
+            existing = {c["name"]: c["type"] for c in inspector.get_columns(table)}
+            for col in columns:
+                col_type = existing.get(col)
+                if col_type is None:
+                    continue
+                if col_type.__class__.__name__ == "INTEGER":
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} " f"ALTER COLUMN {col} TYPE BIGINT",
+                            ),
+                        )
+                        conn.commit()
+
+
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
 
@@ -57,6 +145,7 @@ class DatabaseRepository(ABC):
         if engine_key not in DatabaseRepository._engines:
             DatabaseRepository._engines[engine_key] = self._create_engine()
             Base.metadata.create_all(DatabaseRepository._engines[engine_key])
+            _migrate_schema(DatabaseRepository._engines[engine_key])
         self._engine = DatabaseRepository._engines[engine_key]
 
     @abstractmethod
@@ -187,7 +276,7 @@ class EncryptedType(TypeDecorator):
         self.protocol = dill.HIGHEST_PROTOCOL
 
     def _get_key(self) -> str:
-        key = Configuration.get().settings.security.encryption_key
+        key = Configuration.get().settings.security.encryption.encryption_key
         if not key:
             raise ValueError("Encryption key is not set in the configuration.")
         return key
@@ -316,8 +405,8 @@ class WorkerResourcesGPUModel(Base):
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     name = Column(String, nullable=False)
-    memory_total = Column(Integer, nullable=False)
-    memory_available = Column(Integer, nullable=False)
+    memory_total = Column(BigInteger, nullable=False)
+    memory_available = Column(BigInteger, nullable=False)
 
     resources_id = Column(String, ForeignKey("worker_resources.id"), nullable=False)
     resources = relationship("WorkerResourcesModel", back_populates="gpus")
@@ -334,10 +423,10 @@ class WorkerResourcesModel(Base):
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     cpu_total = Column(Integer, nullable=False)
     cpu_available = Column(Integer, nullable=False)
-    memory_total = Column(Integer, nullable=False)
-    memory_available = Column(Integer, nullable=False)
-    disk_total = Column(Integer, nullable=False)
-    disk_free = Column(Integer, nullable=False)
+    memory_total = Column(BigInteger, nullable=False)
+    memory_available = Column(BigInteger, nullable=False)
+    disk_total = Column(BigInteger, nullable=False)
+    disk_free = Column(BigInteger, nullable=False)
 
     worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
     worker = relationship("WorkerModel", back_populates="resources", uselist=False)
@@ -397,7 +486,6 @@ class WorkerModel(Base):
     executions = relationship(
         "ExecutionContextModel",
         back_populates="worker",
-        cascade="all, delete-orphan",
         lazy="dynamic",
     )
 
@@ -423,6 +511,9 @@ class WorkflowModel(Base):
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
     requests = Column(Base64Type(), nullable=True)
+    # Named wf_metadata instead of metadata to avoid conflict with SQLAlchemy's
+    # reserved `metadata` attribute on declarative base classes.
+    wf_metadata = Column(Base64Type(), nullable=True)
 
     # Add a uniqueness constraint on name and version
     __table_args__ = (UniqueConstraint("name", "version", name="uix_workflow_name_version"),)
@@ -443,6 +534,7 @@ class WorkflowModel(Base):
         imports: list[str],
         source: bytes,
         requests: ResourceRequest | None = None,
+        metadata: dict | None = None,
     ):
         self.id = id
         self.name = name
@@ -450,6 +542,7 @@ class WorkflowModel(Base):
         self.imports = imports
         self.source = source
         self.requests = requests
+        self.wf_metadata = metadata
 
 
 class ExecutionContextModel(Base):
@@ -467,6 +560,9 @@ class ExecutionContextModel(Base):
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
     worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
+    exec_token = Column(String, nullable=True)
+    scheduling_subject = Column(String, nullable=True)
+    scheduling_principal_issuer = Column(String, nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -496,6 +592,9 @@ class ExecutionContextModel(Base):
         output: Any | None = None,
         state: ExecutionState = ExecutionState.CREATED,
         worker_name: str | None = None,
+        exec_token: str | None = None,
+        scheduling_subject: str | None = None,
+        scheduling_principal_issuer: str | None = None,
     ):
         self.execution_id = execution_id
         self.workflow_id = workflow_id
@@ -505,6 +604,9 @@ class ExecutionContextModel(Base):
         self.output = output
         self.state = state
         self.worker_name = worker_name
+        self.exec_token = exec_token
+        self.scheduling_subject = scheduling_subject
+        self.scheduling_principal_issuer = scheduling_principal_issuer
 
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(
@@ -527,7 +629,7 @@ class ExecutionContextModel(Base):
             output=obj.output,
             events=[ExecutionEventModel.from_plain(obj.execution_id, e) for e in obj.events],
             state=obj.state,
-            worker_name=obj.current_worker,
+            worker_name=obj.current_worker or None,
         )
 
 
@@ -536,17 +638,22 @@ class ExecutionEventModel(Base):
 
     execution_id = Column(
         String,
-        ForeignKey("executions.execution_id"),
+        ForeignKey("executions.execution_id", ondelete="CASCADE"),
         nullable=False,
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(
+        Integer().with_variant(BigInteger, "postgresql"),
+        primary_key=True,
+        autoincrement=True,
+    )
     source_id = Column(String, nullable=False)
     event_id = Column(String, nullable=False)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
     value = Column(PickleType(pickler=dill), nullable=True)
     time = Column(DateTime, nullable=False)
+    subject = Column(String, nullable=True)
     execution = relationship(
         "ExecutionContextModel",
         back_populates="events",
@@ -561,6 +668,7 @@ class ExecutionEventModel(Base):
         name: str,
         time: datetime,
         value: Any | None = None,
+        subject: str | None = None,
     ):
         self.source_id = source_id
         self.event_id = event_id
@@ -569,6 +677,7 @@ class ExecutionEventModel(Base):
         self.name = name
         self.time = time
         self.value = value
+        self.subject = subject
 
     def to_plain(self) -> ExecutionEvent:
         return ExecutionEvent(
@@ -578,6 +687,7 @@ class ExecutionEventModel(Base):
             name=self.name,
             time=self.time,
             value=self.value,
+            subject=self.subject,
         )
 
     @classmethod
@@ -590,6 +700,7 @@ class ExecutionEventModel(Base):
             name=obj.name,
             time=obj.time,
             value=obj.value,
+            subject=obj.subject,
         )
 
 
@@ -623,6 +734,9 @@ class ScheduleModel(Base):
     # Optional input for scheduled executions
     input_data = Column(PickleType(pickler=dill), nullable=True)
 
+    # Service account to run scheduled executions as (required when auth is enabled)
+    run_as_service_account = Column(String, nullable=True)
+
     # Statistics
     run_count = Column(Integer, nullable=False, default=0)
     failure_count = Column(Integer, nullable=False, default=0)
@@ -648,6 +762,7 @@ class ScheduleModel(Base):
         description: str | None = None,
         input_data: Any = None,
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
+        run_as_service_account: str | None = None,
     ):
         self.workflow_id = workflow_id
         self.workflow_name = workflow_name
@@ -657,6 +772,7 @@ class ScheduleModel(Base):
         self.schedule_type = schedule.type
         self.status = status
         self.input_data = input_data
+        self.run_as_service_account = run_as_service_account
         self.next_run_at = schedule.next_run_time()
 
     def get_schedule(self) -> Schedule:

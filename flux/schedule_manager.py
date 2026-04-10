@@ -29,6 +29,7 @@ class ScheduleManager(ABC):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Create a new schedule"""
         pass
@@ -61,6 +62,7 @@ class ScheduleManager(ABC):
         schedule: Schedule | None = None,
         description: str | None = None,
         input_data: Any = None,
+        run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
         pass
@@ -114,6 +116,7 @@ class DatabaseScheduleManager(ScheduleManager):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Create a new schedule"""
         try:
@@ -140,6 +143,7 @@ class DatabaseScheduleManager(ScheduleManager):
                     schedule=schedule,
                     description=description,
                     input_data=input_data,
+                    run_as_service_account=run_as_service_account,
                 )
 
                 session.add(schedule_model)
@@ -213,6 +217,7 @@ class DatabaseScheduleManager(ScheduleManager):
         schedule: Schedule | None = None,
         description: str | None = None,
         input_data: Any = None,
+        run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
         try:
@@ -233,6 +238,9 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 if input_data is not None:
                     schedule_model.input_data = input_data
+
+                if run_as_service_account is not None:
+                    schedule_model.run_as_service_account = run_as_service_account
 
                 schedule_model.updated_at = datetime.now(timezone.utc)
                 session.commit()

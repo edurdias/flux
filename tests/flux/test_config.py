@@ -86,8 +86,10 @@ def test_flux_config_defaults():
     assert config.local_storage_path == ".data"
     assert config.serializer == "pkl"
     assert config.database_url == "sqlite:///.flux/flux.db"
+    from flux.security.config import SecurityConfig
+
     assert isinstance(config.workers, WorkersConfig)
-    assert isinstance(config.security, EncryptionConfig)
+    assert isinstance(config.security, SecurityConfig)
 
 
 def test_flux_config_custom_values():
@@ -103,7 +105,7 @@ def test_flux_config_custom_values():
         serializer="json",
         database_url="postgresql://user:pass@localhost/flux",
         workers={"max_workers": 10, "default_timeout": 30},
-        security={"encryption_key": "test-key"},
+        security={"encryption": {"encryption_key": "test-key"}},
     )
 
     assert config.debug is True
@@ -116,7 +118,7 @@ def test_flux_config_custom_values():
     assert config.serializer == "json"
     assert config.database_url == "postgresql://user:pass@localhost/flux"
     assert config.workers.default_timeout == 30
-    assert config.security.encryption_key == "test-key"
+    assert config.security.encryption.encryption_key == "test-key"
 
 
 def test_flux_config_env_vars():

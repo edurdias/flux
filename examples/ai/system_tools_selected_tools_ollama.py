@@ -99,7 +99,7 @@ if __name__ == "__main__":  # pragma: no cover
         "    return result\n",
     )
     (workspace / "utils.py").write_text(
-        "def helper():\n" "    # TODO: implement caching\n" "    return 42\n",
+        "def helper():\n    # TODO: implement caching\n    return 42\n",
     )
 
     print(f"Workspace: {workspace}")

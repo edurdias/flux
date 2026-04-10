@@ -251,8 +251,7 @@ async def build_plan_tools(
             )
         if len(parsed) > max_plan_steps:
             raise PlanValidationError(
-                f"Plan has {len(parsed)} steps (max {max_plan_steps}). "
-                "Use fewer, coarser steps.",
+                f"Plan has {len(parsed)} steps (max {max_plan_steps}). Use fewer, coarser steps.",
             )
         new_steps = []
         for s in parsed:
@@ -314,9 +313,9 @@ async def build_plan_tools(
         result = ctx.plan.to_dict()
         dropped = [s.name for s in old_completed if ctx.plan.get_step(s.name) is None]
         if dropped:
-            result["warning"] = (
-                f"Completed steps dropped (not in new plan): {dropped}. " f"Their results are lost."
-            )
+            result[
+                "warning"
+            ] = f"Completed steps dropped (not in new plan): {dropped}. Their results are lost."
         return result
 
     @task

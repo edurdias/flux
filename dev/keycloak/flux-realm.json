@@ -1,0 +1,74 @@
+{
+  "realm": "flux",
+  "enabled": true,
+  "sslRequired": "none",
+  "roles": {
+    "realm": [
+      {"name": "admin", "composite": false},
+      {"name": "operator", "composite": false},
+      {"name": "viewer", "composite": false}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "flux-api",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:*"],
+      "webOrigins": ["*"],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "flux-api",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@local",
+      "email": "admin@local",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "admin", "temporary": false}],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "operator@local",
+      "email": "operator@local",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "operator", "temporary": false}],
+      "realmRoles": ["operator"]
+    },
+    {
+      "username": "viewer@local",
+      "email": "viewer@local",
+      "enabled": true,
+      "credentials": [{"type": "password", "value": "viewer", "temporary": false}],
+      "realmRoles": ["viewer"]
+    }
+  ]
+}

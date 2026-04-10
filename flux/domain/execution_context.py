@@ -48,6 +48,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._requests = requests or None
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
+        self._exec_token: str | None = None
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -206,6 +207,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_SCHEDULED,
                 source_id=worker.name,
                 name=worker.name,
+                subject=None,
             ),
         )
         return self
@@ -218,6 +220,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CLAIMED,
                 source_id=worker.name,
                 name=worker.name,
+                subject=None,
             ),
         )
         return self
@@ -230,6 +233,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=self.input,
+                subject=None,
             ),
         )
         return self
@@ -243,6 +247,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                     source_id=self._current_worker,
                     name=self.workflow_name,
                     value=input,
+                    subject=None,
                 ),
             )
         return self
@@ -266,6 +271,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=self._current_worker,
                 name=self.workflow_name,
                 value=event.value,
+                subject=None,
             ),
         )
         return event.value
@@ -278,6 +284,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value={"name": name, "output": output},
+                subject=None,
             ),
         )
         return self
@@ -290,6 +297,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
+                subject=None,
             ),
         )
         return self
@@ -302,6 +310,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 source_id=id,
                 name=self.workflow_name,
                 value=output,
+                subject=None,
             ),
         )
         return self
@@ -313,6 +322,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLING,
                 source_id=self._current_worker,
                 name=self.workflow_name,
+                subject=None,
             ),
         )
         return self
@@ -327,6 +337,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_CANCELLED,
                 source_id=self._current_worker,
                 name=self.workflow_name,
+                subject=None,
             ),
         )
         return self
@@ -345,10 +356,18 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._progress_callback = callback
         return self
 
+    @property
+    def exec_token(self) -> str | None:
+        return self._exec_token
+
+    def set_exec_token(self, token: str | None) -> None:
+        self._exec_token = token
+
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_checkpoint"] = None
         state["_progress_callback"] = None
+        state.pop("_exec_token", None)
         return state
 
     def __setstate__(self, state):
@@ -357,6 +376,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
             self._checkpoint = lambda _: maybe_awaitable(None)
         if self._progress_callback is None:
             self._progress_callback = lambda *_: None
+        if not hasattr(self, "_exec_token"):
+            self._exec_token = None
 
     def summary(self):
         return {key: value for key, value in self.to_dict().items() if key != "events"}
@@ -372,7 +393,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         data: dict,
         checkpoint: Callable[[ExecutionContext], Awaitable] | None = None,
     ) -> ExecutionContext:
-        return ExecutionContext(
+        ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["workflow_id"],
             workflow_name=data["workflow_name"],
             input=data["input"],
@@ -381,6 +402,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             events=[ExecutionEvent(**event) for event in data["events"]],
             checkpoint=checkpoint,
         )
+        return ctx
 
     def _is_last_event(self, event_type: ExecutionEventType) -> bool:
         """

@@ -52,7 +52,7 @@ async def get_statistics(subject: str) -> str:
 async def check_news(topic: str) -> str:
     """Check recent news about a topic."""
     await asyncio.sleep(1)
-    return f"Recent news about '{topic}': Latest developments and headlines " f"related to {topic}."
+    return f"Recent news about '{topic}': Latest developments and headlines related to {topic}."
 
 
 @workflow

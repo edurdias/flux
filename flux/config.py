@@ -167,7 +167,12 @@ class FluxConfig(BaseSettings):
     )
 
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
-    security: EncryptionConfig = Field(default_factory=EncryptionConfig)
+    security: SecurityConfig = Field(
+        default_factory=lambda: __import__(
+            "flux.security.config",
+            fromlist=["SecurityConfig"],
+        ).SecurityConfig(),
+    )  # type: ignore[name-defined]
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
@@ -314,3 +319,9 @@ class Configuration:
     def get() -> Configuration:
         """Get the current configuration settings."""
         return Configuration()
+
+
+from flux.security.config import SecurityConfig  # noqa: E402
+
+SecurityConfig.model_rebuild()
+FluxConfig.model_rebuild()

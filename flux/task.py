@@ -13,8 +13,25 @@ import asyncio
 import time
 from functools import wraps
 from typing import Any, Callable, TypeVar
+from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+_auth_http_client = None
+
+
+def _get_auth_http_client():
+    """Return a process-wide httpx.AsyncClient for runtime authorization callbacks.
+
+    Reused across task invocations so repeated task calls within a workflow share
+    TCP/TLS connections instead of reconnecting for every authorize check.
+    """
+    global _auth_http_client
+    if _auth_http_client is None:
+        import httpx
+
+        _auth_http_client = httpx.AsyncClient(timeout=10.0)
+    return _auth_http_client
 
 
 class TaskMetadata:
@@ -47,6 +64,7 @@ class _WithOptions:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
+        auth_exempt: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -62,6 +80,7 @@ class _WithOptions:
                 output_storage=output_storage,
                 cache=cache,
                 metadata=metadata,
+                auth_exempt=auth_exempt,
             )
 
         return wrapper
@@ -84,6 +103,7 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
+        auth_exempt: bool = False,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -98,6 +118,7 @@ class task:
         self.output_storage = output_storage if output_storage else InlineOutputStorage()
         self.cache = cache
         self.metadata = metadata
+        self.auth_exempt = auth_exempt
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -113,6 +134,63 @@ class task:
         task_id = f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
 
         ctx = await ExecutionContext.get()
+
+        if not self.auth_exempt:
+            from flux.config import Configuration
+
+            auth_config = Configuration.get().settings.security.auth
+            if auth_config.enabled:
+                import httpx
+
+                from flux.security.errors import TaskAuthorizationError
+                from flux.utils import get_logger as _get_logger
+
+                exec_token = ctx.exec_token
+                if not exec_token:
+                    _get_logger(__name__).error(
+                        f"Task '{full_name}': auth enabled but no exec_token on context — failing closed",
+                    )
+                    raise TaskAuthorizationError(
+                        task_name=full_name,
+                        task_id=task_id,
+                        subject="unknown",
+                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                    )
+
+                server_url = Configuration.get().settings.workers.server_url
+                task_name_escaped = quote(self.name, safe="")
+                authorize_url = (
+                    f"{server_url}/executions/{ctx.execution_id}/authorize/{task_name_escaped}"
+                )
+
+                authorized = False
+                try:
+                    client = _get_auth_http_client()
+                    resp = await client.post(
+                        authorize_url,
+                        headers={"Authorization": f"Bearer {exec_token}"},
+                    )
+                    if resp.status_code == 200:
+                        try:
+                            authorized = bool(resp.json().get("authorized", False))
+                        except ValueError as _json_err:
+                            _get_logger(__name__).error(
+                                f"Task '{full_name}' authorize response not JSON "
+                                f"(status={resp.status_code}, {len(resp.content)} bytes): "
+                                f"{_json_err} — failing closed",
+                            )
+                except httpx.HTTPError as _auth_err:
+                    _get_logger(__name__).error(
+                        f"Task '{full_name}' authorization HTTP error: {_auth_err} — failing closed",
+                    )
+
+                if not authorized:
+                    raise TaskAuthorizationError(
+                        task_name=full_name,
+                        task_id=task_id,
+                        subject="unknown",
+                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                    )
 
         finished = [
             e
@@ -266,6 +344,7 @@ class task:
         output_storage: OutputStorage | None = None,
         cache: bool | None = None,
         metadata: bool | None = None,
+        auth_exempt: bool | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -285,6 +364,7 @@ class task:
             output_storage=output_storage if output_storage is not None else self.output_storage,
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
+            auth_exempt=auth_exempt if auth_exempt is not None else self.auth_exempt,
         )
 
     async def map(self, args):

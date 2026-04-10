@@ -61,11 +61,13 @@ class ExecutionEvent:
         value: Any | None = None,
         time: datetime | None = None,
         id: str | None = None,
+        subject: str | None = None,
     ):
         self.type = type
         self.name = name
         self.source_id = source_id
         self.value = value
+        self.subject = subject
 
         self.time = time or datetime.now()
 
