@@ -30,6 +30,15 @@ class TestAuthConfig:
         assert config.jwks_cache_ttl == 3600
         assert config.clock_skew == 30
 
+    def test_auth_config_has_default_user_roles(self):
+        config = AuthConfig()
+        assert hasattr(config, "default_user_roles")
+        assert config.default_user_roles == []
+
+    def test_auth_config_default_user_roles_configurable(self):
+        config = AuthConfig(default_user_roles=["viewer"])
+        assert config.default_user_roles == ["viewer"]
+
     def test_security_config_contains_both(self):
         config = SecurityConfig()
         assert isinstance(config.encryption, EncryptionConfig)

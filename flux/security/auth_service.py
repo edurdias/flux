@@ -57,7 +57,7 @@ class AuthService:
         self._providers: list[AuthProvider] = []
 
         if config.oidc.enabled:
-            self._providers.append(OIDCProvider(config.oidc))
+            self._providers.append(OIDCProvider(config.oidc, registry=registry))
         if config.api_keys.enabled:
             self._providers.append(APIKeyProvider(session_factory))
 

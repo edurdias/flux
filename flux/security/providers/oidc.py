@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 import httpx
@@ -7,16 +8,41 @@ import jwt
 from jwt import PyJWKClient
 
 from flux.security.config import OIDCConfig
+from flux.security.errors import AuthenticationError
 from flux.security.identity import FluxIdentity
 from flux.security.providers import AuthProvider
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
 
+_EXCLUDED_METADATA_CLAIMS = frozenset(
+    {
+        "email",
+        "email_verified",
+        "sub",
+        "iss",
+        "aud",
+        "exp",
+        "iat",
+        "jti",
+        "azp",
+        "nonce",
+        "at_hash",
+        "auth_time",
+        "session_state",
+        "acr",
+        "amr",
+        "realm_access",
+        "resource_access",
+        "typ",
+    },
+)
+
 
 class OIDCProvider(AuthProvider):
-    def __init__(self, config: OIDCConfig):
+    def __init__(self, config: OIDCConfig, registry=None):
         self.config = config
+        self._registry = registry
         self._discovery: dict | None = None
         self._discovery_fetched_at: float = 0
         self._jwks_client: PyJWKClient | None = None
@@ -40,8 +66,6 @@ class OIDCProvider(AuthProvider):
         )
 
     async def _get_signing_key(self, token: str):
-        import asyncio
-
         await self._ensure_discovery()
         assert self._jwks_client is not None
         signing_key = await asyncio.to_thread(self._jwks_client.get_signing_key_from_jwt, token)
@@ -59,16 +83,11 @@ class OIDCProvider(AuthProvider):
                 leeway=self.config.clock_skew,
                 options={"require": ["exp", "iss", "sub", "aud"]},
             )
-            roles = set(self._resolve_claim(payload, self.config.roles_claim) or [])
-            return FluxIdentity(
-                subject=payload["sub"],
-                roles=frozenset(roles),
-                metadata={
-                    "email": payload.get("email"),
-                    "name": payload.get("name"),
-                    "token_type": "oidc",
-                },
-            )
+            subject = payload["sub"]
+            issuer = payload["iss"]
+            return await self._resolve_principal(subject, issuer, payload)
+        except AuthenticationError:
+            raise
         except jwt.ExpiredSignatureError:
             logger.warning("OIDC token expired")
             return None
@@ -79,13 +98,85 @@ class OIDCProvider(AuthProvider):
             logger.error(f"OIDC provider error: {type(e).__name__}: {e}")
             return None
 
-    @staticmethod
-    def _resolve_claim(payload: dict, claim_path: str) -> list | None:
-        parts = claim_path.split(".")
-        current = payload
-        for part in parts:
-            if isinstance(current, dict) and part in current:
-                current = current[part]
+    async def _resolve_principal(self, subject: str, issuer: str, claims: dict) -> FluxIdentity:
+        if self._registry is None:
+            return FluxIdentity(
+                subject=subject,
+                roles=frozenset(),
+                metadata={"token_type": "oidc", "issuer": issuer},
+            )
+
+        principal = self._registry.find(subject, issuer)
+
+        if principal is not None:
+            if not principal.enabled:
+                raise AuthenticationError("Principal disabled")
+            self._registry.update_last_seen(principal.id)
+            display_name = claims.get("name") or principal.display_name
+            metadata = self._extract_metadata(claims)
+            self._registry.update_metadata(
+                principal.id,
+                display_name=display_name,
+                metadata=metadata,
+            )
+            roles = frozenset(self._registry.get_roles(principal.id))
+            return FluxIdentity(
+                subject=subject,
+                roles=roles,
+                metadata={
+                    "token_type": "oidc",
+                    "issuer": issuer,
+                    "principal_id": principal.id,
+                },
+            )
+
+        return await self._auto_provision(subject, issuer, claims)
+
+    async def _auto_provision(self, subject: str, issuer: str, claims: dict) -> FluxIdentity:
+        default_roles = getattr(self.config, "default_user_roles", [])
+        if not default_roles:
+            raise AuthenticationError("Principal not provisioned")
+
+        display_name = claims.get("name", subject)
+        metadata = self._extract_metadata(claims)
+
+        try:
+            principal = self._registry.create(
+                type="user",
+                subject=subject,
+                external_issuer=issuer,
+                display_name=display_name,
+                metadata=metadata,
+                enabled=True,
+            )
+            for role_name in default_roles:
+                self._registry.assign_role(
+                    principal.id,
+                    role_name,
+                    assigned_by="auto-provisioning",
+                )
+            logger.info(
+                f"Auto-provisioned principal {subject} with roles {default_roles}",
+            )
+        except Exception as e:
+            if "UNIQUE" in str(e).upper():
+                principal = self._registry.find(subject, issuer)
+                if principal is None:
+                    raise AuthenticationError("Principal provisioning race failed") from e
             else:
-                return None
-        return current if isinstance(current, list) else None
+                raise
+
+        roles = frozenset(self._registry.get_roles(principal.id))
+        return FluxIdentity(
+            subject=subject,
+            roles=roles,
+            metadata={
+                "token_type": "oidc",
+                "issuer": issuer,
+                "principal_id": principal.id,
+            },
+        )
+
+    @staticmethod
+    def _extract_metadata(claims: dict) -> dict:
+        return {k: v for k, v in claims.items() if k not in _EXCLUDED_METADATA_CLAIMS}

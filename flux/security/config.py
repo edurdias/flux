@@ -17,9 +17,13 @@ class OIDCConfig(_BaseConfig):
     enabled: bool = False
     issuer: str = ""
     audience: str = ""
-    roles_claim: str = "roles"
+    roles_claim: str = Field(
+        default="roles",
+        description="Deprecated: Flux no longer reads roles from OIDC tokens. Roles are managed via the principals registry.",
+    )
     jwks_cache_ttl: int = Field(default=3600, description="Seconds to cache JWKS keys")
     clock_skew: int = Field(default=30, description="Seconds of leeway for exp/nbf")
+    default_user_roles: list[str] = Field(default_factory=list)
 
 
 class APIKeyAuthConfig(_BaseConfig):
@@ -29,6 +33,7 @@ class APIKeyAuthConfig(_BaseConfig):
 class AuthConfig(_BaseConfig):
     oidc: OIDCConfig = Field(default_factory=OIDCConfig)
     api_keys: APIKeyAuthConfig = Field(default_factory=APIKeyAuthConfig)
+    default_user_roles: list[str] = Field(default_factory=list)
 
     @property
     def enabled(self) -> bool:
