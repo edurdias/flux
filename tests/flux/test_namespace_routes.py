@@ -12,6 +12,13 @@ def client(tmp_path, monkeypatch):
     Configuration._instance = None  # type: ignore[attr-defined]
     Configuration._config = None  # type: ignore[attr-defined]
 
+    from flux.models import DatabaseRepository
+
+    DatabaseRepository._engines.clear()
+
+    # Override database_url directly so the toml value does not win.
+    Configuration.get().override(database_url=f"sqlite:///{tmp_path}/routes.db")
+
     from flux.server import Server
 
     server = Server("127.0.0.1", 0)
@@ -94,3 +101,40 @@ async def report(ctx):
     body = resp.json()
     assert all(w["namespace"] == "billing" for w in body)
     assert len(body) >= 1
+
+
+def test_executions_scoped_by_namespace(client):
+    """Same short name in two namespaces must not cross-pollute execution history."""
+    source_billing = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="billing")
+async def process(ctx):
+    return "billing_result"
+"""
+    source_analytics = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="analytics")
+async def process(ctx):
+    return "analytics_result"
+"""
+    _register_source(client, source_billing)
+    _register_source(client, source_analytics)
+
+    r_billing = client.post("/workflows/billing/process/run/async", json=None)
+    assert r_billing.status_code == 200, r_billing.text
+    r_analytics = client.post("/workflows/analytics/process/run/async", json=None)
+    assert r_analytics.status_code == 200, r_analytics.text
+
+    billing_execs = client.get("/workflows/billing/process/executions")
+    assert billing_execs.status_code == 200
+    analytics_execs = client.get("/workflows/analytics/process/executions")
+    assert analytics_execs.status_code == 200
+
+    b_body = billing_execs.json()
+    a_body = analytics_execs.json()
+    b_total = b_body.get("total") if isinstance(b_body, dict) else len(b_body)
+    a_total = a_body.get("total") if isinstance(a_body, dict) else len(a_body)
+    assert b_total == 1, f"billing namespace returned {b_total} executions, expected 1"
+    assert a_total == 1, f"analytics namespace returned {a_total} executions, expected 1"

@@ -746,6 +746,7 @@ class Server:
 
                 auth_result = await db_auth_service.authorize(
                     identity,
+                    _sched_ns,
                     schedule.workflow_name,
                     workflow_metadata,
                 )
@@ -3410,6 +3411,7 @@ class Server:
                 manager = ContextManager.create()
                 executions, total = manager.list(
                     workflow_name=workflow_name,
+                    workflow_namespace=namespace,
                     state=state_filter,
                     limit=limit,
                     offset=offset,
@@ -3499,6 +3501,7 @@ class Server:
                 manager = ContextManager.create()
                 executions, total = manager.list(
                     workflow_name=name,
+                    workflow_namespace=ns,
                     state=state_filter,
                     limit=limit,
                     offset=offset,
