@@ -4226,13 +4226,25 @@ class Server:
                     wf = catalog.get(_perm_ns, _perm_name)
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                     perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
-                    perms.extend(auth_service._collect_required_permissions(wf.name, meta))
+                    perms.extend(
+                        auth_service._collect_required_permissions(
+                            namespace=wf.namespace,
+                            workflow_name=wf.name,
+                            workflow_metadata=meta,
+                        ),
+                    )
                     return perms
                 result = {}
                 for wf in catalog.all():
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                     perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
-                    perms.extend(auth_service._collect_required_permissions(wf.name, meta))
+                    perms.extend(
+                        auth_service._collect_required_permissions(
+                            namespace=wf.namespace,
+                            workflow_name=wf.name,
+                            workflow_metadata=meta,
+                        ),
+                    )
                     result[f"{wf.namespace}/{wf.name}"] = perms
                 return result
             except Exception as e:
@@ -4347,7 +4359,7 @@ class Server:
                         roles=frozenset(roles),
                         metadata={"type": principal.type, "issuer": principal_issuer},
                     )
-                    required = f"workflow:{ctx.workflow_name}:task:{task_name}:execute"
+                    required = f"workflow:{_auth_ns}:{ctx.workflow_name}:task:{task_name}:execute"
                     authorized = await auth_service.is_authorized(exec_identity, required)
                     if not authorized:
                         raise HTTPException(
