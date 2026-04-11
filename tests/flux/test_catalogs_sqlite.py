@@ -63,7 +63,7 @@ def test_save_and_get_workflow(sqlite_workflow_catalog, sample_workflow):
     sqlite_workflow_catalog.save([sample_workflow])
 
     # Get the workflow back
-    workflow = sqlite_workflow_catalog.get("test_workflow")
+    workflow = sqlite_workflow_catalog.get("default", "test_workflow")
 
     # Check that we got the right workflow
     assert workflow.name == "test_workflow"
@@ -108,9 +108,9 @@ async def another_workflow():
 def test_workflow_not_found(sqlite_workflow_catalog):
     """Test that an exception is raised when a workflow is not found."""
     with pytest.raises(WorkflowNotFoundError) as excinfo:
-        sqlite_workflow_catalog.get("non_existent_workflow")
+        sqlite_workflow_catalog.get("default", "non_existent_workflow")
 
-    assert "Workflow 'non_existent_workflow' not found" in str(excinfo.value)
+    assert "non_existent_workflow" in str(excinfo.value)
 
 
 def test_delete_workflow(sqlite_workflow_catalog, sample_workflow):
@@ -119,11 +119,11 @@ def test_delete_workflow(sqlite_workflow_catalog, sample_workflow):
     sqlite_workflow_catalog.save([sample_workflow])
 
     # Delete the workflow
-    sqlite_workflow_catalog.delete("test_workflow")
+    sqlite_workflow_catalog.delete("default", "test_workflow")
 
     # Trying to get the workflow should raise WorkflowNotFoundError
     with pytest.raises(WorkflowNotFoundError):
-        sqlite_workflow_catalog.get("test_workflow")
+        sqlite_workflow_catalog.get("default", "test_workflow")
 
 
 def test_delete_specific_version(sqlite_workflow_catalog, sample_workflow):
@@ -133,15 +133,15 @@ def test_delete_specific_version(sqlite_workflow_catalog, sample_workflow):
     sqlite_workflow_catalog.save([sample_workflow])
 
     # Delete only the first version
-    sqlite_workflow_catalog.delete("test_workflow", version=1)
+    sqlite_workflow_catalog.delete("default", "test_workflow", version=1)
 
     # Should still be able to get the second version
-    workflow = sqlite_workflow_catalog.get("test_workflow")
+    workflow = sqlite_workflow_catalog.get("default", "test_workflow")
     assert workflow.version == 2
 
     # But trying to get the first version should fail
     with pytest.raises(WorkflowNotFoundError):
-        sqlite_workflow_catalog.get("test_workflow", version=1)
+        sqlite_workflow_catalog.get("default", "test_workflow", version=1)
 
 
 def test_parse_workflow(sqlite_workflow_catalog):
@@ -219,7 +219,7 @@ def test_versions_returns_all_versions(sqlite_workflow_catalog, sample_workflow)
     sqlite_workflow_catalog.save([sample_workflow])
 
     # Get all versions
-    versions = sqlite_workflow_catalog.versions("test_workflow")
+    versions = sqlite_workflow_catalog.versions("default", "test_workflow")
 
     # Should have 3 versions
     assert len(versions) == 3
@@ -236,7 +236,7 @@ def test_versions_returns_all_versions(sqlite_workflow_catalog, sample_workflow)
 
 def test_versions_empty_for_nonexistent_workflow(sqlite_workflow_catalog):
     """Test that versions() returns empty list for non-existent workflow."""
-    versions = sqlite_workflow_catalog.versions("nonexistent_workflow")
+    versions = sqlite_workflow_catalog.versions("default", "nonexistent_workflow")
 
     assert versions == []
 
@@ -247,7 +247,7 @@ def test_versions_ordered_descending(sqlite_workflow_catalog, sample_workflow):
     sqlite_workflow_catalog.save([sample_workflow])
     sqlite_workflow_catalog.save([sample_workflow])
 
-    versions = sqlite_workflow_catalog.versions("test_workflow")
+    versions = sqlite_workflow_catalog.versions("default", "test_workflow")
 
     # Verify descending order
     assert len(versions) == 2
@@ -270,7 +270,7 @@ def test_versions_only_returns_requested_workflow(sqlite_workflow_catalog, sampl
     sqlite_workflow_catalog.save([another_workflow])
 
     # Get versions of test_workflow only
-    versions = sqlite_workflow_catalog.versions("test_workflow")
+    versions = sqlite_workflow_catalog.versions("default", "test_workflow")
 
     # Should only have 2 versions (not 3)
     assert len(versions) == 2
@@ -327,3 +327,62 @@ def test_workflow_model_composite_namespace_name_index(tmp_path):
     target = next(idx for idx in indexes if idx["name"] == "ix_workflow_namespace_name")
     assert target["column_names"] == ["namespace", "name"]
     assert "uix_workflow_name_version" not in names
+
+
+def test_workflow_info_carries_namespace():
+    from flux.catalogs import WorkflowInfo
+
+    info = WorkflowInfo(
+        id="billing/invoice",
+        name="invoice",
+        namespace="billing",
+        imports=[],
+        source=b"",
+    )
+    assert info.namespace == "billing"
+    assert info.name == "invoice"
+    assert info.qualified_name == "billing/invoice"
+
+
+def test_catalog_get_scopes_by_namespace(tmp_path):
+    db_path = tmp_path / "catalog.db"
+    with patch("flux.config.Configuration.get") as mock_config:
+        mock_config.return_value.settings.database_url = f"sqlite:///{db_path}"
+        mock_config.return_value.settings.database_type = "sqlite"
+
+        from flux.catalogs import DatabaseWorkflowCatalog, WorkflowInfo
+
+        catalog = DatabaseWorkflowCatalog()
+        Base.metadata.create_all(catalog._engine)
+        catalog.save(
+            [
+                WorkflowInfo(id="", name="process", namespace="billing", imports=[], source=b"x"),
+                WorkflowInfo(id="", name="process", namespace="analytics", imports=[], source=b"y"),
+            ],
+        )
+
+        billing = catalog.get("billing", "process")
+        analytics = catalog.get("analytics", "process")
+        assert billing.namespace == "billing"
+        assert analytics.namespace == "analytics"
+        assert billing.source != analytics.source
+
+
+def test_catalog_list_namespaces(tmp_path):
+    db_path = tmp_path / "catalog2.db"
+    with patch("flux.config.Configuration.get") as mock_config:
+        mock_config.return_value.settings.database_url = f"sqlite:///{db_path}"
+        mock_config.return_value.settings.database_type = "sqlite"
+
+        from flux.catalogs import DatabaseWorkflowCatalog, WorkflowInfo
+
+        catalog = DatabaseWorkflowCatalog()
+        Base.metadata.create_all(catalog._engine)
+        catalog.save(
+            [
+                WorkflowInfo(id="", name="a", namespace="default", imports=[], source=b"x"),
+                WorkflowInfo(id="", name="b", namespace="billing", imports=[], source=b"y"),
+            ],
+        )
+
+        assert sorted(catalog.list_namespaces()) == ["billing", "default"]

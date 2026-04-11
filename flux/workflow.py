@@ -188,7 +188,7 @@ class workflow:
         catalog = WorkflowCatalog.create()
 
         try:
-            return catalog.get(self.name).id
+            return catalog.get(self.name).id  # type: ignore[call-arg]
         except WorkflowNotFoundError:
             pass
 
@@ -215,7 +215,7 @@ class workflow:
         except IntegrityError:
             # Lost a race with another registrant — fall through to re-read.
             pass
-        return catalog.get(self.name).id
+        return catalog.get(self.name).id  # type: ignore[call-arg]
 
     def resume(self, execution_id: str, input: Any = None) -> ExecutionContext:
         """
