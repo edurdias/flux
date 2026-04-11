@@ -122,6 +122,7 @@ def test_inline_run_registers_namespaced_workflow(tmp_path, monkeypatch):
     from flux.config import Configuration
 
     Configuration._instance = None  # type: ignore[attr-defined]
+    Configuration._config = None  # type: ignore[attr-defined]
 
     from flux.catalogs import DatabaseWorkflowCatalog
 
@@ -142,7 +143,9 @@ async def do_thing(ctx):
     spec = importlib.util.spec_from_file_location("my_flow", source_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules["my_flow"] = module
+    # inspect.getmodule() resolves via sys.modules; register before calling
+    # _ensure_registered so it can find the source file.
+    monkeypatch.setitem(sys.modules, "my_flow", module)
     spec.loader.exec_module(module)
 
     wf = module.do_thing
