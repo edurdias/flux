@@ -491,6 +491,7 @@ class Server:
         ctx = ContextManager.create().save(
             ExecutionContext(
                 workflow_id=workflow.id,
+                workflow_namespace=workflow.namespace,
                 workflow_name=workflow.name,
                 input=input_data,
                 requests=workflow.requests,

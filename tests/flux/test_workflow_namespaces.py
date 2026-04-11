@@ -204,3 +204,32 @@ def test_execution_context_from_json_defaults_missing_namespace():
     }
     ctx = ExecutionContext.from_json(data)
     assert ctx.workflow_namespace == "default"
+
+
+def test_execution_context_to_json_includes_workflow_namespace():
+    import json as _json
+    from flux.domain.execution_context import ExecutionContext
+
+    ctx = ExecutionContext(
+        workflow_id="wid",
+        workflow_namespace="billing",
+        workflow_name="invoice",
+        input={},
+    )
+    data = _json.loads(ctx.to_json())
+    assert data["workflow_namespace"] == "billing"
+    assert data["workflow_name"] == "invoice"
+
+
+def test_execution_context_to_json_roundtrip_preserves_namespace():
+    from flux.domain.execution_context import ExecutionContext
+
+    ctx = ExecutionContext(
+        workflow_id="wid",
+        workflow_namespace="billing",
+        workflow_name="invoice",
+        input={"x": 1},
+    )
+    restored = ExecutionContext.from_json(ctx.to_dict())
+    assert restored.workflow_namespace == "billing"
+    assert restored.workflow_name == "invoice"
