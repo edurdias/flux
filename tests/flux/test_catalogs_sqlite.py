@@ -276,3 +276,37 @@ def test_versions_only_returns_requested_workflow(sqlite_workflow_catalog, sampl
     assert len(versions) == 2
     for v in versions:
         assert v.name == "test_workflow"
+
+
+def test_workflow_model_has_namespace_column(tmp_path):
+    from flux.models import Base
+    from sqlalchemy import create_engine, inspect
+
+    db_url = f"sqlite:///{tmp_path}/test_models.db"
+    engine = create_engine(db_url)
+    Base.metadata.create_all(engine)
+
+    inspector = inspect(engine)
+    cols = {c["name"] for c in inspector.get_columns("workflows")}
+    assert "namespace" in cols
+
+    exec_cols = {c["name"] for c in inspector.get_columns("executions")}
+    assert "workflow_namespace" in exec_cols
+
+    sched_cols = {c["name"] for c in inspector.get_columns("schedules")}
+    assert "workflow_namespace" in sched_cols
+
+
+def test_workflow_model_unique_constraint_on_namespace_name_version(tmp_path):
+    from flux.models import Base
+    from sqlalchemy import create_engine, inspect
+
+    db_url = f"sqlite:///{tmp_path}/test_models.db"
+    engine = create_engine(db_url)
+    Base.metadata.create_all(engine)
+
+    inspector = inspect(engine)
+    unique_constraints = inspector.get_unique_constraints("workflows")
+    names = {uc["name"] for uc in unique_constraints}
+    assert "uix_workflow_namespace_name_version" in names
+    assert "uix_workflow_name_version" not in names
