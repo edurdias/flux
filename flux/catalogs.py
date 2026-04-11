@@ -416,6 +416,13 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                     wf.id = uuid4().hex
                     existing = self._get(wf.namespace, wf.name)
                     wf.version = existing.version + 1 if existing else 1
+                    requests_dict = None
+                    if wf.requests is not None:
+                        requests_dict = {}
+                        for attr in ["cpu", "memory", "gpu", "disk", "packages"]:
+                            value = getattr(wf.requests, attr, None)
+                            if value is not None:
+                                requests_dict[attr] = value
                     model = WorkflowModel(
                         id=wf.id,
                         namespace=wf.namespace,
@@ -423,7 +430,7 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         version=wf.version,
                         imports=wf.imports,
                         source=wf.source,
-                        requests=wf.requests,
+                        requests=requests_dict,
                         metadata=wf.metadata,
                     )
                     session.add(model)

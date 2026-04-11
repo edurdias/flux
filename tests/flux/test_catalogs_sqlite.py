@@ -198,6 +198,7 @@ def test_workflow_info_to_dict(sample_workflow):
     result = sample_workflow.to_dict()
 
     assert result["name"] == "test_workflow"
+    assert result["namespace"] == "default"
     assert result["version"] == 1
     assert result["imports"] == ["import1", "import2"]
     assert result["source"] == sample_workflow.source
@@ -386,3 +387,34 @@ def test_catalog_list_namespaces(tmp_path):
         )
 
         assert sorted(catalog.list_namespaces()) == ["billing", "default"]
+
+
+def test_catalog_save_and_get_preserves_resource_requests(tmp_path):
+    db_path = tmp_path / "requests.db"
+    with patch("flux.config.Configuration.get") as mock_config:
+        mock_config.return_value.settings.database_url = f"sqlite:///{db_path}"
+        mock_config.return_value.settings.database_type = "sqlite"
+
+        from flux.catalogs import DatabaseWorkflowCatalog, WorkflowInfo
+        from flux.domain.resource_request import ResourceRequest
+
+        catalog = DatabaseWorkflowCatalog()
+        Base.metadata.create_all(catalog._engine)
+        catalog.save(
+            [
+                WorkflowInfo(
+                    id="",
+                    name="heavy",
+                    namespace="default",
+                    imports=[],
+                    source=b"",
+                    requests=ResourceRequest(cpu=4, memory="2Gi", packages=["numpy"]),
+                ),
+            ],
+        )
+
+        fetched = catalog.get("default", "heavy")
+        assert fetched.requests is not None
+        assert fetched.requests.cpu == 4
+        assert fetched.requests.memory == "2Gi"
+        assert fetched.requests.packages == ["numpy"]

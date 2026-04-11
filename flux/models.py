@@ -453,7 +453,7 @@ class WorkflowModel(Base):
         imports: list[str],
         source: bytes,
         namespace: str = "default",
-        requests: ResourceRequest | None = None,
+        requests: dict | ResourceRequest | None = None,
         metadata: dict | None = None,
     ):
         self.id = id
