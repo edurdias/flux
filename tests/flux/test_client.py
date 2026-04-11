@@ -138,3 +138,144 @@ class TestFluxClientWorkflowRef:
             "/workflows/default/hello/resume/e1/async",
             json=None,
         )
+
+
+class TestFluxClientListWorkflows:
+    @pytest.mark.asyncio
+    async def test_list_workflows(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"name": "wf-a", "namespace": "default"},
+            {"name": "wf-b", "namespace": "billing"},
+        ]
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        result = await client.list_workflows()
+        assert len(result) == 2
+        assert result[0]["name"] == "wf-a"
+        client._http_client.get.assert_called_once_with("/workflows")
+
+    @pytest.mark.asyncio
+    async def test_list_workflows_returns_empty_list(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = []
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        result = await client.list_workflows()
+        assert result == []
+        client._http_client.get.assert_called_once_with("/workflows")
+
+
+class TestFluxClientListExecutions:
+    @pytest.mark.asyncio
+    async def test_list_executions_no_filter(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"items": [], "total": 0}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        result = await client.list_executions()
+        assert result["total"] == 0
+        client._http_client.get.assert_called_once_with(
+            "/executions",
+            params={"limit": 50, "offset": 0},
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_executions_with_state(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"items": [], "total": 0}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        await client.list_executions(state="RUNNING", limit=10, offset=5)
+        client._http_client.get.assert_called_once_with(
+            "/executions",
+            params={"limit": 10, "offset": 5, "state": "RUNNING"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_executions_with_qualified_workflow_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"items": [], "total": 0}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        await client.list_executions(workflow_ref="billing/invoice")
+        client._http_client.get.assert_called_once_with(
+            "/executions",
+            params={"limit": 50, "offset": 0, "namespace": "billing", "workflow_name": "invoice"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_executions_with_bare_workflow_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"items": [], "total": 0}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        await client.list_executions(workflow_ref="hello")
+        client._http_client.get.assert_called_once_with(
+            "/executions",
+            params={"limit": 50, "offset": 0, "namespace": "default", "workflow_name": "hello"},
+        )
+
+
+class TestFluxClientGetWorkflowVersions:
+    @pytest.mark.asyncio
+    async def test_get_workflow_versions_qualified_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [{"version": 1}, {"version": 2}]
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        result = await client.get_workflow_versions("billing/invoice")
+        assert len(result) == 2
+        client._http_client.get.assert_called_once_with("/workflows/billing/invoice/versions")
+
+    @pytest.mark.asyncio
+    async def test_get_workflow_versions_bare_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [{"version": 1}]
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        result = await client.get_workflow_versions("my-workflow")
+        assert result[0]["version"] == 1
+        client._http_client.get.assert_called_once_with("/workflows/default/my-workflow/versions")
+
+
+class TestFluxClientErrorHandling:
+    @pytest.mark.asyncio
+    async def test_get_workflow_404_raises(self, client):
+        import httpx
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "404 Not Found",
+            request=MagicMock(),
+            response=mock_response,
+        )
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.get_workflow("billing/invoice")
+
+    @pytest.mark.asyncio
+    async def test_run_workflow_server_500_raises(self, client):
+        import httpx
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Internal Server Error",
+            request=MagicMock(),
+            response=mock_response,
+        )
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.run_workflow_sync("my-workflow", {"key": "val"})
