@@ -10,11 +10,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path}/e2e.db")
     monkeypatch.setenv("FLUX_SECURITY__AUTH__ENABLED", "false")
     from flux.config import Configuration
+    from flux.models import DatabaseRepository
 
     Configuration._instance = None  # type: ignore[attr-defined]
     Configuration._config = None  # type: ignore[attr-defined]
-    from flux.models import DatabaseRepository
-
     DatabaseRepository._engines.clear()
 
     Configuration.get().override(database_url=f"sqlite:///{tmp_path}/e2e.db")
@@ -22,7 +21,14 @@ def client(tmp_path, monkeypatch):
     from flux.server import Server
 
     server = Server("127.0.0.1", 0)
-    return TestClient(server._create_api())
+    yield TestClient(server._create_api())
+
+    # Teardown: reset the Configuration singleton so subsequent tests get a
+    # fresh load from flux.toml. Without this, Configuration.get().override()
+    # leaks into the next test's Configuration.get() call.
+    Configuration._instance = None  # type: ignore[attr-defined]
+    Configuration._config = None  # type: ignore[attr-defined]
+    DatabaseRepository._engines.clear()
 
 
 def test_namespaced_workflow_full_lifecycle(client):

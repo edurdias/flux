@@ -128,9 +128,11 @@ def test_inline_run_registers_namespaced_workflow(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path}/inline.db")
     from flux.config import Configuration
+    from flux.models import DatabaseRepository
 
     Configuration._instance = None  # type: ignore[attr-defined]
     Configuration._config = None  # type: ignore[attr-defined]
+    DatabaseRepository._engines.clear()
 
     from flux.catalogs import DatabaseWorkflowCatalog
 
@@ -158,14 +160,20 @@ async def do_thing(ctx):
 
     wf = module.do_thing
 
-    # Call _ensure_registered directly to isolate Task 6 from Task 7 dependencies
-    workflow_id = wf._ensure_registered()
-    assert workflow_id is not None
+    try:
+        # Call _ensure_registered directly to isolate Task 6 from Task 7 dependencies
+        workflow_id = wf._ensure_registered()
+        assert workflow_id is not None
 
-    catalog = DatabaseWorkflowCatalog()
-    registered = catalog.get("billing", "do_thing")
-    assert registered.namespace == "billing"
-    assert registered.name == "do_thing"
+        catalog = DatabaseWorkflowCatalog()
+        registered = catalog.get("billing", "do_thing")
+        assert registered.namespace == "billing"
+        assert registered.name == "do_thing"
+    finally:
+        # Reset Configuration singleton so subsequent tests get a fresh load.
+        Configuration._instance = None  # type: ignore[attr-defined]
+        Configuration._config = None  # type: ignore[attr-defined]
+        DatabaseRepository._engines.clear()
 
 
 def test_execution_context_carries_workflow_namespace():

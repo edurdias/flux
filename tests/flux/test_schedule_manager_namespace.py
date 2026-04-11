@@ -1,16 +1,33 @@
 """Regression test for schedule manager cross-namespace isolation."""
 from __future__ import annotations
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_singleton():
+    """Reset the Configuration singleton before and after the test so leaks
+    don't affect subsequent tests (e.g. test_postgresql_config::test_configuration_reload).
+    """
+    from flux.config import Configuration
+    from flux.models import DatabaseRepository
+
+    Configuration._instance = None  # type: ignore[attr-defined]
+    Configuration._config = None  # type: ignore[attr-defined]
+    DatabaseRepository._engines.clear()
+
+    yield
+
+    Configuration._instance = None  # type: ignore[attr-defined]
+    Configuration._config = None  # type: ignore[attr-defined]
+    DatabaseRepository._engines.clear()
+
 
 def test_schedule_history_scoped_by_namespace(tmp_path, monkeypatch):
     """Two workflows with the same short name in different namespaces must
     not share execution history via the schedule manager's query path.
     """
     monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path}/sched.db")
-    from flux.config import Configuration
-
-    Configuration._instance = None  # type: ignore[attr-defined]
-    Configuration._config = None  # type: ignore[attr-defined]
     from flux.models import DatabaseRepository
 
     DatabaseRepository._engines.clear()

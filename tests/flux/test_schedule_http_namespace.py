@@ -8,12 +8,10 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     from flux.config import Configuration
+    from flux.models import DatabaseRepository
 
     Configuration._instance = None  # type: ignore[attr-defined]
     Configuration._config = None  # type: ignore[attr-defined]
-
-    from flux.models import DatabaseRepository
-
     DatabaseRepository._engines.clear()
 
     Configuration.get().override(database_url=f"sqlite:///{tmp_path}/sched_http.db")
@@ -21,7 +19,13 @@ def client(tmp_path, monkeypatch):
     from flux.server import Server
 
     server = Server("127.0.0.1", 0)
-    return TestClient(server._create_api())
+    yield TestClient(server._create_api())
+
+    # Teardown: reset the Configuration singleton so subsequent tests get a
+    # fresh load from flux.toml.
+    Configuration._instance = None  # type: ignore[attr-defined]
+    Configuration._config = None  # type: ignore[attr-defined]
+    DatabaseRepository._engines.clear()
 
 
 def _register_source(client, source: bytes, filename: str = "flow.py"):
