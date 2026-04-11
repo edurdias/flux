@@ -162,7 +162,7 @@ class WorkflowCatalog(ABC):
                 # Extract workflow functions
                 elif isinstance(node, ast.AsyncFunctionDef):
                     workflow_name = None
-                    workflow_namespace = "default"
+                    workflow_namespace = DEFAULT_NAMESPACE
                     workflow_requests = None
 
                     for decorator in node.decorator_list:
@@ -186,7 +186,7 @@ class WorkflowCatalog(ABC):
                                 if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                                     workflow_name = kw.value.value
                                 elif kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
-                                    workflow_namespace = kw.value.value or "default"
+                                    workflow_namespace = kw.value.value or DEFAULT_NAMESPACE
                                 elif kw.arg == "requests":
                                     workflow_requests = self._extract_workflow_requests(kw.value)
 
@@ -227,7 +227,7 @@ class WorkflowCatalog(ABC):
         self,
         func_node: ast.AsyncFunctionDef,
         tree: ast.Module,
-        default_namespace: str = "default",
+        default_namespace: str = DEFAULT_NAMESPACE,
     ) -> dict:
         task_func_to_name: dict[str, str] = {}
         exempt_func_to_name: dict[str, str] = {}
