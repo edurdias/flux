@@ -159,7 +159,8 @@ class workflow:
 
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=workflow_id,
-            workflow_name=self.name,
+            workflow_namespace=self._namespace,
+            workflow_name=self._name,
             input=args[0] if len(args) > 0 else None,
         )
 

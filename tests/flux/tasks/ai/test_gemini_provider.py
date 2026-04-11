@@ -352,7 +352,7 @@ def test_llm_task_returns_llm_response():
 
             llm_task, _ = build_gemini_provider("gemini-2.5-flash")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
             token = ExecutionContext.set(ctx)
             try:
                 config = mock_types.GenerateContentConfig(

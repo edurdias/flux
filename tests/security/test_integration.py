@@ -210,7 +210,7 @@ class TestEventSubjectIntegration:
         from flux.domain.execution_context import ExecutionContext
         from flux.worker_registry import WorkerInfo
 
-        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        ctx = ExecutionContext(workflow_id="wf-1", workflow_namespace="default", workflow_name="test")
         worker = WorkerInfo(name="worker-1")
         ctx.schedule(worker)
         event = [e for e in ctx.events if e.type.name == "WORKFLOW_SCHEDULED"][0]

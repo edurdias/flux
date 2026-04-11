@@ -55,6 +55,7 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
             data = response.json()
             ctx: ExecutionContext = ExecutionContext(
                 workflow_id=data["workflow_id"],
+                workflow_namespace=data.get("workflow_namespace", "default"),
                 workflow_name=data["workflow_name"],
                 input=data["input"],
                 execution_id=data["execution_id"],

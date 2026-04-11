@@ -28,6 +28,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def __init__(
         self,
         workflow_id: str,
+        workflow_namespace: str,
         workflow_name: str,
         input: WorkflowInputType | None = None,
         execution_id: str | None = None,
@@ -39,6 +40,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         progress_callback: Callable | None = None,
     ):
         self._workflow_id = workflow_id
+        self._workflow_namespace = workflow_namespace
         self._workflow_name = workflow_name
         self._input = input
         self._execution_id = execution_id or uuid4().hex
@@ -74,6 +76,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
     @property
     def workflow_id(self) -> str:
         return self._workflow_id
+
+    @property
+    def workflow_namespace(self) -> str:
+        return self._workflow_namespace
 
     @property
     def workflow_name(self) -> str:
@@ -395,6 +401,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
     ) -> ExecutionContext:
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["workflow_id"],
+            workflow_namespace=data.get("workflow_namespace", "default"),
             workflow_name=data["workflow_name"],
             input=data["input"],
             execution_id=data["execution_id"],

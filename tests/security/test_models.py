@@ -193,6 +193,7 @@ class TestExecutionContextModelRoundtrip:
 
         ctx = ExecutionContext(
             workflow_id="wf-1",
+            workflow_namespace="default",
             workflow_name="wf",
             input=None,
             execution_id="ex-1",

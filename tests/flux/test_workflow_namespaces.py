@@ -158,3 +158,49 @@ async def do_thing(ctx):
     registered = catalog.get("billing", "do_thing")
     assert registered.namespace == "billing"
     assert registered.name == "do_thing"
+
+
+def test_execution_context_carries_workflow_namespace():
+    from flux.domain.execution_context import ExecutionContext
+
+    ctx = ExecutionContext(
+        workflow_id="wid",
+        workflow_namespace="billing",
+        workflow_name="invoice",
+        input={},
+    )
+    assert ctx.workflow_namespace == "billing"
+
+
+def test_execution_context_from_json_reads_namespace():
+    from flux.domain.execution_context import ExecutionContext
+    from flux.domain.events import ExecutionState
+
+    data = {
+        "workflow_id": "wid",
+        "workflow_namespace": "billing",
+        "workflow_name": "invoice",
+        "input": {},
+        "execution_id": "eid",
+        "state": ExecutionState.CREATED,
+        "events": [],
+    }
+    ctx = ExecutionContext.from_json(data)
+    assert ctx.workflow_namespace == "billing"
+
+
+def test_execution_context_from_json_defaults_missing_namespace():
+    from flux.domain.execution_context import ExecutionContext
+    from flux.domain.events import ExecutionState
+
+    data = {
+        "workflow_id": "wid",
+        # no workflow_namespace — should default
+        "workflow_name": "hello",
+        "input": {},
+        "execution_id": "eid",
+        "state": ExecutionState.CREATED,
+        "events": [],
+    }
+    ctx = ExecutionContext.from_json(data)
+    assert ctx.workflow_namespace == "default"

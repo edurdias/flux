@@ -11,6 +11,7 @@ from flux.domain.execution_context import ExecutionContext
 def _make_ctx() -> tuple[ExecutionContext, Any]:
     ctx: ExecutionContext = ExecutionContext(
         workflow_id="wf1",
+        workflow_namespace="default",
         workflow_name="test_workflow",
         state=ExecutionState.RUNNING,
     )

@@ -533,9 +533,9 @@ class ExecutionContextModel(Base):
         self.scheduling_principal_issuer = scheduling_principal_issuer
 
     def to_plain(self) -> ExecutionContext:
-        # workflow_namespace plumbed through in Task 7
         return ExecutionContext(
             workflow_id=self.workflow_id,
+            workflow_namespace=self.workflow_namespace,
             workflow_name=self.workflow_name,
             input=self.input,
             execution_id=self.execution_id,
@@ -549,6 +549,7 @@ class ExecutionContextModel(Base):
         return cls(
             execution_id=obj.execution_id,
             workflow_id=obj.workflow_id,
+            workflow_namespace=obj.workflow_namespace,
             workflow_name=obj.workflow_name,
             input=obj.input,
             output=obj.output,

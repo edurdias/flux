@@ -49,6 +49,7 @@ class WorkflowExecutionRequest(BaseModel):
         exec_token = data.get("exec_token")
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["context"]["workflow_id"],
+            workflow_namespace=data["context"].get("workflow_namespace", "default"),
             workflow_name=data["context"]["workflow_name"],
             input=data["context"]["input"],
             execution_id=data["context"]["execution_id"],
