@@ -911,3 +911,14 @@ class TestWorkflowCommandsNamespaceRouting:
         assert result.exit_code == 0
         call_args = mock_client.get.call_args
         assert "/workflows/billing/invoice/status/exec-1" in call_args[0][0]
+
+
+class TestConsoleCommand:
+    def test_console_command_is_disabled(self):
+        from click.testing import CliRunner
+        from flux.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["start", "console"])
+        assert result.exit_code == 1
+        assert "disabled" in result.output.lower()

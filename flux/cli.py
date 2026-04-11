@@ -848,12 +848,12 @@ def mcp(
 @start.command()
 @click.option("--server-url", "-surl", default=None, help="Server URL to connect to.")
 def console(server_url: str | None = None):
-    """Start the Flux Console TUI for monitoring and managing workflows."""
-    from flux.console.app import FluxConsoleApp
-
-    settings = Configuration.get().settings
-    server_url = server_url or f"http://{settings.server_host}:{settings.server_port}"
-    FluxConsoleApp(server_url).run()
+    """Interactive TUI console (disabled in this release)."""
+    click.echo(
+        "The Flux console TUI is disabled in this release.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
 
 
 @cli.group()
