@@ -102,3 +102,10 @@ class TestWorkflowNamespace:
             @workflow.with_options(namespace="_bad")
             async def foo(ctx):
                 return None
+
+    def test_explicit_default_namespace_accepted(self):
+        @workflow.with_options(namespace="default")
+        async def foo(ctx):
+            return None
+
+        assert foo.namespace == "default"
