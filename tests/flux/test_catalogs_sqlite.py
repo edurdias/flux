@@ -418,3 +418,63 @@ def test_catalog_save_and_get_preserves_resource_requests(tmp_path):
         assert fetched.requests.cpu == 4
         assert fetched.requests.memory == "2Gi"
         assert fetched.requests.packages == ["numpy"]
+
+
+def test_parse_extracts_namespace_from_with_options():
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source = b"""
+from flux import workflow
+
+@workflow.with_options(name="invoice", namespace="billing")
+async def invoice(ctx):
+    return None
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse(source)
+    assert len(infos) == 1
+    assert infos[0].namespace == "billing"
+    assert infos[0].name == "invoice"
+    assert infos[0].id == "billing/invoice"
+
+
+def test_parse_defaults_namespace_when_not_declared():
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source = b"""
+from flux import workflow
+
+@workflow
+async def hello(ctx):
+    return None
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse(source)
+    assert infos[0].namespace == "default"
+    assert infos[0].id == "default/hello"
+
+
+def test_extract_metadata_records_nested_workflow_tuples():
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source = b"""
+from flux import workflow, task
+
+@task
+async def load():
+    return None
+
+@workflow.with_options(namespace="billing")
+async def nested_helper(ctx):
+    return None
+
+@workflow.with_options(namespace="billing")
+async def main(ctx):
+    await load()
+    await nested_helper(ctx)
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse(source)
+    main_info = next(i for i in infos if i.name == "main")
+    assert main_info.metadata["task_names"] == ["load"]
+    assert main_info.metadata["nested_workflows"] == [["billing", "nested_helper"]]

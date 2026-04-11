@@ -162,6 +162,7 @@ class WorkflowCatalog(ABC):
                 # Extract workflow functions
                 elif isinstance(node, ast.AsyncFunctionDef):
                     workflow_name = None
+                    workflow_namespace = "default"
                     workflow_requests = None
 
                     for decorator in node.decorator_list:
@@ -181,10 +182,11 @@ class WorkflowCatalog(ABC):
                             and decorator.func.value.id == "workflow"
                             and decorator.func.attr == "with_options"
                         ):
-                            # Extract workflow name and requests from decorator args
                             for kw in decorator.keywords:
                                 if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                                     workflow_name = kw.value.value
+                                elif kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
+                                    workflow_namespace = kw.value.value or "default"
                                 elif kw.arg == "requests":
                                     workflow_requests = self._extract_workflow_requests(kw.value)
 
@@ -194,12 +196,16 @@ class WorkflowCatalog(ABC):
                             break
 
                     if workflow_name:
-                        wf_metadata = self._extract_workflow_metadata(node, tree)
+                        wf_metadata = self._extract_workflow_metadata(
+                            node,
+                            tree,
+                            default_namespace=workflow_namespace,
+                        )
                         workflow_infos.append(
                             WorkflowInfo(
-                                id=workflow_name,
+                                id=f"{workflow_namespace}/{workflow_name}",
+                                namespace=workflow_namespace,
                                 name=workflow_name,
-                                namespace="default",
                                 imports=imports,
                                 source=source,
                                 requests=workflow_requests,
@@ -217,10 +223,15 @@ class WorkflowCatalog(ABC):
         except Exception as e:
             raise SyntaxError(f"Error parsing source code: {str(e)}")
 
-    def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
+    def _extract_workflow_metadata(
+        self,
+        func_node: ast.AsyncFunctionDef,
+        tree: ast.Module,
+        default_namespace: str = "default",
+    ) -> dict:
         task_func_to_name: dict[str, str] = {}
         exempt_func_to_name: dict[str, str] = {}
-        workflow_func_to_name: dict[str, str] = {}
+        workflow_func_to_ref: dict[str, tuple[str, str]] = {}
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -228,7 +239,7 @@ class WorkflowCatalog(ABC):
                     if isinstance(dec, ast.Name) and dec.id == "task":
                         task_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Name) and dec.id == "workflow":
-                        workflow_func_to_name[node.name] = node.name
+                        workflow_func_to_ref[node.name] = (default_namespace, node.name)
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
@@ -241,11 +252,14 @@ class WorkflowCatalog(ABC):
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
                             ):
                                 wf_name = self._extract_task_name_from_decorator(dec) or node.name
-                                workflow_func_to_name[node.name] = wf_name
+                                wf_namespace = (
+                                    self._extract_namespace_from_decorator(dec) or default_namespace
+                                )
+                                workflow_func_to_ref[node.name] = (wf_namespace, wf_name)
 
         called_tasks = set()
         called_exempt = set()
-        called_workflows = set()
+        called_workflows: set[tuple[str, str]] = set()
 
         for node in ast.walk(func_node):
             if isinstance(node, ast.Call):
@@ -260,12 +274,12 @@ class WorkflowCatalog(ABC):
                         called_tasks.add(task_func_to_name[func_name])
                     elif func_name in exempt_func_to_name:
                         called_exempt.add(exempt_func_to_name[func_name])
-                    elif func_name in workflow_func_to_name:
-                        called_workflows.add(workflow_func_to_name[func_name])
+                    elif func_name in workflow_func_to_ref:
+                        called_workflows.add(workflow_func_to_ref[func_name])
 
         return {
             "task_names": sorted(called_tasks),
-            "nested_workflows": sorted(called_workflows),
+            "nested_workflows": sorted([list(ref) for ref in called_workflows]),
             "auth_exempt_tasks": sorted(called_exempt),
         }
 
@@ -274,6 +288,14 @@ class WorkflowCatalog(ABC):
         for kw in decorator.keywords:
             if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                 return kw.value.value
+        return None
+
+    @staticmethod
+    def _extract_namespace_from_decorator(decorator: ast.Call) -> str | None:
+        for kw in decorator.keywords:
+            if kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
+                value = kw.value.value
+                return value or None
         return None
 
     @staticmethod
