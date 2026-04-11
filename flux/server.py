@@ -2144,9 +2144,14 @@ class Server:
             active_only: bool = True,
             limit: int | None = None,
             offset: int | None = None,
-            identity: FluxIdentity = Depends(require_permission("schedule:*:read")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
-            """List all schedules, optionally filtered by workflow with pagination support"""
+            """List schedules visible to the principal.
+
+            Schedules are filtered per-principal: a schedule is returned only if
+            the caller has ``workflow:{namespace}:{workflow_name}:read`` on its
+            bound workflow. Optionally filtered by workflow_ref with pagination.
+            """
             try:
                 logger.debug(
                     f"Listing schedules (workflow: {workflow_name}, active_only: {active_only}, "
@@ -2181,6 +2186,17 @@ class Server:
                         offset=offset,
                     )
 
+                # Per-principal filter: keep only schedules whose bound workflow
+                # the caller has read access to.
+                if auth_service is not None and auth_config.enabled:
+                    permissions = await auth_service.resolve_permissions(identity)
+                    visible = []
+                    for s in schedules:
+                        required = f"workflow:{s.workflow_namespace}:{s.workflow_name}:read"
+                        if identity.has_permission(required, permissions):
+                            visible.append(s)
+                    schedules = visible
+
                 result = [_schedule_model_to_response(s) for s in schedules]
                 logger.debug(f"Found {len(result)} schedules")
                 return result
@@ -2194,9 +2210,14 @@ class Server:
         @api.get("/schedules/{schedule_id}", response_model=ScheduleResponse)
         async def get_schedule(
             schedule_id: str,
-            identity: FluxIdentity = Depends(require_permission("schedule:*:read")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
-            """Get a specific schedule by ID or name"""
+            """Get a specific schedule by ID or name.
+
+            Authorized only if the caller has
+            ``workflow:{namespace}:{workflow_name}:read`` on the schedule's
+            bound workflow.
+            """
             try:
                 logger.debug(f"Getting schedule '{schedule_id}'")
 
@@ -2209,6 +2230,16 @@ class Server:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                if auth_service is not None and auth_config.enabled:
+                    required = (
+                        f"workflow:{schedule.workflow_namespace}:" f"{schedule.workflow_name}:read"
+                    )
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
 
                 return _schedule_model_to_response(schedule)
 

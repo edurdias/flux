@@ -731,3 +731,60 @@ class TestNamespaceScopedVisibility:
                     "resolve_permissions" in func_src or "is_authorized" in func_src
                 ), "list_namespaces does not filter results by principal grants"
                 break
+
+    def test_list_schedules_uses_get_identity_not_require_permission(self):
+        """list_schedules must use get_identity so filtering can happen per principal."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "list_schedules still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "list_schedules does not use get_identity"
+                break
+
+    def test_list_schedules_filters_by_namespace_grant(self):
+        """list_schedules must filter per principal's workflow:read grants when auth enabled."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
+                func_src = ast.unparse(node)
+                assert (
+                    "resolve_permissions" in func_src
+                ), "list_schedules does not resolve per-principal permissions"
+                assert (
+                    "workflow:" in func_src and "has_permission" in func_src
+                ), "list_schedules does not check workflow:{ns}:{name}:read per schedule"
+                break
+
+    def test_get_schedule_checks_workflow_read_permission(self):
+        """get_schedule must do a post-resolution workflow:{ns}:{name}:read check."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_schedule":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "get_schedule still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "get_schedule does not use get_identity"
+                assert "is_authorized" in func_src, "get_schedule does not call is_authorized"
+                assert (
+                    "workflow_namespace" in func_src and "workflow_name" in func_src
+                ), "get_schedule does not use the schedule's namespace+name in the check"
+                break
