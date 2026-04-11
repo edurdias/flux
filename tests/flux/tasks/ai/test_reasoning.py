@@ -447,7 +447,9 @@ class TestAgentLoopReasoning:
         tools = [my_tool]
         schemas = build_tool_schemas(tools)
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             wm = WorkingMemory()
@@ -513,7 +515,9 @@ class TestAgentLoopReasoning:
         tools = [my_tool]
         schemas = build_tool_schemas(tools)
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             wm = WorkingMemory()

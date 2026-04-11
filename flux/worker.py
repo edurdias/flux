@@ -275,7 +275,10 @@ class Worker:
                     m = get_metrics()
                     if m:
                         m.record_workflow_completed(
-                            context.workflow_namespace, context.workflow_name, "cancelled", 0,
+                            context.workflow_namespace,
+                            context.workflow_name,
+                            "cancelled",
+                            0,
                         )
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
@@ -524,7 +527,10 @@ class Worker:
             if m:
                 status = "completed" if not ctx.has_failed else "failed"
                 m.record_workflow_completed(
-                    request.workflow.namespace, request.workflow.name, status, execution_time,
+                    request.workflow.namespace,
+                    request.workflow.name,
+                    status,
+                    execution_time,
                 )
         else:
             logger.warning(f"Workflow {request.workflow.name} not found in module")

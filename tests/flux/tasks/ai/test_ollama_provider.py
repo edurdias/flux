@@ -319,7 +319,9 @@ def test_llm_task_returns_llm_response_structured_tool_calls():
 
             llm_task, _ = build_ollama_provider("llama3")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            )
             token = ExecutionContext.set(ctx)
             try:
                 result = await llm_task(
@@ -350,7 +352,9 @@ def test_llm_task_returns_llm_response_text_extracted_tool_calls():
 
             llm_task, _ = build_ollama_provider("llama3")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            )
             token = ExecutionContext.set(ctx)
             try:
                 result = await llm_task(
@@ -382,7 +386,9 @@ def test_llm_task_returns_llm_response_text_only():
 
             llm_task, _ = build_ollama_provider("llama3")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            )
             token = ExecutionContext.set(ctx)
             try:
                 result = await llm_task(

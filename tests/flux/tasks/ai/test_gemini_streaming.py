@@ -51,7 +51,9 @@ def test_gemini_no_streaming_returns_response():
 
             llm_task, formatter = build_gemini_provider("gemini-2.5-flash")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            )
             token = ExecutionContext.set(ctx)
             try:
                 messages, call_kwargs = formatter.build_messages("Test", "Say hello")

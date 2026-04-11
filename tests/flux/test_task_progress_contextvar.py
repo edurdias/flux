@@ -15,7 +15,9 @@ def test_current_task_contextvar_set_during_execution():
         return "done"
 
     async def run():
-        ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             await capture_task()
@@ -41,7 +43,9 @@ def test_concurrent_tasks_get_independent_identities():
         return label
 
     async def run():
-        ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             await asyncio.gather(
@@ -63,7 +67,9 @@ def test_current_task_contextvar_cleared_after_execution():
         return "done"
 
     async def run():
-        ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             await simple_task()

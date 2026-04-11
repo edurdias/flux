@@ -43,7 +43,9 @@ class TestAgentHooks:
 
         from flux.tasks.ai.agent_loop import run_agent_loop
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             result = await run_agent_loop(
@@ -69,7 +71,9 @@ class TestAgentHooks:
 
         from flux.tasks.ai.agent_loop import run_agent_loop
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             result = await run_agent_loop(
@@ -97,7 +101,9 @@ class TestAgentHooks:
 
         from flux.tasks.ai.agent_loop import run_agent_loop
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             await run_agent_loop(
@@ -117,7 +123,9 @@ class TestAgentHooks:
     async def test_no_hooks_works_fine(self):
         from flux.tasks.ai.agent_loop import run_agent_loop
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             result = await run_agent_loop(
@@ -162,7 +170,9 @@ class TestAgentHooks:
         tools = [pausing_tool]
         schemas = build_tool_schemas(tools)
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             with pytest.raises(PauseRequested):
@@ -216,7 +226,9 @@ class TestAgentLoopToolStorage:
             def format_tool_results(self, tc, results):
                 return [{"role": "tool", "content": r["output"]} for r in results]
 
-        ctx = ExecutionContext(workflow_id="test", workflow_namespace="default", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="test", workflow_namespace="default", workflow_name="test",
+        )
         token = ExecutionContext.set(ctx)
         try:
             wm = WorkingMemory()

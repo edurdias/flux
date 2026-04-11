@@ -256,7 +256,9 @@ def test_llm_task_returns_llm_response():
 
             llm_task, _ = build_anthropic_provider("claude-sonnet-4-20250514")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_namespace="default", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            )
             token = ExecutionContext.set(ctx)
             try:
                 result = await llm_task(
