@@ -19,6 +19,33 @@ from flux.utils import get_logger
 
 logger = get_logger(__name__)
 
+DEFAULT_NAMESPACE = "default"
+
+
+def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
+    """Parse a user-provided workflow reference into ``(namespace, name)``.
+
+    ``"billing/invoice"`` -> ``("billing", "invoice")``
+    ``"hello_world"``     -> ``("default", "hello_world")``
+    ``"a/b/c"``           -> ``ValueError`` (flat namespaces only)
+    ``""`` or ``None``    -> ``ValueError``
+    """
+    if not ref:
+        raise ValueError("Workflow reference cannot be empty")
+    parts = ref.split("/")
+    if len(parts) == 1:
+        if not parts[0]:
+            raise ValueError("Workflow reference cannot be empty")
+        return (DEFAULT_NAMESPACE, parts[0])
+    if len(parts) == 2:
+        namespace, name = parts
+        if not namespace or not name:
+            raise ValueError("Workflow reference has empty namespace or name")
+        return (namespace, name)
+    raise ValueError(
+        f"Workflow reference '{ref}' is invalid: flat namespaces only (expected 'name' or 'namespace/name')",
+    )
+
 
 class WorkflowInfo:
     def __init__(
