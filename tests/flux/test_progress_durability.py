@@ -15,7 +15,9 @@ def test_progress_events_not_in_event_log():
             return "done"
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(lambda *_: None)
         token = ExecutionContext.set(ctx)
@@ -45,7 +47,9 @@ def test_replay_skips_task_with_progress():
             return f"result_{call_count}"
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(lambda *_: None)
         token = ExecutionContext.set(ctx)
@@ -78,7 +82,9 @@ def test_event_count_unchanged_with_streaming():
             return "done"
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(lambda *_: None)
         token = ExecutionContext.set(ctx)

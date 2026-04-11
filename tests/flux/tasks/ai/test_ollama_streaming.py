@@ -50,7 +50,9 @@ def test_ollama_no_streaming_returns_response():
             llm_task, _ = build_ollama_provider("llama3")
 
             ctx = ExecutionContext(
-                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
             )
             ctx_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))
@@ -95,7 +97,9 @@ def test_ollama_llm_task_with_tool_calls():
             llm_task, _ = build_ollama_provider("llama3")
 
             ctx = ExecutionContext(
-                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
             )
             ctx_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))

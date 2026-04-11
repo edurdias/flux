@@ -44,7 +44,9 @@ class TestAgentHooks:
         from flux.tasks.ai.agent_loop import run_agent_loop
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -72,7 +74,9 @@ class TestAgentHooks:
         from flux.tasks.ai.agent_loop import run_agent_loop
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -102,7 +106,9 @@ class TestAgentHooks:
         from flux.tasks.ai.agent_loop import run_agent_loop
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -124,7 +130,9 @@ class TestAgentHooks:
         from flux.tasks.ai.agent_loop import run_agent_loop
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -171,7 +179,9 @@ class TestAgentHooks:
         schemas = build_tool_schemas(tools)
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -227,7 +237,9 @@ class TestAgentLoopToolStorage:
                 return [{"role": "tool", "content": r["output"]} for r in results]
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:

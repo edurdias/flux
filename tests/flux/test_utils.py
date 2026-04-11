@@ -44,7 +44,12 @@ def test_flux_encoder():
         "timedelta": timedelta(seconds=60),
         "uuid": uuid.uuid4(),
         "context": ExecutionContext(
-            "test_id", "default", "test_name", {"input": "test"}, "123", [],
+            "test_id",
+            "default",
+            "test_name",
+            {"input": "test"},
+            "123",
+            [],
         ),
         "exception": ValueError("test error"),
         "callable": lambda x: x,

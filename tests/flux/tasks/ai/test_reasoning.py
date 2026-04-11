@@ -448,7 +448,9 @@ class TestAgentLoopReasoning:
         schemas = build_tool_schemas(tools)
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -516,7 +518,9 @@ class TestAgentLoopReasoning:
         schemas = build_tool_schemas(tools)
 
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:

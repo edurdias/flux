@@ -16,7 +16,9 @@ def test_current_task_contextvar_set_during_execution():
 
     async def run():
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -44,7 +46,9 @@ def test_concurrent_tasks_get_independent_identities():
 
     async def run():
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
@@ -68,7 +72,9 @@ def test_current_task_contextvar_cleared_after_execution():
 
     async def run():
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:

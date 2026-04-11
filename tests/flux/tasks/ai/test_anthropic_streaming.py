@@ -35,7 +35,9 @@ def test_anthropic_streaming_emits_progress():
             llm_task, formatter = build_anthropic_provider("claude-sonnet-4-20250514")
 
             ctx = ExecutionContext(
-                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
             )
             ctx.set_progress_callback(on_progress)
             ec_token = ExecutionContext.set(ctx)
@@ -84,7 +86,9 @@ def test_anthropic_no_streaming_when_disabled():
             llm_task, formatter = build_anthropic_provider("claude-sonnet-4-20250514")
 
             ctx = ExecutionContext(
-                workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
             )
             ctx.set_progress_callback(on_progress)
             ec_token = ExecutionContext.set(ctx)

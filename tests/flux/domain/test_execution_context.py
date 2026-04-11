@@ -16,7 +16,9 @@ class TestExecutionContext:
     def test_creation(self):
         """Test creation of execution context."""
         ctx = ExecutionContext(
-            workflow_id="test-workflow", workflow_namespace="default", workflow_name="test",
+            workflow_id="test-workflow",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         assert ctx.workflow_id == "test-workflow"
         assert ctx.workflow_name == "test"
@@ -30,7 +32,9 @@ class TestExecutionContext:
     def test_start_cancel(self):
         """Test starting cancellation process."""
         ctx = ExecutionContext(
-            workflow_id="test-workflow", workflow_namespace="default", workflow_name="test",
+            workflow_id="test-workflow",
+            workflow_namespace="default",
+            workflow_name="test",
         )
 
         # Set a worker for the context
@@ -57,7 +61,9 @@ class TestExecutionContext:
     def test_cancel(self):
         """Test complete cancellation process."""
         ctx = ExecutionContext(
-            workflow_id="test-workflow", workflow_namespace="default", workflow_name="test",
+            workflow_id="test-workflow",
+            workflow_namespace="default",
+            workflow_name="test",
         )
 
         # Set a worker for the context
@@ -83,7 +89,9 @@ class TestExecutionContext:
     def test_cancel_with_prior_start_cancel(self):
         """Test cancellation after start_cancel has been called."""
         ctx = ExecutionContext(
-            workflow_id="test-workflow", workflow_namespace="default", workflow_name="test",
+            workflow_id="test-workflow",
+            workflow_namespace="default",
+            workflow_name="test",
         )
 
         # Set a worker for the context
@@ -125,7 +133,10 @@ def test_emit_progress_calls_callback():
         captured.append((execution_id, task_id, task_name, value))
 
     ctx = ExecutionContext(
-        workflow_id="wf1", workflow_namespace="default", workflow_name="test", execution_id="exec_1",
+        workflow_id="wf1",
+        workflow_namespace="default",
+        workflow_name="test",
+        execution_id="exec_1",
     )
     ctx.set_progress_callback(on_progress)
     asyncio.run(ctx.emit_progress("task_1", "my_task", {"step": 1}))

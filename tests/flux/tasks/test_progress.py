@@ -60,7 +60,9 @@ def test_progress_noop_without_current_task():
         from flux.tasks.progress import progress
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
@@ -89,7 +91,9 @@ def test_progress_inside_task():
             return "done"
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
@@ -117,7 +121,9 @@ def test_progress_accepts_any_value_type():
         from flux.tasks.progress import progress
 
         ctx = ExecutionContext(
-            workflow_id="wf1", workflow_namespace="default", workflow_name="test",
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)

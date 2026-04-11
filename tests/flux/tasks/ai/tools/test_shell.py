@@ -30,7 +30,9 @@ def shell_tool(config):
 def _run(coro):
     async def _wrapper():
         ctx = ExecutionContext(
-            workflow_id="test", workflow_namespace="default", workflow_name="test",
+            workflow_id="test",
+            workflow_namespace="default",
+            workflow_name="test",
         )
         token = ExecutionContext.set(ctx)
         try:
