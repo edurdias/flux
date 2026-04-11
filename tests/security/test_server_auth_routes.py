@@ -526,3 +526,79 @@ class TestBuiltInRolesPrincipalsPermission:
                 assert (
                     "service-accounts" not in perm
                 ), f"Role '{role}' still has old service-accounts permission: {perm}"
+
+
+class TestRegisterPermissionScopedToNamespace:
+    """POST /workflows must check namespace-scoped permission post-parse."""
+
+    def test_billing_permission_grants_billing_namespace(self):
+        """workflow:billing:*:register matches workflow:billing:*:register exactly."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert identity.has_permission("workflow:billing:*:register", permissions)
+
+    def test_billing_permission_denies_analytics_namespace(self):
+        """workflow:billing:*:register does NOT match workflow:analytics:*:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert not identity.has_permission("workflow:analytics:*:register", permissions)
+
+    def test_billing_permission_grants_specific_billing_workflow(self):
+        """workflow:billing:*:register (non-terminal *) matches workflow:billing:invoice:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert identity.has_permission("workflow:billing:invoice:register", permissions)
+
+    def test_billing_permission_denies_specific_analytics_workflow(self):
+        """workflow:billing:*:register does NOT match workflow:analytics:report:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert not identity.has_permission("workflow:analytics:report:register", permissions)
+
+    def test_workflows_save_uses_get_identity_not_require_permission(self):
+        """workflows_save must use get_identity dependency so namespace can be extracted post-parse."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "workflows_save still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "workflows_save does not use get_identity"
+                assert (
+                    "is_authorized" in func_src
+                ), "workflows_save does not call is_authorized post-parse"
+                break
+
+    def test_workflows_save_permission_uses_namespace(self):
+        """The permission string built in workflows_save must include the workflow namespace."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
+                func_src = ast.unparse(node)
+                assert (
+                    "wf.namespace" in func_src
+                ), "workflows_save does not use wf.namespace to build the permission string"
+                break

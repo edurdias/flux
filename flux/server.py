@@ -887,7 +887,7 @@ class Server:
         @api.post("/workflows")
         async def workflows_save(
             file: UploadFile = File(...),
-            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
             source = await file.read()
             logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
@@ -895,8 +895,18 @@ class Server:
                 logger.debug(f"Processing workflow file: {file.filename}")
                 catalog = WorkflowCatalog.create()
                 workflows = catalog.parse(source)
+
+                if auth_service is not None and auth_config.enabled:
+                    for wf in workflows:
+                        required = f"workflow:{wf.namespace}:*:register"
+                        if not await auth_service.is_authorized(identity, required):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Permission denied: requires '{required}'",
+                            )
+
                 result = catalog.save(workflows)
-                logger.debug(f"Saved workflows: {[w.name for w in workflows]}")
+                logger.debug(f"Saved workflows: {[w.qualified_name for w in workflows]}")
 
                 self._auto_create_schedules_from_source(source, workflows)
 
@@ -904,6 +914,8 @@ class Server:
             except SyntaxError as e:
                 logger.error(f"Syntax error while saving workflow: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error saving workflow: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
