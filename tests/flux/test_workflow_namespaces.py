@@ -109,3 +109,49 @@ class TestWorkflowNamespace:
             return None
 
         assert foo.namespace == "default"
+
+
+def test_inline_run_registers_namespaced_workflow(tmp_path, monkeypatch):
+    """Task 6: _ensure_registered should register the workflow in the declared namespace.
+
+    We don't actually run the workflow here — that requires Task 7 to add
+    workflow_namespace to ExecutionContext. We only verify that _ensure_registered
+    looks up and registers using the (namespace, name) pair.
+    """
+    monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path}/inline.db")
+    from flux.config import Configuration
+
+    Configuration._instance = None  # type: ignore[attr-defined]
+
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source_path = tmp_path / "my_flow.py"
+    source_path.write_text(
+        """
+from flux import workflow
+
+@workflow.with_options(namespace="billing")
+async def do_thing(ctx):
+    return "done"
+""".lstrip(),
+    )
+
+    import sys
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("my_flow", source_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["my_flow"] = module
+    spec.loader.exec_module(module)
+
+    wf = module.do_thing
+
+    # Call _ensure_registered directly to isolate Task 6 from Task 7 dependencies
+    workflow_id = wf._ensure_registered()
+    assert workflow_id is not None
+
+    catalog = DatabaseWorkflowCatalog()
+    registered = catalog.get("billing", "do_thing")
+    assert registered.namespace == "billing"
+    assert registered.name == "do_thing"

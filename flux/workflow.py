@@ -188,7 +188,7 @@ class workflow:
         catalog = WorkflowCatalog.create()
 
         try:
-            return catalog.get(self.name).id  # type: ignore[call-arg]  # TODO(Task 6): use catalog.get(self.namespace, self.name)
+            return catalog.get(self._namespace, self._name).id
         except WorkflowNotFoundError:
             pass
 
@@ -196,17 +196,20 @@ class workflow:
         source_file = getattr(module, "__file__", None) if module is not None else None
         if not source_file:
             raise RuntimeError(
-                f"Cannot register workflow '{self.name}': the defining module "
+                f"Cannot register workflow '{self.qualified_name}': the defining module "
                 "has no readable source file. Workflows must be importable "
                 "from a .py file to be run inline.",
             )
 
         source = Path(source_file).read_bytes()
         infos = catalog.parse(source)
-        matching = next((w for w in infos if w.name == self.name), None)
+        matching = next(
+            (w for w in infos if w.namespace == self._namespace and w.name == self._name),
+            None,
+        )
         if matching is None:
             raise RuntimeError(
-                f"Cannot register workflow '{self.name}': not found in "
+                f"Cannot register workflow '{self.qualified_name}': not found in "
                 f"source file {source_file}.",
             )
 
@@ -215,7 +218,7 @@ class workflow:
         except IntegrityError:
             # Lost a race with another registrant — fall through to re-read.
             pass
-        return catalog.get(self.name).id  # type: ignore[call-arg]  # TODO(Task 6): use catalog.get(self.namespace, self.name)
+        return catalog.get(self._namespace, self._name).id
 
     def resume(self, execution_id: str, input: Any = None) -> ExecutionContext:
         """
