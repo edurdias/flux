@@ -46,22 +46,6 @@ async def invoice(ctx):
     assert body["name"] == "invoice"
 
 
-def test_legacy_bare_name_resolves_to_default(client):
-    source = b"""
-from flux import workflow
-
-@workflow
-async def hello(ctx):
-    return None
-"""
-    _register_source(client, source)
-    resp = client.get("/workflows/hello")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["namespace"] == "default"
-    assert body["name"] == "hello"
-
-
 def test_list_namespaces_endpoint(client):
     source = b"""
 from flux import workflow

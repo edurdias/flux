@@ -57,7 +57,7 @@ class TestWorkflowExecutionsAuthEnforcement:
             settings.security.auth.api_keys.enabled = True
             try:
                 resp = client.get(
-                    "/workflows/some_workflow/executions",
+                    "/workflows/default/some_workflow/executions",
                     headers={"Authorization": "Bearer fake-token"},
                 )
                 # Either 403 (permission denied) or 401 (if auth provider rejects fake)
@@ -77,7 +77,7 @@ class TestWorkflowExecutionsAuthEnforcement:
         try:
             # Without auth enabled, the endpoint should only fail with 404 (workflow not found)
             # or similar — NOT with 403
-            resp = client.get("/workflows/nonexistent/executions")
+            resp = client.get("/workflows/default/nonexistent/executions")
             assert resp.status_code != 403
         finally:
             settings.security.auth.oidc.enabled = original_oidc
@@ -678,23 +678,6 @@ class TestNamespaceScopedVisibility:
                 assert (
                     "register" in func_src
                 ), "workflow_delete_ns does not check register permission"
-                break
-
-    def test_workflow_delete_shim_uses_get_identity_not_require_permission(self):
-        """Legacy workflow_delete shim must also use get_identity."""
-        import ast
-        import pathlib
-
-        src = pathlib.Path("flux/server.py").read_text()
-        tree = ast.parse(src)
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflow_delete":
-                func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "workflow_delete still uses require_permission — must use get_identity"
-                assert "get_identity" in func_src, "workflow_delete does not use get_identity"
                 break
 
     def test_billing_read_grant_allows_billing_list(self):

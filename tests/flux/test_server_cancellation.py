@@ -65,7 +65,9 @@ class TestServerCancellation:
         mock_context_manager.save.return_value = ctx
 
         # Make the request
-        response = test_client.get("/workflows/test-workflow/cancel/test-execution-id?mode=async")
+        response = test_client.get(
+            "/workflows/default/test-workflow/cancel/test-execution-id?mode=async",
+        )
 
         # Check the response
         assert response.status_code == 200
@@ -90,7 +92,9 @@ class TestServerCancellation:
         mock_context_manager.get.return_value = ctx
 
         # Make the request
-        response = test_client.get("/workflows/test-workflow/cancel/test-execution-id?mode=async")
+        response = test_client.get(
+            "/workflows/default/test-workflow/cancel/test-execution-id?mode=async",
+        )
 
         # Check the response - should be a 400 error
         assert response.status_code == 400
@@ -114,7 +118,7 @@ class TestWorkflowEndpoints:
         mock_catalog.delete.return_value = None
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow")
+        response = test_client.delete("/workflows/default/test_workflow")
 
         assert response.status_code == 200
         data = response.json()
@@ -128,7 +132,7 @@ class TestWorkflowEndpoints:
         mock_catalog.delete.return_value = None
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow?version=2")
+        response = test_client.delete("/workflows/default/test_workflow?version=2")
 
         assert response.status_code == 200
         mock_catalog.delete.assert_called_once_with("default", "test_workflow", 2)
@@ -211,7 +215,7 @@ class TestWorkflowEndpoints:
         mock_catalog.get.side_effect = WorkflowNotFoundError("test_workflow", 99)
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/versions/99")
+        response = test_client.get("/workflows/default/test_workflow/versions/99")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()
@@ -479,7 +483,7 @@ class TestHealthEndpoint:
 
         with patch("asyncio.wait_for", side_effect=mock_wait_for):
             response = test_client.get(
-                "/workflows/test-workflow/cancel/test-execution-id?mode=sync",
+                "/workflows/default/test-workflow/cancel/test-execution-id?mode=sync",
             )
 
         # Check the response
@@ -512,7 +516,7 @@ class TestAPIEdgeCases:
         mock_catalog.delete.side_effect = Exception("Database connection failed")
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow")
+        response = test_client.delete("/workflows/default/test_workflow")
 
         assert response.status_code == 500
         assert "error" in response.text.lower()
@@ -571,7 +575,7 @@ class TestAPIEdgeCases:
         mock_catalog.get.side_effect = WorkflowNotFoundError("nonexistent")
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/nonexistent/executions")
+        response = test_client.get("/workflows/default/nonexistent/executions")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()
@@ -628,7 +632,7 @@ class TestWorkflowRunWithVersion:
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm
 
-        response = test_client.post("/workflows/test_workflow/run/async")
+        response = test_client.post("/workflows/default/test_workflow/run/async")
 
         assert response.status_code == 200
         # Verify catalog.get was called without version (None)
@@ -664,7 +668,7 @@ class TestWorkflowRunWithVersion:
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm
 
-        response = test_client.post("/workflows/test_workflow/run/async?version=2")
+        response = test_client.post("/workflows/default/test_workflow/run/async?version=2")
 
         assert response.status_code == 200
         # Verify catalog.get was called with version=2
@@ -680,7 +684,7 @@ class TestWorkflowRunWithVersion:
         mock_catalog.get.side_effect = WorkflowNotFoundError("test_workflow", 99)
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.post("/workflows/test_workflow/run/async?version=99")
+        response = test_client.post("/workflows/default/test_workflow/run/async?version=99")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()

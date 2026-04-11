@@ -24,9 +24,13 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
     """
     from flux.domain.execution_context import ExecutionContext
     from flux.errors import WorkflowNotFoundError
+    from flux.catalogs import resolve_workflow_ref
 
     if isinstance(workflow, workflow_cls):
-        workflow = workflow.name
+        namespace = workflow.namespace
+        name = workflow.name
+    else:
+        namespace, name = resolve_workflow_ref(workflow)
 
     if mode not in ("sync", "async"):
         raise ValueError(f"mode must be 'sync' or 'async', got: '{mode}'")
@@ -39,7 +43,7 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
 
     try:
         payload = args[0] if len(args) == 1 else args
-        url = f"{server_url}/workflows/{workflow}/run/{mode}"
+        url = f"{server_url}/workflows/{namespace}/{name}/run/{mode}"
 
         async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
             if mode == "async":
@@ -89,7 +93,7 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
         ) from ex
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
-            raise WorkflowNotFoundError(name=workflow)
+            raise WorkflowNotFoundError(name=f"{namespace}/{name}")
         raise ExecutionError(ex) from ex
     except Exception as ex:
         raise ExecutionError(ex) from ex
