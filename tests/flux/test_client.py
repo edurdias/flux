@@ -50,7 +50,7 @@ class TestFluxClientSyncWorkflow:
         assert result["execution_id"] == "exec-1"
         assert result["state"] == "COMPLETED"
         client._http_client.post.assert_called_once_with(
-            "/workflows/my-workflow/run/sync",
+            "/workflows/default/my-workflow/run/sync",
             json={"key": "val"},
         )
 
@@ -64,7 +64,7 @@ class TestFluxClientSyncWorkflow:
 
         await client.run_workflow_sync("my-workflow")
         client._http_client.post.assert_called_once_with(
-            "/workflows/my-workflow/run/sync",
+            "/workflows/default/my-workflow/run/sync",
             json=None,
         )
 
@@ -87,6 +87,54 @@ class TestFluxClientSyncWorkflow:
         )
         assert result["state"] == "COMPLETED"
         client._http_client.post.assert_called_once_with(
-            "/workflows/my-workflow/resume/exec-1/sync",
+            "/workflows/default/my-workflow/resume/exec-1/sync",
             json={"instruction": "continue"},
+        )
+
+
+class TestFluxClientWorkflowRef:
+    @pytest.mark.asyncio
+    async def test_cancel_execution_qualified_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "e1", "state": "CANCELLED"}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        await client.cancel_execution("billing/invoice", "e1")
+        client._http_client.get.assert_called_once_with("/workflows/billing/invoice/cancel/e1")
+
+    @pytest.mark.asyncio
+    async def test_cancel_execution_bare_name(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "e1", "state": "CANCELLED"}
+        client._http_client.get = AsyncMock(return_value=mock_response)
+
+        await client.cancel_execution("hello", "e1")
+        client._http_client.get.assert_called_once_with("/workflows/default/hello/cancel/e1")
+
+    @pytest.mark.asyncio
+    async def test_resume_async_qualified_ref(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "e1", "state": "RUNNING"}
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        await client.resume_execution("billing/invoice", "e1", {"key": "val"})
+        client._http_client.post.assert_called_once_with(
+            "/workflows/billing/invoice/resume/e1/async",
+            json={"key": "val"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_resume_async_bare_name(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "e1", "state": "RUNNING"}
+        client._http_client.post = AsyncMock(return_value=mock_response)
+
+        await client.resume_execution("hello", "e1")
+        client._http_client.post.assert_called_once_with(
+            "/workflows/default/hello/resume/e1/async",
+            json=None,
         )
