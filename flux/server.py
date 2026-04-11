@@ -504,7 +504,7 @@ class Server:
 
         m = get_metrics()
         if m:
-            m.record_workflow_started(workflow_name)
+            m.record_workflow_started(ctx.workflow_namespace, workflow_name)
             m.record_execution_queued()
 
         return ctx
@@ -1442,7 +1442,9 @@ class Server:
 
                 m = get_metrics()
                 if m:
-                    m.record_workflow_completed(workflow_name, "cancel_requested", 0)
+                    m.record_workflow_completed(
+                        ctx.workflow_namespace, workflow_name, "cancel_requested", 0,
+                    )
 
                 # Register execution event BEFORE notifying workers to avoid
                 # race where worker checkpoints before event exists.

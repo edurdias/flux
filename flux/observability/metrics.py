@@ -109,36 +109,81 @@ class FluxMetrics:
             description="Module cache lookups by result",
         )
 
-    def record_workflow_started(self, workflow_name: str):
-        self.workflow_executions.add(1, {"workflow_name": workflow_name, "status": "started"})
+    def record_workflow_started(self, namespace: str, workflow_name: str):
+        self.workflow_executions.add(
+            1,
+            {
+                "workflow_namespace": namespace,
+                "workflow_name": workflow_name,
+                "status": "started",
+            },
+        )
 
-    def record_workflow_completed(self, workflow_name: str, status: str, duration: float):
-        self.workflow_executions.add(1, {"workflow_name": workflow_name, "status": status})
+    def record_workflow_completed(
+        self,
+        namespace: str,
+        workflow_name: str,
+        status: str,
+        duration: float,
+    ):
+        self.workflow_executions.add(
+            1,
+            {
+                "workflow_namespace": namespace,
+                "workflow_name": workflow_name,
+                "status": status,
+            },
+        )
         if duration > 0:
-            self.workflow_execution_duration.record(duration, {"workflow_name": workflow_name})
+            self.workflow_execution_duration.record(
+                duration,
+                {"workflow_namespace": namespace, "workflow_name": workflow_name},
+            )
 
-    def record_task_started(self, workflow_name: str, task_name: str):
+    def record_task_started(self, namespace: str, workflow_name: str, task_name: str):
         self.task_executions.add(
             1,
-            {"workflow_name": workflow_name, "task_name": task_name, "status": "started"},
+            {
+                "workflow_namespace": namespace,
+                "workflow_name": workflow_name,
+                "task_name": task_name,
+                "status": "started",
+            },
         )
 
     def record_task_completed(
         self,
+        namespace: str,
         workflow_name: str,
         task_name: str,
         status: str,
         duration: float,
     ):
-        attrs = {"workflow_name": workflow_name, "task_name": task_name, "status": status}
+        attrs = {
+            "workflow_namespace": namespace,
+            "workflow_name": workflow_name,
+            "task_name": task_name,
+            "status": status,
+        }
         self.task_executions.add(1, attrs)
         self.task_execution_duration.record(
             duration,
-            {"workflow_name": workflow_name, "task_name": task_name},
+            {
+                "workflow_namespace": namespace,
+                "workflow_name": workflow_name,
+                "task_name": task_name,
+            },
         )
 
-    def record_task_retry(self, workflow_name: str, task_name: str):
-        self.task_retries.add(1, {"workflow_name": workflow_name, "task_name": task_name})
+    def record_task_retry(self, namespace: str, workflow_name: str, task_name: str):
+        self.task_retries.add(
+            1,
+            {
+                "workflow_namespace": namespace,
+                "workflow_name": workflow_name,
+                "task_name": task_name,
+            },
+        )
 
     def record_execution_queued(self):
         self.execution_queue_depth.add(1)
@@ -148,10 +193,21 @@ class FluxMetrics:
         if schedule_to_start is not None:
             self.execution_schedule_to_start.record(schedule_to_start)
 
-    def record_checkpoint(self, workflow_name: str, duration: float | None = None):
-        self.checkpoints.add(1, {"workflow_name": workflow_name})
+    def record_checkpoint(
+        self,
+        namespace: str,
+        workflow_name: str,
+        duration: float | None = None,
+    ):
+        self.checkpoints.add(
+            1,
+            {"workflow_namespace": namespace, "workflow_name": workflow_name},
+        )
         if duration is not None:
-            self.checkpoint_duration.record(duration, {"workflow_name": workflow_name})
+            self.checkpoint_duration.record(
+                duration,
+                {"workflow_namespace": namespace, "workflow_name": workflow_name},
+            )
 
     def record_worker_registered(self, worker_name: str):
         self.worker_registrations.add(1, {"worker_name": worker_name})

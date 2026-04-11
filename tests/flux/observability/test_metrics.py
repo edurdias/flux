@@ -26,22 +26,24 @@ class TestFluxMetrics:
 
     def test_record_workflow_started(self):
         m, reader = self._create_metrics()
-        m.record_workflow_started("my_workflow")
+        m.record_workflow_started("default", "my_workflow")
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
         assert dp.attributes["status"] == "started"
         assert dp.value == 1
 
     def test_record_workflow_completed(self):
         m, reader = self._create_metrics()
-        m.record_workflow_completed("my_workflow", "completed", 1.5)
+        m.record_workflow_completed("default", "my_workflow", "completed", 1.5)
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
         assert dp.attributes["status"] == "completed"
         assert dp.value == 1
@@ -52,7 +54,7 @@ class TestFluxMetrics:
 
     def test_record_workflow_completed_zero_duration_skips_histogram(self):
         m, reader = self._create_metrics()
-        m.record_workflow_completed("my_workflow", "cancelled", 0)
+        m.record_workflow_completed("default", "my_workflow", "cancelled", 0)
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
@@ -64,18 +66,19 @@ class TestFluxMetrics:
 
     def test_record_task_started(self):
         m, reader = self._create_metrics()
-        m.record_task_started("wf", "my_task")
+        m.record_task_started("default", "wf", "my_task")
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "wf"
         assert dp.attributes["task_name"] == "my_task"
         assert dp.attributes["status"] == "started"
 
     def test_record_task_completed(self):
         m, reader = self._create_metrics()
-        m.record_task_completed("wf", "my_task", "completed", 0.5)
+        m.record_task_completed("default", "wf", "my_task", "completed", 0.5)
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
@@ -88,11 +91,12 @@ class TestFluxMetrics:
 
     def test_record_task_retry(self):
         m, reader = self._create_metrics()
-        m.record_task_retry("wf", "my_task")
+        m.record_task_retry("default", "wf", "my_task")
 
         metric = self._get_metric(reader, "flux_task_retries_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "wf"
         assert dp.attributes["task_name"] == "my_task"
         assert dp.value == 1
@@ -160,11 +164,12 @@ class TestFluxMetrics:
 
     def test_record_checkpoint_with_duration(self):
         m, reader = self._create_metrics()
-        m.record_checkpoint("my_workflow", 0.15)
+        m.record_checkpoint("default", "my_workflow", 0.15)
 
         metric = self._get_metric(reader, "flux_checkpoints_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
 
         duration = self._get_metric(reader, "flux_checkpoint_duration_seconds")
@@ -198,6 +203,28 @@ class TestFluxMetrics:
                 miss_dp = dp
         assert hit_dp is not None and hit_dp.value == 1
         assert miss_dp is not None and miss_dp.value == 1
+
+
+def test_record_workflow_started_requires_namespace():
+    """Signature check: metrics helpers must accept namespace as first arg."""
+    import inspect
+    from flux.observability.metrics import FluxMetrics
+
+    for helper in [
+        "record_workflow_started",
+        "record_workflow_completed",
+        "record_task_started",
+        "record_task_completed",
+        "record_task_retry",
+        "record_checkpoint",
+    ]:
+        sig = inspect.signature(getattr(FluxMetrics, helper))
+        params = list(sig.parameters.keys())
+        # params[0] is 'self'; the next positional argument should be 'namespace'
+        assert "namespace" in params, f"{helper} missing 'namespace' parameter"
+        assert params.index("namespace") < params.index(
+            "workflow_name",
+        ), f"{helper}: namespace should come before workflow_name"
 
 
 class TestNormalizePath:

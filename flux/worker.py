@@ -274,7 +274,9 @@ class Worker:
 
                     m = get_metrics()
                     if m:
-                        m.record_workflow_completed(context.workflow_name, "cancelled", 0)
+                        m.record_workflow_completed(
+                            context.workflow_namespace, context.workflow_name, "cancelled", 0,
+                        )
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
         except Exception as ex:
@@ -521,7 +523,9 @@ class Worker:
             m = get_metrics()
             if m:
                 status = "completed" if not ctx.has_failed else "failed"
-                m.record_workflow_completed(request.workflow.name, status, execution_time)
+                m.record_workflow_completed(
+                    request.workflow.namespace, request.workflow.name, status, execution_time,
+                )
         else:
             logger.warning(f"Workflow {request.workflow.name} not found in module")
             raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
@@ -584,7 +588,7 @@ class Worker:
 
             m = get_metrics()
             if m:
-                m.record_checkpoint(ctx.workflow_name, checkpoint_duration)
+                m.record_checkpoint(ctx.workflow_namespace, ctx.workflow_name, checkpoint_duration)
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")
