@@ -940,14 +940,21 @@ class Server:
 
         @api.get("/namespaces")
         async def list_namespaces(
-            identity: FluxIdentity = Depends(require_permission("workflow:*:*:read")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
             try:
                 catalog = WorkflowCatalog.create()
-                counts: dict[str, int] = {}
-                for wf in catalog.all():
-                    counts[wf.namespace] = counts.get(wf.namespace, 0) + 1
-                return [{"namespace": ns, "workflow_count": n} for ns, n in sorted(counts.items())]
+                visible: dict[str, int] = {}
+                if auth_service is not None and auth_config.enabled:
+                    permissions = await auth_service.resolve_permissions(identity)
+                    for wf in catalog.all():
+                        required = f"workflow:{wf.namespace}:{wf.name}:read"
+                        if identity.has_permission(required, permissions):
+                            visible[wf.namespace] = visible.get(wf.namespace, 0) + 1
+                else:
+                    for wf in catalog.all():
+                        visible[wf.namespace] = visible.get(wf.namespace, 0) + 1
+                return [{"namespace": ns, "workflow_count": n} for ns, n in sorted(visible.items())]
             except Exception as e:
                 raise HTTPException(
                     status_code=500,
@@ -957,12 +964,20 @@ class Server:
         @api.get("/workflows")
         async def workflows_all(
             namespace: str | None = None,
-            identity: FluxIdentity = Depends(require_permission("workflow:*:*:read")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
             try:
                 logger.debug("Fetching all workflows")
                 catalog = WorkflowCatalog.create()
                 workflows = catalog.all(namespace=namespace)
+                if auth_service is not None and auth_config.enabled:
+                    permissions = await auth_service.resolve_permissions(identity)
+                    filtered = []
+                    for w in workflows:
+                        required = f"workflow:{w.namespace}:{w.name}:read"
+                        if identity.has_permission(required, permissions):
+                            filtered.append(w)
+                    workflows = filtered
                 result = [
                     {"namespace": w.namespace, "name": w.name, "version": w.version}
                     for w in workflows
@@ -3028,9 +3043,16 @@ class Server:
             namespace: str,
             workflow_name: str,
             version: int | None = None,
-            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
             """Delete workflow by namespace/name, optionally specific version."""
+            if auth_service is not None and auth_config.enabled:
+                required = f"workflow:{namespace}:*:register"
+                if not await auth_service.is_authorized(identity, required):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Permission denied: requires '{required}'",
+                    )
             try:
                 logger.info(
                     f"Deleting workflow '{namespace}/{workflow_name}'"
@@ -3072,12 +3094,19 @@ class Server:
         async def workflow_delete(
             workflow_name: str,
             version: int | None = None,
-            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
+            identity: FluxIdentity = Depends(get_identity),
         ):
             """Delete workflow by name, optionally specific version."""
             from flux.catalogs import resolve_workflow_ref
 
             ns, name = resolve_workflow_ref(workflow_name)
+            if auth_service is not None and auth_config.enabled:
+                required = f"workflow:{ns}:*:register"
+                if not await auth_service.is_authorized(identity, required):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Permission denied: requires '{required}'",
+                    )
             try:
                 logger.info(
                     f"Deleting workflow '{ns}/{name}'"
