@@ -86,15 +86,20 @@ Flux enforces RBAC at API and task level. Roles are collections of permissions.
 
 ### Permission format
 
+Workflow permissions are 4-segment:
+
 ```
-resource:name:action
+workflow:{namespace}:{name}:{action}
 ```
+
+Other resources remain 3-segment (`resource:name:action`).
 
 | Permission | Grants |
 |-----------|--------|
-| `workflow:*:run` | Run any workflow |
-| `workflow:report:run` | Run `report` specifically |
-| `workflow:report:task:load:execute` | Execute task `load` in `report` |
+| `workflow:*:*:run` | Run any workflow in any namespace |
+| `workflow:default:report:run` | Run `report` in the `default` namespace |
+| `workflow:billing:invoice:run` | Run `invoice` in `billing` |
+| `workflow:billing:*` | Any action on any workflow in `billing` |
 | `schedule:*:manage` | Create, update, delete any schedule |
 | `admin:secrets:manage` | Create and delete secrets |
 | `admin:roles:manage` | Manage roles |
@@ -102,15 +107,23 @@ resource:name:action
 
 **Wildcard rules:**
 
-- Terminal `*` (last segment): matches any number of remaining segments. `workflow:report:*` matches `workflow:report:run`, `workflow:report:task:load:execute`, etc.
-- Non-terminal `*` (middle segment): matches exactly one segment. `workflow:*:read` matches `workflow:report:read` but not `workflow:report:sub:read`.
+- Terminal `*` (last segment): matches any number of remaining segments. `workflow:billing:*` matches `workflow:billing:invoice:run`, etc.
+- Non-terminal `*` (middle segment): matches exactly one segment. `workflow:*:*:read` matches `workflow:billing:report:read` but not deeper paths.
+
+**Namespace-wide grants** use `workflow:{namespace}:*` or `workflow:{namespace}:*:{action}`:
+
+```bash
+flux roles create billing-operator \
+  --permissions "workflow:billing:*:run" \
+  --permissions "workflow:billing:*:read"
+```
 
 ### Custom roles
 
 ```bash
 flux roles create data-pipeline \
-  --permissions "workflow:ingest:run" \
-  --permissions "workflow:transform:run"
+  --permissions "workflow:default:ingest:run" \
+  --permissions "workflow:default:transform:run"
 
 flux roles clone operator --name restricted-operator
 flux roles update restricted-operator --remove-permissions "schedule:*:manage"
@@ -274,7 +287,7 @@ flux auth logout
 ```bash
 flux roles list [--format json]
 flux roles show <name>
-flux roles create <name> --permissions "workflow:*:run"
+flux roles create <name> --permissions "workflow:*:*:run"
 flux roles clone <source> --name <new>
 flux roles update <name> --add-permissions "x:y:z" --remove-permissions "a:b:c"
 flux roles delete <name>
@@ -314,13 +327,13 @@ flux principals revoke-key <subject> --key-name <name>
 
 | Method | Path | Required Permission |
 |--------|------|---------------------|
-| `GET` | `/workflows` | `workflow:*:read` |
-| `GET` | `/workflows/{name}` | `workflow:{name}:read` |
-| `POST` | `/workflows/{name}/run` | `workflow:{name}:run` |
-| `GET` | `/executions` | `workflow:*:read` |
-| `GET` | `/executions/{id}` | `workflow:*:read` |
-| `POST` | `/executions/{id}/resume` | `workflow:*:run` |
-| `POST` | `/executions/{id}/cancel` | `workflow:*:run` |
+| `GET` | `/workflows` | `workflow:*:*:read` |
+| `GET` | `/workflows/{namespace}/{name}` | `workflow:{namespace}:{name}:read` |
+| `POST` | `/workflows/{namespace}/{name}/run` | `workflow:{namespace}:{name}:run` |
+| `GET` | `/executions` | `workflow:*:*:read` |
+| `GET` | `/executions/{id}` | `workflow:*:*:read` |
+| `POST` | `/executions/{id}/resume` | `workflow:*:*:run` |
+| `POST` | `/executions/{id}/cancel` | `workflow:*:*:run` |
 | `POST` | `/executions/{id}/authorize/{task}` | exec_token (internal) |
 | `GET` | `/schedules` | `schedule:*:read` |
 | `POST` | `/schedules` | `schedule:*:manage` |
