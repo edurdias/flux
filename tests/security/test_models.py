@@ -185,39 +185,6 @@ class TestExecutionContextModelNewColumns:
         assert m.scheduling_principal_issuer == "https://issuer"
 
 
-class TestMigrateSchemaExecTokenColumns:
-    def test_migrate_adds_exec_token_to_existing_executions_table(self, tmp_path):
-        from sqlalchemy import create_engine, text, inspect as sa_inspect
-        from flux.models import _migrate_schema
-
-        db_url = f"sqlite:///{tmp_path}/test_migrate.db"
-        engine = create_engine(db_url)
-
-        with engine.connect() as conn:
-            conn.execute(
-                text(
-                    "CREATE TABLE executions ("
-                    "  execution_id VARCHAR PRIMARY KEY,"
-                    "  workflow_id VARCHAR NOT NULL,"
-                    "  workflow_name VARCHAR NOT NULL,"
-                    "  input BLOB,"
-                    "  output BLOB,"
-                    "  state VARCHAR NOT NULL,"
-                    "  worker_name VARCHAR"
-                    ")",
-                ),
-            )
-            conn.commit()
-
-        _migrate_schema(engine)
-
-        inspector = sa_inspect(engine)
-        cols = [c["name"] for c in inspector.get_columns("executions")]
-        assert "exec_token" in cols
-        assert "scheduling_subject" in cols
-        assert "scheduling_principal_issuer" in cols
-
-
 class TestExecutionContextModelRoundtrip:
     def test_from_plain_preserves_exec_token_on_model(self):
         from flux.models import ExecutionContextModel

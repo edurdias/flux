@@ -309,4 +309,21 @@ def test_workflow_model_unique_constraint_on_namespace_name_version(tmp_path):
     unique_constraints = inspector.get_unique_constraints("workflows")
     names = {uc["name"] for uc in unique_constraints}
     assert "uix_workflow_namespace_name_version" in names
+
+
+def test_workflow_model_composite_namespace_name_index(tmp_path):
+    from flux.models import Base
+    from sqlalchemy import create_engine, inspect
+
+    db_url = f"sqlite:///{tmp_path}/test_models.db"
+    engine = create_engine(db_url)
+    Base.metadata.create_all(engine)
+
+    inspector = inspect(engine)
+    indexes = inspector.get_indexes("workflows")
+    names = {idx["name"] for idx in indexes}
+    assert "ix_workflow_namespace_name" in names
+
+    target = next(idx for idx in indexes if idx["name"] == "ix_workflow_namespace_name")
+    assert target["column_names"] == ["namespace", "name"]
     assert "uix_workflow_name_version" not in names
