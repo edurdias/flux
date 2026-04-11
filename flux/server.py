@@ -103,6 +103,7 @@ class ScheduleRequest(BaseModel):
     """Model for schedule creation/update requests"""
 
     workflow_name: str
+    workflow_namespace: str | None = None
     name: str
     schedule_config: dict  # Schedule configuration (cron expression, interval, etc.)
     description: str | None = None
@@ -115,6 +116,7 @@ class ScheduleResponse(BaseModel):
 
     id: str
     workflow_id: str
+    workflow_namespace: str
     workflow_name: str
     name: str
     description: str | None
@@ -421,7 +423,11 @@ class Server:
                 workflow_obj = None
 
                 for obj in module_globals.values():
-                    if isinstance(obj, workflow) and obj.name == workflow_info.name:
+                    if (
+                        isinstance(obj, workflow)
+                        and obj.namespace == workflow_info.namespace
+                        and obj.name == workflow_info.name
+                    ):
                         workflow_obj = obj
                         break
 
@@ -452,6 +458,7 @@ class Server:
                     else:
                         schedule_manager.create_schedule(
                             workflow_id=workflow_info.id,
+                            workflow_namespace=workflow_info.namespace,
                             workflow_name=workflow_info.name,
                             name=schedule_name,
                             schedule=workflow_obj.schedule,
@@ -2647,6 +2654,7 @@ class Server:
             return ScheduleResponse(
                 id=schedule.id,
                 workflow_id=schedule.workflow_id,
+                workflow_namespace=getattr(schedule, "workflow_namespace", "default") or "default",
                 workflow_name=schedule.workflow_name,
                 name=schedule.name,
                 description=schedule.description,
@@ -2722,7 +2730,11 @@ class Server:
                 # Get workflow from catalog to ensure it exists
                 from flux.catalogs import resolve_workflow_ref as _resolve_ref
 
-                _sched_req_ns, _sched_req_name = _resolve_ref(request.workflow_name)
+                if request.workflow_namespace:
+                    _sched_req_ns = request.workflow_namespace
+                    _sched_req_name = request.workflow_name
+                else:
+                    _sched_req_ns, _sched_req_name = _resolve_ref(request.workflow_name)
                 catalog = WorkflowCatalog.create()
                 workflow_def = catalog.get(_sched_req_ns, _sched_req_name)
                 if not workflow_def:
@@ -2738,7 +2750,8 @@ class Server:
                 schedule_manager = create_schedule_manager()
                 schedule_model = schedule_manager.create_schedule(
                     workflow_id=workflow_def.id,
-                    workflow_name=request.workflow_name,
+                    workflow_namespace=_sched_req_ns,
+                    workflow_name=_sched_req_name,
                     name=request.name,
                     schedule=schedule,
                     description=request.description,
