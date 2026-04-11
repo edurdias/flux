@@ -380,6 +380,7 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 # Query executions for this workflow using the repository
                 query = session.query(ExecutionContextModel).filter(
+                    ExecutionContextModel.workflow_namespace == schedule.workflow_namespace,
                     ExecutionContextModel.workflow_name == schedule.workflow_name,
                 )
 
