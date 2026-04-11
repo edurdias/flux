@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-# Import ExecutionContext directly to avoid circular imports
+import re
+
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.execution_context import ExecutionContext
 from flux.context_managers import ContextManager
@@ -15,11 +16,29 @@ from typing import Any, Callable, TypeVar
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+_NAMESPACE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_NAMESPACE_MAX_LEN = 64
+
+
+def _validate_namespace(namespace: str | None) -> str:
+    if namespace is None or namespace == "":
+        return "default"
+    if len(namespace) > _NAMESPACE_MAX_LEN:
+        raise ValueError(
+            f"Invalid namespace '{namespace}': max length {_NAMESPACE_MAX_LEN}",
+        )
+    if not _NAMESPACE_RE.match(namespace):
+        raise ValueError(
+            f"Invalid namespace '{namespace}': must match {_NAMESPACE_RE.pattern}",
+        )
+    return namespace
+
 
 class workflow:
     @staticmethod
     def with_options(
         name: str | None = None,
+        namespace: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
@@ -30,6 +49,7 @@ class workflow:
 
         Args:
             name (str | None, optional): The name of the workflow. Defaults to None.
+            namespace (str | None, optional): The namespace for the workflow. Defaults to "default".
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
             requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
@@ -43,6 +63,7 @@ class workflow:
             return workflow(
                 func=func,
                 name=name,
+                namespace=namespace,
                 secret_requests=secret_requests,
                 output_storage=output_storage,
                 requests=requests,
@@ -55,6 +76,7 @@ class workflow:
         self,
         func: F,
         name: str | None = None,
+        namespace: str | None = None,
         secret_requests: list[str] = [],
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
@@ -62,6 +84,7 @@ class workflow:
     ):
         self._func = func
         self._name = name if name else func.__name__
+        self._namespace = _validate_namespace(namespace)
         self._secret_requests = secret_requests
         self._output_storage = output_storage
         self._requests = requests
@@ -71,6 +94,14 @@ class workflow:
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def namespace(self) -> str:
+        return self._namespace
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self._namespace}/{self._name}"
 
     @property
     def secret_requests(self) -> list[str]:
