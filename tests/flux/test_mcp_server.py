@@ -35,3 +35,28 @@ def test_mcp_has_list_namespaces_tool():
 
     source = inspect.getsource(src)
     assert "async def list_namespaces" in source, "list_namespaces MCP tool missing"
+
+
+def test_mcp_workflow_tools_include_workflow_namespace_param():
+    """All 11 workflow-scoped MCP tools must declare workflow_namespace (covers C-NEW-1 fix)."""
+    import flux.mcp_server as src
+
+    source = inspect.getsource(src)
+    tools_with_workflow_namespace = [
+        "get_workflow_details",
+        "execute_workflow_async",
+        "execute_workflow_sync",
+        "resume_workflow_async",
+        "resume_workflow_sync",
+        "get_execution_status",
+        # Newly fixed (C-NEW-1):
+        "cancel_execution",
+        "delete_workflow",
+        "list_workflow_versions",
+        "get_workflow_version",
+        "list_workflow_executions",
+    ]
+    for tool in tools_with_workflow_namespace:
+        idx = source.index(f"async def {tool}")
+        window = source[idx : idx + 800]
+        assert "workflow_namespace" in window, f"{tool} missing workflow_namespace"
