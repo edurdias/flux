@@ -59,6 +59,7 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["status"] == "cancelled"
 
         duration = self._get_metric(reader, "flux_workflow_execution_duration_seconds")
@@ -84,6 +85,9 @@ class TestFluxMetrics:
         assert metric is not None
         dp = metric.data.data_points[0]
         assert dp.attributes["status"] == "completed"
+        assert dp.attributes["workflow_namespace"] == "default"
+        assert dp.attributes["workflow_name"] == "wf"
+        assert dp.attributes["task_name"] == "my_task"
 
         duration = self._get_metric(reader, "flux_task_execution_duration_seconds")
         assert duration is not None
@@ -205,7 +209,7 @@ class TestFluxMetrics:
         assert miss_dp is not None and miss_dp.value == 1
 
 
-def test_record_workflow_started_requires_namespace():
+def test_metrics_helpers_require_namespace_parameter():
     """Signature check: metrics helpers must accept namespace as first arg."""
     import inspect
     from flux.observability.metrics import FluxMetrics
