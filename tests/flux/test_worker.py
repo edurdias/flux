@@ -522,3 +522,12 @@ def test_module_cache_key_includes_namespace():
     assert name_a != name_b
     assert "billing" in name_a
     assert "analytics" in name_b
+
+
+def test_module_name_no_underscore_collision():
+    """foo_bar/baz and foo/bar_baz must produce distinct module names."""
+    from flux.worker import _make_module_name
+
+    name_a = _make_module_name("foo_bar", "baz", 1)
+    name_b = _make_module_name("foo", "bar_baz", 1)
+    assert name_a != name_b

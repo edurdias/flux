@@ -31,7 +31,7 @@ def _make_module_cache_key(namespace: str, name: str, version: int) -> str:
 
 
 def _make_module_name(namespace: str, name: str, version: int) -> str:
-    return f"flux_workflow_{namespace}_{name}_{version}"
+    return f"flux_workflow.{namespace}.{name}.{version}"
 
 
 class WorkflowDefinition(BaseModel):
