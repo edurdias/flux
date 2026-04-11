@@ -204,6 +204,7 @@ class ExecutionSummaryResponse(BaseModel):
 
     execution_id: str
     workflow_id: str
+    workflow_namespace: str
     workflow_name: str
     state: str
     worker_name: str | None = None
@@ -3289,6 +3290,7 @@ class Server:
         @api.get("/executions", response_model=ExecutionListResponse)
         async def executions_list(
             workflow_name: str | None = None,
+            namespace: str | None = None,
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
@@ -3297,8 +3299,8 @@ class Server:
             """List executions with optional filtering."""
             try:
                 logger.debug(
-                    f"Listing executions (workflow: {workflow_name}, state: {state}, "
-                    f"limit: {limit}, offset: {offset})",
+                    f"Listing executions (namespace: {namespace}, workflow: {workflow_name}, "
+                    f"state: {state}, limit: {limit}, offset: {offset})",
                 )
 
                 from flux.domain import ExecutionState
@@ -3318,6 +3320,7 @@ class Server:
                 manager = ContextManager.create()
                 executions, total = manager.list(
                     workflow_name=workflow_name,
+                    workflow_namespace=namespace,
                     state=state_filter,
                     limit=limit,
                     offset=offset,
@@ -3328,6 +3331,7 @@ class Server:
                         ExecutionSummaryResponse(
                             execution_id=ex.execution_id,
                             workflow_id=ex.workflow_id,
+                            workflow_namespace=ex.workflow_namespace,
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
@@ -3447,6 +3451,7 @@ class Server:
                         ExecutionSummaryResponse(
                             execution_id=ex.execution_id,
                             workflow_id=ex.workflow_id,
+                            workflow_namespace=ex.workflow_namespace,
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
@@ -3537,6 +3542,7 @@ class Server:
                         ExecutionSummaryResponse(
                             execution_id=ex.execution_id,
                             workflow_id=ex.workflow_id,
+                            workflow_namespace=ex.workflow_namespace,
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,

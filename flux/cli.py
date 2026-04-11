@@ -532,7 +532,7 @@ def execution():
     "--workflow",
     "-w",
     default=None,
-    help="Filter by workflow name",
+    help="Filter by workflow reference (namespace/name or bare name)",
 )
 @click.option(
     "--state",
@@ -581,7 +581,9 @@ def list_executions(
 
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
-            params["workflow_name"] = workflow
+            namespace, wf_name = resolve_workflow_ref(workflow)
+            params["namespace"] = namespace
+            params["workflow_name"] = wf_name
         if state:
             params["state"] = state
 
@@ -605,9 +607,10 @@ def list_executions(
             for ex in executions:
                 state_str = ex.get("state", "UNKNOWN")
                 worker = ex.get("worker_name") or "unassigned"
+                ns = ex.get("workflow_namespace", "default")
                 click.echo(
                     f"  {ex['execution_id'][:12]}...  "
-                    f"{ex['workflow_name']:20}  {state_str:12}  {worker}",
+                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}",
                 )
 
     except httpx.HTTPStatusError as ex:

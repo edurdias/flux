@@ -138,3 +138,71 @@ async def process(ctx):
     a_total = a_body.get("total") if isinstance(a_body, dict) else len(a_body)
     assert b_total == 1, f"billing namespace returned {b_total} executions, expected 1"
     assert a_total == 1, f"analytics namespace returned {a_total} executions, expected 1"
+
+
+def test_executions_list_endpoint_namespace_filter(client):
+    """GET /executions?namespace=billing must filter server-side."""
+    src_billing = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="billing")
+async def process(ctx):
+    return "billing"
+"""
+    src_analytics = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="analytics")
+async def process(ctx):
+    return "analytics"
+"""
+    _register_source(client, src_billing)
+    _register_source(client, src_analytics)
+
+    r_b = client.post("/workflows/billing/process/run/async", json=None)
+    assert r_b.status_code == 200, r_b.text
+    r_a = client.post("/workflows/analytics/process/run/async", json=None)
+    assert r_a.status_code == 200, r_a.text
+
+    r = client.get("/executions", params={"namespace": "billing"})
+    assert r.status_code == 200
+    body = r.json()
+    executions = body.get("executions", body) if isinstance(body, dict) else body
+    assert len(executions) >= 1, "expected at least one billing execution"
+    for e in executions:
+        assert e.get("workflow_namespace") == "billing", e
+
+    r = client.get("/executions", params={"namespace": "analytics"})
+    assert r.status_code == 200
+    body = r.json()
+    executions = body.get("executions", body) if isinstance(body, dict) else body
+    assert len(executions) >= 1, "expected at least one analytics execution"
+    for e in executions:
+        assert e.get("workflow_namespace") == "analytics", e
+
+
+def test_executions_list_with_workflow_name_and_namespace(client):
+    """Filtering by both workflow_name and namespace must return only that workflow's executions."""
+    src = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="billing")
+async def process(ctx):
+    return "billing-p"
+
+@workflow.with_options(namespace="billing")
+async def other(ctx):
+    return "billing-o"
+"""
+    _register_source(client, src)
+    client.post("/workflows/billing/process/run/async", json=None)
+    client.post("/workflows/billing/other/run/async", json=None)
+
+    r = client.get("/executions", params={"namespace": "billing", "workflow_name": "process"})
+    assert r.status_code == 200
+    body = r.json()
+    executions = body.get("executions", body) if isinstance(body, dict) else body
+    assert len(executions) >= 1, "expected at least one billing/process execution"
+    for e in executions:
+        assert e.get("workflow_name") == "process", e
+        assert e.get("workflow_namespace") == "billing", e
