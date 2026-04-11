@@ -206,3 +206,41 @@ async def other(ctx):
     for e in executions:
         assert e.get("workflow_name") == "process", e
         assert e.get("workflow_namespace") == "billing", e
+
+
+def test_parse_rejects_invalid_namespace():
+    """WorkflowCatalog.parse() must raise SyntaxError for an invalid namespace string."""
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="Invalid Namespace!")
+async def bad(ctx):
+    return None
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    with pytest.raises(SyntaxError, match="namespace"):
+        catalog.parse(source)
+
+
+def test_post_workflows_rejects_invalid_namespace(client):
+    """HTTP round-trip: POST /workflows with invalid namespace returns 400."""
+    source = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="Has Spaces")
+async def bad(ctx):
+    return None
+"""
+    files = {"file": ("bad.py", source, "text/x-python")}
+    r = client.post("/workflows", files=files)
+    assert r.status_code == 400, r.text
+
+
+def test_post_workflows_rejects_oversized_upload(client):
+    """POST /workflows with a huge file returns 413."""
+    source = b"# " + b"x" * (2 * 1024 * 1024) + b"\n@workflow\nasync def f(ctx):\n    return None\n"
+    files = {"file": ("huge.py", source, "text/x-python")}
+    r = client.post("/workflows", files=files)
+    assert r.status_code == 413, r.text

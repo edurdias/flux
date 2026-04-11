@@ -11,6 +11,8 @@ from sqlalchemy import desc
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from flux._namespace import DEFAULT_NAMESPACE
+from flux._namespace import validate_namespace
 from flux.errors import WorkflowNotFoundError
 from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
@@ -18,8 +20,6 @@ from flux.domain.resource_request import ResourceRequest
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
-
-DEFAULT_NAMESPACE = "default"
 
 
 def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
@@ -186,7 +186,12 @@ class WorkflowCatalog(ABC):
                                 if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                                     workflow_name = kw.value.value
                                 elif kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
-                                    workflow_namespace = kw.value.value or DEFAULT_NAMESPACE
+                                    try:
+                                        workflow_namespace = validate_namespace(kw.value.value)
+                                    except ValueError as e:
+                                        raise SyntaxError(
+                                            f"Invalid namespace in @workflow.with_options: {e}",
+                                        ) from e
                                 elif kw.arg == "requests":
                                     workflow_requests = self._extract_workflow_requests(kw.value)
 

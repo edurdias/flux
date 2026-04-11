@@ -1,37 +1,19 @@
 from __future__ import annotations
 
-import re
-
-from flux.domain.resource_request import ResourceRequest
-from flux.domain.execution_context import ExecutionContext
-from flux.context_managers import ContextManager
-from flux.errors import PauseRequested
-from flux.output_storage import OutputStorage
-from flux.utils import maybe_awaitable
-from flux.domain.schedule import Schedule
-
 import asyncio
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
+from flux._namespace import validate_namespace
+from flux.context_managers import ContextManager
+from flux.domain.execution_context import ExecutionContext
+from flux.domain.resource_request import ResourceRequest
+from flux.domain.schedule import Schedule
+from flux.errors import PauseRequested
+from flux.output_storage import OutputStorage
+from flux.utils import maybe_awaitable
+
 F = TypeVar("F", bound=Callable[..., Any])
-
-_NAMESPACE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-_NAMESPACE_MAX_LEN = 64
-
-
-def _validate_namespace(namespace: str | None) -> str:
-    if namespace is None or namespace == "":
-        return "default"
-    if len(namespace) > _NAMESPACE_MAX_LEN:
-        raise ValueError(
-            f"Invalid namespace '{namespace}': max length {_NAMESPACE_MAX_LEN}",
-        )
-    if not _NAMESPACE_RE.match(namespace):
-        raise ValueError(
-            f"Invalid namespace '{namespace}': must match {_NAMESPACE_RE.pattern}",
-        )
-    return namespace
 
 
 class workflow:
@@ -84,7 +66,7 @@ class workflow:
     ):
         self._func = func
         self._name = name if name else func.__name__
-        self._namespace = _validate_namespace(namespace)
+        self._namespace = validate_namespace(namespace)
         self._secret_requests = secret_requests
         self._output_storage = output_storage
         self._requests = requests

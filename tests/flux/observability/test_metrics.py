@@ -262,3 +262,32 @@ class TestNormalizePath:
         assert _normalize_path("/workflows") == "/workflows"
         assert _normalize_path("/health") == "/health"
         assert _normalize_path("/metrics") == "/metrics"
+
+    def test_normalizes_4_segment_namespaced_run_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/run/sync")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_normalizes_4_segment_namespaced_resume_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/resume/exec-123/sync")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+        assert "exec-123" not in normalized
+
+    def test_normalizes_4_segment_namespaced_executions_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/executions")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_normalizes_4_segment_namespaced_workflow_resource(self):
+        normalized = _normalize_path("/workflows/billing/invoice")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_normalizes_legacy_3_segment_run_route(self):
+        normalized = _normalize_path("/workflows/hello_world/run/sync")
+        assert "hello_world" not in normalized
+
+    def test_normalizes_legacy_3_segment_executions_route(self):
+        normalized = _normalize_path("/workflows/hello_world/executions/abc123")
+        assert "hello_world" not in normalized

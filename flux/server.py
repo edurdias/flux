@@ -48,6 +48,8 @@ from datetime import datetime, timezone
 
 logger = get_logger(__name__)
 
+MAX_WORKFLOW_UPLOAD_BYTES = 1_048_576  # 1 MiB — workflow sources should be small
+
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return JSONResponse(
@@ -899,6 +901,14 @@ class Server:
         ):
             source = await file.read()
             logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
+            if len(source) > MAX_WORKFLOW_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Workflow source too large: {len(source)} bytes "
+                        f"(max {MAX_WORKFLOW_UPLOAD_BYTES})"
+                    ),
+                )
             try:
                 logger.debug(f"Processing workflow file: {file.filename}")
                 catalog = WorkflowCatalog.create()
