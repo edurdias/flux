@@ -26,8 +26,17 @@ from flux import workflow
 logger = get_logger(__name__)
 
 
+def _make_module_cache_key(namespace: str, name: str, version: int) -> str:
+    return f"{namespace}:{name}:{version}"
+
+
+def _make_module_name(namespace: str, name: str, version: int) -> str:
+    return f"flux_workflow_{namespace}_{name}_{version}"
+
+
 class WorkflowDefinition(BaseModel):
     id: str
+    namespace: str = "default"
     name: str
     version: int
     source: str
@@ -432,7 +441,11 @@ class Worker:
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
 
-        cache_key = f"{request.workflow.name}:{request.workflow.version}"
+        cache_key = _make_module_cache_key(
+            request.workflow.namespace,
+            request.workflow.name,
+            request.workflow.version,
+        )
         module = None
         wfunc = None
 
@@ -459,7 +472,11 @@ class Worker:
             source_code = base64.b64decode(request.workflow.source).decode("utf-8")
             logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
 
-            module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+            module_name = _make_module_name(
+                request.workflow.namespace,
+                request.workflow.name,
+                request.workflow.version,
+            )
             logger.debug(f"Creating module: {module_name}")
             module_spec = importlib.util.spec_from_loader(module_name, loader=None)
             module = importlib.util.module_from_spec(module_spec)  # type: ignore
@@ -475,7 +492,11 @@ class Worker:
         self._setup_progress(ctx)
 
         for obj in module.__dict__.values():
-            if isinstance(obj, workflow) and obj.name == request.workflow.name:
+            if (
+                isinstance(obj, workflow)
+                and obj.namespace == request.workflow.namespace
+                and obj.name == request.workflow.name
+            ):
                 wfunc = obj
                 break
 
