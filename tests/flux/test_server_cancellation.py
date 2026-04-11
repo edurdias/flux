@@ -228,6 +228,7 @@ class TestExecutionEndpoints:
         mock_exec.execution_id = "exec-123"
         mock_exec.workflow_id = "wf-123"
         mock_exec.workflow_name = "test_workflow"
+        mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.COMPLETED
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
 
@@ -326,6 +327,7 @@ class TestExecutionEndpoints:
         mock_exec.execution_id = "exec-123"
         mock_exec.workflow_id = "wf-123"
         mock_exec.workflow_name = "test_workflow"
+        mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.RUNNING
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
 
