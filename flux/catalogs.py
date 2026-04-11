@@ -34,8 +34,6 @@ def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
         raise ValueError("Workflow reference cannot be empty")
     parts = ref.split("/")
     if len(parts) == 1:
-        if not parts[0]:
-            raise ValueError("Workflow reference cannot be empty")
         return (DEFAULT_NAMESPACE, parts[0])
     if len(parts) == 2:
         namespace, name = parts
