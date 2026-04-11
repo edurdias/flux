@@ -154,7 +154,10 @@ class task:
                         task_name=full_name,
                         task_id=task_id,
                         subject="unknown",
-                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                        required_permission=(
+                            f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}"
+                            f":task:{self.name}:execute"
+                        ),
                     )
 
                 server_url = Configuration.get().settings.workers.server_url
@@ -189,7 +192,10 @@ class task:
                         task_name=full_name,
                         task_id=task_id,
                         subject="unknown",
-                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                        required_permission=(
+                            f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}"
+                            f":task:{self.name}:execute"
+                        ),
                     )
 
         finished = [
@@ -311,7 +317,11 @@ class task:
             if m:
                 status = "completed" if not task_failed else "failed"
                 m.record_task_completed(
-                    ctx.workflow_namespace, ctx.workflow_name, self.name, status, task_duration,
+                    ctx.workflow_namespace,
+                    ctx.workflow_name,
+                    self.name,
+                    status,
+                    task_duration,
                 )
 
             ctx.events.append(
