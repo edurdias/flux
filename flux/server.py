@@ -480,13 +480,14 @@ class Server:
 
     def _create_execution(
         self,
+        namespace: str,
         workflow_name: str,
         input_data: Any = None,
         version: int | None = None,
     ) -> ExecutionContext:
-        workflow = WorkflowCatalog.create().get(workflow_name, version)
+        workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
         if not workflow:
-            raise WorkflowNotFoundError(f"Workflow '{workflow_name}' not found")
+            raise WorkflowNotFoundError(f"Workflow '{namespace}/{workflow_name}' not found")
 
         ctx = ContextManager.create().save(
             ExecutionContext(
@@ -731,7 +732,8 @@ class Server:
                 )
 
                 try:
-                    workflow = WorkflowCatalog.create().get(schedule.workflow_name)
+                    _sched_ns = getattr(schedule, "workflow_namespace", "default") or "default"
+                    workflow = WorkflowCatalog.create().get(_sched_ns, schedule.workflow_name)
                     workflow_metadata = (
                         workflow.metadata or {} if hasattr(workflow, "metadata") else {}
                     )
@@ -755,7 +757,9 @@ class Server:
                     schedule.mark_failure()
                     return
 
+            _sched_ns = getattr(schedule, "workflow_namespace", "default") or "default"
             ctx = self._create_execution(
+                _sched_ns,
                 schedule.workflow_name,
                 schedule.input_data,
             )
@@ -882,7 +886,7 @@ class Server:
         @api.post("/workflows")
         async def workflows_save(
             file: UploadFile = File(...),
-            identity: FluxIdentity = Depends(require_permission("workflow:*:register")),
+            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
         ):
             source = await file.read()
             logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
@@ -903,23 +907,44 @@ class Server:
                 logger.error(f"Error saving workflow: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
 
+        @api.get("/namespaces")
+        async def list_namespaces(
+            identity: FluxIdentity = Depends(require_permission("workflow:*:*:read")),
+        ):
+            try:
+                catalog = WorkflowCatalog.create()
+                counts: dict[str, int] = {}
+                for wf in catalog.all():
+                    counts[wf.namespace] = counts.get(wf.namespace, 0) + 1
+                return [{"namespace": ns, "workflow_count": n} for ns, n in sorted(counts.items())]
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing namespaces: {str(e)}",
+                )
+
         @api.get("/workflows")
         async def workflows_all(
-            identity: FluxIdentity = Depends(require_permission("workflow:*:read")),
+            namespace: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("workflow:*:*:read")),
         ):
             try:
                 logger.debug("Fetching all workflows")
                 catalog = WorkflowCatalog.create()
-                workflows = catalog.all()
-                result = [{"name": w.name, "version": w.version} for w in workflows]
+                workflows = catalog.all(namespace=namespace)
+                result = [
+                    {"namespace": w.namespace, "name": w.name, "version": w.version}
+                    for w in workflows
+                ]
                 logger.debug(f"Found {len(result)} workflows")
                 return result
             except Exception as e:
                 logger.error(f"Error listing workflows: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error listing workflows: {str(e)}")
 
-        @api.get("/workflows/{workflow_name}")
-        async def workflows_get(
+        @api.get("/workflows/{namespace}/{workflow_name}")
+        async def workflows_get_ns(
+            namespace: str,
             workflow_name: str,
             identity: FluxIdentity = Depends(get_identity),
         ):
@@ -927,16 +952,18 @@ class Server:
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:read",
+                        f"workflow:{namespace}:{workflow_name}:read",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:read'",
                         )
-                logger.debug(f"Fetching workflow: {workflow_name}")
+                logger.debug(f"Fetching workflow: {namespace}/{workflow_name}")
                 catalog = WorkflowCatalog.create()
-                workflow = catalog.get(workflow_name)
-                logger.debug(f"Found workflow: {workflow_name} (version: {workflow.version})")
+                workflow = catalog.get(namespace, workflow_name)
+                logger.debug(
+                    f"Found workflow: {namespace}/{workflow_name} (version: {workflow.version})",
+                )
                 return workflow.to_dict()
             except WorkflowNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e))
@@ -945,8 +972,39 @@ class Server:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error retrieving workflow: {str(e)}")
 
-        @api.post("/workflows/{workflow_name}/run/{mode}")
-        async def workflows_run(
+        @api.get("/workflows/{workflow_name}")
+        async def workflows_get(
+            workflow_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:read'",
+                        )
+                logger.debug(f"Fetching workflow: {ns}/{name}")
+                catalog = WorkflowCatalog.create()
+                workflow = catalog.get(ns, name)
+                logger.debug(f"Found workflow: {ns}/{name} (version: {workflow.version})")
+                return workflow.to_dict()
+            except WorkflowNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error retrieving workflow: {str(e)}")
+
+        @api.post("/workflows/{namespace}/{workflow_name}/run/{mode}")
+        async def workflows_run_ns(
+            namespace: str,
             workflow_name: str,
             input: Any = Body(None),
             mode: str = "async",
@@ -956,7 +1014,7 @@ class Server:
         ):
             try:
                 logger.debug(
-                    f"Running workflow: {workflow_name} (version: {version or 'latest'}) "
+                    f"Running workflow: {namespace}/{workflow_name} (version: {version or 'latest'}) "
                     f"| Mode: {mode} | Detailed: {detailed}",
                 )
                 logger.debug(f"Input: {to_json(input)}")
@@ -971,9 +1029,10 @@ class Server:
                     )
 
                 if auth_service is not None and auth_config.enabled:
-                    workflow_info = WorkflowCatalog.create().get(workflow_name, version)
+                    workflow_info = WorkflowCatalog.create().get(namespace, workflow_name, version)
                     result = await auth_service.authorize(
                         identity,
+                        namespace,
                         workflow_name,
                         workflow_info.metadata or {},
                     )
@@ -986,7 +1045,7 @@ class Server:
                             },
                         )
 
-                ctx = self._create_execution(workflow_name, input, version)
+                ctx = self._create_execution(namespace, workflow_name, input, version)
                 manager = ContextManager.create()
 
                 if identity and identity != ANONYMOUS and auth_config.enabled:
@@ -1012,7 +1071,206 @@ class Server:
                     finally:
                         token_session.close()
                 logger.debug(
-                    f"Created execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                    f"Created execution context: {ctx.execution_id} for workflow: {namespace}/{workflow_name}",
+                )
+
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
+
+                if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+
+                    async def check_for_new_executions_ns():
+                        nonlocal ctx
+                        event = self._execution_events[ctx.execution_id]
+                        progress_buffer = self._progress_buffers.get(ctx.execution_id)
+                        try:
+                            while not ctx.has_finished:
+                                if progress_buffer:
+                                    progress_task = asyncio.create_task(progress_buffer.get())
+                                    checkpoint_task = asyncio.create_task(event.wait())
+
+                                    done, pending = await asyncio.wait(
+                                        {progress_task, checkpoint_task},
+                                        timeout=30.0,
+                                        return_when=asyncio.FIRST_COMPLETED,
+                                    )
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
+
+                                    if progress_task in done:
+                                        item = progress_task.result()
+                                        items = [item]
+                                        while not progress_buffer.empty():
+                                            items.append(progress_buffer.get_nowait())
+                                        for p in items:
+                                            yield {
+                                                "event": "task.progress",
+                                                "data": to_json(
+                                                    {
+                                                        "type": p.type.value,
+                                                        "source_id": p.source_id,
+                                                        "name": p.name,
+                                                        "value": p.value,
+                                                        "time": str(p.time),
+                                                    },
+                                                ),
+                                            }
+
+                                    if checkpoint_task in done or event.is_set():
+                                        event.clear()
+                                        new_ctx = manager.get(ctx.execution_id)
+                                        if new_ctx.events and (
+                                            not ctx.events
+                                            or new_ctx.events[-1].time > ctx.events[-1].time
+                                        ):
+                                            ctx = new_ctx
+                                            dto = ExecutionContextDTO.from_domain(ctx)
+                                            yield {
+                                                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                                "data": to_json(dto if detailed else dto.summary()),
+                                            }
+                                else:
+                                    try:
+                                        await asyncio.wait_for(event.wait(), timeout=30.0)
+                                    except asyncio.TimeoutError:
+                                        pass
+                                    event.clear()
+                                    new_ctx = manager.get(ctx.execution_id)
+                                    if new_ctx.events and (
+                                        not ctx.events
+                                        or new_ctx.events[-1].time > ctx.events[-1].time
+                                    ):
+                                        ctx = new_ctx
+                                        dto = ExecutionContextDTO.from_domain(ctx)
+                                        yield {
+                                            "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                            "data": to_json(dto if detailed else dto.summary()),
+                                        }
+                        finally:
+                            self._execution_events.pop(ctx.execution_id, None)
+                            self._progress_buffers.pop(ctx.execution_id, None)
+
+                    return EventSourceResponse(
+                        check_for_new_executions_ns(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                response = dto.summary() if not detailed else dto
+                logger.debug(
+                    f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
+                )
+                return response
+
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error scheduling workflow {namespace}/{workflow_name}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
+
+        @api.post("/workflows/{workflow_name}/run/{mode}")
+        async def workflows_run(
+            workflow_name: str,
+            input: Any = Body(None),
+            mode: str = "async",
+            detailed: bool = False,
+            version: int | None = None,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.debug(
+                    f"Running workflow: {ns}/{name} (version: {version or 'latest'}) "
+                    f"| Mode: {mode} | Detailed: {detailed}",
+                )
+                logger.debug(f"Input: {to_json(input)}")
+
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
+                if auth_service is not None and auth_config.enabled:
+                    workflow_info = WorkflowCatalog.create().get(ns, name, version)
+                    result = await auth_service.authorize(
+                        identity,
+                        ns,
+                        name,
+                        workflow_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
+
+                ctx = self._create_execution(ns, name, input, version)
+                manager = ContextManager.create()
+
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM3
+
+                        exec_row = token_session.get(_ECM3, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            token_session.commit()
+                    finally:
+                        token_session.close()
+                logger.debug(
+                    f"Created execution context: {ctx.execution_id} for workflow: {ns}/{name}",
                 )
 
                 # Register execution event BEFORE notifying workers to avoid
@@ -1140,11 +1398,12 @@ class Server:
             except HTTPException:
                 raise
             except Exception as e:
-                logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
+                logger.error(f"Error scheduling workflow {ns}/{name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
 
-        @api.post("/workflows/{workflow_name}/resume/{execution_id}/{mode}")
-        async def workflows_resume(
+        @api.post("/workflows/{namespace}/{workflow_name}/resume/{execution_id}/{mode}")
+        async def workflows_resume_ns(
+            namespace: str,
             workflow_name: str,
             execution_id: str,
             input: Any = Body(None),
@@ -1154,12 +1413,9 @@ class Server:
         ):
             try:
                 logger.debug(
-                    f"Resuming workflow: {workflow_name} | Execution ID: {execution_id} | Mode: {mode} | Detailed: {detailed}",
+                    f"Resuming workflow: {namespace}/{workflow_name} | Execution ID: {execution_id} | Mode: {mode} | Detailed: {detailed}",
                 )
                 logger.debug(f"Input: {to_json(input)}")
-
-                if not workflow_name:
-                    raise HTTPException(status_code=400, detail="Workflow name is required.")
 
                 if not execution_id:
                     raise HTTPException(status_code=400, detail="Execution ID is required.")
@@ -1171,9 +1427,10 @@ class Server:
                     )
 
                 if auth_service is not None and auth_config.enabled:
-                    workflow_info = WorkflowCatalog.create().get(workflow_name)
+                    workflow_info = WorkflowCatalog.create().get(namespace, workflow_name)
                     result = await auth_service.authorize(
                         identity,
+                        namespace,
                         workflow_name,
                         workflow_info.metadata or {},
                     )
@@ -1228,7 +1485,7 @@ class Server:
                 ctx.start_resuming(input)
                 manager.save(ctx)
                 logger.debug(
-                    f"Resuming execution context: {ctx.execution_id} for workflow: {workflow_name}",
+                    f"Resuming execution context: {ctx.execution_id} for workflow: {namespace}/{workflow_name}",
                 )
 
                 # Register execution event BEFORE notifying workers to avoid
@@ -1257,7 +1514,7 @@ class Server:
                 if mode == "stream":
                     self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
 
-                    async def check_for_new_executions():
+                    async def check_for_new_executions_resume_ns():
                         nonlocal ctx
                         event = self._execution_events[ctx.execution_id]
                         progress_buffer = self._progress_buffers.get(ctx.execution_id)
@@ -1334,7 +1591,7 @@ class Server:
                             self._progress_buffers.pop(ctx.execution_id, None)
 
                     return EventSourceResponse(
-                        check_for_new_executions(),
+                        check_for_new_executions_resume_ns(),
                         media_type="text/event-stream",
                         headers={
                             "Content-Type": "text/event-stream",
@@ -1356,11 +1613,229 @@ class Server:
             except HTTPException:
                 raise
             except Exception as e:
-                logger.error(f"Error scheduling workflow {workflow_name}: {str(e)}")
+                logger.error(f"Error scheduling workflow {namespace}/{workflow_name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
 
-        @api.get("/workflows/{workflow_name}/status/{execution_id}")
-        async def workflows_status(
+        @api.post("/workflows/{workflow_name}/resume/{execution_id}/{mode}")
+        async def workflows_resume(
+            workflow_name: str,
+            execution_id: str,
+            input: Any = Body(None),
+            mode: str = "async",
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.debug(
+                    f"Resuming workflow: {ns}/{name} | Execution ID: {execution_id} | Mode: {mode} | Detailed: {detailed}",
+                )
+                logger.debug(f"Input: {to_json(input)}")
+
+                if not execution_id:
+                    raise HTTPException(status_code=400, detail="Execution ID is required.")
+
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
+                if auth_service is not None and auth_config.enabled:
+                    workflow_info = WorkflowCatalog.create().get(ns, name)
+                    result = await auth_service.authorize(
+                        identity,
+                        ns,
+                        name,
+                        workflow_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
+
+                manager = ContextManager.create()
+
+                ctx = manager.get(execution_id)
+
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    resume_token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM4
+
+                        exec_row = resume_token_session.get(_ECM4, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            resume_token_session.commit()
+                    finally:
+                        resume_token_session.close()
+
+                if ctx.has_finished:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot resume a finished execution.",
+                    )
+
+                ctx.start_resuming(input)
+                manager.save(ctx)
+                logger.debug(
+                    f"Resuming execution context: {ctx.execution_id} for workflow: {ns}/{name}",
+                )
+
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
+
+                if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+
+                    async def check_for_new_executions_resume():
+                        nonlocal ctx
+                        event = self._execution_events[ctx.execution_id]
+                        progress_buffer = self._progress_buffers.get(ctx.execution_id)
+                        try:
+                            while not ctx.has_finished:
+                                if progress_buffer:
+                                    progress_task = asyncio.create_task(progress_buffer.get())
+                                    checkpoint_task = asyncio.create_task(event.wait())
+
+                                    done, pending = await asyncio.wait(
+                                        {progress_task, checkpoint_task},
+                                        timeout=30.0,
+                                        return_when=asyncio.FIRST_COMPLETED,
+                                    )
+                                    for t in pending:
+                                        t.cancel()
+                                    if pending:
+                                        await asyncio.gather(*pending, return_exceptions=True)
+
+                                    if not done:
+                                        continue
+
+                                    if progress_task in done:
+                                        item = progress_task.result()
+                                        items = [item]
+                                        while not progress_buffer.empty():
+                                            items.append(progress_buffer.get_nowait())
+                                        for p in items:
+                                            yield {
+                                                "event": "task.progress",
+                                                "data": to_json(
+                                                    {
+                                                        "type": p.type.value,
+                                                        "source_id": p.source_id,
+                                                        "name": p.name,
+                                                        "value": p.value,
+                                                        "time": str(p.time),
+                                                    },
+                                                ),
+                                            }
+
+                                    if checkpoint_task in done or event.is_set():
+                                        event.clear()
+                                        new_ctx = manager.get(ctx.execution_id)
+                                        if new_ctx.events and (
+                                            not ctx.events
+                                            or new_ctx.events[-1].time > ctx.events[-1].time
+                                        ):
+                                            ctx = new_ctx
+                                            dto = ExecutionContextDTO.from_domain(ctx)
+                                            yield {
+                                                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                                "data": to_json(dto if detailed else dto.summary()),
+                                            }
+                                else:
+                                    try:
+                                        await asyncio.wait_for(event.wait(), timeout=30.0)
+                                    except asyncio.TimeoutError:
+                                        pass
+                                    event.clear()
+                                    new_ctx = manager.get(ctx.execution_id)
+                                    if new_ctx.events and (
+                                        not ctx.events
+                                        or new_ctx.events[-1].time > ctx.events[-1].time
+                                    ):
+                                        ctx = new_ctx
+                                        dto = ExecutionContextDTO.from_domain(ctx)
+                                        yield {
+                                            "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                                            "data": to_json(dto if detailed else dto.summary()),
+                                        }
+                        finally:
+                            self._execution_events.pop(ctx.execution_id, None)
+                            self._progress_buffers.pop(ctx.execution_id, None)
+
+                    return EventSourceResponse(
+                        check_for_new_executions_resume(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                response = dto.summary() if not detailed else dto
+                logger.debug(
+                    f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
+                )
+                return response
+
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error scheduling workflow {ns}/{name}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error scheduling workflow: {str(e)}")
+
+        @api.get("/workflows/{namespace}/{workflow_name}/status/{execution_id}")
+        async def workflows_status_ns(
+            namespace: str,
             workflow_name: str,
             execution_id: str,
             detailed: bool = False,
@@ -1368,17 +1843,17 @@ class Server:
         ):
             try:
                 logger.debug(
-                    f"Checking status for workflow: {workflow_name} | Execution ID: {execution_id}",
+                    f"Checking status for workflow: {namespace}/{workflow_name} | Execution ID: {execution_id}",
                 )
 
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:read",
+                        f"workflow:{namespace}:{workflow_name}:read",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:read'",
                         )
 
                 manager = ContextManager.create()
@@ -1390,8 +1865,43 @@ class Server:
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
 
-        @api.get("/workflows/{workflow_name}/cancel/{execution_id}")
-        async def workflows_cancel(
+        @api.get("/workflows/{workflow_name}/status/{execution_id}")
+        async def workflows_status(
+            workflow_name: str,
+            execution_id: str,
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.debug(
+                    f"Checking status for workflow: {ns}/{name} | Execution ID: {execution_id}",
+                )
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:read'",
+                        )
+
+                manager = ContextManager.create()
+                context = manager.get(execution_id)
+                dto = ExecutionContextDTO.from_domain(context)
+                result = dto.summary() if not detailed else dto
+                logger.debug(f"Status for {execution_id}: {context.state.value}")
+                return result
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
+
+        @api.get("/workflows/{namespace}/{workflow_name}/cancel/{execution_id}")
+        async def workflows_cancel_ns(
+            namespace: str,
             workflow_name: str,
             execution_id: str,
             mode: str = "async",
@@ -1400,21 +1910,18 @@ class Server:
         ):
             try:
                 logger.debug(
-                    f"Cancelling workflow: {workflow_name} | Execution ID: {execution_id} | Mode: {mode}",
+                    f"Cancelling workflow: {namespace}/{workflow_name} | Execution ID: {execution_id} | Mode: {mode}",
                 )
 
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:run",
+                        f"workflow:{namespace}:{workflow_name}:run",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:run'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:run'",
                         )
-
-                if not workflow_name:
-                    raise HTTPException(status_code=400, detail="Workflow name is required.")
 
                 if not execution_id:
                     raise HTTPException(status_code=400, detail="Execution ID is required.")
@@ -1443,7 +1950,10 @@ class Server:
                 m = get_metrics()
                 if m:
                     m.record_workflow_completed(
-                        ctx.workflow_namespace, workflow_name, "cancel_requested", 0,
+                        ctx.workflow_namespace,
+                        workflow_name,
+                        "cancel_requested",
+                        0,
                     )
 
                 # Register execution event BEFORE notifying workers to avoid
@@ -1474,7 +1984,9 @@ class Server:
 
                 dto = ExecutionContextDTO.from_domain(ctx)
                 result = dto.summary() if not detailed else dto
-                logger.info(f"Workflow {workflow_name} execution {execution_id} is {dto.state}.")
+                logger.info(
+                    f"Workflow {namespace}/{workflow_name} execution {execution_id} is {dto.state}.",
+                )
                 return result
             except WorkflowNotFoundError as e:
                 logger.error(f"Workflow not found: {str(e)}")
@@ -1483,10 +1995,114 @@ class Server:
                 logger.error(f"Worker not found: {str(e)}")
                 raise HTTPException(status_code=404, detail=str(e))
             except HTTPException as he:
-                logger.error(f"HTTP error while cancelling workflow {workflow_name}: {str(he)}")
+                logger.error(
+                    f"HTTP error while cancelling workflow {namespace}/{workflow_name}: {str(he)}",
+                )
                 raise
             except Exception as e:
-                logger.error(f"Error cancelling workflow {workflow_name}: {str(e)}")
+                logger.error(f"Error cancelling workflow {namespace}/{workflow_name}: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error cancelling workflow: {str(e)}")
+
+        @api.get("/workflows/{workflow_name}/cancel/{execution_id}")
+        async def workflows_cancel(
+            workflow_name: str,
+            execution_id: str,
+            mode: str = "async",
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.debug(
+                    f"Cancelling workflow: {ns}/{name} | Execution ID: {execution_id} | Mode: {mode}",
+                )
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:run",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:run'",
+                        )
+
+                if not execution_id:
+                    raise HTTPException(status_code=400, detail="Execution ID is required.")
+
+                if mode and mode not in ["sync", "async"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async'.",
+                    )
+
+                manager = ContextManager.create()
+                ctx = manager.get(execution_id)
+
+                if ctx.has_finished:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot cancel a finished execution.",
+                    )
+
+                ctx.start_cancel()
+                manager.save(ctx)
+                self._execution_queue_times.pop(execution_id, None)
+
+                from flux.observability import get_metrics
+
+                m = get_metrics()
+                if m:
+                    m.record_workflow_completed(
+                        ctx.workflow_namespace,
+                        name,
+                        "cancel_requested",
+                        0,
+                    )
+
+                # Register execution event BEFORE notifying workers to avoid
+                # race where worker checkpoints before event exists.
+                if mode == "sync":
+                    self._execution_events.setdefault(
+                        ctx.execution_id,
+                        asyncio.Event(),
+                    )
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
+                    try:
+                        while not ctx.has_finished:
+                            logger.debug(
+                                f"Waiting for cancellation of {execution_id}, current state: {ctx.state.value}",
+                            )
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                result = dto.summary() if not detailed else dto
+                logger.info(f"Workflow {ns}/{name} execution {execution_id} is {dto.state}.")
+                return result
+            except WorkflowNotFoundError as e:
+                logger.error(f"Workflow not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except WorkerNotFoundError as e:
+                logger.error(f"Worker not found: {str(e)}")
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException as he:
+                logger.error(f"HTTP error while cancelling workflow {ns}/{name}: {str(he)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error cancelling workflow {ns}/{name}: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error cancelling workflow: {str(e)}")
 
         @api.post("/workers/register")
@@ -1644,7 +2260,11 @@ class Server:
 
                                 ctx = context_manager.next_execution(worker)
                                 if ctx:
-                                    workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                    _exec_ns = getattr(ctx, "workflow_namespace", None) or "default"
+                                    workflow = WorkflowCatalog.create().get(
+                                        _exec_ns,
+                                        ctx.workflow_name,
+                                    )
                                     workflow.source = base64.b64encode(workflow.source).decode(
                                         "utf-8",
                                     )
@@ -1714,7 +2334,13 @@ class Server:
 
                                 ctx = context_manager.next_resume(worker)
                                 if ctx:
-                                    workflow = WorkflowCatalog.create().get(ctx.workflow_name)
+                                    _resume_ns = (
+                                        getattr(ctx, "workflow_namespace", None) or "default"
+                                    )
+                                    workflow = WorkflowCatalog.create().get(
+                                        _resume_ns,
+                                        ctx.workflow_name,
+                                    )
                                     workflow.source = base64.b64encode(workflow.source).decode(
                                         "utf-8",
                                     )
@@ -2081,8 +2707,11 @@ class Server:
                         )
 
                 # Get workflow from catalog to ensure it exists
+                from flux.catalogs import resolve_workflow_ref as _resolve_ref
+
+                _sched_req_ns, _sched_req_name = _resolve_ref(request.workflow_name)
                 catalog = WorkflowCatalog.create()
-                workflow_def = catalog.get(request.workflow_name)
+                workflow_def = catalog.get(_sched_req_ns, _sched_req_name)
                 if not workflow_def:
                     raise HTTPException(
                         status_code=404,
@@ -2134,8 +2763,11 @@ class Server:
 
                 if workflow_name:
                     # Get workflow to get its ID
+                    from flux.catalogs import resolve_workflow_ref as _resolve_ref2
+
+                    _list_sched_ns, _list_sched_name = _resolve_ref2(workflow_name)
                     catalog = WorkflowCatalog.create()
-                    workflow_def = catalog.get(workflow_name)
+                    workflow_def = catalog.get(_list_sched_ns, _list_sched_name)
                     if not workflow_def:
                         raise HTTPException(
                             status_code=404,
@@ -2354,38 +2986,85 @@ class Server:
         # Workflow Version Management Endpoints
         # ===========================================
 
-        @api.delete("/workflows/{workflow_name}")
-        async def workflow_delete(
+        @api.delete("/workflows/{namespace}/{workflow_name}")
+        async def workflow_delete_ns(
+            namespace: str,
             workflow_name: str,
             version: int | None = None,
-            identity: FluxIdentity = Depends(require_permission("workflow:*:register")),
+            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
         ):
-            """Delete workflow by name, optionally specific version."""
+            """Delete workflow by namespace/name, optionally specific version."""
             try:
                 logger.info(
-                    f"Deleting workflow '{workflow_name}'"
+                    f"Deleting workflow '{namespace}/{workflow_name}'"
                     + (f" version {version}" if version else " (all versions)"),
                 )
 
                 catalog = WorkflowCatalog.create()
 
-                # Check if workflow exists
                 try:
-                    catalog.get(workflow_name, version)
+                    catalog.get(namespace, workflow_name, version)
                 except WorkflowNotFoundError:
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Workflow '{workflow_name}'"
+                        detail=f"Workflow '{namespace}/{workflow_name}'"
                         + (f" version {version}" if version else "")
                         + " not found",
                     )
 
-                catalog.delete(workflow_name, version)
+                catalog.delete(namespace, workflow_name, version)
 
-                logger.info(f"Successfully deleted workflow '{workflow_name}'")
+                logger.info(f"Successfully deleted workflow '{namespace}/{workflow_name}'")
                 return {
                     "status": "success",
-                    "message": f"Workflow '{workflow_name}'"
+                    "message": f"Workflow '{namespace}/{workflow_name}'"
+                    + (f" version {version}" if version else " (all versions)")
+                    + " deleted successfully",
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error deleting workflow: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error deleting workflow: {str(e)}",
+                )
+
+        @api.delete("/workflows/{workflow_name}")
+        async def workflow_delete(
+            workflow_name: str,
+            version: int | None = None,
+            identity: FluxIdentity = Depends(require_permission("workflow:*:*:register")),
+        ):
+            """Delete workflow by name, optionally specific version."""
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.info(
+                    f"Deleting workflow '{ns}/{name}'"
+                    + (f" version {version}" if version else " (all versions)"),
+                )
+
+                catalog = WorkflowCatalog.create()
+
+                try:
+                    catalog.get(ns, name, version)
+                except WorkflowNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{ns}/{name}'"
+                        + (f" version {version}" if version else "")
+                        + " not found",
+                    )
+
+                catalog.delete(ns, name, version)
+
+                logger.info(f"Successfully deleted workflow '{ns}/{name}'")
+                return {
+                    "status": "success",
+                    "message": f"Workflow '{ns}/{name}'"
                     + (f" version {version}" if version else " (all versions)")
                     + " deleted successfully",
                 }
@@ -2400,10 +3079,11 @@ class Server:
                 )
 
         @api.get(
-            "/workflows/{workflow_name}/versions",
+            "/workflows/{namespace}/{workflow_name}/versions",
             response_model=list[WorkflowVersionResponse],
         )
-        async def workflow_versions(
+        async def workflow_versions_ns(
+            namespace: str,
             workflow_name: str,
             identity: FluxIdentity = Depends(get_identity),
         ):
@@ -2412,21 +3092,21 @@ class Server:
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:read",
+                        f"workflow:{namespace}:{workflow_name}:read",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:read'",
                         )
-                logger.debug(f"Fetching versions for workflow: {workflow_name}")
+                logger.debug(f"Fetching versions for workflow: {namespace}/{workflow_name}")
 
                 catalog = WorkflowCatalog.create()
-                versions = catalog.versions(workflow_name)
+                versions = catalog.versions(namespace, workflow_name)
 
                 if not versions:
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Workflow '{workflow_name}' not found",
+                        detail=f"Workflow '{namespace}/{workflow_name}' not found",
                     )
 
                 result = [
@@ -2437,7 +3117,9 @@ class Server:
                     )
                     for v in versions
                 ]
-                logger.debug(f"Found {len(result)} versions for workflow '{workflow_name}'")
+                logger.debug(
+                    f"Found {len(result)} versions for workflow '{namespace}/{workflow_name}'",
+                )
                 return result
 
             except HTTPException:
@@ -2449,8 +3131,62 @@ class Server:
                     detail=f"Error listing workflow versions: {str(e)}",
                 )
 
-        @api.get("/workflows/{workflow_name}/versions/{version}")
-        async def workflow_version_get(
+        @api.get(
+            "/workflows/{workflow_name}/versions",
+            response_model=list[WorkflowVersionResponse],
+        )
+        async def workflow_versions(
+            workflow_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """List all versions of a workflow."""
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:read'",
+                        )
+                logger.debug(f"Fetching versions for workflow: {ns}/{name}")
+
+                catalog = WorkflowCatalog.create()
+                versions = catalog.versions(ns, name)
+
+                if not versions:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{ns}/{name}' not found",
+                    )
+
+                result = [
+                    WorkflowVersionResponse(
+                        id=v.id,
+                        name=v.name,
+                        version=v.version,
+                    )
+                    for v in versions
+                ]
+                logger.debug(f"Found {len(result)} versions for workflow '{ns}/{name}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing workflow versions: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing workflow versions: {str(e)}",
+                )
+
+        @api.get("/workflows/{namespace}/{workflow_name}/versions/{version}")
+        async def workflow_version_get_ns(
+            namespace: str,
             workflow_name: str,
             version: int,
             identity: FluxIdentity = Depends(get_identity),
@@ -2460,18 +3196,55 @@ class Server:
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:read",
+                        f"workflow:{namespace}:{workflow_name}:read",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:read'",
                         )
-                logger.debug(f"Fetching workflow '{workflow_name}' version {version}")
+                logger.debug(f"Fetching workflow '{namespace}/{workflow_name}' version {version}")
 
                 catalog = WorkflowCatalog.create()
-                workflow = catalog.get(workflow_name, version)
+                workflow = catalog.get(namespace, workflow_name, version)
 
-                logger.debug(f"Found workflow '{workflow_name}' version {version}")
+                logger.debug(f"Found workflow '{namespace}/{workflow_name}' version {version}")
+                return workflow.to_dict()
+
+            except WorkflowNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except Exception as e:
+                logger.error(f"Error retrieving workflow version: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error retrieving workflow version: {str(e)}",
+                )
+
+        @api.get("/workflows/{workflow_name}/versions/{version}")
+        async def workflow_version_get(
+            workflow_name: str,
+            version: int,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """Get specific workflow version."""
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:read'",
+                        )
+                logger.debug(f"Fetching workflow '{ns}/{name}' version {version}")
+
+                catalog = WorkflowCatalog.create()
+                workflow = catalog.get(ns, name, version)
+
+                logger.debug(f"Found workflow '{ns}/{name}' version {version}")
                 return workflow.to_dict()
 
             except WorkflowNotFoundError as e:
@@ -2584,10 +3357,11 @@ class Server:
                 )
 
         @api.get(
-            "/workflows/{workflow_name}/executions",
+            "/workflows/{namespace}/{workflow_name}/executions",
             response_model=ExecutionListResponse,
         )
-        async def workflow_executions_list(
+        async def workflow_executions_list_ns(
+            namespace: str,
             workflow_name: str,
             state: str | None = None,
             limit: int = 50,
@@ -2597,33 +3371,31 @@ class Server:
             """List executions for a specific workflow."""
             try:
                 logger.debug(
-                    f"Listing executions for workflow '{workflow_name}' "
+                    f"Listing executions for workflow '{namespace}/{workflow_name}' "
                     f"(state: {state}, limit: {limit}, offset: {offset})",
                 )
 
                 if auth_service is not None and auth_config.enabled:
                     if not await auth_service.is_authorized(
                         identity,
-                        f"workflow:{workflow_name}:read",
+                        f"workflow:{namespace}:{workflow_name}:read",
                     ):
                         raise HTTPException(
                             status_code=403,
-                            detail=f"Permission denied: requires 'workflow:{workflow_name}:read'",
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{workflow_name}:read'",
                         )
 
                 from flux.domain import ExecutionState
 
-                # Check workflow exists
                 catalog = WorkflowCatalog.create()
                 try:
-                    catalog.get(workflow_name)
+                    catalog.get(namespace, workflow_name)
                 except WorkflowNotFoundError:
                     raise HTTPException(
                         status_code=404,
-                        detail=f"Workflow '{workflow_name}' not found",
+                        detail=f"Workflow '{namespace}/{workflow_name}' not found",
                     )
 
-                # Parse state if provided
                 state_filter = None
                 if state:
                     try:
@@ -2659,7 +3431,96 @@ class Server:
                     offset=offset,
                 )
 
-                logger.debug(f"Found {total} executions for workflow '{workflow_name}'")
+                logger.debug(f"Found {total} executions for workflow '{namespace}/{workflow_name}'")
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing workflow executions: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error listing workflow executions: {str(e)}",
+                )
+
+        @api.get(
+            "/workflows/{workflow_name}/executions",
+            response_model=ExecutionListResponse,
+        )
+        async def workflow_executions_list(
+            workflow_name: str,
+            state: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """List executions for a specific workflow."""
+            from flux.catalogs import resolve_workflow_ref
+
+            ns, name = resolve_workflow_ref(workflow_name)
+            try:
+                logger.debug(
+                    f"Listing executions for workflow '{ns}/{name}' "
+                    f"(state: {state}, limit: {limit}, offset: {offset})",
+                )
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{ns}:{name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{ns}:{name}:read'",
+                        )
+
+                from flux.domain import ExecutionState
+
+                catalog = WorkflowCatalog.create()
+                try:
+                    catalog.get(ns, name)
+                except WorkflowNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Workflow '{ns}/{name}' not found",
+                    )
+
+                state_filter = None
+                if state:
+                    try:
+                        state_filter = ExecutionState(state.upper())
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Invalid state '{state}'. Valid states: "
+                            + ", ".join([s.value for s in ExecutionState]),
+                        )
+
+                manager = ContextManager.create()
+                executions, total = manager.list(
+                    workflow_name=name,
+                    state=state_filter,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                result = ExecutionListResponse(
+                    executions=[
+                        ExecutionSummaryResponse(
+                            execution_id=ex.execution_id,
+                            workflow_id=ex.workflow_id,
+                            workflow_name=ex.workflow_name,
+                            state=ex.state.value,
+                            worker_name=ex.current_worker,
+                        )
+                        for ex in executions
+                    ],
+                    total=total,
+                    limit=limit,
+                    offset=offset,
+                )
+
+                logger.debug(f"Found {total} executions for workflow '{ns}/{name}'")
                 return result
 
             except HTTPException:
@@ -3356,17 +4217,20 @@ class Server:
             try:
                 catalog = WorkflowCatalog.create()
                 if workflow:
-                    wf = catalog.get(workflow)
+                    from flux.catalogs import resolve_workflow_ref as _resolve_perm
+
+                    _perm_ns, _perm_name = _resolve_perm(workflow)
+                    wf = catalog.get(_perm_ns, _perm_name)
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
-                    perms = [f"workflow:{wf.name}:read"]
+                    perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
                     perms.extend(auth_service._collect_required_permissions(wf.name, meta))
                     return perms
                 result = {}
                 for wf in catalog.all():
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
-                    perms = [f"workflow:{wf.name}:read"]
+                    perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
                     perms.extend(auth_service._collect_required_permissions(wf.name, meta))
-                    result[wf.name] = perms
+                    result[f"{wf.namespace}/{wf.name}"] = perms
                 return result
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
@@ -3463,7 +4327,8 @@ class Server:
 
                 workflow_meta = {}
                 try:
-                    wf = WorkflowCatalog.create().get(ctx.workflow_name)
+                    _auth_ns = getattr(ctx, "workflow_namespace", None) or "default"
+                    wf = WorkflowCatalog.create().get(_auth_ns, ctx.workflow_name)
                     workflow_meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                 except Exception:
                     pass
