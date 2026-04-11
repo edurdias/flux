@@ -33,6 +33,14 @@ class TestResolveWorkflowRef:
         with pytest.raises(ValueError, match="empty"):
             resolve_workflow_ref("billing/")
 
+    def test_invalid_namespace_rejected(self):
+        with pytest.raises(ValueError, match="namespace"):
+            resolve_workflow_ref("BADNAMESPACE/invoice")
+
+    def test_namespace_with_spaces_rejected(self):
+        with pytest.raises(ValueError, match="namespace"):
+            resolve_workflow_ref("foo bar/invoice")
+
 
 class TestWorkflowNamespace:
     def test_default_namespace(self):

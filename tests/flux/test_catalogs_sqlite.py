@@ -478,3 +478,23 @@ async def main(ctx):
     main_info = next(i for i in infos if i.name == "main")
     assert main_info.metadata["task_names"] == ["load"]
     assert main_info.metadata["nested_workflows"] == [["billing", "nested_helper"]]
+
+
+def test_nested_plain_workflow_maps_to_default_namespace_from_namespaced_caller():
+    from flux.catalogs import DatabaseWorkflowCatalog
+
+    source = b"""
+from flux import workflow
+
+@workflow
+async def nested_helper(ctx):
+    return None
+
+@workflow.with_options(namespace="billing")
+async def main(ctx):
+    await nested_helper(ctx)
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse(source)
+    main_info = next(i for i in infos if i.name == "main")
+    assert main_info.metadata["nested_workflows"] == [["default", "nested_helper"]]

@@ -34,7 +34,9 @@ _PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"/workers/[^/]+/"), "/workers/{worker}/"),
     (re.compile(r"/claim/[^/]+"), "/claim/{execution_id}"),
     (re.compile(r"/checkpoint/[^/]+"), "/checkpoint/{execution_id}"),
-    (re.compile(r"/workflows/[^/]+/"), "/workflows/{workflow_name}/"),
+    # Only match legacy 3-segment workflow paths that haven't already been rewritten
+    # to a placeholder. This avoids double-rewriting 4-segment namespaced paths.
+    (re.compile(r"/workflows/(?!\{)[^/]+/"), "/workflows/{workflow_name}/"),
     # The resume verb embeds an execution_id as a sub-segment: /resume/{id}/{mode}
     (re.compile(r"/resume/[^/]+/"), "/resume/{execution_id}/"),
     (re.compile(r"/executions/[^/]+"), "/executions/{execution_id}"),

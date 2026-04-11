@@ -977,16 +977,23 @@ class Server:
             file: UploadFile = File(...),
             identity: FluxIdentity = Depends(get_identity),
         ):
-            source = await file.read()
+            chunk_size = 64 * 1024
+            source_buffer = bytearray()
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                if len(source_buffer) + len(chunk) > MAX_WORKFLOW_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"Workflow source too large: more than "
+                            f"{MAX_WORKFLOW_UPLOAD_BYTES} bytes"
+                        ),
+                    )
+                source_buffer.extend(chunk)
+            source = bytes(source_buffer)
             logger.info(f"Received file: {file.filename} with size: {len(source)} bytes:")
-            if len(source) > MAX_WORKFLOW_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=(
-                        f"Workflow source too large: {len(source)} bytes "
-                        f"(max {MAX_WORKFLOW_UPLOAD_BYTES})"
-                    ),
-                )
             try:
                 logger.debug(f"Processing workflow file: {file.filename}")
                 catalog = WorkflowCatalog.create()

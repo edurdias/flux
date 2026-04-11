@@ -39,7 +39,7 @@ def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
         namespace, name = parts
         if not namespace or not name:
             raise ValueError("Workflow reference has empty namespace or name")
-        return (namespace, name)
+        return (validate_namespace(namespace), name)
     raise ValueError(
         f"Workflow reference '{ref}' is invalid: flat namespaces only (expected 'name' or 'namespace/name')",
     )
@@ -204,7 +204,6 @@ class WorkflowCatalog(ABC):
                         wf_metadata = self._extract_workflow_metadata(
                             node,
                             tree,
-                            default_namespace=workflow_namespace,
                         )
                         workflow_infos.append(
                             WorkflowInfo(
@@ -232,7 +231,6 @@ class WorkflowCatalog(ABC):
         self,
         func_node: ast.AsyncFunctionDef,
         tree: ast.Module,
-        default_namespace: str = DEFAULT_NAMESPACE,
     ) -> dict:
         task_func_to_name: dict[str, str] = {}
         exempt_func_to_name: dict[str, str] = {}
@@ -244,7 +242,7 @@ class WorkflowCatalog(ABC):
                     if isinstance(dec, ast.Name) and dec.id == "task":
                         task_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Name) and dec.id == "workflow":
-                        workflow_func_to_ref[node.name] = (default_namespace, node.name)
+                        workflow_func_to_ref[node.name] = (DEFAULT_NAMESPACE, node.name)
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
@@ -258,7 +256,7 @@ class WorkflowCatalog(ABC):
                             ):
                                 wf_name = self._extract_task_name_from_decorator(dec) or node.name
                                 wf_namespace = (
-                                    self._extract_namespace_from_decorator(dec) or default_namespace
+                                    self._extract_namespace_from_decorator(dec) or DEFAULT_NAMESPACE
                                 )
                                 workflow_func_to_ref[node.name] = (wf_namespace, wf_name)
 

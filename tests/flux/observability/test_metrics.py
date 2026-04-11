@@ -291,3 +291,8 @@ class TestNormalizePath:
     def test_normalizes_legacy_3_segment_executions_route(self):
         normalized = _normalize_path("/workflows/hello_world/executions/abc123")
         assert "hello_world" not in normalized
+
+    def test_4_segment_namespaced_path_not_double_rewritten(self):
+        normalized = _normalize_path("/workflows/billing/invoice/run/sync")
+        assert "{workflow_name}" not in normalized
+        assert "{namespace}" in normalized or "billing" not in normalized
