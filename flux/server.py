@@ -515,7 +515,7 @@ class Server:
 
         m = get_metrics()
         if m:
-            m.record_workflow_started(ctx.workflow_namespace, workflow_name)
+            m.record_workflow_started(ctx.workflow_namespace, ctx.workflow_name)
             m.record_execution_queued()
 
         return ctx
@@ -742,7 +742,7 @@ class Server:
                 )
 
                 try:
-                    _sched_ns = getattr(schedule, "workflow_namespace", "default") or "default"
+                    _sched_ns = schedule.workflow_namespace
                     workflow = WorkflowCatalog.create().get(_sched_ns, schedule.workflow_name)
                     workflow_metadata = (
                         workflow.metadata or {} if hasattr(workflow, "metadata") else {}
@@ -768,7 +768,7 @@ class Server:
                     schedule.mark_failure()
                     return
 
-            _sched_ns = getattr(schedule, "workflow_namespace", "default") or "default"
+            _sched_ns = schedule.workflow_namespace
             ctx = self._create_execution(
                 _sched_ns,
                 schedule.workflow_name,
@@ -2306,7 +2306,7 @@ class Server:
 
                                 ctx = context_manager.next_execution(worker)
                                 if ctx:
-                                    _exec_ns = getattr(ctx, "workflow_namespace", None) or "default"
+                                    _exec_ns = ctx.workflow_namespace
                                     workflow = WorkflowCatalog.create().get(
                                         _exec_ns,
                                         ctx.workflow_name,
@@ -2380,9 +2380,7 @@ class Server:
 
                                 ctx = context_manager.next_resume(worker)
                                 if ctx:
-                                    _resume_ns = (
-                                        getattr(ctx, "workflow_namespace", None) or "default"
-                                    )
+                                    _resume_ns = ctx.workflow_namespace
                                     workflow = WorkflowCatalog.create().get(
                                         _resume_ns,
                                         ctx.workflow_name,
@@ -2680,7 +2678,7 @@ class Server:
             return ScheduleResponse(
                 id=schedule.id,
                 workflow_id=schedule.workflow_id,
-                workflow_namespace=getattr(schedule, "workflow_namespace", "default") or "default",
+                workflow_namespace=schedule.workflow_namespace,
                 workflow_name=schedule.workflow_name,
                 name=schedule.name,
                 description=schedule.description,
@@ -4412,7 +4410,7 @@ class Server:
 
                 workflow_meta = {}
                 try:
-                    _auth_ns = getattr(ctx, "workflow_namespace", None) or "default"
+                    _auth_ns = ctx.workflow_namespace
                     wf = WorkflowCatalog.create().get(_auth_ns, ctx.workflow_name)
                     workflow_meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                 except Exception:
