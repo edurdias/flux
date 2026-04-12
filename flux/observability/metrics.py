@@ -8,25 +8,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from opentelemetry.metrics import Meter
 
-# Verb keywords that appear immediately after a workflow name or namespace/name pair.
-_WORKFLOW_VERBS = r"(?:run|resume|status|cancel|versions|executions)"
-
 # Patterns for normalizing high-cardinality path segments.
 #
-# Namespaced routes (/workflows/{ns}/{name}/{verb}...) are checked first because
-# the verb keyword at the 4th segment unambiguously distinguishes them from
-# legacy 3-segment routes (/workflows/{wf_name}/{verb}...).
+# All workflow routes are 4-segment (/workflows/{namespace}/{workflow_name}/...)
+# after the legacy 3-segment removal. The two namespaced patterns unconditionally
+# collapse the namespace and workflow name into placeholders — a workflow named
+# after a verb like "run" or "versions" still gets normalized correctly.
 _PATH_PATTERNS_NS: list[tuple[re.Pattern, str]] = [
-    # /workflows/{ns}/{name}/{verb}/...  — namespaced, verb at 4th segment
+    # /workflows/{ns}/{name}/<tail>  — anything beyond the resource root
     (
-        re.compile(r"^(/workflows/)[^/]+/[^/]+(/(?:" + _WORKFLOW_VERBS + r")(?:/.*)?$)"),
-        r"\g<1>{namespace}/{name}\g<2>",
+        re.compile(r"^(/workflows/)[^/]+/[^/]+(/.*)$"),
+        r"\g<1>{namespace}/{workflow_name}\g<2>",
     ),
-    # /workflows/{ns}/{name}  — namespaced resource root; the second segment
-    # must NOT be a known verb keyword (those are legacy 3-segment routes).
+    # /workflows/{ns}/{name}  — namespaced resource root, no tail
     (
-        re.compile(r"^(/workflows/)[^/]+/(?!" + _WORKFLOW_VERBS + r"$)[^/]+$"),
-        r"\g<1>{namespace}/{name}",
+        re.compile(r"^(/workflows/)[^/]+/[^/]+$"),
+        r"\g<1>{namespace}/{workflow_name}",
     ),
 ]
 
@@ -34,9 +31,6 @@ _PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"/workers/[^/]+/"), "/workers/{worker}/"),
     (re.compile(r"/claim/[^/]+"), "/claim/{execution_id}"),
     (re.compile(r"/checkpoint/[^/]+"), "/checkpoint/{execution_id}"),
-    # Only match legacy 3-segment workflow paths that haven't already been rewritten
-    # to a placeholder. This avoids double-rewriting 4-segment namespaced paths.
-    (re.compile(r"/workflows/(?!\{)[^/]+/"), "/workflows/{workflow_name}/"),
     # The resume verb embeds an execution_id as a sub-segment: /resume/{id}/{mode}
     (re.compile(r"/resume/[^/]+/"), "/resume/{execution_id}/"),
     (re.compile(r"/executions/[^/]+"), "/executions/{execution_id}"),
@@ -45,7 +39,7 @@ _PATH_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 
 def _normalize_path(path: str) -> str:
-    # First, collapse namespaced workflow paths where the verb is at segment 4.
+    # First, collapse namespaced workflow paths.
     for pattern, replacement in _PATH_PATTERNS_NS:
         normalized = pattern.sub(replacement, path)
         if normalized != path:

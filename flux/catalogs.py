@@ -148,19 +148,22 @@ class WorkflowCatalog(ABC):
 
             # Results container
             workflow_infos = []
-            imports: list[str] = []
 
-            # Single pass to extract both imports and workflow functions
+            # First pass: collect all imports regardless of their position in the
+            # source. Collecting during the same walk as workflow extraction would
+            # miss imports that appear after a workflow definition.
+            imports: list[str] = []
             for node in ast.walk(tree):
-                # Extract imports
                 if isinstance(node, ast.Import):
                     imports.extend(name.name for name in node.names)
                 elif isinstance(node, ast.ImportFrom):
                     module_prefix = f"{node.module}." if node.module else ""
                     imports.extend(f"{module_prefix}{name.name}" for name in node.names)
 
-                # Extract workflow functions
-                elif isinstance(node, ast.AsyncFunctionDef):
+            # Second pass: extract workflow functions. Each WorkflowInfo gets its
+            # own copy of the imports list so mutations to one don't leak to another.
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AsyncFunctionDef):
                     workflow_name = None
                     workflow_namespace = DEFAULT_NAMESPACE
                     workflow_requests = None
@@ -210,7 +213,7 @@ class WorkflowCatalog(ABC):
                                 id=f"{workflow_namespace}/{workflow_name}",
                                 namespace=workflow_namespace,
                                 name=workflow_name,
-                                imports=imports,
+                                imports=list(imports),
                                 source=source,
                                 requests=workflow_requests,
                                 metadata=wf_metadata,

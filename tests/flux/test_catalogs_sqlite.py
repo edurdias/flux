@@ -193,6 +193,58 @@ async def syntax_error_workflow():
         sqlite_workflow_catalog.parse(source)
 
 
+def test_parse_captures_imports_after_workflow_definition(sqlite_workflow_catalog):
+    """Imports that appear after a workflow definition must still be captured.
+
+    Regression for a bug where the parser built the imports list during the
+    same walk as the workflow extraction, so imports below a workflow node
+    were missed.
+    """
+    source = b"""
+import asyncio
+from flux import workflow
+
+@workflow
+async def first_workflow(ctx):
+    return await helper()
+
+# Imports that appear after the workflow definition:
+import json
+from pathlib import Path
+
+async def helper():
+    return None
+"""
+    workflows = sqlite_workflow_catalog.parse(source)
+    assert len(workflows) == 1
+    assert "asyncio" in workflows[0].imports
+    assert "flux.workflow" in workflows[0].imports
+    # Imports after the workflow definition must be present:
+    assert "json" in workflows[0].imports
+    assert "pathlib.Path" in workflows[0].imports
+
+
+def test_parse_multiple_workflows_get_independent_imports_lists(sqlite_workflow_catalog):
+    """Each WorkflowInfo must have its own imports list so mutations don't leak."""
+    source = b"""
+from flux import workflow
+
+@workflow
+async def first(ctx):
+    return None
+
+@workflow
+async def second(ctx):
+    return None
+"""
+    workflows = sqlite_workflow_catalog.parse(source)
+    assert len(workflows) == 2
+    assert workflows[0].imports is not workflows[1].imports
+    # Mutating one must not affect the other
+    workflows[0].imports.append("mutation.test")
+    assert "mutation.test" not in workflows[1].imports
+
+
 def test_workflow_info_to_dict(sample_workflow):
     """Test the to_dict method of WorkflowInfo."""
     result = sample_workflow.to_dict()

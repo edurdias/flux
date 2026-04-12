@@ -245,17 +245,19 @@ class TestNormalizePath:
         )
 
     def test_normalizes_workflow_name_in_paths(self):
+        # All workflow routes are 4-segment: /workflows/{namespace}/{workflow_name}/...
+        # The normalizer collapses both the namespace and workflow_name segments.
         assert (
-            _normalize_path("/workflows/hello_world/executions/abc123")
-            == "/workflows/{workflow_name}/executions/{execution_id}"
+            _normalize_path("/workflows/default/hello_world/executions/abc123")
+            == "/workflows/{namespace}/{workflow_name}/executions/{execution_id}"
         )
         assert (
-            _normalize_path("/workflows/my_pipeline/run/async")
-            == "/workflows/{workflow_name}/run/async"
+            _normalize_path("/workflows/billing/my_pipeline/run/async")
+            == "/workflows/{namespace}/{workflow_name}/run/async"
         )
         assert (
-            _normalize_path("/workflows/my_pipeline/cancel/exec-123")
-            == "/workflows/{workflow_name}/cancel/exec-123"
+            _normalize_path("/workflows/billing/my_pipeline/cancel/exec-123")
+            == "/workflows/{namespace}/{workflow_name}/cancel/exec-123"
         )
 
     def test_preserves_simple_paths(self):
@@ -284,15 +286,23 @@ class TestNormalizePath:
         assert "billing" not in normalized
         assert "invoice" not in normalized
 
-    def test_normalizes_legacy_3_segment_run_route(self):
-        normalized = _normalize_path("/workflows/hello_world/run/sync")
-        assert "hello_world" not in normalized
-
-    def test_normalizes_legacy_3_segment_executions_route(self):
-        normalized = _normalize_path("/workflows/hello_world/executions/abc123")
-        assert "hello_world" not in normalized
-
     def test_4_segment_namespaced_path_not_double_rewritten(self):
+        # After the rewrite, the literal "billing" and "invoice" must be gone,
+        # and the result must contain both {namespace} and {workflow_name}
+        # placeholders in the canonical form (not mis-layered placeholders).
         normalized = _normalize_path("/workflows/billing/invoice/run/sync")
-        assert "{workflow_name}" not in normalized
-        assert "{namespace}" in normalized or "billing" not in normalized
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+        assert normalized == "/workflows/{namespace}/{workflow_name}/run/sync"
+
+    def test_normalizes_workflow_named_after_verb(self):
+        """A workflow literally named "run" or "versions" must still be normalized.
+
+        With legacy 3-segment routes removed, /workflows/{ns}/{name} is
+        unambiguous even when {name} matches a verb keyword.
+        """
+        assert _normalize_path("/workflows/billing/run") == "/workflows/{namespace}/{workflow_name}"
+        assert (
+            _normalize_path("/workflows/billing/versions")
+            == "/workflows/{namespace}/{workflow_name}"
+        )
