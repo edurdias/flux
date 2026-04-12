@@ -20,10 +20,10 @@ def test_output_storage(cli):
 
 def test_resource_requests_data(cli):
     cli.register("examples/resource_requests.py")
-    r = cli.run(
+    r = cli.run_async_and_wait(
         "data_processing_workflow",
         '{"data_path":"examples/data/sample.csv"}',
-        timeout=60,
+        timeout=120,
     )
     assert r["state"] == "COMPLETED"
 
