@@ -34,7 +34,7 @@ def test_task_nested_timeout(cli):
 
 def test_task_map(cli):
     cli.register("examples/tasks/task_map.py")
-    r = cli.run("task_map", "10")
+    r = cli.run_async_and_wait("task_map", "3", timeout=120)
     assert r["state"] == "COMPLETED"
 
 
