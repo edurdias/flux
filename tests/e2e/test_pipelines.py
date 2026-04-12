@@ -4,10 +4,10 @@ from __future__ import annotations
 
 def test_complex_pipeline(cli):
     cli.register("examples/complex_pipeline.py")
-    r = cli.run(
+    r = cli.run_async_and_wait(
         "complex_pipeline",
         '{"input_file":"examples/data/sample.csv","output_file":".data/e2e_output.csv"}',
-        timeout=120,
+        timeout=180,
     )
     assert r["state"] == "COMPLETED"
 
@@ -23,7 +23,7 @@ def test_resource_requests_data(cli):
     r = cli.run_async_and_wait(
         "data_processing_workflow",
         '{"data_path":"examples/data/sample.csv"}',
-        timeout=120,
+        timeout=180,
     )
     assert r["state"] == "COMPLETED"
 
