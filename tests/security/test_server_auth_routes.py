@@ -57,7 +57,7 @@ class TestWorkflowExecutionsAuthEnforcement:
             settings.security.auth.api_keys.enabled = True
             try:
                 resp = client.get(
-                    "/workflows/some_workflow/executions",
+                    "/workflows/default/some_workflow/executions",
                     headers={"Authorization": "Bearer fake-token"},
                 )
                 # Either 403 (permission denied) or 401 (if auth provider rejects fake)
@@ -77,7 +77,7 @@ class TestWorkflowExecutionsAuthEnforcement:
         try:
             # Without auth enabled, the endpoint should only fail with 404 (workflow not found)
             # or similar — NOT with 403
-            resp = client.get("/workflows/nonexistent/executions")
+            resp = client.get("/workflows/default/nonexistent/executions")
             assert resp.status_code != 403
         finally:
             settings.security.auth.oidc.enabled = original_oidc
@@ -526,3 +526,265 @@ class TestBuiltInRolesPrincipalsPermission:
                 assert (
                     "service-accounts" not in perm
                 ), f"Role '{role}' still has old service-accounts permission: {perm}"
+
+
+class TestRegisterPermissionScopedToNamespace:
+    """POST /workflows must check namespace-scoped permission post-parse."""
+
+    def test_billing_permission_grants_billing_namespace(self):
+        """workflow:billing:*:register matches workflow:billing:*:register exactly."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert identity.has_permission("workflow:billing:*:register", permissions)
+
+    def test_billing_permission_denies_analytics_namespace(self):
+        """workflow:billing:*:register does NOT match workflow:analytics:*:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert not identity.has_permission("workflow:analytics:*:register", permissions)
+
+    def test_billing_permission_grants_specific_billing_workflow(self):
+        """workflow:billing:*:register (non-terminal *) matches workflow:billing:invoice:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert identity.has_permission("workflow:billing:invoice:register", permissions)
+
+    def test_billing_permission_denies_specific_analytics_workflow(self):
+        """workflow:billing:*:register does NOT match workflow:analytics:report:register."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert not identity.has_permission("workflow:analytics:report:register", permissions)
+
+    def test_workflows_save_uses_get_identity_not_require_permission(self):
+        """workflows_save must use get_identity dependency so namespace can be extracted post-parse."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "workflows_save still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "workflows_save does not use get_identity"
+                assert (
+                    "is_authorized" in func_src
+                ), "workflows_save does not call is_authorized post-parse"
+                break
+
+    def test_workflows_save_permission_uses_namespace(self):
+        """The permission string built in workflows_save must include the workflow namespace."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
+                func_src = ast.unparse(node)
+                assert (
+                    "wf.namespace" in func_src
+                ), "workflows_save does not use wf.namespace to build the permission string"
+                break
+
+
+class TestNamespaceScopedVisibility:
+    """Namespace-scoped grants must filter list/delete endpoints post-resolution."""
+
+    def test_list_workflows_uses_get_identity_not_require_permission(self):
+        """workflows_all must use get_identity so filtering can happen per principal."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_all":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "workflows_all still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "workflows_all does not use get_identity"
+                break
+
+    def test_list_namespaces_uses_get_identity_not_require_permission(self):
+        """list_namespaces must use get_identity so filtering can happen per principal."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_namespaces":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "list_namespaces still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "list_namespaces does not use get_identity"
+                break
+
+    def test_workflow_delete_ns_uses_get_identity_not_require_permission(self):
+        """workflow_delete_ns must use get_identity and do a post-resolution check."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflow_delete_ns":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "workflow_delete_ns still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "workflow_delete_ns does not use get_identity"
+                assert (
+                    "is_authorized" in func_src
+                ), "workflow_delete_ns does not call is_authorized for post-resolution check"
+                break
+
+    def test_workflow_delete_ns_permission_uses_namespace(self):
+        """The permission string built in workflow_delete_ns must include the resolved namespace."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflow_delete_ns":
+                func_src = ast.unparse(node)
+                assert (
+                    "namespace" in func_src
+                ), "workflow_delete_ns does not use namespace in permission string"
+                assert (
+                    "register" in func_src
+                ), "workflow_delete_ns does not check register permission"
+                break
+
+    def test_billing_read_grant_allows_billing_list(self):
+        """workflow:billing:*:read matches workflow:billing:invoice:read (for list filtering)."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-reader", roles=frozenset())
+        permissions = {"workflow:billing:*:read"}
+
+        assert identity.has_permission("workflow:billing:invoice:read", permissions)
+        assert not identity.has_permission("workflow:analytics:report:read", permissions)
+
+    def test_billing_register_grant_allows_billing_delete(self):
+        """workflow:billing:*:register satisfies the DELETE check for billing namespace."""
+        from flux.security.identity import FluxIdentity
+
+        identity = FluxIdentity(subject="billing-deployer", roles=frozenset())
+        permissions = {"workflow:billing:*:register"}
+
+        assert identity.has_permission("workflow:billing:*:register", permissions)
+        assert not identity.has_permission("workflow:analytics:*:register", permissions)
+
+    def test_list_workflows_filters_by_namespace_grant(self):
+        """workflows_all must filter result set per principal's read grants when auth enabled."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_all":
+                func_src = ast.unparse(node)
+                assert (
+                    "resolve_permissions" in func_src or "is_authorized" in func_src
+                ), "workflows_all does not filter results by principal grants"
+                break
+
+    def test_list_namespaces_filters_by_namespace_grant(self):
+        """list_namespaces must filter per principal's read grants when auth enabled."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_namespaces":
+                func_src = ast.unparse(node)
+                assert (
+                    "resolve_permissions" in func_src or "is_authorized" in func_src
+                ), "list_namespaces does not filter results by principal grants"
+                break
+
+    def test_list_schedules_uses_get_identity_not_require_permission(self):
+        """list_schedules must use get_identity so filtering can happen per principal."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "list_schedules still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "list_schedules does not use get_identity"
+                break
+
+    def test_list_schedules_filters_by_namespace_grant(self):
+        """list_schedules must filter per principal's workflow:read grants when auth enabled."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
+                func_src = ast.unparse(node)
+                assert (
+                    "resolve_permissions" in func_src
+                ), "list_schedules does not resolve per-principal permissions"
+                assert (
+                    "workflow:" in func_src and "has_permission" in func_src
+                ), "list_schedules does not check workflow:{ns}:{name}:read per schedule"
+                break
+
+    def test_get_schedule_checks_workflow_read_permission(self):
+        """get_schedule must do a post-resolution workflow:{ns}:{name}:read check."""
+        import ast
+        import pathlib
+
+        src = pathlib.Path("flux/server.py").read_text()
+        tree = ast.parse(src)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_schedule":
+                func_src = ast.unparse(node)
+                assert (
+                    "require_permission" not in func_src
+                ), "get_schedule still uses require_permission — must use get_identity"
+                assert "get_identity" in func_src, "get_schedule does not use get_identity"
+                assert "is_authorized" in func_src, "get_schedule does not call is_authorized"
+                assert (
+                    "workflow_namespace" in func_src and "workflow_name" in func_src
+                ), "get_schedule does not use the schedule's namespace+name in the check"
+                break

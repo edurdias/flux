@@ -11,6 +11,8 @@ from sqlalchemy import desc
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from flux._namespace import DEFAULT_NAMESPACE
+from flux._namespace import validate_namespace
 from flux.errors import WorkflowNotFoundError
 from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
@@ -20,6 +22,29 @@ from flux.utils import get_logger
 logger = get_logger(__name__)
 
 
+def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
+    """Parse a user-provided workflow reference into ``(namespace, name)``.
+
+    ``"billing/invoice"`` -> ``("billing", "invoice")``
+    ``"hello_world"``     -> ``("default", "hello_world")``
+    ``"a/b/c"``           -> ``ValueError`` (flat namespaces only)
+    ``""`` or ``None``    -> ``ValueError``
+    """
+    if not ref:
+        raise ValueError("Workflow reference cannot be empty")
+    parts = ref.split("/")
+    if len(parts) == 1:
+        return (DEFAULT_NAMESPACE, parts[0])
+    if len(parts) == 2:
+        namespace, name = parts
+        if not namespace or not name:
+            raise ValueError("Workflow reference has empty namespace or name")
+        return (validate_namespace(namespace), name)
+    raise ValueError(
+        f"Workflow reference '{ref}' is invalid: flat namespaces only (expected 'name' or 'namespace/name')",
+    )
+
+
 class WorkflowInfo:
     def __init__(
         self,
@@ -27,12 +52,14 @@ class WorkflowInfo:
         name: str,
         imports: list[str],
         source: bytes,
+        namespace: str = "default",
         version: int = 1,
         requests: ResourceRequest | None = None,
         schedule: Any | None = None,
         metadata: dict | None = None,
     ):
         self.id = id
+        self.namespace = namespace
         self.name = name
         self.imports = imports
         self.source = source
@@ -41,15 +68,14 @@ class WorkflowInfo:
         self.schedule = schedule
         self.metadata = metadata
 
-    def to_dict(self) -> dict[str, Any]:
-        """
-        Convert WorkflowInfo to a dictionary representation.
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.namespace}/{self.name}"
 
-        Returns:
-            Dictionary with workflow information
-        """
+    def to_dict(self) -> dict[str, Any]:
         result = {
             "id": self.id,
+            "namespace": self.namespace,
             "name": self.name,
             "version": self.version,
             "imports": self.imports,
@@ -64,7 +90,6 @@ class WorkflowInfo:
                 value = getattr(self.requests, attr, None)
                 if value is not None:
                     requests_dict[attr] = value
-
             result["requests"] = requests_dict
 
         return result
@@ -72,11 +97,16 @@ class WorkflowInfo:
 
 class WorkflowCatalog(ABC):
     @abstractmethod
-    def all(self) -> list[WorkflowInfo]:  # pragma: no cover
+    def all(self, namespace: str | None = None) -> list[WorkflowInfo]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
-    def get(self, name: str, version: int | None = None) -> WorkflowInfo:  # pragma: no cover
+    def get(
+        self,
+        namespace: str,
+        name: str,
+        version: int | None = None,
+    ) -> WorkflowInfo:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -84,12 +114,20 @@ class WorkflowCatalog(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def delete(self, name: str, version: int | None = None):  # pragma: no cover
+    def delete(
+        self,
+        namespace: str,
+        name: str,
+        version: int | None = None,
+    ):  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
-    def versions(self, name: str) -> list[WorkflowInfo]:  # pragma: no cover
-        """Get all versions of a workflow by name."""
+    def versions(self, namespace: str, name: str) -> list[WorkflowInfo]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def list_namespaces(self) -> list[str]:  # pragma: no cover
         raise NotImplementedError()
 
     def parse(self, source: bytes) -> list[WorkflowInfo]:
@@ -103,27 +141,39 @@ class WorkflowCatalog(ABC):
             A list of WorkflowInfo objects representing the parsed workflows
 
         Raises:
-            SyntaxError: If the source code has invalid syntax or no workflows are found
+            SyntaxError: If the source code has invalid Python syntax, contains
+                an invalid namespace declaration, or does not define any workflows.
+                Line/column information from ``ast.parse`` is preserved; intentionally
+                raised errors (invalid namespace, no workflow found) carry their own
+                messages unchanged.
         """
         try:
             tree = ast.parse(source)
+        except SyntaxError:
+            # Re-raise the original SyntaxError so line/column information is preserved
+            raise
 
+        try:
             # Results container
             workflow_infos = []
-            imports: list[str] = []
 
-            # Single pass to extract both imports and workflow functions
+            # First pass: collect all imports regardless of their position in the
+            # source. Collecting during the same walk as workflow extraction would
+            # miss imports that appear after a workflow definition.
+            imports: list[str] = []
             for node in ast.walk(tree):
-                # Extract imports
                 if isinstance(node, ast.Import):
                     imports.extend(name.name for name in node.names)
                 elif isinstance(node, ast.ImportFrom):
                     module_prefix = f"{node.module}." if node.module else ""
                     imports.extend(f"{module_prefix}{name.name}" for name in node.names)
 
-                # Extract workflow functions
-                elif isinstance(node, ast.AsyncFunctionDef):
+            # Second pass: extract workflow functions. Each WorkflowInfo gets its
+            # own copy of the imports list so mutations to one don't leak to another.
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AsyncFunctionDef):
                     workflow_name = None
+                    workflow_namespace = DEFAULT_NAMESPACE
                     workflow_requests = None
 
                     for decorator in node.decorator_list:
@@ -143,10 +193,16 @@ class WorkflowCatalog(ABC):
                             and decorator.func.value.id == "workflow"
                             and decorator.func.attr == "with_options"
                         ):
-                            # Extract workflow name and requests from decorator args
                             for kw in decorator.keywords:
                                 if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                                     workflow_name = kw.value.value
+                                elif kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
+                                    try:
+                                        workflow_namespace = validate_namespace(kw.value.value)
+                                    except ValueError as e:
+                                        raise SyntaxError(
+                                            f"Invalid namespace in @workflow.with_options: {e}",
+                                        ) from e
                                 elif kw.arg == "requests":
                                     workflow_requests = self._extract_workflow_requests(kw.value)
 
@@ -156,12 +212,16 @@ class WorkflowCatalog(ABC):
                             break
 
                     if workflow_name:
-                        wf_metadata = self._extract_workflow_metadata(node, tree)
+                        wf_metadata = self._extract_workflow_metadata(
+                            node,
+                            tree,
+                        )
                         workflow_infos.append(
                             WorkflowInfo(
-                                id=workflow_name,
+                                id=f"{workflow_namespace}/{workflow_name}",
+                                namespace=workflow_namespace,
                                 name=workflow_name,
-                                imports=imports,
+                                imports=list(imports),
                                 source=source,
                                 requests=workflow_requests,
                                 metadata=wf_metadata,
@@ -173,15 +233,21 @@ class WorkflowCatalog(ABC):
 
             return workflow_infos
 
-        except SyntaxError as e:
-            raise SyntaxError(f"Invalid syntax: {e.msg}")
+        except SyntaxError:
+            # Intentionally raised above (e.g. invalid namespace, no workflows) —
+            # re-raise unchanged so callers see the specific message.
+            raise
         except Exception as e:
-            raise SyntaxError(f"Error parsing source code: {str(e)}")
+            raise SyntaxError(f"Error parsing source code: {e!s}") from e
 
-    def _extract_workflow_metadata(self, func_node: ast.AsyncFunctionDef, tree: ast.Module) -> dict:
+    def _extract_workflow_metadata(
+        self,
+        func_node: ast.AsyncFunctionDef,
+        tree: ast.Module,
+    ) -> dict:
         task_func_to_name: dict[str, str] = {}
         exempt_func_to_name: dict[str, str] = {}
-        workflow_func_to_name: dict[str, str] = {}
+        workflow_func_to_ref: dict[str, tuple[str, str]] = {}
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -189,7 +255,7 @@ class WorkflowCatalog(ABC):
                     if isinstance(dec, ast.Name) and dec.id == "task":
                         task_func_to_name[node.name] = node.name
                     elif isinstance(dec, ast.Name) and dec.id == "workflow":
-                        workflow_func_to_name[node.name] = node.name
+                        workflow_func_to_ref[node.name] = (DEFAULT_NAMESPACE, node.name)
                     elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
                         if isinstance(dec.func.value, ast.Name):
                             if dec.func.value.id == "task" and dec.func.attr == "with_options":
@@ -202,11 +268,14 @@ class WorkflowCatalog(ABC):
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
                             ):
                                 wf_name = self._extract_task_name_from_decorator(dec) or node.name
-                                workflow_func_to_name[node.name] = wf_name
+                                wf_namespace = (
+                                    self._extract_namespace_from_decorator(dec) or DEFAULT_NAMESPACE
+                                )
+                                workflow_func_to_ref[node.name] = (wf_namespace, wf_name)
 
         called_tasks = set()
         called_exempt = set()
-        called_workflows = set()
+        called_workflows: set[tuple[str, str]] = set()
 
         for node in ast.walk(func_node):
             if isinstance(node, ast.Call):
@@ -221,12 +290,12 @@ class WorkflowCatalog(ABC):
                         called_tasks.add(task_func_to_name[func_name])
                     elif func_name in exempt_func_to_name:
                         called_exempt.add(exempt_func_to_name[func_name])
-                    elif func_name in workflow_func_to_name:
-                        called_workflows.add(workflow_func_to_name[func_name])
+                    elif func_name in workflow_func_to_ref:
+                        called_workflows.add(workflow_func_to_ref[func_name])
 
         return {
             "task_names": sorted(called_tasks),
-            "nested_workflows": sorted(called_workflows),
+            "nested_workflows": sorted([list(ref) for ref in called_workflows]),
             "auth_exempt_tasks": sorted(called_exempt),
         }
 
@@ -235,6 +304,14 @@ class WorkflowCatalog(ABC):
         for kw in decorator.keywords:
             if kw.arg == "name" and isinstance(kw.value, ast.Constant):
                 return kw.value.value
+        return None
+
+    @staticmethod
+    def _extract_namespace_from_decorator(decorator: ast.Call) -> str | None:
+        for kw in decorator.keywords:
+            if kw.arg == "namespace" and isinstance(kw.value, ast.Constant):
+                value = kw.value.value
+                return value or None
         return None
 
     @staticmethod
@@ -331,84 +408,136 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
         """Delegate to repository health check"""
         return self.repository.health_check()
 
-    def all(self) -> list[WorkflowInfo]:
-        """
-        Get all workflows in the catalog (latest version of each).
-
-        Returns:
-            List of WorkflowInfo objects
-        """
+    def all(self, namespace: str | None = None) -> list[WorkflowInfo]:
         with self.session() as session:
-            # Create a subquery that gets the max version for each workflow name
             subq = (
                 session.query(
+                    WorkflowModel.namespace.label("namespace"),
                     WorkflowModel.name.label("name"),
                     func.max(WorkflowModel.version).label("max_version"),
                 )
-                .group_by(WorkflowModel.name)
+                .group_by(WorkflowModel.namespace, WorkflowModel.name)
                 .subquery()
             )
 
-            # Join with the original table to get complete records with the latest version
-            models = (
+            query = (
                 session.query(WorkflowModel)
                 .join(
                     subq,
                     and_(
+                        WorkflowModel.namespace == subq.c.namespace,
                         WorkflowModel.name == subq.c.name,
                         WorkflowModel.version == subq.c.max_version,
                     ),
                 )
-                .order_by(WorkflowModel.name)
-                .all()
+                .order_by(WorkflowModel.namespace, WorkflowModel.name)
             )
 
-            workflows = []
-            for model in models:
-                # Convert requests dictionary to WorkflowRequests object if present
-                requests = None
-                if model.requests:
-                    requests = ResourceRequest(
-                        cpu=model.requests.get("cpu"),
-                        memory=model.requests.get("memory"),
-                        gpu=model.requests.get("gpu"),
-                        disk=model.requests.get("disk"),
-                        packages=model.requests.get("packages"),
-                    )
+            if namespace is not None:
+                query = query.filter(WorkflowModel.namespace == namespace)
 
-                workflows.append(
-                    WorkflowInfo(
-                        id=model.id,
-                        name=model.name,
-                        imports=model.imports,
-                        source=model.source,
-                        version=model.version,
-                        requests=requests,
-                        metadata=model.wf_metadata,
-                    ),
-                )
+            models = query.all()
+            return [self._to_info(m) for m in models]
 
-            return workflows
-
-    def get(self, name: str, version: int | None = None) -> WorkflowInfo:
-        """
-        Retrieve a workflow by name and optionally version.
-
-        Args:
-            name: Name of the workflow to retrieve
-            version: Optional specific version to retrieve (retrieves latest if not specified)
-
-        Returns:
-            WorkflowInfo object representing the workflow
-
-        Raises:
-            WorkflowNotFoundError: If no workflow with the given name/version is found
-        """
-        model = self._get(name, version)
+    def get(self, namespace: str, name: str, version: int | None = None) -> WorkflowInfo:
+        model = self._get(namespace, name, version)
         if not model:
-            raise WorkflowNotFoundError(name)
+            raise WorkflowNotFoundError(f"{namespace}/{name}")
+        return self._to_info(model)
 
-        # Convert requests dictionary to WorkflowRequests object if present
+    def save(self, workflows: list[WorkflowInfo]):
+        from uuid import uuid4
+
+        with self.session() as session:
+            try:
+                for wf in workflows:
+                    wf.id = uuid4().hex
+                    existing = self._get(wf.namespace, wf.name)
+                    wf.version = existing.version + 1 if existing else 1
+                    requests_dict = None
+                    if wf.requests is not None:
+                        requests_dict = {}
+                        for attr in ["cpu", "memory", "gpu", "disk", "packages"]:
+                            value = getattr(wf.requests, attr, None)
+                            if value is not None:
+                                requests_dict[attr] = value
+                    model = WorkflowModel(
+                        id=wf.id,
+                        namespace=wf.namespace,
+                        name=wf.name,
+                        version=wf.version,
+                        imports=wf.imports,
+                        source=wf.source,
+                        requests=requests_dict,
+                        metadata=wf.metadata,
+                    )
+                    session.add(model)
+                session.commit()
+                return workflows
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def delete(self, namespace: str, name: str, version: int | None = None):  # pragma: no cover
+        with self.session() as session:
+            try:
+                query = session.query(WorkflowModel).filter(
+                    WorkflowModel.namespace == namespace,
+                    WorkflowModel.name == name,
+                )
+                if version:
+                    query = query.filter(WorkflowModel.version == version)
+                models = query.all()
+                logger.debug(
+                    f"Deleting {len(models)} workflows with ref '{namespace}/{name}' version '{version}'",
+                )
+                for model in models:
+                    session.delete(model)
+                session.commit()
+            except IntegrityError:  # pragma: no cover
+                session.rollback()
+                raise
+
+    def versions(self, namespace: str, name: str) -> list[WorkflowInfo]:
+        with self.session() as session:
+            models = (
+                session.query(WorkflowModel)
+                .filter(
+                    WorkflowModel.namespace == namespace,
+                    WorkflowModel.name == name,
+                )
+                .order_by(desc(WorkflowModel.version))
+                .all()
+            )
+            return [self._to_info(m) for m in models]
+
+    def list_namespaces(self) -> list[str]:
+        with self.session() as session:
+            rows = (
+                session.query(WorkflowModel.namespace)
+                .distinct()
+                .order_by(WorkflowModel.namespace)
+                .all()
+            )
+            return [r[0] for r in rows]
+
+    def _get(
+        self,
+        namespace: str,
+        name: str,
+        version: int | None = None,
+    ) -> WorkflowModel | None:
+        with self.session() as session:
+            query = session.query(WorkflowModel).filter(
+                WorkflowModel.namespace == namespace,
+                WorkflowModel.name == name,
+            )
+            if version:
+                return query.filter(WorkflowModel.version == version).first()
+            return query.order_by(desc(WorkflowModel.version)).first()
+
+    @staticmethod
+    def _to_info(model: WorkflowModel) -> WorkflowInfo:
         requests = None
         if model.requests:
             requests = ResourceRequest(
@@ -418,9 +547,9 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                 disk=model.requests.get("disk"),
                 packages=model.requests.get("packages"),
             )
-
         return WorkflowInfo(
             id=model.id,
+            namespace=model.namespace,
             name=model.name,
             imports=model.imports,
             source=model.source,
@@ -428,92 +557,3 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
             requests=requests,
             metadata=model.wf_metadata,
         )
-
-    def save(self, workflows: list[WorkflowInfo]):
-        from uuid import uuid4
-
-        with self.session() as session:
-            try:
-                for workflow in workflows:
-                    workflow.id = uuid4().hex
-                    existing_model = self._get(workflow.name)
-                    workflow.version = existing_model.version + 1 if existing_model else 1
-                    session.add(WorkflowModel(**workflow.to_dict()))
-                session.commit()
-                return workflows
-            except IntegrityError:  # pragma: no cover
-                session.rollback()
-                raise
-
-    def delete(self, name: str, version: int | None = None):  # pragma: no cover
-        with self.session() as session:
-            try:
-                query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
-
-                if version:
-                    query = query.filter(WorkflowModel.version == version)
-
-                models = query.all()
-                logger.debug(
-                    f"Deleting {len(models)} workflows with name '{name}' and version '{version}'",
-                )
-                for model in models:
-                    session.delete(model)
-
-                session.commit()
-            except IntegrityError:  # pragma: no cover
-                session.rollback()
-                raise
-
-    def versions(self, name: str) -> list[WorkflowInfo]:
-        """
-        Get all versions of a workflow by name.
-
-        Args:
-            name: Name of the workflow
-
-        Returns:
-            List of WorkflowInfo objects for all versions, ordered by version descending
-        """
-        with self.session() as session:
-            models = (
-                session.query(WorkflowModel)
-                .filter(WorkflowModel.name == name)
-                .order_by(desc(WorkflowModel.version))
-                .all()
-            )
-
-            workflows = []
-            for model in models:
-                requests = None
-                if model.requests:
-                    requests = ResourceRequest(
-                        cpu=model.requests.get("cpu"),
-                        memory=model.requests.get("memory"),
-                        gpu=model.requests.get("gpu"),
-                        disk=model.requests.get("disk"),
-                        packages=model.requests.get("packages"),
-                    )
-
-                workflows.append(
-                    WorkflowInfo(
-                        id=model.id,
-                        name=model.name,
-                        imports=model.imports,
-                        source=model.source,
-                        version=model.version,
-                        requests=requests,
-                        metadata=model.wf_metadata,
-                    ),
-                )
-
-            return workflows
-
-    def _get(self, name: str, version: int | None = None) -> WorkflowModel:
-        with self.session() as session:
-            query = session.query(WorkflowModel).filter(WorkflowModel.name == name)
-
-            if version:
-                return query.filter(WorkflowModel.version == version).first()
-
-            return query.order_by(desc(WorkflowModel.version)).first()

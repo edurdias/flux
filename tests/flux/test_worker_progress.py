@@ -14,7 +14,12 @@ def test_worker_has_progress_queue_dicts():
 
 def test_setup_progress_creates_queue_and_callback():
     worker = Worker(name="test-worker", server_url="http://localhost:8000")
-    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+    ctx = ExecutionContext(
+        workflow_id="wf1",
+        workflow_namespace="default",
+        workflow_name="test",
+        execution_id="exec_1",
+    )
     worker._setup_progress(ctx)
 
     assert "exec_1" in worker._progress_queues
@@ -26,7 +31,12 @@ def test_setup_progress_creates_queue_and_callback():
 
 def test_progress_callback_enqueues_items():
     worker = Worker(name="test-worker", server_url="http://localhost:8000")
-    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+    ctx = ExecutionContext(
+        workflow_id="wf1",
+        workflow_namespace="default",
+        workflow_name="test",
+        execution_id="exec_1",
+    )
     worker._setup_progress(ctx)
 
     ctx._progress_callback("exec_1", "task_1", "my_task", {"step": 1})
@@ -41,7 +51,12 @@ def test_progress_callback_enqueues_items():
 
 def test_progress_backpressure_drops_silently():
     worker = Worker(name="test-worker", server_url="http://localhost:8000")
-    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+    ctx = ExecutionContext(
+        workflow_id="wf1",
+        workflow_namespace="default",
+        workflow_name="test",
+        execution_id="exec_1",
+    )
     worker._setup_progress(ctx)
 
     queue = worker._progress_queues["exec_1"]
@@ -57,7 +72,12 @@ def test_progress_backpressure_drops_silently():
 
 def test_teardown_progress_cleans_up():
     worker = Worker(name="test-worker", server_url="http://localhost:8000")
-    ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+    ctx = ExecutionContext(
+        workflow_id="wf1",
+        workflow_namespace="default",
+        workflow_name="test",
+        execution_id="exec_1",
+    )
     worker._setup_progress(ctx)
 
     assert "exec_1" in worker._progress_queues

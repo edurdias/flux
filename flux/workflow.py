@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-# Import ExecutionContext directly to avoid circular imports
-from flux.domain.resource_request import ResourceRequest
-from flux.domain.execution_context import ExecutionContext
-from flux.context_managers import ContextManager
-from flux.errors import PauseRequested
-from flux.output_storage import OutputStorage
-from flux.utils import maybe_awaitable
-from flux.domain.schedule import Schedule
-
 import asyncio
 from functools import wraps
 from typing import Any, Callable, TypeVar
+
+from flux._namespace import validate_namespace
+from flux.context_managers import ContextManager
+from flux.domain.execution_context import ExecutionContext
+from flux.domain.resource_request import ResourceRequest
+from flux.domain.schedule import Schedule
+from flux.errors import PauseRequested
+from flux.output_storage import OutputStorage
+from flux.utils import maybe_awaitable
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -20,7 +20,8 @@ class workflow:
     @staticmethod
     def with_options(
         name: str | None = None,
-        secret_requests: list[str] = [],
+        namespace: str | None = None,
+        secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
         schedule: Schedule | None = None,
@@ -30,6 +31,7 @@ class workflow:
 
         Args:
             name (str | None, optional): The name of the workflow. Defaults to None.
+            namespace (str | None, optional): The namespace for the workflow. Defaults to "default".
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
             requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
@@ -43,6 +45,7 @@ class workflow:
             return workflow(
                 func=func,
                 name=name,
+                namespace=namespace,
                 secret_requests=secret_requests,
                 output_storage=output_storage,
                 requests=requests,
@@ -55,14 +58,16 @@ class workflow:
         self,
         func: F,
         name: str | None = None,
-        secret_requests: list[str] = [],
+        namespace: str | None = None,
+        secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
         schedule: Schedule | None = None,
     ):
         self._func = func
         self._name = name if name else func.__name__
-        self._secret_requests = secret_requests
+        self._namespace = validate_namespace(namespace)
+        self._secret_requests = list(secret_requests) if secret_requests else []
         self._output_storage = output_storage
         self._requests = requests
         self._schedule = schedule
@@ -71,6 +76,14 @@ class workflow:
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def namespace(self) -> str:
+        return self._namespace
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self._namespace}/{self._name}"
 
     @property
     def secret_requests(self) -> list[str]:
@@ -128,7 +141,8 @@ class workflow:
 
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=workflow_id,
-            workflow_name=self.name,
+            workflow_namespace=self._namespace,
+            workflow_name=self._name,
             input=args[0] if len(args) > 0 else None,
         )
 
@@ -157,7 +171,7 @@ class workflow:
         catalog = WorkflowCatalog.create()
 
         try:
-            return catalog.get(self.name).id
+            return catalog.get(self._namespace, self._name).id
         except WorkflowNotFoundError:
             pass
 
@@ -165,17 +179,20 @@ class workflow:
         source_file = getattr(module, "__file__", None) if module is not None else None
         if not source_file:
             raise RuntimeError(
-                f"Cannot register workflow '{self.name}': the defining module "
+                f"Cannot register workflow '{self.qualified_name}': the defining module "
                 "has no readable source file. Workflows must be importable "
                 "from a .py file to be run inline.",
             )
 
         source = Path(source_file).read_bytes()
         infos = catalog.parse(source)
-        matching = next((w for w in infos if w.name == self.name), None)
+        matching = next(
+            (w for w in infos if w.namespace == self._namespace and w.name == self._name),
+            None,
+        )
         if matching is None:
             raise RuntimeError(
-                f"Cannot register workflow '{self.name}': not found in "
+                f"Cannot register workflow '{self.qualified_name}': not found in "
                 f"source file {source_file}.",
             )
 
@@ -184,7 +201,7 @@ class workflow:
         except IntegrityError:
             # Lost a race with another registrant — fall through to re-read.
             pass
-        return catalog.get(self.name).id
+        return catalog.get(self._namespace, self._name).id
 
     def resume(self, execution_id: str, input: Any = None) -> ExecutionContext:
         """

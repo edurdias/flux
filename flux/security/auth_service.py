@@ -24,15 +24,15 @@ PERMISSION_PATTERN = re.compile(r"^[a-zA-Z0-9_*\-{}]+(:[a-zA-Z0-9_*\-{}]+)*$")
 BUILT_IN_ROLES = {
     "admin": ["*"],
     "operator": [
-        "workflow:*:run",
-        "workflow:*:read",
-        "workflow:*:register",
-        "workflow:*:task:*:execute",
+        "workflow:*:*:run",
+        "workflow:*:*:read",
+        "workflow:*:*:register",
+        "workflow:*:*:task:*:execute",
         "schedule:*",
         "execution:*",
     ],
     "viewer": [
-        "workflow:*:read",
+        "workflow:*:*:read",
         "execution:*:read",
         "schedule:*:read",
     ],
@@ -114,6 +114,7 @@ class AuthService:
     async def authorize(
         self,
         identity: FluxIdentity,
+        namespace: str,
         workflow_name: str,
         workflow_metadata: dict,
     ) -> AuthorizationResult:
@@ -122,8 +123,9 @@ class AuthService:
         catalog = WorkflowCatalog.create()
         permissions = await self.resolve_permissions(identity)
         required_perms = self._collect_required_permissions(
-            workflow_name,
-            workflow_metadata,
+            namespace=namespace,
+            workflow_name=workflow_name,
+            workflow_metadata=workflow_metadata,
             catalog=catalog,
         )
         missing = [p for p in required_perms if not identity.has_permission(p, permissions)]
@@ -133,44 +135,63 @@ class AuthService:
 
     def _collect_required_permissions(
         self,
+        namespace: str,
         workflow_name: str,
         workflow_metadata: dict,
-        _visited: set[str] | None = None,
+        _visited: set[tuple[str, str]] | None = None,
         catalog=None,
     ) -> list[str]:
         if _visited is None:
             _visited = set()
-        if workflow_name in _visited:
+        key = (namespace, workflow_name)
+        if key in _visited:
             return []
-        _visited.add(workflow_name)
-        perms = [f"workflow:{workflow_name}:run"]
+        _visited.add(key)
+        perms = [f"workflow:{namespace}:{workflow_name}:run"]
         task_names = workflow_metadata.get("task_names", [])
         for task_name in task_names:
-            perms.append(f"workflow:{workflow_name}:task:{task_name}:execute")
+            perms.append(
+                f"workflow:{namespace}:{workflow_name}:task:{task_name}:execute",
+            )
         nested_workflows = workflow_metadata.get("nested_workflows", [])
-        for nested_name in nested_workflows:
-            nested_meta = self._get_workflow_metadata(nested_name, catalog=catalog)
-            if nested_meta:
+        for nested in nested_workflows:
+            nested_ns, nested_name = nested[0], nested[1]
+            nested_meta = self._get_workflow_metadata(
+                nested_ns,
+                nested_name,
+                catalog=catalog,
+            )
+            if nested_meta is not None:
                 perms.extend(
                     self._collect_required_permissions(
-                        nested_name,
-                        nested_meta,
-                        _visited,
+                        namespace=nested_ns,
+                        workflow_name=nested_name,
+                        workflow_metadata=nested_meta,
+                        _visited=_visited,
                         catalog=catalog,
                     ),
                 )
+            else:
+                perms.append(f"workflow:{nested_ns}:{nested_name}:run")
         return perms
 
-    def _get_workflow_metadata(self, workflow_name: str, catalog=None) -> dict | None:
+    def _get_workflow_metadata(
+        self,
+        namespace: str,
+        workflow_name: str,
+        catalog=None,
+    ) -> dict | None:
         if catalog is None:
             from flux.catalogs import WorkflowCatalog
 
             catalog = WorkflowCatalog.create()
         try:
-            workflow = catalog.get(workflow_name)
-            return workflow.metadata if hasattr(workflow, "metadata") and workflow.metadata else {}
+            workflow = catalog.get(namespace, workflow_name)
+            return getattr(workflow, "metadata", None) or {}
         except Exception as e:
-            logger.warning(f"Failed to get metadata for workflow '{workflow_name}': {e}")
+            logger.warning(
+                f"Failed to get metadata for workflow '{namespace}/{workflow_name}': {e}",
+            )
             return None
 
     def _validate_permissions(self, permissions: list[str]) -> None:

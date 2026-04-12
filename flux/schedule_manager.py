@@ -30,6 +30,7 @@ class ScheduleManager(ABC):
         description: str | None = None,
         input_data: Any = None,
         run_as_service_account: str | None = None,
+        workflow_namespace: str = "default",
     ) -> ScheduleModel:
         """Create a new schedule"""
         pass
@@ -117,6 +118,7 @@ class DatabaseScheduleManager(ScheduleManager):
         description: str | None = None,
         input_data: Any = None,
         run_as_service_account: str | None = None,
+        workflow_namespace: str = "default",
     ) -> ScheduleModel:
         """Create a new schedule"""
         try:
@@ -138,6 +140,7 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 schedule_model = ScheduleModel(
                     workflow_id=workflow_id,
+                    workflow_namespace=workflow_namespace,
                     workflow_name=workflow_name,
                     name=name,
                     schedule=schedule,
@@ -380,6 +383,7 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 # Query executions for this workflow using the repository
                 query = session.query(ExecutionContextModel).filter(
+                    ExecutionContextModel.workflow_namespace == schedule.workflow_namespace,
                     ExecutionContextModel.workflow_name == schedule.workflow_name,
                 )
 

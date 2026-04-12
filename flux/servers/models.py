@@ -30,6 +30,7 @@ class ExecutionEvent(BaseModel):
 
 class ExecutionContext(BaseModel):
     workflow_id: str
+    workflow_namespace: str
     workflow_name: str
     execution_id: str
     input: Any = None
@@ -59,6 +60,7 @@ class ExecutionContext(BaseModel):
 
         return domain.ExecutionContext(
             workflow_id=self.workflow_id,
+            workflow_namespace=self.workflow_namespace,
             workflow_name=self.workflow_name,
             input=self.input,
             execution_id=self.execution_id,
@@ -70,6 +72,7 @@ class ExecutionContext(BaseModel):
     def from_domain(cls, ctx: domain.ExecutionContext) -> ExecutionContext:
         return cls(
             workflow_id=ctx.workflow_id,
+            workflow_namespace=ctx.workflow_namespace,
             workflow_name=ctx.workflow_name,
             execution_id=ctx.execution_id,
             input=ctx.input,
@@ -92,6 +95,7 @@ class ExecutionContext(BaseModel):
     def summary(self) -> dict[str, Any]:
         return {
             "workflow_id": self.workflow_id,
+            "workflow_namespace": self.workflow_namespace,
             "workflow_name": self.workflow_name,
             "execution_id": self.execution_id,
             "input": self.input,

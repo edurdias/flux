@@ -26,22 +26,24 @@ class TestFluxMetrics:
 
     def test_record_workflow_started(self):
         m, reader = self._create_metrics()
-        m.record_workflow_started("my_workflow")
+        m.record_workflow_started("default", "my_workflow")
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
         assert dp.attributes["status"] == "started"
         assert dp.value == 1
 
     def test_record_workflow_completed(self):
         m, reader = self._create_metrics()
-        m.record_workflow_completed("my_workflow", "completed", 1.5)
+        m.record_workflow_completed("default", "my_workflow", "completed", 1.5)
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
         assert dp.attributes["status"] == "completed"
         assert dp.value == 1
@@ -52,11 +54,12 @@ class TestFluxMetrics:
 
     def test_record_workflow_completed_zero_duration_skips_histogram(self):
         m, reader = self._create_metrics()
-        m.record_workflow_completed("my_workflow", "cancelled", 0)
+        m.record_workflow_completed("default", "my_workflow", "cancelled", 0)
 
         metric = self._get_metric(reader, "flux_workflow_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["status"] == "cancelled"
 
         duration = self._get_metric(reader, "flux_workflow_execution_duration_seconds")
@@ -64,23 +67,27 @@ class TestFluxMetrics:
 
     def test_record_task_started(self):
         m, reader = self._create_metrics()
-        m.record_task_started("wf", "my_task")
+        m.record_task_started("default", "wf", "my_task")
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "wf"
         assert dp.attributes["task_name"] == "my_task"
         assert dp.attributes["status"] == "started"
 
     def test_record_task_completed(self):
         m, reader = self._create_metrics()
-        m.record_task_completed("wf", "my_task", "completed", 0.5)
+        m.record_task_completed("default", "wf", "my_task", "completed", 0.5)
 
         metric = self._get_metric(reader, "flux_task_executions_total")
         assert metric is not None
         dp = metric.data.data_points[0]
         assert dp.attributes["status"] == "completed"
+        assert dp.attributes["workflow_namespace"] == "default"
+        assert dp.attributes["workflow_name"] == "wf"
+        assert dp.attributes["task_name"] == "my_task"
 
         duration = self._get_metric(reader, "flux_task_execution_duration_seconds")
         assert duration is not None
@@ -88,11 +95,12 @@ class TestFluxMetrics:
 
     def test_record_task_retry(self):
         m, reader = self._create_metrics()
-        m.record_task_retry("wf", "my_task")
+        m.record_task_retry("default", "wf", "my_task")
 
         metric = self._get_metric(reader, "flux_task_retries_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "wf"
         assert dp.attributes["task_name"] == "my_task"
         assert dp.value == 1
@@ -160,11 +168,12 @@ class TestFluxMetrics:
 
     def test_record_checkpoint_with_duration(self):
         m, reader = self._create_metrics()
-        m.record_checkpoint("my_workflow", 0.15)
+        m.record_checkpoint("default", "my_workflow", 0.15)
 
         metric = self._get_metric(reader, "flux_checkpoints_total")
         assert metric is not None
         dp = metric.data.data_points[0]
+        assert dp.attributes["workflow_namespace"] == "default"
         assert dp.attributes["workflow_name"] == "my_workflow"
 
         duration = self._get_metric(reader, "flux_checkpoint_duration_seconds")
@@ -200,6 +209,28 @@ class TestFluxMetrics:
         assert miss_dp is not None and miss_dp.value == 1
 
 
+def test_metrics_helpers_require_namespace_parameter():
+    """Signature check: metrics helpers must accept namespace as first arg."""
+    import inspect
+    from flux.observability.metrics import FluxMetrics
+
+    for helper in [
+        "record_workflow_started",
+        "record_workflow_completed",
+        "record_task_started",
+        "record_task_completed",
+        "record_task_retry",
+        "record_checkpoint",
+    ]:
+        sig = inspect.signature(getattr(FluxMetrics, helper))
+        params = list(sig.parameters.keys())
+        # params[0] is 'self'; the next positional argument should be 'namespace'
+        assert "namespace" in params, f"{helper} missing 'namespace' parameter"
+        assert params.index("namespace") < params.index(
+            "workflow_name",
+        ), f"{helper}: namespace should come before workflow_name"
+
+
 class TestNormalizePath:
     def test_normalizes_worker_paths(self):
         assert (
@@ -214,20 +245,64 @@ class TestNormalizePath:
         )
 
     def test_normalizes_workflow_name_in_paths(self):
+        # All workflow routes are 4-segment: /workflows/{namespace}/{workflow_name}/...
+        # The normalizer collapses both the namespace and workflow_name segments.
         assert (
-            _normalize_path("/workflows/hello_world/executions/abc123")
-            == "/workflows/{workflow_name}/executions/{execution_id}"
+            _normalize_path("/workflows/default/hello_world/executions/abc123")
+            == "/workflows/{namespace}/{workflow_name}/executions/{execution_id}"
         )
         assert (
-            _normalize_path("/workflows/my_pipeline/run/async")
-            == "/workflows/{workflow_name}/run/async"
+            _normalize_path("/workflows/billing/my_pipeline/run/async")
+            == "/workflows/{namespace}/{workflow_name}/run/async"
         )
         assert (
-            _normalize_path("/workflows/my_pipeline/cancel/exec-123")
-            == "/workflows/{workflow_name}/cancel/exec-123"
+            _normalize_path("/workflows/billing/my_pipeline/cancel/exec-123")
+            == "/workflows/{namespace}/{workflow_name}/cancel/exec-123"
         )
 
     def test_preserves_simple_paths(self):
         assert _normalize_path("/workflows") == "/workflows"
         assert _normalize_path("/health") == "/health"
         assert _normalize_path("/metrics") == "/metrics"
+
+    def test_normalizes_4_segment_namespaced_run_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/run/sync")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_normalizes_4_segment_namespaced_resume_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/resume/exec-123/sync")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+        assert "exec-123" not in normalized
+
+    def test_normalizes_4_segment_namespaced_executions_route(self):
+        normalized = _normalize_path("/workflows/billing/invoice/executions")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_normalizes_4_segment_namespaced_workflow_resource(self):
+        normalized = _normalize_path("/workflows/billing/invoice")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+
+    def test_4_segment_namespaced_path_not_double_rewritten(self):
+        # After the rewrite, the literal "billing" and "invoice" must be gone,
+        # and the result must contain both {namespace} and {workflow_name}
+        # placeholders in the canonical form (not mis-layered placeholders).
+        normalized = _normalize_path("/workflows/billing/invoice/run/sync")
+        assert "billing" not in normalized
+        assert "invoice" not in normalized
+        assert normalized == "/workflows/{namespace}/{workflow_name}/run/sync"
+
+    def test_normalizes_workflow_named_after_verb(self):
+        """A workflow literally named "run" or "versions" must still be normalized.
+
+        With legacy 3-segment routes removed, /workflows/{ns}/{name} is
+        unambiguous even when {name} matches a verb keyword.
+        """
+        assert _normalize_path("/workflows/billing/run") == "/workflows/{namespace}/{workflow_name}"
+        assert (
+            _normalize_path("/workflows/billing/versions")
+            == "/workflows/{namespace}/{workflow_name}"
+        )

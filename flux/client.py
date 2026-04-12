@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 
+from flux.catalogs import resolve_workflow_ref
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
@@ -47,32 +48,44 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
-    async def get_workflow(self, name: str) -> dict[str, Any]:
-        response = await self._http_client.get(f"/workflows/{name}")
+    async def get_workflow(self, workflow_ref: str) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
+        response = await self._http_client.get(f"/workflows/{namespace}/{name}")
         response.raise_for_status()
         return response.json()
 
-    async def get_workflow_versions(self, name: str) -> list[dict[str, Any]]:
-        response = await self._http_client.get(f"/workflows/{name}/versions")
+    async def get_workflow_versions(self, workflow_ref: str) -> list[dict[str, Any]]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
+        response = await self._http_client.get(f"/workflows/{namespace}/{name}/versions")
         response.raise_for_status()
         return response.json()
 
-    async def get_workflow_executions(self, name: str, limit: int = 30) -> list[dict[str, Any]]:
+    async def get_workflow_executions(
+        self,
+        workflow_ref: str,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
         response = await self._http_client.get(
-            f"/workflows/{name}/executions",
+            f"/workflows/{namespace}/{name}/executions",
             params={"limit": limit},
         )
         response.raise_for_status()
         return response.json()
 
-    async def run_workflow(self, name: str, input_data: Any = None) -> dict[str, Any]:
-        response = await self._http_client.post(f"/workflows/{name}/run/async", json=input_data)
+    async def run_workflow(self, workflow_ref: str, input_data: Any = None) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
+        response = await self._http_client.post(
+            f"/workflows/{namespace}/{name}/run/async",
+            json=input_data,
+        )
         response.raise_for_status()
         return response.json()
 
-    async def run_workflow_sync(self, name: str, input_data: Any = None) -> dict[str, Any]:
+    async def run_workflow_sync(self, workflow_ref: str, input_data: Any = None) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
         response = await self._http_client.post(
-            f"/workflows/{name}/run/sync",
+            f"/workflows/{namespace}/{name}/run/sync",
             json=input_data,
         )
         response.raise_for_status()
@@ -82,14 +95,16 @@ class FluxClient:
 
     async def list_executions(
         self,
-        workflow_name: str | None = None,
+        workflow_ref: str | None = None,
         state: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        if workflow_name:
-            params["workflow_name"] = workflow_name
+        if workflow_ref:
+            namespace, name = resolve_workflow_ref(workflow_ref)
+            params["namespace"] = namespace
+            params["workflow_name"] = name
         if state:
             params["state"] = state
         response = await self._http_client.get("/executions", params=params)
@@ -104,19 +119,23 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
-    async def cancel_execution(self, workflow_name: str, execution_id: str) -> dict[str, Any]:
-        response = await self._http_client.get(f"/workflows/{workflow_name}/cancel/{execution_id}")
+    async def cancel_execution(self, workflow_ref: str, execution_id: str) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
+        response = await self._http_client.get(
+            f"/workflows/{namespace}/{name}/cancel/{execution_id}",
+        )
         response.raise_for_status()
         return response.json()
 
     async def resume_execution(
         self,
-        workflow_name: str,
+        workflow_ref: str,
         execution_id: str,
         input_data: Any = None,
     ) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
         response = await self._http_client.post(
-            f"/workflows/{workflow_name}/resume/{execution_id}/async",
+            f"/workflows/{namespace}/{name}/resume/{execution_id}/async",
             json=input_data,
         )
         response.raise_for_status()
@@ -124,12 +143,13 @@ class FluxClient:
 
     async def resume_execution_sync(
         self,
-        workflow_name: str,
+        workflow_ref: str,
         execution_id: str,
         input_data: Any = None,
     ) -> dict[str, Any]:
+        namespace, name = resolve_workflow_ref(workflow_ref)
         response = await self._http_client.post(
-            f"/workflows/{workflow_name}/resume/{execution_id}/sync",
+            f"/workflows/{namespace}/{name}/resume/{execution_id}/sync",
             json=input_data,
         )
         response.raise_for_status()

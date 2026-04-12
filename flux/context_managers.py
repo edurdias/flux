@@ -68,6 +68,7 @@ class ContextManager(ABC):
     def list(
         self,
         workflow_name: str | None = None,
+        workflow_namespace: str | None = None,
         state: ExecutionState | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -318,6 +319,7 @@ class DatabaseContextManager(ContextManager):
     def list(
         self,
         workflow_name: str | None = None,
+        workflow_namespace: str | None = None,
         state: ExecutionState | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -327,6 +329,7 @@ class DatabaseContextManager(ContextManager):
 
         Args:
             workflow_name: Optional workflow name to filter by
+            workflow_namespace: Optional workflow namespace to filter by
             state: Optional execution state to filter by
             limit: Maximum number of results to return
             offset: Number of results to skip
@@ -340,6 +343,9 @@ class DatabaseContextManager(ContextManager):
 
             if workflow_name:
                 query = query.filter(ExecutionContextModel.workflow_name == workflow_name)
+
+            if workflow_namespace:
+                query = query.filter(ExecutionContextModel.workflow_namespace == workflow_namespace)
 
             if state:
                 query = query.filter(ExecutionContextModel.state == state)

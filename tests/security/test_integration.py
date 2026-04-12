@@ -30,16 +30,17 @@ class TestFullAuthorizationFlow:
     @pytest.mark.asyncio
     async def test_operator_can_run_workflows(self, auth_service):
         identity = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
-        assert await auth_service.is_authorized(identity, "workflow:report:run") is True
+        assert await auth_service.is_authorized(identity, "workflow:default:report:run") is True
         assert (
-            await auth_service.is_authorized(identity, "workflow:report:task:load:execute") is True
+            await auth_service.is_authorized(identity, "workflow:default:report:task:load:execute")
+            is True
         )
         assert await auth_service.is_authorized(identity, "admin:secrets:manage") is False
 
     @pytest.mark.asyncio
     async def test_viewer_can_only_read(self, auth_service):
         identity = FluxIdentity(subject="bob@acme.com", roles=frozenset({"viewer"}))
-        assert await auth_service.is_authorized(identity, "workflow:report:read") is True
+        assert await auth_service.is_authorized(identity, "workflow:default:report:read") is True
         assert await auth_service.is_authorized(identity, "admin:secrets:manage") is False
 
     @pytest.mark.asyncio
@@ -53,7 +54,7 @@ class TestFullAuthorizationFlow:
     async def test_multiple_roles_merge(self, auth_service):
         await auth_service.create_role("scheduler", ["schedule:daily:manage"])
         identity = FluxIdentity(subject="dave@acme.com", roles=frozenset({"viewer", "scheduler"}))
-        assert await auth_service.is_authorized(identity, "workflow:report:read") is True
+        assert await auth_service.is_authorized(identity, "workflow:default:report:read") is True
         assert await auth_service.is_authorized(identity, "schedule:daily:manage") is True
         assert await auth_service.is_authorized(identity, "admin:secrets:write") is False
 
@@ -118,6 +119,7 @@ class TestFullAuthorizationFlow:
         op = FluxIdentity(subject="alice@acme.com", roles=frozenset({"operator"}))
         result = await auth_service.authorize(
             op,
+            "default",
             "wf",
             {"task_names": ["load"], "nested_workflows": []},
         )
@@ -127,11 +129,12 @@ class TestFullAuthorizationFlow:
         limited = FluxIdentity(subject="charlie@acme.com", roles=frozenset({"limited"}))
         result = await auth_service.authorize(
             limited,
+            "default",
             "wf",
             {"task_names": ["load"], "nested_workflows": []},
         )
         assert result.ok is False
-        assert "workflow:wf:run" in result.missing_permissions
+        assert "workflow:default:wf:run" in result.missing_permissions
 
     @pytest.mark.asyncio
     async def test_seed_idempotent(self, auth_service):
@@ -148,7 +151,7 @@ class TestFullAuthorizationFlow:
             "task_names": ["step_one"],
             "nested_workflows": [],
         }
-        result = await auth_service.authorize(identity, "parent_wf", metadata)
+        result = await auth_service.authorize(identity, "default", "parent_wf", metadata)
         assert result.ok is True
 
     @pytest.mark.asyncio
@@ -157,9 +160,9 @@ class TestFullAuthorizationFlow:
         identity = FluxIdentity(subject="op@test", roles=frozenset({"operator"}))
         metadata = {
             "task_names": ["step"],
-            "nested_workflows": ["self_referencing"],
+            "nested_workflows": [["default", "self_referencing"]],
         }
-        result = await auth_service.authorize(identity, "self_referencing", metadata)
+        result = await auth_service.authorize(identity, "default", "self_referencing", metadata)
         assert result.ok is True
 
     @pytest.mark.asyncio
@@ -184,7 +187,7 @@ class TestFullAuthorizationFlow:
             "nested_workflows": [],
             "auth_exempt_tasks": ["format_output"],
         }
-        result = await auth_service.authorize(op, "wf", metadata)
+        result = await auth_service.authorize(op, "default", "wf", metadata)
         assert result.ok is True
 
     @pytest.mark.asyncio
@@ -210,7 +213,11 @@ class TestEventSubjectIntegration:
         from flux.domain.execution_context import ExecutionContext
         from flux.worker_registry import WorkerInfo
 
-        ctx = ExecutionContext(workflow_id="wf-1", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf-1",
+            workflow_namespace="default",
+            workflow_name="test",
+        )
         worker = WorkerInfo(name="worker-1")
         ctx.schedule(worker)
         event = [e for e in ctx.events if e.type.name == "WORKFLOW_SCHEDULED"][0]

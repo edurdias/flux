@@ -67,7 +67,7 @@ class MCPServer:
 
         # Workflow Management Tools
         @self.mcp.tool()
-        async def list_workflows() -> dict[str, any]:
+        async def list_workflows() -> dict[str, Any]:
             """List all available workflows in the Flux system."""
             try:
                 response = await self._http_client.get("/workflows")
@@ -90,22 +90,55 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_workflow_details(workflow_name: str) -> dict[str, any]:
+        async def list_namespaces() -> dict[str, Any]:
+            """List all workflow namespaces with their workflow counts."""
+            try:
+                response = await self._http_client.get("/namespaces")
+                response.raise_for_status()
+                namespaces = response.json()
+
+                logger.info(f"Retrieved {len(namespaces)} namespaces")
+                return {
+                    "success": True,
+                    "namespaces": namespaces,
+                    "count": len(namespaces),
+                }
+            except httpx.ConnectError:
+                error_msg = f"Could not connect to Flux server at {self.server_url}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            except httpx.HTTPStatusError as e:
+                error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+            except Exception as e:
+                error_msg = f"Unexpected error: {str(e)}"
+                logger.error(error_msg)
+                return {"success": False, "error": error_msg}
+
+        @self.mcp.tool()
+        async def get_workflow_details(
+            workflow_name: str,
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Get detailed information about a specific workflow.
 
             Args:
-                workflow_name: Name of the workflow to get details for
+                workflow_name: Name of the workflow (short form, without namespace)
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
-                response = await self._http_client.get(f"/workflows/{workflow_name}")
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_namespace}/{workflow_name}",
+                )
                 response.raise_for_status()
                 workflow_details = response.json()
 
-                logger.info(f"Retrieved details for workflow: {workflow_name}")
+                logger.info(f"Retrieved details for workflow: {workflow_namespace}/{workflow_name}")
                 return {"success": True, "workflow": workflow_details}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -121,13 +154,15 @@ class MCPServer:
             workflow_name: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Execute a workflow asynchronously and return immediately with execution ID.
 
             Args:
-                workflow_name: Name of the workflow to execute
+                workflow_name: Name of the workflow (short form, without namespace)
                 input_data: JSON string of input data for the workflow
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -138,7 +173,7 @@ class MCPServer:
                     parsed_input = input_data
 
                 response = await self._http_client.post(
-                    f"/workflows/{workflow_name}/run/async",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/run/async",
                     json=parsed_input,
                     params={"detailed": detailed},
                 )
@@ -147,12 +182,12 @@ class MCPServer:
                 context = ExecutionContext.from_dict(result)
 
                 logger.info(
-                    f"Started async execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                    f"Started async execution of workflow: {workflow_namespace}/{workflow_name} (ID: {context.execution_id})",
                 )
                 return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -167,13 +202,15 @@ class MCPServer:
             workflow_name: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Execute a workflow synchronously and wait for completion.
 
             Args:
-                workflow_name: Name of the workflow to execute
+                workflow_name: Name of the workflow (short form, without namespace)
                 input_data: JSON string of input data for the workflow
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -183,7 +220,7 @@ class MCPServer:
                     parsed_input = input_data
 
                 response = await self._http_client.post(
-                    f"/workflows/{workflow_name}/run/sync",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/run/sync",
                     json=parsed_input,
                     params={"detailed": detailed},
                     timeout=300.0,
@@ -193,12 +230,12 @@ class MCPServer:
                 context = ExecutionContext.from_dict(result)
 
                 logger.info(
-                    f"Completed sync execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                    f"Completed sync execution of workflow: {workflow_namespace}/{workflow_name} (ID: {context.execution_id})",
                 )
                 return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -214,14 +251,16 @@ class MCPServer:
             execution_id: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Resume a paused workflow asynchronously with input data.
 
             Args:
-                workflow_name: Name of the workflow to resume
+                workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the paused execution to resume
                 input_data: JSON string of input data to provide during resume
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -232,7 +271,7 @@ class MCPServer:
                     parsed_input = input_data
 
                 response = await self._http_client.post(
-                    f"/workflows/{workflow_name}/resume/{execution_id}/async",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/resume/{execution_id}/async",
                     json=parsed_input,
                     params={"detailed": detailed},
                 )
@@ -241,14 +280,12 @@ class MCPServer:
                 context = ExecutionContext.from_dict(result)
 
                 logger.info(
-                    f"Started async resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                    f"Started async resume of workflow: {workflow_namespace}/{workflow_name} (ID: {context.execution_id})",
                 )
                 return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = (
-                        f"Workflow '{workflow_name}' or execution '{execution_id}' not found"
-                    )
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' or execution '{execution_id}' not found"
                 elif e.response.status_code == 400:
                     error_msg = f"Cannot resume execution: {e.response.text}"
                 else:
@@ -266,14 +303,16 @@ class MCPServer:
             execution_id: str,
             input_data: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Resume a paused workflow synchronously and wait for completion.
 
             Args:
-                workflow_name: Name of the workflow to resume
+                workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the paused execution to resume
                 input_data: JSON string of input data to provide during resume
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -284,7 +323,7 @@ class MCPServer:
                     parsed_input = input_data
 
                 response = await self._http_client.post(
-                    f"/workflows/{workflow_name}/resume/{execution_id}/sync",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/resume/{execution_id}/sync",
                     json=parsed_input,
                     params={"detailed": detailed},
                     timeout=300.0,
@@ -294,14 +333,12 @@ class MCPServer:
                 context = ExecutionContext.from_dict(result)
 
                 logger.info(
-                    f"Completed sync resume of workflow: {workflow_name} (ID: {context.execution_id})",
+                    f"Completed sync resume of workflow: {workflow_namespace}/{workflow_name} (ID: {context.execution_id})",
                 )
                 return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = (
-                        f"Workflow '{workflow_name}' or execution '{execution_id}' not found"
-                    )
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' or execution '{execution_id}' not found"
                 elif e.response.status_code == 400:
                     error_msg = f"Cannot resume execution: {e.response.text}"
                 else:
@@ -314,7 +351,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def upload_workflow(file_content: str) -> dict[str, any]:
+        async def upload_workflow(file_content: str) -> dict[str, Any]:
             """Upload and register a new workflow file.
 
             Args:
@@ -352,24 +389,26 @@ class MCPServer:
             workflow_name: str,
             execution_id: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Get the current status of a workflow execution.
 
             Args:
-                workflow_name: Name of the workflow
+                workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the execution to check
                 detailed: Whether to return detailed execution information including events
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 response = await self._http_client.get(
-                    f"/workflows/{workflow_name}/status/{execution_id}",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/status/{execution_id}",
                     params={"detailed": detailed},
                 )
                 response.raise_for_status()
                 result = response.json()
                 context = ExecutionContext.from_dict(result)
                 logger.info(
-                    f"Retrieved status for execution of workflow: {workflow_name} (ID: {context.execution_id})",
+                    f"Retrieved status for execution of workflow: {workflow_namespace}/{workflow_name} (ID: {context.execution_id})",
                 )
                 return context if detailed else context.summary()
             except httpx.HTTPStatusError as e:
@@ -390,14 +429,16 @@ class MCPServer:
             execution_id: str,
             mode: str = "async",
             detailed: bool = False,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Cancel a running workflow execution.
 
             Args:
-                workflow_name: Name of the workflow
+                workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the execution to cancel
                 mode: Cancellation mode - 'sync' (wait for completion) or 'async' (immediate)
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             if mode not in ["sync", "async"]:
                 return {"success": False, "error": "Mode must be 'sync' or 'async'"}
@@ -405,7 +446,7 @@ class MCPServer:
             try:
                 timeout = 300.0 if mode == "sync" else 30.0
                 response = await self._http_client.get(
-                    f"/workflows/{workflow_name}/cancel/{execution_id}",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/cancel/{execution_id}",
                     params={"mode": mode, "detailed": detailed},
                     timeout=timeout,
                 )
@@ -438,28 +479,30 @@ class MCPServer:
         async def delete_workflow(
             workflow_name: str,
             version: int | None = None,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Delete a workflow from the Flux system.
 
             Args:
-                workflow_name: Name of the workflow to delete
+                workflow_name: Name of the workflow to delete (short form, without namespace)
                 version: Optional specific version to delete. If not provided, deletes all versions.
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 params = {"version": version} if version is not None else {}
                 response = await self._http_client.delete(
-                    f"/workflows/{workflow_name}",
+                    f"/workflows/{workflow_namespace}/{workflow_name}",
                     params=params,
                 )
                 response.raise_for_status()
                 result = response.json()
 
                 version_info = f" version {version}" if version else " (all versions)"
-                logger.info(f"Deleted workflow: {workflow_name}{version_info}")
+                logger.info(f"Deleted workflow: {workflow_namespace}/{workflow_name}{version_info}")
                 return {"success": True, "message": result.get("message", "Workflow deleted")}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -470,22 +513,30 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def list_workflow_versions(workflow_name: str) -> dict[str, any]:
+        async def list_workflow_versions(
+            workflow_name: str,
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """List all versions of a specific workflow.
 
             Args:
-                workflow_name: Name of the workflow to list versions for
+                workflow_name: Name of the workflow to list versions for (short form, without namespace)
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
-                response = await self._http_client.get(f"/workflows/{workflow_name}/versions")
+                response = await self._http_client.get(
+                    f"/workflows/{workflow_namespace}/{workflow_name}/versions",
+                )
                 response.raise_for_status()
                 versions = response.json()
 
-                logger.info(f"Retrieved {len(versions)} versions for workflow: {workflow_name}")
+                logger.info(
+                    f"Retrieved {len(versions)} versions for workflow: {workflow_namespace}/{workflow_name}",
+                )
                 return {"success": True, "versions": versions, "count": len(versions)}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -496,25 +547,32 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_workflow_version(workflow_name: str, version: int) -> dict[str, any]:
+        async def get_workflow_version(
+            workflow_name: str,
+            version: int,
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """Get details of a specific workflow version.
 
             Args:
-                workflow_name: Name of the workflow
+                workflow_name: Name of the workflow (short form, without namespace)
                 version: Version number to retrieve
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 response = await self._http_client.get(
-                    f"/workflows/{workflow_name}/versions/{version}",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/versions/{version}",
                 )
                 response.raise_for_status()
                 workflow = response.json()
 
-                logger.info(f"Retrieved workflow {workflow_name} version {version}")
+                logger.info(
+                    f"Retrieved workflow {workflow_namespace}/{workflow_name} version {version}",
+                )
                 return {"success": True, "workflow": workflow}
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' version {version} not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' version {version} not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -531,7 +589,7 @@ class MCPServer:
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List workflow executions with optional filtering.
 
             Args:
@@ -577,7 +635,7 @@ class MCPServer:
         async def get_execution(
             execution_id: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get details of a specific execution by ID.
 
             Args:
@@ -613,14 +671,16 @@ class MCPServer:
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
-        ) -> dict[str, any]:
+            workflow_namespace: str = "default",
+        ) -> dict[str, Any]:
             """List executions for a specific workflow.
 
             Args:
-                workflow_name: Name of the workflow to list executions for
+                workflow_name: Name of the workflow to list executions for (short form, without namespace)
                 state: Optional execution state to filter by
                 limit: Maximum number of executions to return
                 offset: Number of executions to skip for pagination
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 params: dict[str, Any] = {"limit": limit, "offset": offset}
@@ -628,7 +688,7 @@ class MCPServer:
                     params["state"] = state
 
                 response = await self._http_client.get(
-                    f"/workflows/{workflow_name}/executions",
+                    f"/workflows/{workflow_namespace}/{workflow_name}/executions",
                     params=params,
                 )
                 response.raise_for_status()
@@ -636,7 +696,9 @@ class MCPServer:
 
                 executions = result.get("executions", [])
                 total = result.get("total", len(executions))
-                logger.info(f"Retrieved {len(executions)} executions for workflow {workflow_name}")
+                logger.info(
+                    f"Retrieved {len(executions)} executions for workflow {workflow_namespace}/{workflow_name}",
+                )
                 return {
                     "success": True,
                     "workflow_name": workflow_name,
@@ -647,7 +709,7 @@ class MCPServer:
                 }
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    error_msg = f"Workflow '{workflow_name}' not found"
+                    error_msg = f"Workflow '{workflow_namespace}/{workflow_name}' not found"
                 else:
                     error_msg = f"HTTP error: {e.response.status_code} - {e.response.text}"
                 logger.error(error_msg)
@@ -659,7 +721,7 @@ class MCPServer:
 
         # Worker Management Tools
         @self.mcp.tool()
-        async def list_workers() -> dict[str, any]:
+        async def list_workers() -> dict[str, Any]:
             """List all workers in the Flux system."""
             try:
                 response = await self._http_client.get("/workers")
@@ -682,7 +744,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_worker(worker_name: str) -> dict[str, any]:
+        async def get_worker(worker_name: str) -> dict[str, Any]:
             """Get details of a specific worker.
 
             Args:
@@ -715,7 +777,7 @@ class MCPServer:
             schedule_config: str,
             description: str | None = None,
             input_data: str | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Create a new schedule for a workflow.
 
             Args:
@@ -777,7 +839,7 @@ class MCPServer:
             active_only: bool = True,
             limit: int | None = None,
             offset: int | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List schedules with optional filtering.
 
             Args:
@@ -814,7 +876,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_schedule(schedule_id: str) -> dict[str, any]:
+        async def get_schedule(schedule_id: str) -> dict[str, Any]:
             """Get details of a specific schedule.
 
             Args:
@@ -845,7 +907,7 @@ class MCPServer:
             schedule_config: str | None = None,
             description: str | None = None,
             input_data: str | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Update an existing schedule.
 
             Args:
@@ -897,7 +959,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def pause_schedule(schedule_id: str) -> dict[str, any]:
+        async def pause_schedule(schedule_id: str) -> dict[str, Any]:
             """Pause a schedule.
 
             Args:
@@ -923,7 +985,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def resume_schedule(schedule_id: str) -> dict[str, any]:
+        async def resume_schedule(schedule_id: str) -> dict[str, Any]:
             """Resume a paused schedule.
 
             Args:
@@ -949,7 +1011,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def delete_schedule(schedule_id: str) -> dict[str, any]:
+        async def delete_schedule(schedule_id: str) -> dict[str, Any]:
             """Delete a schedule.
 
             Args:
@@ -979,7 +1041,7 @@ class MCPServer:
             schedule_id: str,
             limit: int = 50,
             offset: int = 0,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get execution history for a schedule.
 
             Args:
@@ -1020,7 +1082,7 @@ class MCPServer:
 
         # Health Check Tool
         @self.mcp.tool()
-        async def health_check() -> dict[str, any]:
+        async def health_check() -> dict[str, Any]:
             """Check the health status of the Flux server."""
             try:
                 response = await self._http_client.get("/health")
