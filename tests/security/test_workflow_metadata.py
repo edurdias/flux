@@ -2,19 +2,22 @@ from flux.catalogs import WorkflowCatalog
 
 
 class FakeCatalog(WorkflowCatalog):
-    def all(self):
+    def all(self, namespace=None):
         return []
 
-    def get(self, name, version=None):
+    def get(self, namespace, name, version=None):
         raise NotImplementedError()
 
     def save(self, workflows):
         pass
 
-    def delete(self, name, version=None):
+    def delete(self, namespace, name, version=None):
         pass
 
-    def versions(self, name):
+    def versions(self, namespace, name):
+        return []
+
+    def list_namespaces(self):
         return []
 
 
@@ -65,7 +68,7 @@ async def outer_workflow(ctx):
         workflows = catalog.parse(source)
         outer = [w for w in workflows if w.name == "outer_workflow"][0]
         assert "step_one" in outer.metadata.get("task_names", [])
-        assert "inner_workflow" in outer.metadata.get("nested_workflows", [])
+        assert ["default", "inner_workflow"] in outer.metadata.get("nested_workflows", [])
 
     def test_extract_task_with_options_name(self):
         source = b"""
@@ -225,8 +228,8 @@ async def outer_workflow(ctx):
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         outer = [w for w in workflows if w.name == "outer_workflow"][0]
-        assert "renamed_inner" in outer.metadata.get("nested_workflows", [])
-        assert "inner_workflow" not in outer.metadata.get("nested_workflows", [])
+        assert ["default", "renamed_inner"] in outer.metadata.get("nested_workflows", [])
+        assert ["default", "inner_workflow"] not in outer.metadata.get("nested_workflows", [])
 
     def test_nested_workflow_plain_decorator_uses_function_name(self):
         source = b"""
@@ -247,4 +250,4 @@ async def main_workflow(ctx):
         catalog = FakeCatalog()
         workflows = catalog.parse(source)
         main = [w for w in workflows if w.name == "main_workflow"][0]
-        assert "sub_workflow" in main.metadata.get("nested_workflows", [])
+        assert ["default", "sub_workflow"] in main.metadata.get("nested_workflows", [])

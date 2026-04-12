@@ -124,6 +124,12 @@
    - [CLI Reference](advanced-features/authentication.md#cli-reference)
    - [Dev Environment](advanced-features/authentication.md#dev-environment)
 
+### [Workflow Namespaces](advanced-features/namespaces.md)
+   - [Declaring a Namespace](advanced-features/namespaces.md#declaring-a-namespace)
+   - [Referring to Workflows](advanced-features/namespaces.md#referring-to-workflows)
+   - [Permissions](advanced-features/namespaces.md#permissions)
+   - [Upgrade Notes](advanced-features/namespaces.md#upgrade-notes)
+
 ## Appendix
 - [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
 - [API Reference](https://github.com/flux-framework/flux/tree/main/flux)

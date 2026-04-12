@@ -9,6 +9,7 @@ from uuid import uuid4
 import click
 import httpx
 
+from flux.catalogs import resolve_workflow_ref
 from flux.cli_auth import auth, roles, principals
 from flux.config import Configuration
 from flux.server import Server
@@ -48,6 +49,12 @@ def get_http_client(timeout: float = 30.0) -> httpx.Client:
 
 @workflow.command("list")
 @click.option(
+    "--namespace",
+    "-n",
+    default=None,
+    help="Filter by namespace",
+)
+@click.option(
     "--format",
     "-f",
     type=click.Choice(["simple", "json"]),
@@ -60,13 +67,14 @@ def get_http_client(timeout: float = 30.0) -> httpx.Client:
     default=None,
     help="Server URL to connect to.",
 )
-def list_workflows(format: str, server_url: str | None):
+def list_workflows(namespace: str | None, format: str, server_url: str | None):
     """List all registered workflows."""
     try:
         base_url = server_url or get_server_url()
+        params = {"namespace": namespace} if namespace else None
 
         with get_http_client() as client:
-            response = client.get(f"{base_url}/workflows")
+            response = client.get(f"{base_url}/workflows", params=params)
             response.raise_for_status()
             workflows = response.json()
 
@@ -77,10 +85,46 @@ def list_workflows(format: str, server_url: str | None):
         if format == "json":
             click.echo(json.dumps(workflows, indent=2))
         else:
-            for workflow in workflows:
-                click.echo(f"- {workflow['name']} (version {workflow['version']})")
+            for wf in workflows:
+                click.echo(f"- {wf['namespace']}/{wf['name']} (version {wf['version']})")
     except Exception as ex:
         click.echo(f"Error listing workflows: {str(ex)}", err=True)
+
+
+@workflow.command("list-namespaces")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_namespaces(format: str, server_url: str | None):
+    """List all namespaces with workflow counts."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/namespaces")
+            response.raise_for_status()
+            namespaces = response.json()
+
+        if not namespaces:
+            click.echo("No namespaces found.")
+            return
+
+        if format == "json":
+            click.echo(json.dumps(namespaces, indent=2))
+        else:
+            for ns in namespaces:
+                click.echo(f"- {ns['namespace']} ({ns['workflow_count']} workflow(s))")
+    except Exception as ex:
+        click.echo(f"Error listing namespaces: {str(ex)}", err=True)
 
 
 @workflow.command("register")
@@ -134,12 +178,13 @@ def show_workflow(workflow_name: str, version: int | None, server_url: str | Non
     """Show the details of a registered workflow."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
 
         with get_http_client() as client:
             if version is not None:
-                url = f"{base_url}/workflows/{workflow_name}/versions/{version}"
+                url = f"{base_url}/workflows/{namespace}/{name}/versions/{version}"
             else:
-                url = f"{base_url}/workflows/{workflow_name}"
+                url = f"{base_url}/workflows/{namespace}/{name}"
             response = client.get(url)
             response.raise_for_status()
             workflow = response.json()
@@ -192,6 +237,7 @@ def delete_workflow(
     """Delete a workflow (all versions or a specific version)."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
 
         version_str = f" version {version}" if version else " (all versions)"
         if not force:
@@ -205,7 +251,7 @@ def delete_workflow(
 
         with get_http_client() as client:
             response = client.delete(
-                f"{base_url}/workflows/{workflow_name}",
+                f"{base_url}/workflows/{namespace}/{name}",
                 params=params,
             )
             response.raise_for_status()
@@ -244,9 +290,10 @@ def list_workflow_versions(
     """List all versions of a workflow."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
 
         with get_http_client() as client:
-            response = client.get(f"{base_url}/workflows/{workflow_name}/versions")
+            response = client.get(f"{base_url}/workflows/{namespace}/{name}/versions")
             response.raise_for_status()
             versions = response.json()
 
@@ -311,6 +358,7 @@ def run_workflow(
     """Run the specified workflow."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
 
         params: dict[str, Any] = {"detailed": detailed}
@@ -319,7 +367,7 @@ def run_workflow(
 
         with get_http_client(timeout=60.0) as client:
             response = client.post(
-                f"{base_url}/workflows/{workflow_name}/run/{mode}",
+                f"{base_url}/workflows/{namespace}/{name}/run/{mode}",
                 json=parsed_input,
                 params=params,
             )
@@ -384,11 +432,12 @@ def resume_workflow(
     """Run the specified workflow."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
 
         with get_http_client(timeout=60.0) as client:
             response = client.post(
-                f"{base_url}/workflows/{workflow_name}/resume/{execution_id}/{mode}",
+                f"{base_url}/workflows/{namespace}/{name}/resume/{execution_id}/{mode}",
                 json=parsed_input,
                 params={"detailed": detailed},
             )
@@ -443,10 +492,11 @@ def workflow_status(
     """Check the status of a workflow execution."""
     try:
         base_url = server_url or get_server_url()
+        namespace, name = resolve_workflow_ref(workflow_name)
 
         with get_http_client() as client:
             response = client.get(
-                f"{base_url}/workflows/{workflow_name}/status/{execution_id}",
+                f"{base_url}/workflows/{namespace}/{name}/status/{execution_id}",
                 params={"detailed": detailed},
             )
             response.raise_for_status()
@@ -482,7 +532,7 @@ def execution():
     "--workflow",
     "-w",
     default=None,
-    help="Filter by workflow name",
+    help="Filter by workflow reference (namespace/name or bare name)",
 )
 @click.option(
     "--state",
@@ -531,7 +581,9 @@ def list_executions(
 
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
-            params["workflow_name"] = workflow
+            namespace, wf_name = resolve_workflow_ref(workflow)
+            params["namespace"] = namespace
+            params["workflow_name"] = wf_name
         if state:
             params["state"] = state
 
@@ -555,9 +607,10 @@ def list_executions(
             for ex in executions:
                 state_str = ex.get("state", "UNKNOWN")
                 worker = ex.get("worker_name") or "unassigned"
+                ns = ex.get("workflow_namespace", "default")
                 click.echo(
                     f"  {ex['execution_id'][:12]}...  "
-                    f"{ex['workflow_name']:20}  {state_str:12}  {worker}",
+                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}",
                 )
 
     except httpx.HTTPStatusError as ex:
@@ -798,12 +851,12 @@ def mcp(
 @start.command()
 @click.option("--server-url", "-surl", default=None, help="Server URL to connect to.")
 def console(server_url: str | None = None):
-    """Start the Flux Console TUI for monitoring and managing workflows."""
-    from flux.console.app import FluxConsoleApp
-
-    settings = Configuration.get().settings
-    server_url = server_url or f"http://{settings.server_host}:{settings.server_port}"
-    FluxConsoleApp(server_url).run()
+    """Interactive TUI console (disabled in this release)."""
+    click.echo(
+        "The Flux console TUI is disabled in this release.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
 
 
 @cli.group()
@@ -876,6 +929,8 @@ def create_schedule(
 ):
     """Create a new schedule for a workflow."""
     try:
+        namespace, wf_name = resolve_workflow_ref(workflow_name)
+
         # Validate schedule parameters
         if not cron and not interval_hours and not interval_minutes:
             click.echo("Error: Must specify either --cron or --interval-* options", err=True)
@@ -906,7 +961,8 @@ def create_schedule(
 
         # Prepare request
         request_data = {
-            "workflow_name": workflow_name,
+            "workflow_name": wf_name,
+            "workflow_namespace": namespace,
             "name": schedule_name,
             "schedule_config": schedule_config,
             "description": description,

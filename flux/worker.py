@@ -26,8 +26,19 @@ from flux import workflow
 logger = get_logger(__name__)
 
 
+def _make_module_cache_key(namespace: str, name: str, version: int) -> str:
+    return f"{namespace}:{name}:{version}"
+
+
+def _make_module_name(namespace: str, name: str, version: int) -> str:
+    safe_namespace = namespace.replace("-", "_")
+    safe_name = name.replace("-", "_")
+    return f"flux_workflow__{safe_namespace}__{safe_name}__v{version}"
+
+
 class WorkflowDefinition(BaseModel):
     id: str
+    namespace: str = "default"
     name: str
     version: int
     source: str
@@ -49,6 +60,7 @@ class WorkflowExecutionRequest(BaseModel):
         exec_token = data.get("exec_token")
         ctx: ExecutionContext = ExecutionContext(
             workflow_id=data["context"]["workflow_id"],
+            workflow_namespace=data["context"].get("workflow_namespace", "default"),
             workflow_name=data["context"]["workflow_name"],
             input=data["context"]["input"],
             execution_id=data["context"]["execution_id"],
@@ -264,7 +276,12 @@ class Worker:
 
                     m = get_metrics()
                     if m:
-                        m.record_workflow_completed(context.workflow_name, "cancelled", 0)
+                        m.record_workflow_completed(
+                            context.workflow_namespace,
+                            context.workflow_name,
+                            "cancelled",
+                            0,
+                        )
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
         except Exception as ex:
@@ -431,7 +448,11 @@ class Worker:
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
 
-        cache_key = f"{request.workflow.name}:{request.workflow.version}"
+        cache_key = _make_module_cache_key(
+            request.workflow.namespace,
+            request.workflow.name,
+            request.workflow.version,
+        )
         module = None
         wfunc = None
 
@@ -458,7 +479,11 @@ class Worker:
             source_code = base64.b64decode(request.workflow.source).decode("utf-8")
             logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
 
-            module_name = f"flux_workflow_{request.workflow.name}_{request.workflow.version}"
+            module_name = _make_module_name(
+                request.workflow.namespace,
+                request.workflow.name,
+                request.workflow.version,
+            )
             logger.debug(f"Creating module: {module_name}")
             module_spec = importlib.util.spec_from_loader(module_name, loader=None)
             module = importlib.util.module_from_spec(module_spec)  # type: ignore
@@ -474,7 +499,11 @@ class Worker:
         self._setup_progress(ctx)
 
         for obj in module.__dict__.values():
-            if isinstance(obj, workflow) and obj.name == request.workflow.name:
+            if (
+                isinstance(obj, workflow)
+                and obj.namespace == request.workflow.namespace
+                and obj.name == request.workflow.name
+            ):
                 wfunc = obj
                 break
 
@@ -499,7 +528,12 @@ class Worker:
             m = get_metrics()
             if m:
                 status = "completed" if not ctx.has_failed else "failed"
-                m.record_workflow_completed(request.workflow.name, status, execution_time)
+                m.record_workflow_completed(
+                    request.workflow.namespace,
+                    request.workflow.name,
+                    status,
+                    execution_time,
+                )
         else:
             logger.warning(f"Workflow {request.workflow.name} not found in module")
             raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
@@ -562,7 +596,7 @@ class Worker:
 
             m = get_metrics()
             if m:
-                m.record_checkpoint(ctx.workflow_name, checkpoint_duration)
+                m.record_checkpoint(ctx.workflow_namespace, ctx.workflow_name, checkpoint_duration)
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")

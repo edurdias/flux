@@ -29,7 +29,11 @@ def test_openai_streaming_emits_progress():
 
             llm_task, formatter = build_openai_provider("gpt-4o")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
+            )
             ctx.set_progress_callback(on_progress)
             ec_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))
@@ -79,7 +83,11 @@ def test_openai_no_streaming_when_disabled():
 
             llm_task, formatter = build_openai_provider("gpt-4o")
 
-            ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+            ctx = ExecutionContext(
+                workflow_id="wf1",
+                workflow_namespace="default",
+                workflow_name="test",
+            )
             ctx.set_progress_callback(on_progress)
             ec_token = ExecutionContext.set(ctx)
             task_token = _CURRENT_TASK.set(("task-1", "test_task"))

@@ -63,6 +63,7 @@ def sample_execution_context():
     """Create a sample execution context for testing."""
     return ExecutionContext(
         workflow_id="test-workflow-id",
+        workflow_namespace="default",
         workflow_name="test_workflow",
         input={"test": "input"},
         execution_id="test-execution-id",
@@ -482,3 +483,70 @@ class TestWorker:
 
             with pytest.raises(Exception, match="Connection error"):
                 await worker._connect()
+
+
+def test_workflow_definition_has_namespace():
+    from flux.worker import WorkflowDefinition
+
+    wd = WorkflowDefinition(
+        id="id1",
+        namespace="billing",
+        name="invoice",
+        version=1,
+        source="aGk=",
+    )
+    assert wd.namespace == "billing"
+
+
+def test_workflow_definition_default_namespace():
+    from flux.worker import WorkflowDefinition
+
+    wd = WorkflowDefinition(
+        id="id1",
+        name="invoice",
+        version=1,
+        source="aGk=",
+    )
+    assert wd.namespace == "default"
+
+
+def test_module_cache_key_includes_namespace():
+    from flux.worker import _make_module_cache_key, _make_module_name
+
+    key_a = _make_module_cache_key("billing", "process", 1)
+    key_b = _make_module_cache_key("analytics", "process", 1)
+    assert key_a != key_b
+
+    name_a = _make_module_name("billing", "process", 1)
+    name_b = _make_module_name("analytics", "process", 1)
+    assert name_a != name_b
+    assert "billing" in name_a
+    assert "analytics" in name_b
+
+
+def test_module_name_no_underscore_collision():
+    """foo_bar/baz and foo/bar_baz must produce distinct module names."""
+    from flux.worker import _make_module_name
+
+    name_a = _make_module_name("foo_bar", "baz", 1)
+    name_b = _make_module_name("foo", "bar_baz", 1)
+    assert name_a != name_b
+    assert name_a == "flux_workflow__foo_bar__baz__v1"
+    assert name_b == "flux_workflow__foo__bar_baz__v1"
+
+
+def test_module_name_sanitizes_hyphens():
+    """Hyphens in namespace/name must be replaced with underscores."""
+    from flux.worker import _make_module_name
+
+    name = _make_module_name("foo-bar", "my-workflow", 2)
+    assert name == "flux_workflow__foo_bar__my_workflow__v2"
+    assert "-" not in name
+
+
+def test_module_name_is_valid_python_identifier():
+    """The module name must be a valid Python identifier."""
+    from flux.worker import _make_module_name
+
+    name = _make_module_name("billing", "invoice", 1)
+    assert name.isidentifier()

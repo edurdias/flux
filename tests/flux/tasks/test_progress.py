@@ -27,7 +27,12 @@ def test_progress_calls_emit_progress_on_context():
     async def run():
         from flux.tasks.progress import progress
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_1")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+            execution_id="exec_1",
+        )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
         task_token = _CURRENT_TASK.set(("task_abc", "my_task"))
@@ -54,7 +59,11 @@ def test_progress_noop_without_current_task():
     async def run():
         from flux.tasks.progress import progress
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+        )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
         try:
@@ -81,7 +90,11 @@ def test_progress_inside_task():
                 await progress({"processed": i + 1, "total": items})
             return "done"
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+        )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
         try:
@@ -107,7 +120,11 @@ def test_progress_accepts_any_value_type():
     async def run():
         from flux.tasks.progress import progress
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+        )
         ctx.set_progress_callback(on_progress)
         token = ExecutionContext.set(ctx)
         task_token = _CURRENT_TASK.set(("t1", "test_task"))

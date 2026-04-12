@@ -19,6 +19,7 @@ class TestCancellationExample:
         # Create the execution context with a small number of iterations
         ctx = ExecutionContext(
             workflow_id="cancellable_workflow",
+            workflow_namespace="default",
             workflow_name="cancellable_workflow",
             input={"iterations": 1},  # Use just 1 iteration for faster test
         )
@@ -49,6 +50,7 @@ class TestCancellationExample:
         # Create the execution context with a larger number of iterations
         ctx = ExecutionContext(
             workflow_id="cancellable_workflow",
+            workflow_namespace="default",
             workflow_name="cancellable_workflow",
             input={"iterations": 10},  # Enough iterations to allow for cancellation
         )
@@ -85,6 +87,7 @@ class TestCancellationExample:
         # Create a context for the task
         ctx = ExecutionContext(
             workflow_id="test_long_running_task",
+            workflow_namespace="default",
             workflow_name="test_long_running_task",
         )
 

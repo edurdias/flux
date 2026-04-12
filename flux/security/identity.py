@@ -35,8 +35,8 @@ class FluxIdentity:
 #     e.g. `workflow:report:*` matches `workflow:report:run` and
 #     `workflow:report:task:load:execute`.
 #   Non-terminal `*` (middle segment): matches exactly one segment.
-#     e.g. `workflow:*:read` matches `workflow:report:read` but NOT
-#     `workflow:report:sub:read`.
+#     e.g. `workflow:*:*:read` matches `workflow:billing:invoice:read` but NOT
+#     `workflow:billing:invoice:task:load:execute` (the latter needs `workflow:billing:*`).
 def _wildcard_match(pattern_parts: list[str], target_parts: list[str]) -> bool:
     for i, part in enumerate(pattern_parts):
         if part == "*":

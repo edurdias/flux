@@ -154,7 +154,10 @@ class task:
                         task_name=full_name,
                         task_id=task_id,
                         subject="unknown",
-                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                        required_permission=(
+                            f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}"
+                            f":task:{self.name}:execute"
+                        ),
                     )
 
                 server_url = Configuration.get().settings.workers.server_url
@@ -189,7 +192,10 @@ class task:
                         task_name=full_name,
                         task_id=task_id,
                         subject="unknown",
-                        required_permission=f"workflow:{ctx.workflow_name}:task:{self.name}:execute",
+                        required_permission=(
+                            f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}"
+                            f":task:{self.name}:execute"
+                        ),
                     )
 
         finished = [
@@ -243,7 +249,7 @@ class task:
 
             m = get_metrics()
             if m:
-                m.record_task_started(ctx.workflow_name, self.name)
+                m.record_task_started(ctx.workflow_namespace, ctx.workflow_name, self.name)
 
             task_failed = False
             task_start_time = time.monotonic()
@@ -310,7 +316,13 @@ class task:
 
             if m:
                 status = "completed" if not task_failed else "failed"
-                m.record_task_completed(ctx.workflow_name, self.name, status, task_duration)
+                m.record_task_completed(
+                    ctx.workflow_namespace,
+                    ctx.workflow_name,
+                    self.name,
+                    status,
+                    task_duration,
+                )
 
             ctx.events.append(
                 ExecutionEvent(
@@ -547,7 +559,7 @@ class task:
 
             _m = _get_retry_metrics()
             if _m:
-                _m.record_task_retry(ctx.workflow_name, self.name)
+                _m.record_task_retry(ctx.workflow_namespace, ctx.workflow_name, self.name)
 
             current_delay = self.retry_delay
             retry_args = {

@@ -33,6 +33,7 @@ class TestCancellationIntegration:
         # Create the execution context
         ctx = ExecutionContext(
             workflow_id="cancellable_workflow",
+            workflow_namespace="default",
             workflow_name="cancellable_workflow",
             input=None,
         )
@@ -97,6 +98,7 @@ class TestCancellationIntegration:
         # Create the execution context
         ctx = ExecutionContext(
             workflow_id="quick_workflow",
+            workflow_namespace="default",
             workflow_name="quick_workflow",
             input=None,
         )

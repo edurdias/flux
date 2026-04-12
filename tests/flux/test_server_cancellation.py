@@ -58,13 +58,16 @@ class TestServerCancellation:
         ctx.execution_id = "test-execution-id"
         ctx.workflow_id = "test-workflow-id"
         ctx.workflow_name = "test-workflow"
+        ctx.workflow_namespace = "default"
 
         # Set up the mock to return our context
         mock_context_manager.get.return_value = ctx
         mock_context_manager.save.return_value = ctx
 
         # Make the request
-        response = test_client.get("/workflows/test-workflow/cancel/test-execution-id?mode=async")
+        response = test_client.get(
+            "/workflows/default/test-workflow/cancel/test-execution-id?mode=async",
+        )
 
         # Check the response
         assert response.status_code == 200
@@ -89,7 +92,9 @@ class TestServerCancellation:
         mock_context_manager.get.return_value = ctx
 
         # Make the request
-        response = test_client.get("/workflows/test-workflow/cancel/test-execution-id?mode=async")
+        response = test_client.get(
+            "/workflows/default/test-workflow/cancel/test-execution-id?mode=async",
+        )
 
         # Check the response - should be a 400 error
         assert response.status_code == 400
@@ -113,12 +118,12 @@ class TestWorkflowEndpoints:
         mock_catalog.delete.return_value = None
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow")
+        response = test_client.delete("/workflows/default/test_workflow")
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "success"
-        mock_catalog.delete.assert_called_once_with("test_workflow", None)
+        mock_catalog.delete.assert_called_once_with("default", "test_workflow", None)
 
     @patch("flux.server.WorkflowCatalog.create")
     def test_workflow_delete_specific_version(self, mock_catalog_create, test_client):
@@ -127,10 +132,10 @@ class TestWorkflowEndpoints:
         mock_catalog.delete.return_value = None
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow?version=2")
+        response = test_client.delete("/workflows/default/test_workflow?version=2")
 
         assert response.status_code == 200
-        mock_catalog.delete.assert_called_once_with("test_workflow", 2)
+        mock_catalog.delete.assert_called_once_with("default", "test_workflow", 2)
 
     @patch("flux.server.WorkflowCatalog.create")
     def test_workflow_versions_list(self, mock_catalog_create, test_client):
@@ -149,7 +154,7 @@ class TestWorkflowEndpoints:
         mock_catalog.versions.return_value = [mock_version2, mock_version1]
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/versions")
+        response = test_client.get("/workflows/default/test_workflow/versions")
 
         assert response.status_code == 200
         data = response.json()
@@ -164,7 +169,7 @@ class TestWorkflowEndpoints:
         mock_catalog.versions.return_value = []
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/nonexistent/versions")
+        response = test_client.get("/workflows/default/nonexistent/versions")
 
         # The endpoint returns 404 when no versions exist
         assert response.status_code == 404
@@ -193,13 +198,13 @@ class TestWorkflowEndpoints:
         mock_catalog.get.return_value = mock_workflow
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/versions/2")
+        response = test_client.get("/workflows/default/test_workflow/versions/2")
 
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "test_workflow"
         assert data["version"] == 2
-        mock_catalog.get.assert_called_once_with("test_workflow", 2)
+        mock_catalog.get.assert_called_once_with("default", "test_workflow", 2)
 
     @patch("flux.server.WorkflowCatalog.create")
     def test_workflow_version_not_found(self, mock_catalog_create, test_client):
@@ -210,7 +215,7 @@ class TestWorkflowEndpoints:
         mock_catalog.get.side_effect = WorkflowNotFoundError("test_workflow", 99)
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/versions/99")
+        response = test_client.get("/workflows/default/test_workflow/versions/99")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()
@@ -227,6 +232,7 @@ class TestExecutionEndpoints:
         mock_exec.execution_id = "exec-123"
         mock_exec.workflow_id = "wf-123"
         mock_exec.workflow_name = "test_workflow"
+        mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.COMPLETED
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
 
@@ -264,6 +270,7 @@ class TestExecutionEndpoints:
         mock_exec.execution_id = "exec-123"
         mock_exec.workflow_id = "wf-123"
         mock_exec.workflow_name = "test_workflow"
+        mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.COMPLETED
         mock_exec.worker_name = "worker-1"
         mock_exec.to_dict.return_value = {
@@ -324,13 +331,14 @@ class TestExecutionEndpoints:
         mock_exec.execution_id = "exec-123"
         mock_exec.workflow_id = "wf-123"
         mock_exec.workflow_name = "test_workflow"
+        mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.RUNNING
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
 
         mock_cm.list.return_value = ([mock_exec], 1)
         mock_cm_create.return_value = mock_cm
 
-        response = test_client.get("/workflows/test_workflow/executions")
+        response = test_client.get("/workflows/default/test_workflow/executions")
 
         assert response.status_code == 200
         data = response.json()
@@ -452,6 +460,7 @@ class TestHealthEndpoint:
         ctx_running.execution_id = "test-execution-id"
         ctx_running.workflow_id = "test-workflow-id"
         ctx_running.workflow_name = "test-workflow"
+        ctx_running.workflow_namespace = "default"
 
         ctx_cancelled = MagicMock(spec=ExecutionContext)
         ctx_cancelled.has_finished = True
@@ -460,6 +469,7 @@ class TestHealthEndpoint:
         ctx_cancelled.execution_id = "test-execution-id"
         ctx_cancelled.workflow_id = "test-workflow-id"
         ctx_cancelled.workflow_name = "test-workflow"
+        ctx_cancelled.workflow_namespace = "default"
 
         # Set up the mock to return our contexts in sequence
         mock_context_manager.get.side_effect = [ctx_running, ctx_cancelled]
@@ -473,7 +483,7 @@ class TestHealthEndpoint:
 
         with patch("asyncio.wait_for", side_effect=mock_wait_for):
             response = test_client.get(
-                "/workflows/test-workflow/cancel/test-execution-id?mode=sync",
+                "/workflows/default/test-workflow/cancel/test-execution-id?mode=sync",
             )
 
         # Check the response
@@ -506,7 +516,7 @@ class TestAPIEdgeCases:
         mock_catalog.delete.side_effect = Exception("Database connection failed")
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.delete("/workflows/test_workflow")
+        response = test_client.delete("/workflows/default/test_workflow")
 
         assert response.status_code == 500
         assert "error" in response.text.lower()
@@ -550,7 +560,7 @@ class TestAPIEdgeCases:
         mock_catalog.versions.side_effect = Exception("Database error")
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/versions")
+        response = test_client.get("/workflows/default/test_workflow/versions")
 
         assert response.status_code == 500
         assert "error" in response.text.lower()
@@ -565,7 +575,7 @@ class TestAPIEdgeCases:
         mock_catalog.get.side_effect = WorkflowNotFoundError("nonexistent")
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/nonexistent/executions")
+        response = test_client.get("/workflows/default/nonexistent/executions")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()
@@ -584,7 +594,7 @@ class TestAPIEdgeCases:
         mock_catalog.get.return_value = mock_workflow
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.get("/workflows/test_workflow/executions?state=BAD")
+        response = test_client.get("/workflows/default/test_workflow/executions?state=BAD")
 
         assert response.status_code == 400
         assert "invalid state" in response.text.lower()
@@ -602,6 +612,7 @@ class TestWorkflowRunWithVersion:
         mock_workflow = MagicMock()
         mock_workflow.id = "wf-123"
         mock_workflow.name = "test_workflow"
+        mock_workflow.namespace = "default"
         mock_workflow.requests = None
         mock_catalog.get.return_value = mock_workflow
         mock_catalog_create.return_value = mock_catalog
@@ -612,6 +623,7 @@ class TestWorkflowRunWithVersion:
         mock_ctx.execution_id = "exec-123"
         mock_ctx.workflow_id = "wf-123"
         mock_ctx.workflow_name = "test_workflow"
+        mock_ctx.workflow_namespace = "default"
         mock_ctx.input = None
         mock_ctx.output = None
         mock_ctx.state = ExecutionState.CREATED
@@ -620,11 +632,11 @@ class TestWorkflowRunWithVersion:
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm
 
-        response = test_client.post("/workflows/test_workflow/run/async")
+        response = test_client.post("/workflows/default/test_workflow/run/async")
 
         assert response.status_code == 200
         # Verify catalog.get was called without version (None)
-        mock_catalog.get.assert_called_once_with("test_workflow", None)
+        mock_catalog.get.assert_called_once_with("default", "test_workflow", None)
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
@@ -635,6 +647,7 @@ class TestWorkflowRunWithVersion:
         mock_workflow = MagicMock()
         mock_workflow.id = "wf-123-v2"
         mock_workflow.name = "test_workflow"
+        mock_workflow.namespace = "default"
         mock_workflow.version = 2
         mock_workflow.requests = None
         mock_catalog.get.return_value = mock_workflow
@@ -646,6 +659,7 @@ class TestWorkflowRunWithVersion:
         mock_ctx.execution_id = "exec-456"
         mock_ctx.workflow_id = "wf-123-v2"
         mock_ctx.workflow_name = "test_workflow"
+        mock_ctx.workflow_namespace = "default"
         mock_ctx.input = None
         mock_ctx.output = None
         mock_ctx.state = ExecutionState.CREATED
@@ -654,11 +668,11 @@ class TestWorkflowRunWithVersion:
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm
 
-        response = test_client.post("/workflows/test_workflow/run/async?version=2")
+        response = test_client.post("/workflows/default/test_workflow/run/async?version=2")
 
         assert response.status_code == 200
         # Verify catalog.get was called with version=2
-        mock_catalog.get.assert_called_once_with("test_workflow", 2)
+        mock_catalog.get.assert_called_once_with("default", "test_workflow", 2)
 
     @patch("flux.server.ContextManager.create")
     @patch("flux.server.WorkflowCatalog.create")
@@ -670,7 +684,7 @@ class TestWorkflowRunWithVersion:
         mock_catalog.get.side_effect = WorkflowNotFoundError("test_workflow", 99)
         mock_catalog_create.return_value = mock_catalog
 
-        response = test_client.post("/workflows/test_workflow/run/async?version=99")
+        response = test_client.post("/workflows/default/test_workflow/run/async?version=99")
 
         assert response.status_code == 404
         assert "not found" in response.text.lower()

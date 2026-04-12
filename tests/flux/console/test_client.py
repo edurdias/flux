@@ -65,7 +65,7 @@ class TestFluxClientWorkflows:
 
         result = await client.get_workflow("wf1")
         assert result["name"] == "wf1"
-        client._http_client.get.assert_called_once_with("/workflows/wf1")
+        client._http_client.get.assert_called_once_with("/workflows/default/wf1")
 
     @pytest.mark.asyncio
     async def test_get_workflow_versions(self, client):
@@ -77,7 +77,7 @@ class TestFluxClientWorkflows:
 
         result = await client.get_workflow_versions("wf1")
         assert len(result) == 2
-        client._http_client.get.assert_called_once_with("/workflows/wf1/versions")
+        client._http_client.get.assert_called_once_with("/workflows/default/wf1/versions")
 
 
 class TestFluxClientExecutions:
@@ -104,10 +104,16 @@ class TestFluxClientExecutions:
         mock_response.raise_for_status = MagicMock()
         client._http_client.get = AsyncMock(return_value=mock_response)
 
-        await client.list_executions(workflow_name="wf1", state="RUNNING", limit=10, offset=5)
+        await client.list_executions(workflow_ref="wf1", state="RUNNING", limit=10, offset=5)
         client._http_client.get.assert_called_once_with(
             "/executions",
-            params={"limit": 10, "offset": 5, "workflow_name": "wf1", "state": "RUNNING"},
+            params={
+                "limit": 10,
+                "offset": 5,
+                "namespace": "default",
+                "workflow_name": "wf1",
+                "state": "RUNNING",
+            },
         )
 
     @pytest.mark.asyncio
@@ -197,7 +203,7 @@ class TestFluxClientActions:
         result = await client.run_workflow("wf1", input_data={"key": "val"})
         assert result["execution_id"] == "new-exec"
         client._http_client.post.assert_called_once_with(
-            "/workflows/wf1/run/async",
+            "/workflows/default/wf1/run/async",
             json={"key": "val"},
         )
 
@@ -210,4 +216,4 @@ class TestFluxClientActions:
         client._http_client.get = AsyncMock(return_value=mock_response)
 
         await client.cancel_execution("wf1", "exec-1")
-        client._http_client.get.assert_called_once_with("/workflows/wf1/cancel/exec-1")
+        client._http_client.get.assert_called_once_with("/workflows/default/wf1/cancel/exec-1")

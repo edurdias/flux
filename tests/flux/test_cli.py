@@ -652,3 +652,273 @@ class TestHealthCommand:
         result = runner.invoke(cli, ["health"])
 
         assert "Cannot connect" in result.output
+
+
+# =============================================================================
+# Namespace-Aware CLI Tests
+# =============================================================================
+
+
+class TestWorkflowShowNamespace:
+    """Tests for namespace-aware workflow show command."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_show_accepts_qualified_ref(self, mock_client_class, runner):
+        """flux workflow show billing/invoice -> GET /workflows/billing/invoice"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "id": "wf-123",
+            "name": "invoice",
+            "namespace": "billing",
+            "version": 1,
+        }
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "show", "billing/invoice"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert "/workflows/billing/invoice" in call_args[0][0]
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_show_bare_name_resolves_to_default(self, mock_client_class, runner):
+        """flux workflow show hello -> GET /workflows/default/hello"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "id": "wf-456",
+            "name": "hello",
+            "namespace": "default",
+            "version": 1,
+        }
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "show", "hello"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert "/workflows/default/hello" in call_args[0][0]
+
+
+class TestWorkflowListNamespaces:
+    """Tests for list-namespaces command."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_namespaces_command(self, mock_client_class, runner):
+        """flux workflow list-namespaces -> GET /namespaces"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"namespace": "default", "workflow_count": 3},
+            {"namespace": "billing", "workflow_count": 1},
+        ]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list-namespaces"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert call_args[0][0].endswith("/namespaces")
+        assert "default" in result.output
+        assert "billing" in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_namespaces_json_format(self, mock_client_class, runner):
+        """flux workflow list-namespaces -f json returns JSON output."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"namespace": "default", "workflow_count": 2},
+        ]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list-namespaces", "-f", "json"])
+
+        assert result.exit_code == 0
+        assert '"namespace"' in result.output
+        assert '"workflow_count"' in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_namespaces_empty(self, mock_client_class, runner):
+        """flux workflow list-namespaces prints message when no namespaces exist."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = []
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list-namespaces"])
+
+        assert result.exit_code == 0
+        assert "No namespaces found" in result.output
+
+
+class TestWorkflowListNamespaceFilter:
+    """Tests for --namespace filter on workflow list command."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_workflows_namespace_filter(self, mock_client_class, runner):
+        """flux workflow list --namespace billing -> GET /workflows?namespace=billing"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"name": "invoice", "namespace": "billing", "version": 1},
+        ]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list", "--namespace", "billing"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert call_args[1]["params"] == {"namespace": "billing"}
+        assert "billing/invoice" in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_workflows_no_namespace_filter(self, mock_client_class, runner):
+        """flux workflow list without --namespace sends no namespace param."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"name": "hello", "namespace": "default", "version": 1},
+        ]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert call_args[1]["params"] is None
+        assert "default/hello" in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_cli_list_workflows_displays_namespace_name(self, mock_client_class, runner):
+        """Workflow list output shows namespace/name format."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {"name": "process", "namespace": "orders", "version": 2},
+        ]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "list"])
+
+        assert result.exit_code == 0
+        assert "orders/process" in result.output
+
+
+class TestWorkflowCommandsNamespaceRouting:
+    """Tests verifying all workflow commands route to namespace-aware URLs."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_delete_uses_namespace_url(self, mock_client_class, runner):
+        """flux workflow delete billing/invoice -> DELETE /workflows/billing/invoice"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_client.delete.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "delete", "billing/invoice", "--force"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.delete.call_args
+        assert "/workflows/billing/invoice" in call_args[0][0]
+
+    @patch("flux.cli.httpx.Client")
+    def test_versions_uses_namespace_url(self, mock_client_class, runner):
+        """flux workflow versions billing/invoice -> GET /workflows/billing/invoice/versions"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [{"id": "v1", "version": 1}]
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "versions", "billing/invoice"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert "/workflows/billing/invoice/versions" in call_args[0][0]
+
+    @patch("flux.cli.httpx.Client")
+    def test_run_uses_namespace_url(self, mock_client_class, runner):
+        """flux workflow run billing/invoice '{}' -> POST /workflows/billing/invoice/run/async"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "exec-1", "state": "CREATED"}
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "run", "billing/invoice", "{}"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.post.call_args
+        assert "/workflows/billing/invoice/run/async" in call_args[0][0]
+
+    @patch("flux.cli.httpx.Client")
+    def test_status_uses_namespace_url(self, mock_client_class, runner):
+        """flux workflow status billing/invoice exec-1 -> GET /workflows/billing/invoice/status/exec-1"""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "exec-1", "state": "COMPLETED"}
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "status", "billing/invoice", "exec-1"])
+
+        assert result.exit_code == 0
+        call_args = mock_client.get.call_args
+        assert "/workflows/billing/invoice/status/exec-1" in call_args[0][0]
+
+
+class TestConsoleCommand:
+    def test_console_command_is_disabled(self):
+        from click.testing import CliRunner
+        from flux.cli import cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["start", "console"])
+        assert result.exit_code == 1
+        assert "disabled" in result.output.lower()

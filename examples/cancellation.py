@@ -185,6 +185,7 @@ async def run_cancellation_example():
         # Create execution context
         ctx = ExecutionContext(
             workflow_id="cancellable_workflow",
+            workflow_namespace="default",
             workflow_name="cancellable_workflow",
             input={"iterations": 5},  # Run for 5 iterations
         )

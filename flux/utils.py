@@ -142,6 +142,7 @@ class FluxEncoder(json.JSONEncoder):
         if isinstance(obj, ExecutionContext):
             return {
                 "workflow_id": obj.workflow_id,
+                "workflow_namespace": obj.workflow_namespace,
                 "workflow_name": obj.workflow_name,
                 "execution_id": obj.execution_id,
                 "input": obj.input,

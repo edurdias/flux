@@ -35,6 +35,7 @@ def execution_context():
     """Create an execution context for testing."""
     return ExecutionContext(
         workflow_id="test-workflow",
+        workflow_namespace="default",
         workflow_name="test",
         execution_id="test-execution-id",
         input="test-input",

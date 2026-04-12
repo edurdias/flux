@@ -30,7 +30,12 @@ class TestCallAsyncMode:
 
         mock_client = _make_async_client(mock_response)
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_0")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+            execution_id="exec_0",
+        )
         token = ExecutionContext.set(ctx)
         try:
             with patch("httpx.AsyncClient", return_value=mock_client):
@@ -59,7 +64,12 @@ class TestCallAsyncMode:
 
         mock_client = _make_async_client(mock_response)
 
-        ctx = ExecutionContext(workflow_id="wf1", workflow_name="test", execution_id="exec_0")
+        ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+            execution_id="exec_0",
+        )
         token = ExecutionContext.set(ctx)
         try:
             with patch("httpx.AsyncClient", return_value=mock_client):

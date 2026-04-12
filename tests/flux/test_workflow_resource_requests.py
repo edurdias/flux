@@ -12,25 +12,23 @@ from flux.catalogs import WorkflowInfo
 class TestWorkflowCatalog(WorkflowCatalog):
     """A minimal implementation of WorkflowCatalog for testing the parse method."""
 
-    def all(self) -> list[WorkflowInfo]:
-        """Return an empty list for testing purposes."""
-        return []
+    def all(self, namespace: str | None = None) -> list[WorkflowInfo]:
+        raise NotImplementedError()
 
-    def get(self, name: str, version: int | None = None) -> WorkflowInfo:
-        """Raise an exception as this method is not needed for testing parse."""
-        raise NotImplementedError("This method is not used in the tests")
+    def get(self, namespace: str, name: str, version: int | None = None) -> WorkflowInfo:
+        raise NotImplementedError()
 
     def save(self, workflows: list[WorkflowInfo]):
-        """Do nothing as this method is not needed for testing parse."""
-        pass
+        raise NotImplementedError()
 
-    def delete(self, name: str, version: int | None = None):
-        """Do nothing as this method is not needed for testing parse."""
-        pass
+    def delete(self, namespace: str, name: str, version: int | None = None):
+        raise NotImplementedError()
 
-    def versions(self, name: str) -> list[WorkflowInfo]:
-        """Return an empty list for testing purposes."""
-        return []
+    def versions(self, namespace: str, name: str) -> list[WorkflowInfo]:
+        raise NotImplementedError()
+
+    def list_namespaces(self) -> list[str]:
+        raise NotImplementedError()
 
 
 @pytest.fixture

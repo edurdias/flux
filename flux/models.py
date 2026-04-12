@@ -47,93 +47,6 @@ class Base(DeclarativeBase):
     pass
 
 
-def _migrate_schema(engine) -> None:
-    from sqlalchemy import inspect as sa_inspect
-
-    inspector = sa_inspect(engine)
-
-    if "workflows" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("workflows")]
-        if "wf_metadata" not in cols:
-            with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE workflows ADD COLUMN wf_metadata TEXT"))
-                conn.commit()
-
-    if "execution_events" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("execution_events")]
-        if "subject" not in cols:
-            with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE execution_events ADD COLUMN subject VARCHAR"))
-                conn.commit()
-
-    if "schedules" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("schedules")]
-        if "run_as_service_account" not in cols:
-            with engine.connect() as conn:
-                conn.execute(
-                    text("ALTER TABLE schedules ADD COLUMN run_as_service_account VARCHAR"),
-                )
-                conn.commit()
-
-    if "executions" in inspector.get_table_names():
-        cols = [c["name"] for c in inspector.get_columns("executions")]
-        if "exec_token" not in cols:
-            with engine.connect() as conn:
-                conn.execute(text("ALTER TABLE executions ADD COLUMN exec_token VARCHAR"))
-                conn.commit()
-        if "scheduling_subject" not in cols:
-            with engine.connect() as conn:
-                conn.execute(
-                    text("ALTER TABLE executions ADD COLUMN scheduling_subject VARCHAR"),
-                )
-                conn.commit()
-        if "scheduling_principal_issuer" not in cols:
-            with engine.connect() as conn:
-                conn.execute(
-                    text(
-                        "ALTER TABLE executions ADD COLUMN scheduling_principal_issuer VARCHAR",
-                    ),
-                )
-                conn.commit()
-
-    # Widen the byte-count columns on worker_resources and
-    # worker_resources_gpus to BIGINT on PostgreSQL. Fresh databases get
-    # the correct type via `Base.metadata.create_all()`; this branch
-    # migrates existing installs that were created while the ORM still
-    # declared these as Integer. SQLite uses dynamic integer affinity
-    # so no migration is needed there.
-    if engine.dialect.name == "postgresql":
-        _widen_int_to_bigint = {
-            "worker_resources": (
-                "memory_total",
-                "memory_available",
-                "disk_total",
-                "disk_free",
-            ),
-            "worker_resources_gpus": (
-                "memory_total",
-                "memory_available",
-            ),
-            "execution_events": ("id",),
-        }
-        for table, columns in _widen_int_to_bigint.items():
-            if table not in inspector.get_table_names():
-                continue
-            existing = {c["name"]: c["type"] for c in inspector.get_columns(table)}
-            for col in columns:
-                col_type = existing.get(col)
-                if col_type is None:
-                    continue
-                if col_type.__class__.__name__ == "INTEGER":
-                    with engine.connect() as conn:
-                        conn.execute(
-                            text(
-                                f"ALTER TABLE {table} " f"ALTER COLUMN {col} TYPE BIGINT",
-                            ),
-                        )
-                        conn.commit()
-
-
 class DatabaseRepository(ABC):
     """Abstract base class for database repositories"""
 
@@ -145,7 +58,6 @@ class DatabaseRepository(ABC):
         if engine_key not in DatabaseRepository._engines:
             DatabaseRepository._engines[engine_key] = self._create_engine()
             Base.metadata.create_all(DatabaseRepository._engines[engine_key])
-            _migrate_schema(DatabaseRepository._engines[engine_key])
         self._engine = DatabaseRepository._engines[engine_key]
 
     @abstractmethod
@@ -506,6 +418,7 @@ class WorkflowModel(Base):
     __tablename__ = "workflows"
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    namespace = Column(String(64), nullable=False, default="default")
     name = Column(String, nullable=False)
     version = Column(Integer, nullable=False)
     imports = Column(Base64Type(), nullable=True)
@@ -515,10 +428,16 @@ class WorkflowModel(Base):
     # reserved `metadata` attribute on declarative base classes.
     wf_metadata = Column(Base64Type(), nullable=True)
 
-    # Add a uniqueness constraint on name and version
-    __table_args__ = (UniqueConstraint("name", "version", name="uix_workflow_name_version"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "namespace",
+            "name",
+            "version",
+            name="uix_workflow_namespace_name_version",
+        ),
+        Index("ix_workflow_namespace_name", "namespace", "name"),
+    )
 
-    # Relationship to executions
     executions = relationship(
         "ExecutionContextModel",
         back_populates="workflow",
@@ -533,10 +452,12 @@ class WorkflowModel(Base):
         version: int,
         imports: list[str],
         source: bytes,
-        requests: ResourceRequest | None = None,
+        namespace: str = "default",
+        requests: dict | ResourceRequest | None = None,
         metadata: dict | None = None,
     ):
         self.id = id
+        self.namespace = namespace
         self.name = name
         self.version = version
         self.imports = imports
@@ -555,6 +476,7 @@ class ExecutionContextModel(Base):
         nullable=False,
     )
     workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
+    workflow_namespace = Column(String(64), nullable=False, default="default")
     workflow_name = Column(String, nullable=False)
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
@@ -588,6 +510,7 @@ class ExecutionContextModel(Base):
         workflow_id: str,
         workflow_name: str,
         input: Any,
+        workflow_namespace: str = "default",
         events: list[ExecutionEventModel] | None = None,
         output: Any | None = None,
         state: ExecutionState = ExecutionState.CREATED,
@@ -598,6 +521,7 @@ class ExecutionContextModel(Base):
     ):
         self.execution_id = execution_id
         self.workflow_id = workflow_id
+        self.workflow_namespace = workflow_namespace
         self.workflow_name = workflow_name
         self.input = input
         self.events = events or []
@@ -611,6 +535,7 @@ class ExecutionContextModel(Base):
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(
             workflow_id=self.workflow_id,
+            workflow_namespace=self.workflow_namespace,
             workflow_name=self.workflow_name,
             input=self.input,
             execution_id=self.execution_id,
@@ -624,6 +549,7 @@ class ExecutionContextModel(Base):
         return cls(
             execution_id=obj.execution_id,
             workflow_id=obj.workflow_id,
+            workflow_namespace=obj.workflow_namespace,
             workflow_name=obj.workflow_name,
             input=obj.input,
             output=obj.output,
@@ -711,6 +637,7 @@ class ScheduleModel(Base):
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
+    workflow_namespace = Column(String(64), nullable=False, default="default")
     workflow_name = Column(String, nullable=False)
     name = Column(String, nullable=False)  # Human-readable schedule name
     description = Column(String, nullable=True)
@@ -763,8 +690,10 @@ class ScheduleModel(Base):
         input_data: Any = None,
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
         run_as_service_account: str | None = None,
+        workflow_namespace: str = "default",
     ):
         self.workflow_id = workflow_id
+        self.workflow_namespace = workflow_namespace
         self.workflow_name = workflow_name
         self.name = name
         self.description = description

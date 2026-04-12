@@ -175,3 +175,58 @@ def test_internal_provider_module_removed():
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("flux.security.providers.internal")
+
+
+def test_built_in_roles_are_4_segment():
+    from flux.security.auth_service import BUILT_IN_ROLES
+
+    assert "workflow:*:*:run" in BUILT_IN_ROLES["operator"]
+    assert "workflow:*:*:read" in BUILT_IN_ROLES["operator"]
+    assert "workflow:*:*:register" in BUILT_IN_ROLES["operator"]
+    assert "workflow:*:*:task:*:execute" in BUILT_IN_ROLES["operator"]
+    assert "workflow:*:*:read" in BUILT_IN_ROLES["viewer"]
+    # Regression: old 3-segment entries should be gone
+    assert "workflow:*:run" not in BUILT_IN_ROLES["operator"]
+    assert "workflow:*:read" not in BUILT_IN_ROLES["operator"]
+
+
+def test_collect_required_permissions_4_segment():
+    from flux.security.auth_service import AuthService
+
+    svc = AuthService.__new__(AuthService)
+    svc._registry = None
+    perms = svc._collect_required_permissions(
+        namespace="billing",
+        workflow_name="invoice",
+        workflow_metadata={
+            "task_names": ["load"],
+            "nested_workflows": [["analytics", "summarize"]],
+        },
+        catalog=None,
+    )
+    assert "workflow:billing:invoice:run" in perms
+    assert "workflow:billing:invoice:task:load:execute" in perms
+    assert "workflow:analytics:summarize:run" in perms
+
+
+def test_collect_required_permissions_visited_set_uses_tuple_key():
+    """Two workflows with the same short name in different namespaces
+    must both appear — a bare-string visited set would dedupe them.
+    """
+    from flux.security.auth_service import AuthService
+
+    svc = AuthService.__new__(AuthService)
+    svc._registry = None
+    perms = svc._collect_required_permissions(
+        namespace="billing",
+        workflow_name="process",
+        workflow_metadata={
+            "task_names": [],
+            "nested_workflows": [["analytics", "process"]],
+        },
+        _visited=set(),
+        catalog=None,
+    )
+    # Both should appear — they're separate entities despite sharing a short name
+    assert "workflow:billing:process:run" in perms
+    assert "workflow:analytics:process:run" in perms

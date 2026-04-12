@@ -89,6 +89,7 @@ class TestContextManagerCancellation:
         # Create a context that is in CANCELLING state
         ctx = ExecutionContext(
             workflow_id="test-workflow",
+            workflow_namespace="default",
             workflow_name="test",
             current_worker=worker_info.name,
         )
@@ -108,6 +109,7 @@ class TestContextManagerCancellation:
         # Create a context that is in CANCELLING state
         ctx = ExecutionContext(
             workflow_id="test-workflow",
+            workflow_namespace="default",
             workflow_name="test",
             current_worker=worker_info.name,
         )
