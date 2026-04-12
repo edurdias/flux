@@ -400,7 +400,7 @@ async def function_calling_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "Use the available tools when needed to provide accurate, real-time weather information. "
         "Be concise and informative in your responses.",
     )
-    model = initial_input.get("model", "llama3.2")
+    model = initial_input.get("model", "qwen3")
     ollama_url = initial_input.get("ollama_url", "http://localhost:11434")
     max_turns = initial_input.get("max_turns", 10)
 

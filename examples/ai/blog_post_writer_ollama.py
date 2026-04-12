@@ -15,7 +15,7 @@ Compare with:
 
 Prerequisites:
     1. Install Ollama: https://ollama.ai
-    2. Pull a model: ollama pull llama3
+    2. Pull a model: ollama pull qwen3
     3. Start Ollama service: ollama serve
 
 Usage:
@@ -50,7 +50,7 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
     Input format:
     {
         "topic": "The Future of AI Agents",
-        "model": "llama3",
+        "model": "qwen3",
         "ollama_url": "http://localhost:11434"
     }
 
@@ -66,11 +66,13 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
             "execution_id": ctx.execution_id,
         }
 
+    model = f"ollama/{input_data.get('model', 'qwen3')}"
+
     researcher = await agent(
         "You are an experienced research analyst. Research topics thoroughly and produce "
         "structured summaries with key findings, trends, perspectives, examples, and future outlook. "
         "Organize your findings with clear headings and bullet points.",
-        model="ollama/llama3",
+        model=model,
         name="researcher",
     )
 
@@ -78,7 +80,7 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "You are a skilled content writer. Transform research into compelling blog posts "
         "with a title (as a markdown heading), an engaging introduction, well-organized body "
         "sections with clear headings, and a strong conclusion. Target 800-1200 words.",
-        model="ollama/llama3",
+        model=model,
         name="writer",
     )
 
@@ -86,7 +88,7 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "You are an experienced content editor. Polish drafts for clarity, grammar, flow, "
         "tone consistency, and argument strength. Return only the final polished post — "
         "no editorial notes.",
-        model="ollama/llama3",
+        model=model,
         name="editor",
     )
 
@@ -103,7 +105,7 @@ async def blog_post_writer_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "title": title,
         "blog_post": final_post.strip(),
         "word_count": word_count,
-        "model": input_data.get("model", "llama3"),
+        "model": input_data.get("model", "qwen3"),
         "execution_id": ctx.execution_id,
     }
 
