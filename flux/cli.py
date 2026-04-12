@@ -1118,7 +1118,10 @@ def list_schedules(workflow: str | None, show_all: bool, format: str, server_url
             schedules = response.json()
 
         if not schedules:
-            click.echo("No schedules found.")
+            if format == "json":
+                click.echo("[]")
+            else:
+                click.echo("No schedules found.")
             return
 
         if format == "json":

@@ -241,19 +241,19 @@ class FluxCLI:
         for p in permissions:
             args.extend(["--permissions", p])
         args.extend(["--format", "json"])
-        return self._server_json(args)
+        return self._json(args)
 
     def role_list(self) -> list:
-        return self._server_json(["roles", "list", "--format", "json"])
+        return self._json(["roles", "list", "--format", "json"])
 
     def role_show(self, name: str) -> dict:
-        return self._server_json(["roles", "show", name, "--format", "json"])
+        return self._json(["roles", "show", name, "--format", "json"])
 
     def role_delete(self, name: str) -> None:
-        self._server_ok(["roles", "delete", name])
+        self._ok(["roles", "delete", name])
 
     def role_clone(self, source: str, new_name: str) -> dict:
-        return self._server_json(
+        return self._json(
             ["roles", "clone", source, "--name", new_name, "--format", "json"],
         )
 
@@ -269,7 +269,7 @@ class FluxCLI:
         for p in remove or []:
             args.extend(["--remove-permissions", p])
         args.extend(["--format", "json"])
-        return self._server_json(args)
+        return self._json(args)
 
     # -- admin: principals -------------------------------------------------
 
@@ -286,36 +286,36 @@ class FluxCLI:
         if display_name:
             args.extend(["--display-name", display_name])
         args.extend(["--format", "json"])
-        return self._server_json(args)
+        return self._json(args)
 
     def principal_list(self) -> list:
-        return self._server_json(
+        return self._json(
             ["principals", "list", "--format", "json"],
         )
 
     def principal_show(self, subject: str) -> dict:
-        return self._server_json(
+        return self._json(
             ["principals", "show", subject, "--format", "json"],
         )
 
     def principal_delete(self, subject: str) -> None:
-        self._server_ok(
+        self._ok(
             ["principals", "delete", subject, "--force", "--yes"],
         )
 
     def principal_enable(self, subject: str) -> None:
-        self._server_ok(["principals", "enable", subject])
+        self._ok(["principals", "enable", subject])
 
     def principal_disable(self, subject: str) -> None:
-        self._server_ok(["principals", "disable", subject])
+        self._ok(["principals", "disable", subject])
 
     def principal_grant(self, subject: str, role: str) -> None:
-        self._server_ok(
+        self._ok(
             ["principals", "grant", subject, "--role", role],
         )
 
     def principal_revoke(self, subject: str, role: str) -> None:
-        self._server_ok(
+        self._ok(
             ["principals", "revoke", subject, "--role", role],
         )
 
@@ -324,7 +324,7 @@ class FluxCLI:
         subject: str,
         key_name: str,
     ) -> dict:
-        return self._server_json(
+        return self._json(
             [
                 "principals",
                 "create-key",
@@ -337,22 +337,22 @@ class FluxCLI:
         )
 
     def principal_list_keys(self, subject: str) -> list:
-        return self._server_json(
+        return self._json(
             ["principals", "list-keys", subject, "--format", "json"],
         )
 
     def principal_revoke_key(self, subject: str, key_name: str) -> None:
-        self._server_ok(
+        self._ok(
             ["principals", "revoke-key", subject, "--key-name", key_name],
         )
 
     # -- auth commands -----------------------------------------------------
 
     def auth_status(self) -> dict:
-        return self._server_json(["auth", "status", "--format", "json"])
+        return self._json(["auth", "status", "--format", "json"])
 
     def auth_permissions(self) -> dict:
-        return self._server_json(
+        return self._json(
             ["auth", "permissions", "--format", "json"],
         )
 
