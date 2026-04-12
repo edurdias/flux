@@ -23,13 +23,19 @@ def test_multiple_pause_points(cli):
     r = cli.run("multi_pause_workflow", "null", mode="async")
     exec_id = r["execution_id"]
     for _ in range(5):
-        s = cli.wait_for_state("multi_pause_workflow", exec_id, "PAUSED", timeout=30)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            s = cli.status("multi_pause_workflow", exec_id)
+            if s["state"] in ("PAUSED", "COMPLETED"):
+                break
+            time.sleep(2)
         if s["state"] == "COMPLETED":
             break
         assert s["state"] == "PAUSED"
         cli.resume("multi_pause_workflow", exec_id)
         time.sleep(1)
-    s = cli.wait_for_state("multi_pause_workflow", exec_id, "COMPLETED", timeout=30)
+    if s["state"] != "COMPLETED":
+        s = cli.wait_for_state("multi_pause_workflow", exec_id, "COMPLETED", timeout=30)
     assert s["state"] == "COMPLETED"
 
 

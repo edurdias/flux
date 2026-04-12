@@ -42,6 +42,8 @@ def test_namespace_filter(cli):
 
 
 def test_delete_scoped_by_namespace(cli):
+    cli.register(str(FIXTURES / "billing_process.py"))
+    cli.register(str(FIXTURES / "analytics_process.py"))
     cli.delete("analytics/process")
     remaining = cli.list_workflows()
     names = {f"{w['namespace']}/{w['name']}" for w in remaining}

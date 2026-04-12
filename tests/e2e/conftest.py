@@ -461,6 +461,7 @@ def cli(tmp_path_factory):
         time.sleep(1)
     if not healthy:
         _kill_process(srv, "server")
+        srv_log.close()
         pytest.fail(
             f"Flux server did not become healthy on port {E2E_PORT} within 30s. "
             f"Check {log_dir / 'server.log'}",
@@ -500,6 +501,8 @@ def cli(tmp_path_factory):
     if not connected:
         _kill_process(wkr, "worker")
         _kill_process(srv, "server")
+        wkr_log.close()
+        srv_log.close()
         pytest.fail(f"Worker did not connect within 30s. Check {log_dir / 'worker.log'}")
 
     # -- yield CLI instance -----------------------------------------------

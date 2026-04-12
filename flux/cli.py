@@ -646,6 +646,10 @@ def list_executions(
     try:
         base_url = server_url or get_server_url()
 
+        if workflow and namespace:
+            click.echo("Error: --workflow and --namespace are mutually exclusive.", err=True)
+            return
+
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
             wf_namespace, wf_name = resolve_workflow_ref(workflow)

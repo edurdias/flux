@@ -17,6 +17,8 @@ def test_schedule_create_bare_name(cli):
 
 
 def test_schedule_list_shows_namespace(cli):
+    cli.register("examples/namespaces/billing_invoice.py")
+    cli.schedule_create("billing/invoice", "e2e_list_check", cron="0 12 * * *")
     schedules = cli.schedule_list()
     has_billing = any(s.get("workflow_namespace") == "billing" for s in schedules)
     assert has_billing
@@ -35,8 +37,9 @@ def test_schedule_pause_resume(cli):
 
 
 def test_schedule_show_history(cli):
-    schedules = cli.schedule_list()
-    sched_id = schedules[0]["id"]
+    cli.register("examples/hello_world.py")
+    s = cli.schedule_create("hello_world", "e2e_history_check", cron="0 3 * * *")
+    sched_id = s["id"]
     s = cli.schedule_show(sched_id)
     assert "workflow_name" in s
     h = cli.schedule_history(sched_id)
