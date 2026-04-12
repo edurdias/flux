@@ -219,9 +219,29 @@ class FluxConfig(BaseSettings):
         # Try to load from pyproject.toml
         config = {**config, **cls._load_from_pyproject()}
 
-        # Create instance with both flux.toml, pyproject.toml and env vars
-        # Environment variables will take precedence over flux.toml and pyproject.toml
-        return cls(**config)
+        # Pydantic-settings gives init kwargs higher priority than env vars.
+        # To honour the documented precedence (env vars beat config files), drop
+        # leaf keys from the toml config that are explicitly set via env vars
+        # (FLUX_<SECTION>__<KEY> format), so pydantic-settings reads those
+        # specific fields from env vars instead of the toml values.
+        env_prefix = "FLUX_"
+        env_delimiter = "__"
+
+        def drop_env_overrides(d: dict, path: str = "") -> dict:
+            result: dict = {}
+            for k, v in d.items():
+                env_key = f"{env_prefix}{path}{k}".upper()
+                if isinstance(v, dict):
+                    nested = drop_env_overrides(v, f"{path}{k}{env_delimiter}")
+                    result[k] = nested
+                elif env_key not in os.environ:
+                    result[k] = v
+            return result
+
+        filtered_config = drop_env_overrides(config)
+
+        # Create instance with toml values as fallback; env vars are applied by pydantic-settings
+        return cls(**filtered_config)
 
     @staticmethod
     def _load_from_pyproject() -> dict[str, Any]:

@@ -179,12 +179,19 @@ def register_workflows(filename: str, format: str, server_url: str | None):
     help="Specific workflow version to show (defaults to latest)",
 )
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def show_workflow(workflow_name: str, version: int | None, server_url: str | None):
+def show_workflow(workflow_name: str, version: int | None, format: str, server_url: str | None):
     """Show the details of a registered workflow."""
     try:
         base_url = server_url or get_server_url()
@@ -199,13 +206,16 @@ def show_workflow(workflow_name: str, version: int | None, server_url: str | Non
             response.raise_for_status()
             workflow = response.json()
 
-        click.echo(f"\nWorkflow: {workflow['name']}")
-        click.echo(f"Version: {workflow['version']}")
-        if "description" in workflow:
-            click.echo(f"Description: {workflow['description']}")
-        click.echo("\nDetails:")
-        click.echo("-" * 50)
-        click.echo(to_json(workflow))
+        if format == "json":
+            click.echo(to_json(workflow))
+        else:
+            click.echo(f"\nWorkflow: {workflow['name']}")
+            click.echo(f"Version: {workflow['version']}")
+            if "description" in workflow:
+                click.echo(f"Description: {workflow['description']}")
+            click.echo("\nDetails:")
+            click.echo("-" * 50)
+            click.echo(to_json(workflow))
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -585,6 +595,12 @@ def execution():
     help="Filter by workflow reference (namespace/name or bare name)",
 )
 @click.option(
+    "--namespace",
+    "-n",
+    default=None,
+    help="Filter by namespace",
+)
+@click.option(
     "--state",
     "-s",
     default=None,
@@ -619,6 +635,7 @@ def execution():
 )
 def list_executions(
     workflow: str | None,
+    namespace: str | None,
     state: str | None,
     limit: int,
     offset: int,
@@ -631,9 +648,11 @@ def list_executions(
 
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
-            namespace, wf_name = resolve_workflow_ref(workflow)
-            params["namespace"] = namespace
+            wf_namespace, wf_name = resolve_workflow_ref(workflow)
+            params["namespace"] = wf_namespace
             params["workflow_name"] = wf_name
+        elif namespace:
+            params["namespace"] = namespace
         if state:
             params["state"] = state
 

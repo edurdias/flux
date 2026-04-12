@@ -136,7 +136,7 @@ class FluxCLI:
         )
 
     def show(self, ref: str) -> dict:
-        return self._server_json(["workflow", "show", ref])
+        return self._server_json(["workflow", "show", ref, "--format", "json"])
 
     def delete(self, ref: str) -> None:
         self._server_ok(["workflow", "delete", ref, "--force"])
@@ -150,13 +150,11 @@ class FluxCLI:
         return self._server_json(["workflow", "status", ref, exec_id])
 
     def resume(self, ref: str, exec_id: str, input: str | None = None) -> dict:
-        args = ["workflow", "resume", ref, exec_id]
-        if input is not None:
-            args.append(input)
+        args = ["workflow", "resume", ref, exec_id, input if input is not None else "null"]
         return self._server_json(args)
 
-    def cancel(self, ref: str, exec_id: str) -> dict:
-        return self._server_json(["workflow", "cancel", ref, exec_id])
+    def cancel(self, ref: str, exec_id: str) -> subprocess.CompletedProcess:
+        return self._server_ok(["workflow", "cancel", ref, exec_id])
 
     def list_workflows(self, namespace: str | None = None) -> list:
         args = ["workflow", "list", "--format", "json"]
@@ -179,6 +177,8 @@ class FluxCLI:
         args = ["execution", "list", "--format", "json"]
         if workflow:
             args.extend(["--workflow", workflow])
+        elif namespace:
+            args.extend(["--namespace", namespace])
         return self._server_json(args)
 
     def execution_show(self, exec_id: str) -> dict:
