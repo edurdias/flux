@@ -21,7 +21,7 @@ class workflow:
     def with_options(
         name: str | None = None,
         namespace: str | None = None,
-        secret_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
         schedule: Schedule | None = None,
@@ -59,7 +59,7 @@ class workflow:
         func: F,
         name: str | None = None,
         namespace: str | None = None,
-        secret_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
         schedule: Schedule | None = None,
@@ -67,7 +67,7 @@ class workflow:
         self._func = func
         self._name = name if name else func.__name__
         self._namespace = validate_namespace(namespace)
-        self._secret_requests = secret_requests
+        self._secret_requests = list(secret_requests) if secret_requests else []
         self._output_storage = output_storage
         self._requests = requests
         self._schedule = schedule

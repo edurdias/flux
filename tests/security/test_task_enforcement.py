@@ -389,7 +389,8 @@ class TestTaskNewAuthCheck:
 
 
 def test_task_authorization_error_includes_namespace():
-    """The TaskAuthorizationError required_permission should be 4-segment."""
+    """The TaskAuthorizationError required_permission should include the workflow namespace
+    in the 6-segment form `workflow:{namespace}:{workflow_name}:task:{task_name}:execute`."""
     from flux.security.errors import TaskAuthorizationError
 
     err = TaskAuthorizationError(

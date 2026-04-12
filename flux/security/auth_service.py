@@ -187,7 +187,7 @@ class AuthService:
             catalog = WorkflowCatalog.create()
         try:
             workflow = catalog.get(namespace, workflow_name)
-            return workflow.metadata or {} if hasattr(workflow, "metadata") else {}
+            return getattr(workflow, "metadata", None) or {}
         except Exception as e:
             logger.warning(
                 f"Failed to get metadata for workflow '{namespace}/{workflow_name}': {e}",

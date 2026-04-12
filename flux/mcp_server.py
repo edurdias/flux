@@ -153,16 +153,16 @@ class MCPServer:
         async def execute_workflow_async(
             workflow_name: str,
             input_data: str,
-            workflow_namespace: str = "default",
             detailed: bool = False,
+            workflow_namespace: str = "default",
         ) -> dict[str, any]:
             """Execute a workflow asynchronously and return immediately with execution ID.
 
             Args:
                 workflow_name: Name of the workflow (short form, without namespace)
                 input_data: JSON string of input data for the workflow
-                workflow_namespace: Namespace of the workflow (defaults to "default")
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -201,16 +201,16 @@ class MCPServer:
         async def execute_workflow_sync(
             workflow_name: str,
             input_data: str,
-            workflow_namespace: str = "default",
             detailed: bool = False,
+            workflow_namespace: str = "default",
         ) -> dict[str, any]:
             """Execute a workflow synchronously and wait for completion.
 
             Args:
                 workflow_name: Name of the workflow (short form, without namespace)
                 input_data: JSON string of input data for the workflow
-                workflow_namespace: Namespace of the workflow (defaults to "default")
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -250,8 +250,8 @@ class MCPServer:
             workflow_name: str,
             execution_id: str,
             input_data: str,
-            workflow_namespace: str = "default",
             detailed: bool = False,
+            workflow_namespace: str = "default",
         ) -> dict[str, any]:
             """Resume a paused workflow asynchronously with input data.
 
@@ -259,8 +259,8 @@ class MCPServer:
                 workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the paused execution to resume
                 input_data: JSON string of input data to provide during resume
-                workflow_namespace: Namespace of the workflow (defaults to "default")
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -302,8 +302,8 @@ class MCPServer:
             workflow_name: str,
             execution_id: str,
             input_data: str,
-            workflow_namespace: str = "default",
             detailed: bool = False,
+            workflow_namespace: str = "default",
         ) -> dict[str, any]:
             """Resume a paused workflow synchronously and wait for completion.
 
@@ -311,8 +311,8 @@ class MCPServer:
                 workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the paused execution to resume
                 input_data: JSON string of input data to provide during resume
-                workflow_namespace: Namespace of the workflow (defaults to "default")
                 detailed: Whether to return detailed execution information
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 # Parse input data
@@ -388,16 +388,16 @@ class MCPServer:
         async def get_execution_status(
             workflow_name: str,
             execution_id: str,
-            workflow_namespace: str = "default",
             detailed: bool = False,
+            workflow_namespace: str = "default",
         ) -> dict[str, any]:
             """Get the current status of a workflow execution.
 
             Args:
                 workflow_name: Name of the workflow (short form, without namespace)
                 execution_id: ID of the execution to check
-                workflow_namespace: Namespace of the workflow (defaults to "default")
                 detailed: Whether to return detailed execution information including events
+                workflow_namespace: Namespace of the workflow (defaults to "default")
             """
             try:
                 response = await self._http_client.get(
