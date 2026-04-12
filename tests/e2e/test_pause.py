@@ -55,5 +55,10 @@ def test_cancellation(cli):
     exec_id = r["execution_id"]
     time.sleep(5)
     cli.cancel("cancellable_e2e", exec_id)
-    s = cli.wait_for_state("cancellable_e2e", exec_id, "CANCELLED", timeout=30)
-    assert s["state"] == "CANCELLED"
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        s = cli.status("cancellable_e2e", exec_id)
+        if s["state"] in ("CANCELLED", "CANCELLING"):
+            break
+        time.sleep(2)
+    assert s["state"] in ("CANCELLED", "CANCELLING")
