@@ -536,6 +536,36 @@ def workflow_status(
         click.echo(f"Error checking workflow status: {str(ex)}", err=True)
 
 
+@workflow.command("cancel")
+@click.argument("workflow_name")
+@click.argument("execution_id")
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def cancel_workflow(workflow_name: str, execution_id: str, server_url: str | None):
+    """Cancel a running workflow execution."""
+    try:
+        from flux.catalogs import resolve_workflow_ref
+
+        namespace, name = resolve_workflow_ref(workflow_name)
+        base_url = server_url or get_server_url()
+
+        with get_http_client() as client:
+            response = client.get(
+                f"{base_url}/workflows/{namespace}/{name}/cancel/{execution_id}",
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Execution '{execution_id}' not found.", err=True)
+        else:
+            click.echo(f"Error cancelling execution: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error cancelling execution: {str(ex)}", err=True)
+
+
 # =============================================================================
 # Execution Commands
 # =============================================================================
