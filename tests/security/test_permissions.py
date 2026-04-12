@@ -62,3 +62,36 @@ def test_generate_permission_tree_accepts_nested_as_list():
         nested_workflows=[["billing", "inner"]],
     )
     assert "workflow:billing:inner:run" in perms
+
+
+def test_generate_permission_tree_rejects_malformed_nested_entries():
+    """Malformed nested_workflows entries must raise ValueError, not IndexError."""
+    import pytest
+    from flux.security.permissions import generate_permission_tree
+
+    # Wrong-length list
+    with pytest.raises(ValueError, match="nested_workflows entries must be"):
+        generate_permission_tree(
+            namespace="default",
+            workflow_name="outer",
+            task_names=[],
+            nested_workflows=[["only_one"]],  # type: ignore[list-item]
+        )
+
+    # Plain string instead of a pair
+    with pytest.raises(ValueError, match="nested_workflows entries must be"):
+        generate_permission_tree(
+            namespace="default",
+            workflow_name="outer",
+            task_names=[],
+            nested_workflows=["not_a_pair"],  # type: ignore[list-item]
+        )
+
+    # Triple
+    with pytest.raises(ValueError, match="nested_workflows entries must be"):
+        generate_permission_tree(
+            namespace="default",
+            workflow_name="outer",
+            task_names=[],
+            nested_workflows=[["a", "b", "c"]],  # type: ignore[list-item]
+        )

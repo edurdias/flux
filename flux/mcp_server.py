@@ -67,7 +67,7 @@ class MCPServer:
 
         # Workflow Management Tools
         @self.mcp.tool()
-        async def list_workflows() -> dict[str, any]:
+        async def list_workflows() -> dict[str, Any]:
             """List all available workflows in the Flux system."""
             try:
                 response = await self._http_client.get("/workflows")
@@ -90,7 +90,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def list_namespaces() -> dict[str, any]:
+        async def list_namespaces() -> dict[str, Any]:
             """List all workflow namespaces with their workflow counts."""
             try:
                 response = await self._http_client.get("/namespaces")
@@ -120,7 +120,7 @@ class MCPServer:
         async def get_workflow_details(
             workflow_name: str,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get detailed information about a specific workflow.
 
             Args:
@@ -155,7 +155,7 @@ class MCPServer:
             input_data: str,
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Execute a workflow asynchronously and return immediately with execution ID.
 
             Args:
@@ -203,7 +203,7 @@ class MCPServer:
             input_data: str,
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Execute a workflow synchronously and wait for completion.
 
             Args:
@@ -252,7 +252,7 @@ class MCPServer:
             input_data: str,
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Resume a paused workflow asynchronously with input data.
 
             Args:
@@ -304,7 +304,7 @@ class MCPServer:
             input_data: str,
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Resume a paused workflow synchronously and wait for completion.
 
             Args:
@@ -351,7 +351,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def upload_workflow(file_content: str) -> dict[str, any]:
+        async def upload_workflow(file_content: str) -> dict[str, Any]:
             """Upload and register a new workflow file.
 
             Args:
@@ -390,7 +390,7 @@ class MCPServer:
             execution_id: str,
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get the current status of a workflow execution.
 
             Args:
@@ -430,7 +430,7 @@ class MCPServer:
             mode: str = "async",
             detailed: bool = False,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Cancel a running workflow execution.
 
             Args:
@@ -480,7 +480,7 @@ class MCPServer:
             workflow_name: str,
             version: int | None = None,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Delete a workflow from the Flux system.
 
             Args:
@@ -516,7 +516,7 @@ class MCPServer:
         async def list_workflow_versions(
             workflow_name: str,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List all versions of a specific workflow.
 
             Args:
@@ -551,7 +551,7 @@ class MCPServer:
             workflow_name: str,
             version: int,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get details of a specific workflow version.
 
             Args:
@@ -589,7 +589,7 @@ class MCPServer:
             state: str | None = None,
             limit: int = 50,
             offset: int = 0,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List workflow executions with optional filtering.
 
             Args:
@@ -635,7 +635,7 @@ class MCPServer:
         async def get_execution(
             execution_id: str,
             detailed: bool = False,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get details of a specific execution by ID.
 
             Args:
@@ -672,7 +672,7 @@ class MCPServer:
             limit: int = 50,
             offset: int = 0,
             workflow_namespace: str = "default",
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List executions for a specific workflow.
 
             Args:
@@ -721,7 +721,7 @@ class MCPServer:
 
         # Worker Management Tools
         @self.mcp.tool()
-        async def list_workers() -> dict[str, any]:
+        async def list_workers() -> dict[str, Any]:
             """List all workers in the Flux system."""
             try:
                 response = await self._http_client.get("/workers")
@@ -744,7 +744,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_worker(worker_name: str) -> dict[str, any]:
+        async def get_worker(worker_name: str) -> dict[str, Any]:
             """Get details of a specific worker.
 
             Args:
@@ -777,7 +777,7 @@ class MCPServer:
             schedule_config: str,
             description: str | None = None,
             input_data: str | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Create a new schedule for a workflow.
 
             Args:
@@ -839,7 +839,7 @@ class MCPServer:
             active_only: bool = True,
             limit: int | None = None,
             offset: int | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """List schedules with optional filtering.
 
             Args:
@@ -876,7 +876,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def get_schedule(schedule_id: str) -> dict[str, any]:
+        async def get_schedule(schedule_id: str) -> dict[str, Any]:
             """Get details of a specific schedule.
 
             Args:
@@ -907,7 +907,7 @@ class MCPServer:
             schedule_config: str | None = None,
             description: str | None = None,
             input_data: str | None = None,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Update an existing schedule.
 
             Args:
@@ -959,7 +959,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def pause_schedule(schedule_id: str) -> dict[str, any]:
+        async def pause_schedule(schedule_id: str) -> dict[str, Any]:
             """Pause a schedule.
 
             Args:
@@ -985,7 +985,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def resume_schedule(schedule_id: str) -> dict[str, any]:
+        async def resume_schedule(schedule_id: str) -> dict[str, Any]:
             """Resume a paused schedule.
 
             Args:
@@ -1011,7 +1011,7 @@ class MCPServer:
                 return {"success": False, "error": error_msg}
 
         @self.mcp.tool()
-        async def delete_schedule(schedule_id: str) -> dict[str, any]:
+        async def delete_schedule(schedule_id: str) -> dict[str, Any]:
             """Delete a schedule.
 
             Args:
@@ -1041,7 +1041,7 @@ class MCPServer:
             schedule_id: str,
             limit: int = 50,
             offset: int = 0,
-        ) -> dict[str, any]:
+        ) -> dict[str, Any]:
             """Get execution history for a schedule.
 
             Args:
@@ -1082,7 +1082,7 @@ class MCPServer:
 
         # Health Check Tool
         @self.mcp.tool()
-        async def health_check() -> dict[str, any]:
+        async def health_check() -> dict[str, Any]:
             """Check the health status of the Flux server."""
             try:
                 response = await self._http_client.get("/health")

@@ -141,11 +141,19 @@ class WorkflowCatalog(ABC):
             A list of WorkflowInfo objects representing the parsed workflows
 
         Raises:
-            SyntaxError: If the source code has invalid syntax or no workflows are found
+            SyntaxError: If the source code has invalid Python syntax, contains
+                an invalid namespace declaration, or does not define any workflows.
+                Line/column information from ``ast.parse`` is preserved; intentionally
+                raised errors (invalid namespace, no workflow found) carry their own
+                messages unchanged.
         """
         try:
             tree = ast.parse(source)
+        except SyntaxError:
+            # Re-raise the original SyntaxError so line/column information is preserved
+            raise
 
+        try:
             # Results container
             workflow_infos = []
 
@@ -225,10 +233,12 @@ class WorkflowCatalog(ABC):
 
             return workflow_infos
 
-        except SyntaxError as e:
-            raise SyntaxError(f"Invalid syntax: {e.msg}")
+        except SyntaxError:
+            # Intentionally raised above (e.g. invalid namespace, no workflows) —
+            # re-raise unchanged so callers see the specific message.
+            raise
         except Exception as e:
-            raise SyntaxError(f"Error parsing source code: {str(e)}")
+            raise SyntaxError(f"Error parsing source code: {e!s}") from e
 
     def _extract_workflow_metadata(
         self,

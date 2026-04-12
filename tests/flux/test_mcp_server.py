@@ -60,3 +60,20 @@ def test_mcp_workflow_tools_include_workflow_namespace_param():
         idx = source.index(f"async def {tool}")
         window = source[idx : idx + 800]
         assert "workflow_namespace" in window, f"{tool} missing workflow_namespace"
+
+
+def test_mcp_tools_use_typing_Any_not_builtin_any():
+    """Tool return annotations must use typing.Any (not builtin `any`).
+
+    `dict[str, any]` is invalid because `any` is the builtin function, not a type.
+    `typing.get_type_hints()` will fail on it.
+    """
+    import flux.mcp_server as src
+
+    source = inspect.getsource(src)
+    # No lowercase `any` inside dict annotations
+    assert (
+        "dict[str, any]" not in source
+    ), "MCP tool annotations still use builtin `any`; use `typing.Any` instead"
+    # And at least one tool actually uses the correct form
+    assert "dict[str, Any]" in source

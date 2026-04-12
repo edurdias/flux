@@ -13,9 +13,14 @@ def generate_permission_tree(
     ]
     for task_name in task_names:
         perms.append(f"workflow:{namespace}:{workflow_name}:task:{task_name}:execute")
-    for nested in nested_workflows:
+    for index, nested in enumerate(nested_workflows):
         # Accept both ("ns", "name") tuples and ["ns", "name"] lists
         # (the catalog emits lists after JSON round-trip).
-        nested_ns, nested_name = nested[0], nested[1]
+        if not isinstance(nested, (tuple, list)) or len(nested) != 2:
+            raise ValueError(
+                "nested_workflows entries must be 2-item tuples or lists of "
+                f"(namespace, name); got invalid entry at index {index}: {nested!r}",
+            )
+        nested_ns, nested_name = nested
         perms.append(f"workflow:{nested_ns}:{nested_name}:run")
     return perms

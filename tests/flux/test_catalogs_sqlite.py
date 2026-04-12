@@ -245,6 +245,53 @@ async def second(ctx):
     assert "mutation.test" not in workflows[1].imports
 
 
+def test_parse_preserves_ast_syntax_error_line_info(sqlite_workflow_catalog):
+    """Python-level syntax errors from ast.parse must preserve lineno/offset."""
+    source = b"""
+from flux import workflow
+
+@workflow
+async def broken(ctx):
+    return "missing quote
+"""
+    with pytest.raises(SyntaxError) as excinfo:
+        sqlite_workflow_catalog.parse(source)
+    # Original SyntaxError attributes should be intact, not re-wrapped
+    assert excinfo.value.lineno is not None
+    # Should not have our "Invalid syntax:" wrapper prefix
+    assert not str(excinfo.value).startswith("Invalid syntax:")
+
+
+def test_parse_preserves_invalid_namespace_error_message(sqlite_workflow_catalog):
+    """Intentionally raised SyntaxError for invalid namespace must not be re-wrapped."""
+    source = b"""
+from flux import workflow
+
+@workflow.with_options(namespace="BAD UPPER")
+async def bad(ctx):
+    return None
+"""
+    with pytest.raises(SyntaxError) as excinfo:
+        sqlite_workflow_catalog.parse(source)
+    # Must still contain the specific "Invalid namespace" message, not a generic wrapper
+    assert "Invalid namespace" in str(excinfo.value)
+    assert not str(excinfo.value).startswith("Invalid syntax:")
+
+
+def test_parse_preserves_no_workflow_error_message(sqlite_workflow_catalog):
+    """Intentionally raised SyntaxError for missing workflow must not be re-wrapped."""
+    source = b"""
+import asyncio
+
+async def not_a_workflow():
+    return None
+"""
+    with pytest.raises(SyntaxError) as excinfo:
+        sqlite_workflow_catalog.parse(source)
+    assert "No workflow found" in str(excinfo.value)
+    assert not str(excinfo.value).startswith("Invalid syntax:")
+
+
 def test_workflow_info_to_dict(sample_workflow):
     """Test the to_dict method of WorkflowInfo."""
     result = sample_workflow.to_dict()
