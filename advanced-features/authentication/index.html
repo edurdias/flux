@@ -1489,8 +1489,10 @@
 </tbody>
 </table>
 <h3 id="permission-format">Permission format<a class="headerlink" href="#permission-format" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>resource:name:action
+<p>Workflow permissions are 4-segment:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>workflow:{namespace}:{name}:{action}
 </code></pre></div>
+<p>Other resources remain 3-segment (<code>resource:name:action</code>).</p>
 <table>
 <thead>
 <tr>
@@ -1500,16 +1502,20 @@
 </thead>
 <tbody>
 <tr>
-<td><code>workflow:*:run</code></td>
-<td>Run any workflow</td>
+<td><code>workflow:*:*:run</code></td>
+<td>Run any workflow in any namespace</td>
 </tr>
 <tr>
-<td><code>workflow:report:run</code></td>
-<td>Run <code>report</code> specifically</td>
+<td><code>workflow:default:report:run</code></td>
+<td>Run <code>report</code> in the <code>default</code> namespace</td>
 </tr>
 <tr>
-<td><code>workflow:report:task:load:execute</code></td>
-<td>Execute task <code>load</code> in <code>report</code></td>
+<td><code>workflow:billing:invoice:run</code></td>
+<td>Run <code>invoice</code> in <code>billing</code></td>
+</tr>
+<tr>
+<td><code>workflow:billing:*</code></td>
+<td>Any action on any workflow in <code>billing</code></td>
 </tr>
 <tr>
 <td><code>schedule:*:manage</code></td>
@@ -1531,79 +1537,84 @@
 </table>
 <p><strong>Wildcard rules:</strong></p>
 <ul>
-<li>Terminal <code>*</code> (last segment): matches any number of remaining segments. <code>workflow:report:*</code> matches <code>workflow:report:run</code>, <code>workflow:report:task:load:execute</code>, etc.</li>
-<li>Non-terminal <code>*</code> (middle segment): matches exactly one segment. <code>workflow:*:read</code> matches <code>workflow:report:read</code> but not <code>workflow:report:sub:read</code>.</li>
+<li>Terminal <code>*</code> (last segment): matches any number of remaining segments. <code>workflow:billing:*</code> matches <code>workflow:billing:invoice:run</code>, etc.</li>
+<li>Non-terminal <code>*</code> (middle segment): matches exactly one segment. <code>workflow:*:*:read</code> matches <code>workflow:billing:report:read</code> but not deeper paths.</li>
 </ul>
+<p><strong>Namespace-wide grants</strong> use <code>workflow:{namespace}:*</code> or <code>workflow:{namespace}:*:{action}</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>flux<span class="w"> </span>roles<span class="w"> </span>create<span class="w"> </span>billing-operator<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:billing:*:run&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:billing:*:read&quot;</span>
+</code></pre></div>
 <h3 id="custom-roles">Custom roles<a class="headerlink" href="#custom-roles" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>flux<span class="w"> </span>roles<span class="w"> </span>create<span class="w"> </span>data-pipeline<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:ingest:run&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:transform:run&quot;</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>flux<span class="w"> </span>roles<span class="w"> </span>clone<span class="w"> </span>operator<span class="w"> </span>--name<span class="w"> </span>restricted-operator
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>flux<span class="w"> </span>roles<span class="w"> </span>update<span class="w"> </span>restricted-operator<span class="w"> </span>--remove-permissions<span class="w"> </span><span class="s2">&quot;schedule:*:manage&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>flux<span class="w"> </span>roles<span class="w"> </span>create<span class="w"> </span>data-pipeline<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:default:ingest:run&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:default:transform:run&quot;</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>flux<span class="w"> </span>roles<span class="w"> </span>clone<span class="w"> </span>operator<span class="w"> </span>--name<span class="w"> </span>restricted-operator
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>flux<span class="w"> </span>roles<span class="w"> </span>update<span class="w"> </span>restricted-operator<span class="w"> </span>--remove-permissions<span class="w"> </span><span class="s2">&quot;schedule:*:manage&quot;</span>
 </code></pre></div>
 <h3 id="pre-flight-authorization">Pre-flight authorization<a class="headerlink" href="#pre-flight-authorization" title="Permanent link">&para;</a></h3>
 <p>Before any task executes, Flux resolves the full permission set for the caller across the entire workflow call tree (including nested workflows). If any permission is missing, the execution is rejected immediately.</p>
 <h3 id="task-level-authorization">Task-level authorization<a class="headerlink" href="#task-level-authorization" title="Permanent link">&para;</a></h3>
 <p>Workers call back to <code>/executions/{exec_id}/authorize/{task_name}</code> before executing each task. The server re-resolves permissions from current DB state on every callback — role changes take effect immediately, even for in-flight executions.</p>
 <p>Auth-exempt tasks skip the runtime check:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nd">@task</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">auth_exempt</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">format_output</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nd">@task</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">auth_exempt</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">format_output</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
 </code></pre></div>
 <p><code>auth_exempt=True</code> is recorded in workflow metadata as <code>auth_exempt_tasks</code>. These tasks are excluded from both pre-flight and runtime permission checks.</p>
 <h2 id="execution-tokens">Execution Tokens<a class="headerlink" href="#execution-tokens" title="Permanent link">&para;</a></h2>
 <p>An <strong>execution token</strong> is a server-minted, HMAC-signed JWT bound to a single workflow execution. It is the only credential a worker holds during task execution.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;iss&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;flux-server&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;sub&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;alice@acme.com&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;principal_issuer&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://auth.example.com/realms/flux&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;exec_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7f3c...&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">&quot;iat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1234567890</span><span class="p">,</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">&quot;exp&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1234567890</span><span class="w"> </span><span class="err">+</span><span class="w"> </span><span class="mi">604800</span><span class="p">,</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="nt">&quot;jti&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a1b2c3d4&quot;</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;iss&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;flux-server&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;sub&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;alice@acme.com&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;principal_issuer&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://auth.example.com/realms/flux&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;exec_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7f3c...&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;execution&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">  </span><span class="nt">&quot;iat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1234567890</span><span class="p">,</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">  </span><span class="nt">&quot;exp&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1234567890</span><span class="w"> </span><span class="err">+</span><span class="w"> </span><span class="mi">604800</span><span class="p">,</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">  </span><span class="nt">&quot;jti&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a1b2c3d4&quot;</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="p">}</span>
 </code></pre></div>
 <p>The server mints execution tokens when a workflow run or resume is triggered. The token is persisted with the execution record. Workers receive the token via dispatch and present it when calling the authorize endpoint.</p>
 <p>Workers never present user JWTs. User JWTs are consumed at the API boundary and never forwarded.</p>
 <h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[flux.security]</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">execution_token_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">604800</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">execution_token_secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&lt;generate with: openssl rand -hex 32&gt;&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">[flux.security]</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">execution_token_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">604800</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">execution_token_secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&lt;generate with: openssl rand -hex 32&gt;&quot;</span>
 </code></pre></div>
 <p><code>execution_token_secret</code> is required in production. If unset, a random secret is generated per process restart (tokens from previous restarts become invalid).</p>
 <h2 id="scheduled-workflows">Scheduled Workflows<a class="headerlink" href="#scheduled-workflows" title="Permanent link">&para;</a></h2>
 <p>When auth is enabled, every schedule must specify <code>--run-as &lt;subject&gt;</code>. The named principal must be a service account. The scheduler mints an execution token using the SA's identity.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span>principals<span class="w"> </span>create<span class="w"> </span>svc-reports<span class="w"> </span>--type<span class="w"> </span>service_account<span class="w"> </span>--role<span class="w"> </span>operator
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>flux<span class="w"> </span>schedule<span class="w"> </span>create<span class="w"> </span>my-workflow<span class="w"> </span>nightly-report<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span>--cron<span class="w"> </span><span class="s2">&quot;0 2 * * *&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span>--run-as<span class="w"> </span>svc-reports
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>flux<span class="w"> </span>principals<span class="w"> </span>create<span class="w"> </span>svc-reports<span class="w"> </span>--type<span class="w"> </span>service_account<span class="w"> </span>--role<span class="w"> </span>operator
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>flux<span class="w"> </span>schedule<span class="w"> </span>create<span class="w"> </span>my-workflow<span class="w"> </span>nightly-report<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>--cron<span class="w"> </span><span class="s2">&quot;0 2 * * *&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span>--run-as<span class="w"> </span>svc-reports
 </code></pre></div>
 <p>If the principal is deleted or disabled between schedule creation and trigger time, that run is skipped.</p>
 <h2 id="configuration_1">Configuration<a class="headerlink" href="#configuration_1" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">[flux.security.auth.oidc]</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://auth.example.com&quot;</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">jwks_cache_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="k">[flux.security.auth.api_keys]</span>
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
-<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="k">[flux.security.auth]</span>
-<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
-<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>
-<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="k">[flux.security]</span>
-<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="n">execution_token_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">604800</span>
-<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="n">execution_token_secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&lt;openssl rand -hex 32&gt;&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">[flux.security.auth.oidc]</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://auth.example.com&quot;</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">jwks_cache_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="k">[flux.security.auth.api_keys]</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="k">[flux.security.auth]</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>
+<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="k">[flux.security]</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="n">execution_token_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">604800</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="n">execution_token_secret</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&lt;openssl rand -hex 32&gt;&quot;</span>
 </code></pre></div>
 <p>Environment variable equivalents:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">FLUX_SECURITY__AUTH__OIDC__ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nv">FLUX_SECURITY__AUTH__OIDC__ISSUER</span><span class="o">=</span>https://auth.example.com
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="nv">FLUX_SECURITY__AUTH__API_KEYS__ENABLED</span><span class="o">=</span><span class="nb">true</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="nv">FLUX_SECURITY__EXECUTION_TOKEN_SECRET</span><span class="o">=</span>&lt;secret&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">FLUX_SECURITY__AUTH__OIDC__ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="nv">FLUX_SECURITY__AUTH__OIDC__ISSUER</span><span class="o">=</span>https://auth.example.com
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nv">FLUX_SECURITY__AUTH__API_KEYS__ENABLED</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="nv">FLUX_SECURITY__EXECUTION_TOKEN_SECRET</span><span class="o">=</span>&lt;secret&gt;
 </code></pre></div>
 <h3 id="oidc-config-reference">OIDC config reference<a class="headerlink" href="#oidc-config-reference" title="Permanent link">&para;</a></h3>
 <table>
@@ -1644,72 +1655,72 @@
 </table>
 <h3 id="identity-provider-examples">Identity provider examples<a class="headerlink" href="#identity-provider-examples" title="Permanent link">&para;</a></h3>
 <p><strong>Keycloak</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">[flux.security.auth.oidc]</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://keycloak.example.com/realms/flux&quot;</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
-</code></pre></div>
-<p><strong>Auth0</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">[flux.security.auth.oidc]</span>
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://your-tenant.auth0.com/&quot;</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://flux.example.com/api&quot;</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://keycloak.example.com/realms/flux&quot;</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
 </code></pre></div>
-<p><strong>Okta</strong></p>
+<p><strong>Auth0</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">[flux.security.auth.oidc]</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://your-org.okta.com/oauth2/default&quot;</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;api://default&quot;</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://your-tenant.auth0.com/&quot;</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://flux.example.com/api&quot;</span>
 </code></pre></div>
-<p><strong>Microsoft Entra ID</strong></p>
+<p><strong>Okta</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">[flux.security.auth.oidc]</span>
 <a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://login.microsoftonline.com/{tenant-id}/v2.0&quot;</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;api://{client-id}&quot;</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://your-org.okta.com/oauth2/default&quot;</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;api://default&quot;</span>
+</code></pre></div>
+<p><strong>Microsoft Entra ID</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">[flux.security.auth.oidc]</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://login.microsoftonline.com/{tenant-id}/v2.0&quot;</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;api://{client-id}&quot;</span>
 </code></pre></div>
 <h2 id="cli-reference">CLI Reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
 <h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>flux<span class="w"> </span>auth<span class="w"> </span>login<span class="w">                        </span><span class="c1"># Device Authorization Grant</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>flux<span class="w"> </span>auth<span class="w"> </span>status<span class="w">                       </span><span class="c1"># Show current auth status</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span>&lt;jwt&gt;<span class="w">             </span><span class="c1"># Decode and validate a JWT</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>flux<span class="w"> </span>auth<span class="w"> </span>permissions<span class="w">                  </span><span class="c1"># List effective permissions</span>
-<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>flux<span class="w"> </span>auth<span class="w"> </span>permissions<span class="w"> </span>--workflow<span class="w"> </span>report
-<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>flux<span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>flux<span class="w"> </span>auth<span class="w"> </span>login<span class="w">                        </span><span class="c1"># Device Authorization Grant</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>flux<span class="w"> </span>auth<span class="w"> </span>status<span class="w">                       </span><span class="c1"># Show current auth status</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span>&lt;jwt&gt;<span class="w">             </span><span class="c1"># Decode and validate a JWT</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>flux<span class="w"> </span>auth<span class="w"> </span>permissions<span class="w">                  </span><span class="c1"># List effective permissions</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>flux<span class="w"> </span>auth<span class="w"> </span>permissions<span class="w"> </span>--workflow<span class="w"> </span>report
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>flux<span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span>
 </code></pre></div>
 <h3 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>flux<span class="w"> </span>roles<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>json<span class="o">]</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>flux<span class="w"> </span>roles<span class="w"> </span>show<span class="w"> </span>&lt;name&gt;
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>flux<span class="w"> </span>roles<span class="w"> </span>create<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:*:run&quot;</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>flux<span class="w"> </span>roles<span class="w"> </span>clone<span class="w"> </span>&lt;source&gt;<span class="w"> </span>--name<span class="w"> </span>&lt;new&gt;
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>flux<span class="w"> </span>roles<span class="w"> </span>update<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--add-permissions<span class="w"> </span><span class="s2">&quot;x:y:z&quot;</span><span class="w"> </span>--remove-permissions<span class="w"> </span><span class="s2">&quot;a:b:c&quot;</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>flux<span class="w"> </span>roles<span class="w"> </span>delete<span class="w"> </span>&lt;name&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>flux<span class="w"> </span>roles<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>json<span class="o">]</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>flux<span class="w"> </span>roles<span class="w"> </span>show<span class="w"> </span>&lt;name&gt;
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>flux<span class="w"> </span>roles<span class="w"> </span>create<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--permissions<span class="w"> </span><span class="s2">&quot;workflow:*:*:run&quot;</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>flux<span class="w"> </span>roles<span class="w"> </span>clone<span class="w"> </span>&lt;source&gt;<span class="w"> </span>--name<span class="w"> </span>&lt;new&gt;
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>flux<span class="w"> </span>roles<span class="w"> </span>update<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--add-permissions<span class="w"> </span><span class="s2">&quot;x:y:z&quot;</span><span class="w"> </span>--remove-permissions<span class="w"> </span><span class="s2">&quot;a:b:c&quot;</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>flux<span class="w"> </span>roles<span class="w"> </span>delete<span class="w"> </span>&lt;name&gt;
 </code></pre></div>
 <h3 id="principals_1">Principals<a class="headerlink" href="#principals_1" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># List all principals</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>flux<span class="w"> </span>principals<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>--type<span class="w"> </span>user<span class="p">|</span>service_account<span class="o">]</span><span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>json<span class="o">]</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Show a principal (smart lookup: OIDC issuer first, then &quot;flux&quot;)</span>
-<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>flux<span class="w"> </span>principals<span class="w"> </span>show<span class="w"> </span>&lt;subject&gt;<span class="w"> </span><span class="o">[</span>--type<span class="w"> </span>&lt;type&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--issuer<span class="w"> </span>&lt;url&gt;<span class="o">]</span>
-<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
-<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Create a principal</span>
-<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>flux<span class="w"> </span>principals<span class="w"> </span>create<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--type<span class="w"> </span>user<span class="p">|</span>service_account<span class="w"> </span><span class="o">[</span>--role<span class="w"> </span>&lt;role&gt;<span class="o">]</span>...<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="w">  </span><span class="o">[</span>--issuer<span class="w"> </span>&lt;url&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--display-name<span class="w"> </span>&lt;name&gt;<span class="o">]</span>
-<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a>
-<a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="c1"># Manage roles</span>
-<a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>flux<span class="w"> </span>principals<span class="w"> </span>grant<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--role<span class="w"> </span>&lt;role&gt;
-<a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>flux<span class="w"> </span>principals<span class="w"> </span>revoke<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--role<span class="w"> </span>&lt;role&gt;
-<a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a>
-<a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a><span class="c1"># Enable/disable</span>
-<a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a>flux<span class="w"> </span>principals<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>&lt;subject&gt;
-<a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a>flux<span class="w"> </span>principals<span class="w"> </span>disable<span class="w"> </span>&lt;subject&gt;
-<a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a>
-<a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a><span class="c1"># Delete (--force cascades API keys and roles)</span>
-<a id="__codelineno-18-20" name="__codelineno-18-20" href="#__codelineno-18-20"></a>flux<span class="w"> </span>principals<span class="w"> </span>delete<span class="w"> </span>&lt;subject&gt;<span class="w"> </span><span class="o">[</span>--force<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes<span class="o">]</span>
-<a id="__codelineno-18-21" name="__codelineno-18-21" href="#__codelineno-18-21"></a>
-<a id="__codelineno-18-22" name="__codelineno-18-22" href="#__codelineno-18-22"></a><span class="c1"># API keys (service accounts only)</span>
-<a id="__codelineno-18-23" name="__codelineno-18-23" href="#__codelineno-18-23"></a>flux<span class="w"> </span>principals<span class="w"> </span>create-key<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--key-name<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="o">[</span>--expires<span class="w"> </span>90d<span class="o">]</span>
-<a id="__codelineno-18-24" name="__codelineno-18-24" href="#__codelineno-18-24"></a>flux<span class="w"> </span>principals<span class="w"> </span>list-keys<span class="w"> </span>&lt;subject&gt;
-<a id="__codelineno-18-25" name="__codelineno-18-25" href="#__codelineno-18-25"></a>flux<span class="w"> </span>principals<span class="w"> </span>revoke-key<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--key-name<span class="w"> </span>&lt;name&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># List all principals</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>flux<span class="w"> </span>principals<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>--type<span class="w"> </span>user<span class="p">|</span>service_account<span class="o">]</span><span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>json<span class="o">]</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="c1"># Show a principal (smart lookup: OIDC issuer first, then &quot;flux&quot;)</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>flux<span class="w"> </span>principals<span class="w"> </span>show<span class="w"> </span>&lt;subject&gt;<span class="w"> </span><span class="o">[</span>--type<span class="w"> </span>&lt;type&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--issuer<span class="w"> </span>&lt;url&gt;<span class="o">]</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="c1"># Create a principal</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>flux<span class="w"> </span>principals<span class="w"> </span>create<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--type<span class="w"> </span>user<span class="p">|</span>service_account<span class="w"> </span><span class="o">[</span>--role<span class="w"> </span>&lt;role&gt;<span class="o">]</span>...<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a><span class="w">  </span><span class="o">[</span>--issuer<span class="w"> </span>&lt;url&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--display-name<span class="w"> </span>&lt;name&gt;<span class="o">]</span>
+<a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a>
+<a id="__codelineno-19-11" name="__codelineno-19-11" href="#__codelineno-19-11"></a><span class="c1"># Manage roles</span>
+<a id="__codelineno-19-12" name="__codelineno-19-12" href="#__codelineno-19-12"></a>flux<span class="w"> </span>principals<span class="w"> </span>grant<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--role<span class="w"> </span>&lt;role&gt;
+<a id="__codelineno-19-13" name="__codelineno-19-13" href="#__codelineno-19-13"></a>flux<span class="w"> </span>principals<span class="w"> </span>revoke<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--role<span class="w"> </span>&lt;role&gt;
+<a id="__codelineno-19-14" name="__codelineno-19-14" href="#__codelineno-19-14"></a>
+<a id="__codelineno-19-15" name="__codelineno-19-15" href="#__codelineno-19-15"></a><span class="c1"># Enable/disable</span>
+<a id="__codelineno-19-16" name="__codelineno-19-16" href="#__codelineno-19-16"></a>flux<span class="w"> </span>principals<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>&lt;subject&gt;
+<a id="__codelineno-19-17" name="__codelineno-19-17" href="#__codelineno-19-17"></a>flux<span class="w"> </span>principals<span class="w"> </span>disable<span class="w"> </span>&lt;subject&gt;
+<a id="__codelineno-19-18" name="__codelineno-19-18" href="#__codelineno-19-18"></a>
+<a id="__codelineno-19-19" name="__codelineno-19-19" href="#__codelineno-19-19"></a><span class="c1"># Delete (--force cascades API keys and roles)</span>
+<a id="__codelineno-19-20" name="__codelineno-19-20" href="#__codelineno-19-20"></a>flux<span class="w"> </span>principals<span class="w"> </span>delete<span class="w"> </span>&lt;subject&gt;<span class="w"> </span><span class="o">[</span>--force<span class="o">]</span><span class="w"> </span><span class="o">[</span>--yes<span class="o">]</span>
+<a id="__codelineno-19-21" name="__codelineno-19-21" href="#__codelineno-19-21"></a>
+<a id="__codelineno-19-22" name="__codelineno-19-22" href="#__codelineno-19-22"></a><span class="c1"># API keys (service accounts only)</span>
+<a id="__codelineno-19-23" name="__codelineno-19-23" href="#__codelineno-19-23"></a>flux<span class="w"> </span>principals<span class="w"> </span>create-key<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--key-name<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="o">[</span>--expires<span class="w"> </span>90d<span class="o">]</span>
+<a id="__codelineno-19-24" name="__codelineno-19-24" href="#__codelineno-19-24"></a>flux<span class="w"> </span>principals<span class="w"> </span>list-keys<span class="w"> </span>&lt;subject&gt;
+<a id="__codelineno-19-25" name="__codelineno-19-25" href="#__codelineno-19-25"></a>flux<span class="w"> </span>principals<span class="w"> </span>revoke-key<span class="w"> </span>&lt;subject&gt;<span class="w"> </span>--key-name<span class="w"> </span>&lt;name&gt;
 </code></pre></div>
 <h2 id="api-endpoints">API Endpoints<a class="headerlink" href="#api-endpoints" title="Permanent link">&para;</a></h2>
 <table>
@@ -1724,37 +1735,37 @@
 <tr>
 <td><code>GET</code></td>
 <td><code>/workflows</code></td>
-<td><code>workflow:*:read</code></td>
+<td><code>workflow:*:*:read</code></td>
 </tr>
 <tr>
 <td><code>GET</code></td>
-<td><code>/workflows/{name}</code></td>
-<td><code>workflow:{name}:read</code></td>
+<td><code>/workflows/{namespace}/{name}</code></td>
+<td><code>workflow:{namespace}:{name}:read</code></td>
 </tr>
 <tr>
 <td><code>POST</code></td>
-<td><code>/workflows/{name}/run</code></td>
-<td><code>workflow:{name}:run</code></td>
+<td><code>/workflows/{namespace}/{name}/run</code></td>
+<td><code>workflow:{namespace}:{name}:run</code></td>
 </tr>
 <tr>
 <td><code>GET</code></td>
 <td><code>/executions</code></td>
-<td><code>workflow:*:read</code></td>
+<td><code>workflow:*:*:read</code></td>
 </tr>
 <tr>
 <td><code>GET</code></td>
 <td><code>/executions/{id}</code></td>
-<td><code>workflow:*:read</code></td>
+<td><code>workflow:*:*:read</code></td>
 </tr>
 <tr>
 <td><code>POST</code></td>
 <td><code>/executions/{id}/resume</code></td>
-<td><code>workflow:*:run</code></td>
+<td><code>workflow:*:*:run</code></td>
 </tr>
 <tr>
 <td><code>POST</code></td>
 <td><code>/executions/{id}/cancel</code></td>
-<td><code>workflow:*:run</code></td>
+<td><code>workflow:*:*:run</code></td>
 </tr>
 <tr>
 <td><code>POST</code></td>
@@ -1883,23 +1894,23 @@
 </tbody>
 </table>
 <h3 id="getting-a-test-token">Getting a test token<a class="headerlink" href="#getting-a-test-token" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>http://localhost:8080/realms/flux/protocol/openid-connect/token<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s2">&quot;grant_type=password&amp;client_id=flux-api&amp;username=admin@local&amp;password=admin&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; print(json.load(sys.stdin)[&#39;access_token&#39;])&quot;</span><span class="k">)</span>
-<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>
-<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span>
-<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span>http://localhost:8000/workflows
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>http://localhost:8080/realms/flux/protocol/openid-connect/token<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s2">&quot;grant_type=password&amp;client_id=flux-api&amp;username=admin@local&amp;password=admin&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; print(json.load(sys.stdin)[&#39;access_token&#39;])&quot;</span><span class="k">)</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span>http://localhost:8000/workflows
 </code></pre></div>
 <h3 id="flux-config-for-dev">Flux config for dev<a class="headerlink" href="#flux-config-for-dev" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">[flux.security.auth.oidc]</span>
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8080/realms/flux&quot;</span>
-<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
-<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
-<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a>
-<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="k">[flux.security.auth]</span>
-<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">[flux.security.auth.oidc]</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8080/realms/flux&quot;</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="k">[flux.security.auth]</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
 </code></pre></div>
 
 
