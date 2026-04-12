@@ -10,6 +10,7 @@ def test_schedule_create_qualified_ref(cli):
 
 
 def test_schedule_create_bare_name(cli):
+    cli.register("examples/hello_world.py")
     s = cli.schedule_create("hello_world", "e2e_hourly", cron="0 * * * *")
     assert s["workflow_namespace"] == "default"
     assert s["workflow_name"] == "hello_world"
@@ -22,8 +23,9 @@ def test_schedule_list_shows_namespace(cli):
 
 
 def test_schedule_pause_resume(cli):
-    schedules = cli.schedule_list()
-    sched_id = schedules[0]["id"]
+    cli.register("examples/hello_world.py")
+    s = cli.schedule_create("hello_world", "e2e_pause_test", cron="0 6 * * *")
+    sched_id = s["id"]
     cli.schedule_pause(sched_id)
     s = cli.schedule_show(sched_id)
     assert s["status"] == "PAUSED" or s["status"] == "paused"

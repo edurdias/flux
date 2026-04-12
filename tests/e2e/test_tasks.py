@@ -27,7 +27,7 @@ def test_task_timeout(cli):
 
 
 def test_task_nested_timeout(cli):
-    # task_timeout.py already registered above
+    cli.register("examples/tasks/task_timeout.py")
     r = cli.run("task_nested_timeout", "null", timeout=45)
     assert r["state"] == "FAILED"  # designed to fail
 

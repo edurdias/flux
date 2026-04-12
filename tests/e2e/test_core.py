@@ -52,7 +52,7 @@ def test_fibo_benchmark(cli):
 
 
 def test_workflow_versions(cli):
-    # hello_world already registered; register again to create a new version
+    cli.register("examples/hello_world.py")
     cli.register("examples/hello_world.py")
     versions = cli.versions("hello_world")
     assert len(versions) >= 2

@@ -233,7 +233,8 @@ class FluxConfig(BaseSettings):
                 env_key = f"{env_prefix}{path}{k}".upper()
                 if isinstance(v, dict):
                     nested = drop_env_overrides(v, f"{path}{k}{env_delimiter}")
-                    result[k] = nested
+                    if nested:
+                        result[k] = nested
                 elif env_key not in os.environ:
                     result[k] = v
             return result

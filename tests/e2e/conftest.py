@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-E2E_PORT = 19000
+E2E_PORT = int(os.environ.get("FLUX_E2E_PORT", "19000"))
 E2E_SERVER_URL = f"http://localhost:{E2E_PORT}"
 
 # ---------------------------------------------------------------------------
@@ -438,9 +438,10 @@ def cli(tmp_path_factory):
     }
 
     # -- start server -----------------------------------------------------
+    srv_log = open(log_dir / "server.log", "w")
     srv = subprocess.Popen(
         ["poetry", "run", "flux", "start", "server", "--port", str(E2E_PORT)],
-        stdout=open(log_dir / "server.log", "w"),
+        stdout=srv_log,
         stderr=subprocess.STDOUT,
         cwd=PROJECT_ROOT,
         env=env,
@@ -466,6 +467,7 @@ def cli(tmp_path_factory):
         )
 
     # -- start worker -----------------------------------------------------
+    wkr_log = open(log_dir / "worker.log", "w")
     wkr = subprocess.Popen(
         [
             "poetry",
@@ -477,7 +479,7 @@ def cli(tmp_path_factory):
             "--server-url",
             E2E_SERVER_URL,
         ],
-        stdout=open(log_dir / "worker.log", "w"),
+        stdout=wkr_log,
         stderr=subprocess.STDOUT,
         cwd=PROJECT_ROOT,
         env=env,
@@ -509,6 +511,8 @@ def cli(tmp_path_factory):
     # -- teardown ---------------------------------------------------------
     _kill_process(wkr, "worker")
     _kill_process(srv, "server")
+    srv_log.close()
+    wkr_log.close()
 
     if not os.environ.get("FLUX_E2E_KEEP_LOGS"):
         import shutil

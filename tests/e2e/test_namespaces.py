@@ -26,6 +26,8 @@ def test_cross_namespace_isolation(cli):
 
 
 def test_list_namespaces(cli):
+    cli.register("examples/namespaces/billing_invoice.py")
+    cli.register(str(FIXTURES / "analytics_process.py"))
     namespaces = cli.list_namespaces()
     ns_names = {n["namespace"] for n in namespaces}
     assert "billing" in ns_names
@@ -33,6 +35,7 @@ def test_list_namespaces(cli):
 
 
 def test_namespace_filter(cli):
+    cli.register("examples/namespaces/billing_invoice.py")
     billing = cli.list_workflows(namespace="billing")
     assert all(w["namespace"] == "billing" for w in billing)
     assert len(billing) >= 1
@@ -47,6 +50,8 @@ def test_delete_scoped_by_namespace(cli):
 
 
 def test_execution_history_scoped(cli):
+    cli.register(str(FIXTURES / "billing_process.py"))
+    cli.run("billing/process", "null")
     result = cli.execution_list(namespace="billing")
     executions = result.get("executions", result) if isinstance(result, dict) else result
     for ex in executions:
