@@ -20,6 +20,7 @@ from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import Integer
+from sqlalchemy import JSON
 from sqlalchemy import PickleType
 from sqlalchemy import String
 from sqlalchemy import TEXT
@@ -748,3 +749,24 @@ class ScheduleModel(Base):
     def mark_failure(self):
         """Mark that the schedule execution failed"""
         self.failure_count += 1
+
+
+class ServiceModel(Base):
+    __tablename__ = "services"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    name = Column(String, unique=True, nullable=False)
+    namespaces = Column(JSON, nullable=False, default=list)
+    workflows = Column(JSON, nullable=False, default=list)
+    exclusions = Column(JSON, nullable=False, default=list)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

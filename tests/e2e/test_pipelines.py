@@ -10,7 +10,7 @@ def test_complex_pipeline(cli):
     cli.register("examples/complex_pipeline.py")
     r = cli.run_async_and_wait(
         "complex_pipeline",
-        '{"input_file":"examples/data/sample.csv","output_file":".data/e2e_output.csv"}',
+        '{"input_file":"examples/data/sample_small.csv","output_file":".data/e2e_output.csv"}',
         timeout=180,
     )
     assert r["state"] == "COMPLETED"
@@ -33,7 +33,7 @@ def test_resource_requests_data(cli):
     cli.register("examples/resource_requests.py")
     r = cli.run_async_and_wait(
         "data_processing_workflow",
-        '{"data_path":"examples/data/sample.csv"}',
+        '{"data_path":"examples/data/sample_small.csv"}',
         timeout=180,
     )
     assert r["state"] == "COMPLETED"
