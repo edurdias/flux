@@ -6,6 +6,13 @@ import pytest
 import psutil
 
 
+import os
+
+
+@pytest.mark.skipif(
+    bool(os.environ.get("CI")),
+    reason="complex_pipeline runs 10 parallel pandas tasks, too slow for CI runners",
+)
 def test_complex_pipeline(cli):
     cli.register("examples/complex_pipeline.py")
     r = cli.run_async_and_wait(
