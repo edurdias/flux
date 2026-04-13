@@ -108,3 +108,38 @@ class TestExtractWorkflowDescription:
         )
         desc = extract_workflow_description(source.encode(), "invoice")
         assert desc is None
+
+
+class TestBatchEnrichment:
+    def test_multi_workflow_file_extracts_all(self):
+        from flux.catalogs import _enrich_workflow_metadata, WorkflowInfo
+
+        source = textwrap.dedent(
+            """
+            from pydantic import BaseModel
+            from flux import workflow, ExecutionContext
+
+            class InputA(BaseModel):
+                x: int
+
+            @workflow
+            async def wf_a(ctx: ExecutionContext[InputA]):
+                \"\"\"Workflow A.\"\"\"
+                pass
+
+            @workflow
+            async def wf_b(ctx: ExecutionContext[str]):
+                \"\"\"Workflow B.\"\"\"
+                pass
+        """,
+        )
+        wf_a = WorkflowInfo(id="a", name="wf_a", imports=[], source=source.encode(), metadata={})
+        wf_b = WorkflowInfo(id="b", name="wf_b", imports=[], source=source.encode(), metadata={})
+        _enrich_workflow_metadata(source.encode(), [wf_a, wf_b])
+
+        assert wf_a.metadata.get("input_schema") is not None
+        assert "x" in wf_a.metadata["input_schema"]["properties"]
+        assert wf_a.metadata.get("description") == "Workflow A."
+
+        assert wf_b.metadata.get("input_schema") is None
+        assert wf_b.metadata.get("description") == "Workflow B."
