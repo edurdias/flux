@@ -127,6 +127,35 @@ class TestServiceStoreUpdate:
             store.update("nonexistent", add_namespaces=["ns1"])
 
 
+class TestServiceStoreUpdateEdgeCases:
+    def test_add_duplicate_namespace_is_idempotent(self, store):
+        store.create("svc1", namespaces=["ns1"])
+        updated = store.update("svc1", add_namespaces=["ns1"])
+        assert updated.namespaces == ["ns1"]
+
+    def test_add_duplicate_workflow_is_idempotent(self, store):
+        store.create("svc1", workflows=["billing/invoice"])
+        updated = store.update("svc1", add_workflows=["billing/invoice"])
+        assert updated.workflows == ["billing/invoice"]
+
+    def test_remove_nonexistent_namespace_is_noop(self, store):
+        store.create("svc1", namespaces=["ns1"])
+        updated = store.update("svc1", remove_namespaces=["ns_gone"])
+        assert updated.namespaces == ["ns1"]
+
+    def test_remove_nonexistent_workflow_is_noop(self, store):
+        store.create("svc1", workflows=["wf1"])
+        updated = store.update("svc1", remove_workflows=["wf_gone"])
+        assert updated.workflows == ["wf1"]
+
+    def test_add_and_remove_in_same_call(self, store):
+        store.create("svc1", namespaces=["ns1", "ns2"])
+        updated = store.update("svc1", add_namespaces=["ns3"], remove_namespaces=["ns1"])
+        assert "ns1" not in updated.namespaces
+        assert "ns2" in updated.namespaces
+        assert "ns3" in updated.namespaces
+
+
 class TestServiceStoreDelete:
     def test_existing(self, store):
         store.create("svc1")

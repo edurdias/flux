@@ -178,6 +178,49 @@ def test_service_dynamic_discovery(cli):
         _cleanup_service(cli, dyn_svc)
 
 
+def test_service_status_endpoint(cli):
+    cli.register(str(FIXTURES / "service_a_workflow.py"))
+    try:
+        cli._server_json(
+            ["service", "create", SVC_NAME, "--namespace", "svc_test", "--format", "json"],
+        )
+
+        with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
+            resp = client.post(f"/services/{SVC_NAME}/greet", json="StatusCheck")
+            assert resp.status_code == 202
+            body = resp.json()
+            status_url = body["status_url"]
+
+            import time
+
+            time.sleep(5)
+            resp = client.get(status_url)
+            assert resp.status_code == 200
+            assert resp.json()["state"] in ("COMPLETED", "RUNNING", "CREATED")
+    finally:
+        _cleanup_service(cli)
+
+
+def test_service_workflow_deleted_returns_404(cli):
+    cli.register(str(FIXTURES / "service_a_workflow.py"))
+    try:
+        cli._server_json(
+            ["service", "create", SVC_NAME, "--namespace", "svc_test", "--format", "json"],
+        )
+
+        with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
+            resp = client.post(f"/services/{SVC_NAME}/greet/sync", json="Before")
+            assert resp.status_code == 200
+
+        cli.delete("svc_test/greet")
+
+        with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
+            resp = client.post(f"/services/{SVC_NAME}/greet/sync", json="After")
+            assert resp.status_code == 404
+    finally:
+        _cleanup_service(cli)
+
+
 def test_service_exclusion_endpoint(cli):
     cli.register(str(FIXTURES / "service_a_workflow.py"))
     try:
