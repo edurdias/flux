@@ -343,7 +343,7 @@ flux service update billing --no-mcp
 When MCP is enabled, the main Flux server exposes an info endpoint:
 
 ```
-GET /services/{name}/mcp
+GET /services/{name}/mcp/tools
 ```
 
 This returns the list of generated tools and the MCP connection URL. If MCP is not enabled for the service, this endpoint returns 404.
@@ -478,3 +478,7 @@ flux service create billing-api --workflow billing/invoice
 flux service add billing-api --workflow billing/refund
 flux service add billing-api --workflow billing/receipt
 ```
+
+## Upgrade Notes
+
+- This release adds the `mcp_enabled` column to the `services` table. Existing deployments using SQLite must recreate their database. There is no automatic migration.

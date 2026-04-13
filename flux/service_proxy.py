@@ -115,8 +115,15 @@ def create_standalone_app(
 
         @app.on_event("startup")
         async def _init_mcp_tools():
-            endpoints = await mcp_server.provider.get_endpoints()
-            mcp_server._generate_tools(endpoints)
+            try:
+                endpoints = await mcp_server.provider.get_endpoints()
+                mcp_server._generate_tools(endpoints)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to initialize MCP tools: {e}. MCP will retry on first connection.",
+                )
 
         app.mount("/mcp", mcp_server.mcp.http_app())
 

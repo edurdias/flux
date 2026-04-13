@@ -26,14 +26,21 @@ def extract_workflow_input_schema(source: bytes, workflow_name: str) -> dict | N
     Loads the source as a module, inspects type hints, and returns
     T.model_json_schema() if T is a BaseModel subclass. Returns None otherwise.
     """
+    # NOTE: This function executes workflow source code to inspect type hints.
+    # This runs in the same trust boundary as workflow registration — the server
+    # already loads and executes workflow source for the catalog. The extraction
+    # happens once at registration time, not on every request.
     import importlib.util
+    import os
     import sys
     import tempfile
     import typing
 
     mod_name = f"_schema_extract_{workflow_name}"
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="wb") as f:
+            tmp_path = f.name
             f.write(source)
             f.flush()
             spec = importlib.util.spec_from_file_location(mod_name, f.name)
@@ -73,6 +80,11 @@ def extract_workflow_input_schema(source: bytes, workflow_name: str) -> dict | N
         return None
     finally:
         sys.modules.pop(mod_name, None)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def extract_workflow_description(source: bytes, workflow_name: str) -> str | None:

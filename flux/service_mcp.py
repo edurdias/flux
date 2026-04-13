@@ -45,6 +45,8 @@ class ServiceMCPServer:
         self._generate_tools(endpoints)
 
     def _generate_tools(self, endpoints: dict[str, EndpointInfo]) -> None:
+        # Tools are generated per-session. Existing tool names are skipped —
+        # schema/description changes are picked up on the next client connection.
         for key, info in endpoints.items():
             if key in self._registered_tools:
                 continue
