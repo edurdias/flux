@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flux.catalogs import WorkflowCatalog, WorkflowInfo, resolve_workflow_ref
+from flux.errors import WorkflowNotFoundError
 from flux.service_store import ServiceNotFoundError, ServiceStore
 
 
@@ -40,7 +41,10 @@ class ServiceResolver:
 
         for ref in service.workflows:
             ns, name = resolve_workflow_ref(ref)
-            wf = self._catalog.get(ns, name)
+            try:
+                wf = self._catalog.get(ns, name)
+            except WorkflowNotFoundError:
+                continue
             if wf:
                 existing = candidates.get(wf.name, [])
                 if not any(e.namespace == wf.namespace for e in existing):

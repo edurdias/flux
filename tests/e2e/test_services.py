@@ -125,7 +125,7 @@ def test_service_endpoint_async(cli):
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.post(f"/services/{SVC_NAME}/greet", json="Carol")
+            resp = client.post(f"/services/{SVC_NAME}/greet/async", json="Carol")
             assert resp.status_code == 202
             body = resp.json()
             assert "execution_id" in body
@@ -186,7 +186,7 @@ def test_service_status_endpoint(cli):
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.post(f"/services/{SVC_NAME}/greet", json="StatusCheck")
+            resp = client.post(f"/services/{SVC_NAME}/greet/async", json="StatusCheck")
             assert resp.status_code == 202
             body = resp.json()
             status_url = body["status_url"]
