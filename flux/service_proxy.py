@@ -108,12 +108,25 @@ def create_standalone_app(
     async def shutdown():
         await proxy.close()
 
+    if enable_mcp:
+        from flux.service_mcp import create_service_mcp_server
+
+        mcp_server = create_service_mcp_server(service_name, proxy._client)
+
+        @app.on_event("startup")
+        async def _init_mcp_tools():
+            endpoints = await mcp_server.provider.get_endpoints()
+            mcp_server._generate_tools(endpoints)
+
+        app.mount("/mcp", mcp_server.mcp.http_app())
+
     @app.get("/health")
     async def health():
         return {
             "service": proxy.service_name,
             "endpoints": proxy.endpoint_count,
             "cache_age": round(proxy.cache_age, 1),
+            "mcp_enabled": enable_mcp,
         }
 
     @app.post("/{workflow_name}")
