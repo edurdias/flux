@@ -1512,6 +1512,8 @@ cli.add_command(auth)
 cli.add_command(roles)
 cli.add_command(principals)
 
+import flux.cli_service  # noqa: F401, E402
+
 
 if __name__ == "__main__":  # pragma: no cover
     cli()
