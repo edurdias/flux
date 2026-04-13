@@ -2959,6 +2959,184 @@ class Server:
                 )
 
         # ===========================================
+        # Services: CRUD
+        # ===========================================
+
+        @api.post("/services", status_code=201)
+        async def create_service(
+            request: Request,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore
+
+            body = await request.json()
+            try:
+                store = ServiceStore()
+                svc = store.create(
+                    name=body["name"],
+                    namespaces=body.get("namespaces", []),
+                    workflows=body.get("workflows", []),
+                    exclusions=body.get("exclusions", []),
+                )
+                return {
+                    "id": svc.id,
+                    "name": svc.name,
+                    "namespaces": svc.namespaces,
+                    "workflows": svc.workflows,
+                    "exclusions": svc.exclusions,
+                    "created_at": svc.created_at.isoformat() if svc.created_at else None,
+                    "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
+                }
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(status_code=409, detail=str(e))
+            except Exception as e:
+                logger.error(f"Error creating service: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error creating service: {str(e)}")
+
+        @api.get("/services")
+        async def list_services(
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore
+
+            try:
+                store = ServiceStore()
+                services = store.list()
+                return [
+                    {
+                        "id": svc.id,
+                        "name": svc.name,
+                        "namespaces": svc.namespaces,
+                        "workflows": svc.workflows,
+                        "exclusions": svc.exclusions,
+                        "created_at": svc.created_at.isoformat() if svc.created_at else None,
+                        "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
+                    }
+                    for svc in services
+                ]
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error listing services: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error listing services: {str(e)}")
+
+        @api.get("/services/{service_name}")
+        async def get_service(
+            service_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore
+            from flux.service_resolver import ServiceResolver, CollisionError
+
+            try:
+                store = ServiceStore()
+                svc = store.get(service_name)
+                if not svc:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Service '{service_name}' not found",
+                    )
+
+                catalog = WorkflowCatalog.create()
+                resolver = ServiceResolver(catalog, store)
+
+                result: dict[str, Any] = {
+                    "id": svc.id,
+                    "name": svc.name,
+                    "namespaces": svc.namespaces,
+                    "workflows": svc.workflows,
+                    "exclusions": svc.exclusions,
+                    "created_at": svc.created_at.isoformat() if svc.created_at else None,
+                    "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
+                }
+
+                try:
+                    endpoints = resolver.resolve(service_name)
+                    result["endpoints"] = [
+                        {
+                            "name": wf.name,
+                            "namespace": wf.namespace,
+                            "version": wf.version,
+                        }
+                        for wf in endpoints.values()
+                    ]
+                except CollisionError as ce:
+                    result["endpoints"] = []
+                    result["collision_warning"] = str(ce)
+
+                return result
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting service: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error getting service: {str(e)}")
+
+        @api.put("/services/{service_name}")
+        async def update_service(
+            service_name: str,
+            request: Request,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore, ServiceNotFoundError
+
+            body = await request.json()
+            try:
+                store = ServiceStore()
+                svc = store.update(
+                    name=service_name,
+                    add_namespaces=body.get("add_namespaces"),
+                    add_workflows=body.get("add_workflows"),
+                    add_exclusions=body.get("add_exclusions"),
+                    remove_namespaces=body.get("remove_namespaces"),
+                    remove_workflows=body.get("remove_workflows"),
+                    remove_exclusions=body.get("remove_exclusions"),
+                )
+                return {
+                    "id": svc.id,
+                    "name": svc.name,
+                    "namespaces": svc.namespaces,
+                    "workflows": svc.workflows,
+                    "exclusions": svc.exclusions,
+                    "created_at": svc.created_at.isoformat() if svc.created_at else None,
+                    "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
+                }
+            except HTTPException:
+                raise
+            except ServiceNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{service_name}' not found",
+                )
+            except Exception as e:
+                logger.error(f"Error updating service: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error updating service: {str(e)}")
+
+        @api.delete("/services/{service_name}")
+        async def delete_service(
+            service_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore, ServiceNotFoundError
+
+            try:
+                store = ServiceStore()
+                store.delete(service_name)
+                return {"detail": f"Service '{service_name}' deleted"}
+            except HTTPException:
+                raise
+            except ServiceNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{service_name}' not found",
+                )
+            except Exception as e:
+                logger.error(f"Error deleting service: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error deleting service: {str(e)}")
+
+        # ===========================================
         # Auth & Admin: Roles
         # ===========================================
 
