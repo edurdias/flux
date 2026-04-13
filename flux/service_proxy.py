@@ -34,10 +34,15 @@ class StandaloneServiceProxy:
             data = response.json()
             endpoints: dict[str, WorkflowRef] = {}
             for ep in data.get("endpoints", []):
-                parts = ep.split("/", 1)
-                if len(parts) == 2:
-                    ref = WorkflowRef(namespace=parts[0], name=parts[1])
-                    endpoints[parts[1]] = ref
+                if isinstance(ep, dict):
+                    name = ep.get("name")
+                    namespace = ep.get("namespace")
+                    if name and namespace:
+                        endpoints[name] = WorkflowRef(namespace=namespace, name=name)
+                elif isinstance(ep, str):
+                    parts = ep.split("/", 1)
+                    if len(parts) == 2:
+                        endpoints[parts[1]] = WorkflowRef(namespace=parts[0], name=parts[1])
             self._endpoints = endpoints
             self._cache_time = time.monotonic()
 
