@@ -2970,10 +2970,16 @@ class Server:
             from flux.service_store import ServiceStore
 
             body = await request.json()
+            name = body.get("name")
+            if not name or not isinstance(name, str):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Service name is required and must be a string",
+                )
             try:
                 store = ServiceStore()
                 svc = store.create(
-                    name=body["name"],
+                    name=name,
                     namespaces=body.get("namespaces", []),
                     workflows=body.get("workflows", []),
                     exclusions=body.get("exclusions", []),
@@ -3363,6 +3369,15 @@ class Server:
                         detail=f"Execution context with ID {execution_id} not found.",
                     )
 
+                if (
+                    getattr(ctx, "workflow_namespace", None) != wf_info.namespace
+                    or getattr(ctx, "workflow_name", None) != wf_info.name
+                ):
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution '{execution_id}' does not belong to workflow {wf_info.namespace}/{wf_info.name}",
+                    )
+
                 if identity and identity != ANONYMOUS and auth_config.enabled:
                     from flux.security.execution_token import mint_execution_token
 
@@ -3478,6 +3493,11 @@ class Server:
 
                 manager = ContextManager.create()
                 context = manager.get(execution_id)
+                if context is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution '{execution_id}' not found",
+                    )
                 dto = ExecutionContextDTO.from_domain(context)
                 ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
                 return _map_service_response(

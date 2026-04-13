@@ -32,34 +32,35 @@ class ServiceResolver:
         if not service:
             raise ServiceNotFoundError(service_name)
 
-        workflows: dict[str, WorkflowInfo] = {}
-        collisions: dict[str, list[str]] = {}
+        candidates: dict[str, list[WorkflowInfo]] = {}
 
         for ns in service.namespaces:
             for wf in self._catalog.all(namespace=ns):
-                if wf.name in workflows and workflows[wf.name].namespace != wf.namespace:
-                    collisions.setdefault(wf.name, [workflows[wf.name].namespace]).append(
-                        wf.namespace,
-                    )
-                else:
-                    workflows[wf.name] = wf
+                candidates.setdefault(wf.name, []).append(wf)
 
         for ref in service.workflows:
             ns, name = resolve_workflow_ref(ref)
             wf = self._catalog.get(ns, name)
             if wf:
-                if wf.name in workflows and workflows[wf.name].namespace != wf.namespace:
-                    collisions.setdefault(wf.name, [workflows[wf.name].namespace]).append(
-                        wf.namespace,
-                    )
-                else:
-                    workflows[wf.name] = wf
+                existing = candidates.get(wf.name, [])
+                if not any(e.namespace == wf.namespace for e in existing):
+                    candidates.setdefault(wf.name, []).append(wf)
 
         for ref in service.exclusions:
             ns, name = resolve_workflow_ref(ref)
-            if name in workflows and workflows[name].namespace == ns:
-                del workflows[name]
-            collisions.pop(name, None)
+            if name in candidates:
+                candidates[name] = [w for w in candidates[name] if w.namespace != ns]
+                if not candidates[name]:
+                    del candidates[name]
+
+        collisions: dict[str, list[str]] = {}
+        workflows: dict[str, WorkflowInfo] = {}
+        for name, wfs in candidates.items():
+            namespaces = list({w.namespace for w in wfs})
+            if len(namespaces) > 1:
+                collisions[name] = namespaces
+            else:
+                workflows[name] = wfs[0]
 
         if collisions:
             raise CollisionError(service_name, collisions)
