@@ -127,6 +127,18 @@ def create_standalone_app(
                     f"Restart the service once the Flux server is available.",
                 )
 
+        async def _mcp_refresh_loop():
+            while True:
+                await asyncio.sleep(cache_ttl)
+                try:
+                    await mcp_server.refresh()
+                except Exception:
+                    pass
+
+        @app.on_event("startup")
+        async def _start_mcp_refresh():
+            asyncio.create_task(_mcp_refresh_loop())
+
         app.mount("/mcp", mcp_server.mcp.http_app())
 
     @app.get("/health")

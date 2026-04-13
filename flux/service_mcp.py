@@ -15,6 +15,9 @@ JSON_TYPE_MAP: dict[str, type] = {
     "integer": int,
     "number": float,
     "boolean": bool,
+    "array": list,
+    "object": dict,
+    "null": type(None),
 }
 
 
@@ -53,7 +56,23 @@ class ServiceMCPServer:
 
     async def refresh(self) -> None:
         endpoints = await self.provider.get_endpoints()
-        self._generate_tools(endpoints)
+        current_names = set(endpoints.keys())
+        registered_names = set(self._registered_tools)
+        if current_names != registered_names:
+            new_endpoints = {k: v for k, v in endpoints.items() if k not in registered_names}
+            if new_endpoints:
+                logger.info(
+                    "MCP refresh: adding tools for new workflows: %s",
+                    list(new_endpoints.keys()),
+                )
+                self._generate_tools(new_endpoints)
+            removed = registered_names - current_names
+            if removed:
+                logger.warning(
+                    "MCP refresh: workflows removed but tools cannot be unregistered: %s. "
+                    "Restart the service to clean up stale tools.",
+                    list(removed),
+                )
 
     def _generate_tools(self, endpoints: dict[str, EndpointInfo]) -> None:
         # Tools are generated per-session. Existing tool names are skipped —
