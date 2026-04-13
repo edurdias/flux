@@ -50,7 +50,7 @@ from datetime import datetime, timezone
 logger = get_logger(__name__)
 
 MAX_WORKFLOW_UPLOAD_BYTES = 1_048_576  # 1 MiB — workflow sources should be small
-SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
@@ -2987,7 +2987,7 @@ class Server:
             if not SERVICE_NAME_RE.match(name):
                 raise HTTPException(
                     status_code=400,
-                    detail="Service name must be lowercase alphanumeric with hyphens (e.g. 'my-service-1')",
+                    detail="Service name must be lowercase alphanumeric with hyphens/underscores (e.g. 'my-service-1')",
                 )
 
             for field in ("namespaces", "workflows", "exclusions"):
