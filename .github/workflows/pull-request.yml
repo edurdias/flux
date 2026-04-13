@@ -6,12 +6,8 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
     steps:
     - uses: actions/checkout@v4
       with:
@@ -58,6 +54,48 @@ jobs:
           echo "✅ Version bump verified: $TARGET_VERSION -> $PR_VERSION"
         fi
 
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-lint-deps
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-lint-deps.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --extras observability
+
+    - name: Ensure dependencies are available
+      if: steps.cached-lint-deps.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root --extras observability
+
+    - name: Linting and code quality
+      run: |
+        poetry run pre-commit run --all-files --show-diff-on-failure
+
+  unit:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -86,11 +124,7 @@ jobs:
       if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
       run: poetry install --no-interaction --no-root --extras observability
 
-    - name: Linting and code quality
-      run: |
-        poetry run pre-commit run --all-files --show-diff-on-failure
-
-    - name: Run tests
+    - name: Run unit tests
       run: |
         poetry run pytest tests/ --ignore=tests/e2e --cov=flux --cov-report=xml --cov-report=html --cov-report=term
 
@@ -102,8 +136,9 @@ jobs:
         retention-days: 14
 
   e2e:
-    needs: [test]
-    runs-on: ubuntu-latest
+    needs: [unit]
+    runs-on: ubuntu-latest-4-cores
+    timeout-minutes: 15
     steps:
     - uses: actions/checkout@v4
 
