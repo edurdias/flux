@@ -3182,51 +3182,54 @@ class Server:
         # Services: Execution endpoints
         # ===========================================
 
+        def _service_detailed(ctx_dict, service_name, workflow_name, **extra):
+            result = {
+                "execution_id": ctx_dict.get("execution_id"),
+                "state": ctx_dict.get("state"),
+                "output": ctx_dict.get("output"),
+                "namespace": ctx_dict.get("workflow_namespace"),
+                "workflow": ctx_dict.get("workflow_name"),
+            }
+            result.update(extra)
+            return result
+
         def _map_service_response(ctx_dict, service_name, workflow_name, mode, detailed):
             state = ctx_dict.get("state", "")
+            exec_id = ctx_dict.get("execution_id")
 
             if mode == "async":
                 return JSONResponse(
                     status_code=202,
-                    content={
-                        "execution_id": ctx_dict.get("execution_id"),
-                        "state": state,
-                        "status_url": f"/services/{service_name}/{workflow_name}/status/{ctx_dict.get('execution_id')}",
-                    },
+                    content=_service_detailed(
+                        ctx_dict,
+                        service_name,
+                        workflow_name,
+                        status_url=f"/services/{service_name}/{workflow_name}/status/{exec_id}",
+                    ),
                 )
 
             if state == "COMPLETED":
                 if detailed:
                     return JSONResponse(
                         status_code=200,
-                        content={
-                            "data": ctx_dict.get("output"),
-                            "execution_id": ctx_dict.get("execution_id"),
-                            "state": state,
-                            "workflow_namespace": ctx_dict.get("workflow_namespace"),
-                            "workflow_name": ctx_dict.get("workflow_name"),
-                        },
+                        content=_service_detailed(ctx_dict, service_name, workflow_name),
                     )
                 return JSONResponse(status_code=200, content=ctx_dict.get("output"))
 
             if state == "FAILED":
-                return JSONResponse(
-                    status_code=500,
-                    content={
-                        "error": str(ctx_dict.get("output", "Workflow failed")),
-                        "execution_id": ctx_dict.get("execution_id"),
-                        "state": state,
-                    },
-                )
+                content = _service_detailed(ctx_dict, service_name, workflow_name)
+                content["error"] = str(ctx_dict.get("output", "Workflow failed"))
+                return JSONResponse(status_code=500, content=content)
 
             if state == "PAUSED":
                 return JSONResponse(
                     status_code=202,
-                    content={
-                        "execution_id": ctx_dict.get("execution_id"),
-                        "state": state,
-                        "resume_url": f"/services/{service_name}/{workflow_name}/resume/{ctx_dict.get('execution_id')}",
-                    },
+                    content=_service_detailed(
+                        ctx_dict,
+                        service_name,
+                        workflow_name,
+                        resume_url=f"/services/{service_name}/{workflow_name}/resume/{exec_id}",
+                    ),
                 )
 
             return JSONResponse(status_code=200, content=ctx_dict)
@@ -3564,13 +3567,7 @@ class Server:
                 summary = dto.summary()
                 return JSONResponse(
                     status_code=200,
-                    content={
-                        "execution_id": summary.get("execution_id"),
-                        "state": summary.get("state"),
-                        "output": summary.get("output"),
-                        "workflow_namespace": summary.get("workflow_namespace"),
-                        "workflow_name": summary.get("workflow_name"),
-                    },
+                    content=_service_detailed(summary, service_name, workflow_name),
                 )
 
             except ServiceNotFoundError:
