@@ -3137,6 +3137,379 @@ class Server:
                 raise HTTPException(status_code=500, detail=f"Error deleting service: {str(e)}")
 
         # ===========================================
+        # Services: Execution endpoints
+        # ===========================================
+
+        def _map_service_response(ctx_dict, service_name, workflow_name, mode, detailed):
+            state = ctx_dict.get("state", "")
+
+            if mode == "async":
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "execution_id": ctx_dict.get("execution_id"),
+                        "state": state,
+                        "status_url": f"/services/{service_name}/{workflow_name}/status/{ctx_dict.get('execution_id')}",
+                    },
+                )
+
+            if state == "COMPLETED":
+                if detailed:
+                    return JSONResponse(
+                        status_code=200,
+                        content={
+                            "data": ctx_dict.get("output"),
+                            "execution_id": ctx_dict.get("execution_id"),
+                            "state": state,
+                            "workflow_namespace": ctx_dict.get("workflow_namespace"),
+                            "workflow_name": ctx_dict.get("workflow_name"),
+                        },
+                    )
+                return JSONResponse(status_code=200, content=ctx_dict.get("output"))
+
+            if state == "FAILED":
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": str(ctx_dict.get("output", "Workflow failed")),
+                        "execution_id": ctx_dict.get("execution_id"),
+                        "state": state,
+                    },
+                )
+
+            if state == "PAUSED":
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "execution_id": ctx_dict.get("execution_id"),
+                        "state": state,
+                        "resume_url": f"/services/{service_name}/{workflow_name}/resume/{ctx_dict.get('execution_id')}",
+                    },
+                )
+
+            return JSONResponse(status_code=200, content=ctx_dict)
+
+        @api.post("/services/{service_name}/{workflow_name}")
+        @api.post("/services/{service_name}/{workflow_name}/{mode}")
+        async def service_run_workflow(
+            service_name: str,
+            workflow_name: str,
+            input: Any = Body(None),
+            mode: str = "async",
+            detailed: bool = False,
+            version: int | None = None,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_store import ServiceNotFoundError, ServiceStore
+
+            try:
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
+                resolver = ServiceResolver(WorkflowCatalog.create(), ServiceStore())
+                wf_info = resolver.find(service_name, workflow_name)
+                namespace = wf_info.namespace
+
+                if auth_service is not None and auth_config.enabled:
+                    result = await auth_service.authorize(
+                        identity,
+                        namespace,
+                        wf_info.name,
+                        wf_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
+
+                ctx = self._create_execution(namespace, wf_info.name, input, version)
+                manager = ContextManager.create()
+
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM_SVC
+
+                        exec_row = token_session.get(_ECM_SVC, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            token_session.commit()
+                    finally:
+                        token_session.close()
+
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
+
+                if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    return EventSourceResponse(
+                        self._stream_execution_events(ctx, manager, detailed),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
+                return _map_service_response(ctx_dict, service_name, workflow_name, mode, detailed)
+
+            except ServiceNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{service_name}' not found",
+                )
+            except WorkflowNotInServiceError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
+                )
+            except WorkflowNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Error running workflow via service {service_name}/{workflow_name}: {str(e)}",
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error running workflow via service: {str(e)}",
+                )
+
+        @api.post("/services/{service_name}/{workflow_name}/resume/{execution_id}")
+        @api.post("/services/{service_name}/{workflow_name}/resume/{execution_id}/{mode}")
+        async def service_resume_workflow(
+            service_name: str,
+            workflow_name: str,
+            execution_id: str,
+            input: Any = Body(None),
+            mode: str = "async",
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_store import ServiceNotFoundError, ServiceStore
+
+            try:
+                if mode not in ["sync", "async", "stream"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
+                    )
+
+                resolver = ServiceResolver(WorkflowCatalog.create(), ServiceStore())
+                wf_info = resolver.find(service_name, workflow_name)
+                namespace = wf_info.namespace
+
+                if auth_service is not None and auth_config.enabled:
+                    result = await auth_service.authorize(
+                        identity,
+                        namespace,
+                        wf_info.name,
+                        wf_info.metadata or {},
+                    )
+                    if not result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "message": "Authorization denied",
+                                "missing_permissions": result.missing_permissions,
+                            },
+                        )
+
+                manager = ContextManager.create()
+                ctx = manager.get(execution_id)
+
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                if identity and identity != ANONYMOUS and auth_config.enabled:
+                    from flux.security.execution_token import mint_execution_token
+
+                    principal_issuer = (identity.metadata or {}).get("issuer", "flux")
+                    exec_token = mint_execution_token(
+                        subject=identity.subject,
+                        principal_issuer=principal_issuer,
+                        execution_id=ctx.execution_id,
+                        on_behalf_of=identity.subject,
+                    )
+                    resume_token_session = self._get_db_session()
+                    try:
+                        from flux.models import ExecutionContextModel as _ECM_SVC2
+
+                        exec_row = resume_token_session.get(_ECM_SVC2, ctx.execution_id)
+                        if exec_row:
+                            exec_row.exec_token = exec_token
+                            exec_row.scheduling_subject = identity.subject
+                            exec_row.scheduling_principal_issuer = principal_issuer
+                            resume_token_session.commit()
+                    finally:
+                        resume_token_session.close()
+
+                if ctx.has_finished:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot resume a finished execution.",
+                    )
+
+                ctx.start_resuming(input)
+                manager.save(ctx)
+
+                if mode in ("sync", "stream"):
+                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+
+                self._notify_next_worker()
+
+                if mode == "sync":
+                    event = self._execution_events[ctx.execution_id]
+                    try:
+                        while not ctx.has_finished:
+                            try:
+                                await asyncio.wait_for(event.wait(), timeout=30.0)
+                            except asyncio.TimeoutError:
+                                pass
+                            event.clear()
+                            ctx = manager.get(ctx.execution_id)
+                    finally:
+                        self._execution_events.pop(ctx.execution_id, None)
+
+                if mode == "stream":
+                    self._progress_buffers[ctx.execution_id] = asyncio.Queue(maxsize=10000)
+                    return EventSourceResponse(
+                        self._stream_execution_events(ctx, manager, detailed),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
+                dto = ExecutionContextDTO.from_domain(ctx)
+                ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
+                return _map_service_response(ctx_dict, service_name, workflow_name, mode, detailed)
+
+            except ServiceNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{service_name}' not found",
+                )
+            except WorkflowNotInServiceError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Error resuming workflow via service {service_name}/{workflow_name}: {str(e)}",
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error resuming workflow via service: {str(e)}",
+                )
+
+        @api.get("/services/{service_name}/{workflow_name}/status/{execution_id}")
+        async def service_workflow_status(
+            service_name: str,
+            workflow_name: str,
+            execution_id: str,
+            detailed: bool = False,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_store import ServiceNotFoundError, ServiceStore
+
+            try:
+                resolver = ServiceResolver(WorkflowCatalog.create(), ServiceStore())
+                wf_info = resolver.find(service_name, workflow_name)
+                namespace = wf_info.namespace
+
+                if auth_service is not None and auth_config.enabled:
+                    if not await auth_service.is_authorized(
+                        identity,
+                        f"workflow:{namespace}:{wf_info.name}:read",
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires 'workflow:{namespace}:{wf_info.name}:read'",
+                        )
+
+                manager = ContextManager.create()
+                context = manager.get(execution_id)
+                dto = ExecutionContextDTO.from_domain(context)
+                ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
+                return _map_service_response(
+                    ctx_dict,
+                    service_name,
+                    workflow_name,
+                    "sync",
+                    detailed,
+                )
+
+            except ServiceNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{service_name}' not found",
+                )
+            except WorkflowNotInServiceError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Error checking status via service {service_name}/{workflow_name}: {str(e)}",
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error checking workflow status via service: {str(e)}",
+                )
+
+        # ===========================================
         # Auth & Admin: Roles
         # ===========================================
 
