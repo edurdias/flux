@@ -3561,8 +3561,17 @@ class Server:
                     )
 
                 dto = ExecutionContextDTO.from_domain(context)
-                ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
-                return JSONResponse(status_code=200, content=ctx_dict)
+                summary = dto.summary()
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "execution_id": summary.get("execution_id"),
+                        "state": summary.get("state"),
+                        "output": summary.get("output"),
+                        "workflow_namespace": summary.get("workflow_namespace"),
+                        "workflow_name": summary.get("workflow_name"),
+                    },
+                )
 
             except ServiceNotFoundError:
                 raise HTTPException(
