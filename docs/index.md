@@ -9,6 +9,7 @@
   - [Fault-Tolerance](introduction/features.md#fault-tolerance)
   - [Durable Execution](introduction/features.md#durable-execution)
   - [Workflow Controls](introduction/features.md#workflow-controls)
+  - [Workflow Services](introduction/features.md#workflow-services)
   - [API Integration](introduction/features.md#api-integration)
   - [Security](introduction/features.md#security)
   - [Development Features](introduction/features.md#development-features)
@@ -129,6 +130,16 @@
    - [Referring to Workflows](advanced-features/namespaces.md#referring-to-workflows)
    - [Permissions](advanced-features/namespaces.md#permissions)
    - [Upgrade Notes](advanced-features/namespaces.md#upgrade-notes)
+
+### [Workflow Services](advanced-features/services.md)
+   - [Quick Start](advanced-features/services.md#quick-start)
+   - [Service Definition](advanced-features/services.md#service-definition)
+   - [CLI Commands](advanced-features/services.md#cli-commands)
+   - [HTTP Endpoints](advanced-features/services.md#http-endpoints)
+   - [Standalone Mode](advanced-features/services.md#standalone-mode)
+   - [Authentication](advanced-features/services.md#authentication)
+   - [Management API](advanced-features/services.md#management-api)
+   - [Use Cases](advanced-features/services.md#use-cases)
 
 ## Appendix
 - [Examples in the Repository](https://github.com/flux-framework/flux/tree/main/examples)
