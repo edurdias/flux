@@ -132,22 +132,36 @@ def auth():
 
 
 @auth.command("status")
-def auth_status():
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def auth_status(fmt):
     """Show current authentication status."""
     url = get_server_url()
     headers = get_auth_headers()
     if not headers:
-        click.echo("Not logged in. Run 'flux auth login' or set FLUX_AUTH_TOKEN.")
+        if fmt == "json":
+            click.echo(json.dumps({"logged_in": False, "server": url}, indent=2))
+        else:
+            click.echo("Not logged in. Run 'flux auth login' or set FLUX_AUTH_TOKEN.")
         return
 
     credentials = load_credentials()
-    if credentials:
-        click.echo("Logged in via OIDC (refresh token stored, access tokens in-memory only)")
-        click.echo(f"  Issuer: {credentials.get('issuer', 'unknown')}")
-        click.echo(f"  Client: {credentials.get('client_id', 'unknown')}")
+    if fmt == "json":
+        data: dict = {"logged_in": True, "server": url}
+        if credentials:
+            data["auth_method"] = "oidc"
+            data["issuer"] = credentials.get("issuer", "unknown")
+            data["client_id"] = credentials.get("client_id", "unknown")
+        else:
+            data["auth_method"] = "env_token"
+        click.echo(json.dumps(data, indent=2))
     else:
-        click.echo("Using FLUX_AUTH_TOKEN from environment")
-    click.echo(f"  Server: {url}")
+        if credentials:
+            click.echo("Logged in via OIDC (refresh token stored, access tokens in-memory only)")
+            click.echo(f"  Issuer: {credentials.get('issuer', 'unknown')}")
+            click.echo(f"  Client: {credentials.get('client_id', 'unknown')}")
+        else:
+            click.echo("Using FLUX_AUTH_TOKEN from environment")
+        click.echo(f"  Server: {url}")
 
 
 @auth.command("login")
@@ -348,7 +362,8 @@ def roles_list(fmt):
 
 @roles.command("show")
 @click.argument("name")
-def roles_show(name):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def roles_show(name, fmt):
     """Show role details."""
     url = get_server_url()
     resp = httpx.get(f"{url}/admin/roles/{name}", headers=get_auth_headers())
@@ -356,17 +371,21 @@ def roles_show(name):
         click.echo(f"Role '{name}' not found.")
         return
     role = resp.json()
-    click.echo(f"Name: {role['name']}")
-    click.echo(f"Built-in: {role.get('built_in', False)}")
-    click.echo("Permissions:")
-    for perm in role.get("permissions", []):
-        click.echo(f"  - {perm}")
+    if fmt == "json":
+        click.echo(json.dumps(role, indent=2))
+    else:
+        click.echo(f"Name: {role['name']}")
+        click.echo(f"Built-in: {role.get('built_in', False)}")
+        click.echo("Permissions:")
+        for perm in role.get("permissions", []):
+            click.echo(f"  - {perm}")
 
 
 @roles.command("create")
 @click.argument("name")
 @click.option("--permissions", "-p", multiple=True, required=True)
-def roles_create(name, permissions):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def roles_create(name, permissions, fmt):
     """Create a custom role."""
     url = get_server_url()
     resp = httpx.post(
@@ -375,7 +394,10 @@ def roles_create(name, permissions):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{name}' created.")
+        if fmt == "json":
+            click.echo(json.dumps(resp.json(), indent=2))
+        else:
+            click.echo(f"Role '{name}' created.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
@@ -383,7 +405,8 @@ def roles_create(name, permissions):
 @roles.command("clone")
 @click.argument("source")
 @click.option("--name", "-n", required=True)
-def roles_clone(source, name):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def roles_clone(source, name, fmt):
     """Clone an existing role."""
     url = get_server_url()
     resp = httpx.post(
@@ -392,7 +415,10 @@ def roles_clone(source, name):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{source}' cloned as '{name}'.")
+        if fmt == "json":
+            click.echo(json.dumps(resp.json(), indent=2))
+        else:
+            click.echo(f"Role '{source}' cloned as '{name}'.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
@@ -401,7 +427,8 @@ def roles_clone(source, name):
 @click.argument("name")
 @click.option("--add-permissions", "-a", multiple=True)
 @click.option("--remove-permissions", "-r", multiple=True)
-def roles_update(name, add_permissions, remove_permissions):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def roles_update(name, add_permissions, remove_permissions, fmt):
     """Update a role's permissions."""
     url = get_server_url()
     body = {}
@@ -415,14 +442,18 @@ def roles_update(name, add_permissions, remove_permissions):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{name}' updated.")
+        if fmt == "json":
+            click.echo(json.dumps(resp.json(), indent=2))
+        else:
+            click.echo(f"Role '{name}' updated.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
 
 @roles.command("delete")
 @click.argument("name")
-def roles_delete(name):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def roles_delete(name, fmt):
     """Delete a custom role."""
     url = get_server_url()
     resp = httpx.delete(
@@ -430,7 +461,10 @@ def roles_delete(name):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{name}' deleted.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Role '{name}' deleted.")
     else:
         click.echo(f"Error: {resp.json().get('detail', resp.text)}")
 
@@ -486,7 +520,8 @@ def _error_detail(resp):
 @principals.command("show")
 @click.argument("subject")
 @click.option("--issuer", default=None, help="External issuer (defaults to 'flux')")
-def principals_show(subject, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_show(subject, issuer, fmt):
     """Show principal details."""
     url = get_server_url()
     params = {}
@@ -504,13 +539,16 @@ def principals_show(subject, issuer):
         click.echo(f"Error: {_error_detail(resp)}")
         return
     p = resp.json()
-    click.echo(f"Subject:  {p['subject']}")
-    click.echo(f"Type:     {p['type']}")
-    click.echo(f"Issuer:   {p.get('external_issuer', 'flux')}")
-    click.echo(f"Enabled:  {p.get('enabled', True)}")
-    if p.get("display_name"):
-        click.echo(f"Name:     {p['display_name']}")
-    click.echo(f"Roles:    {', '.join(p.get('roles', []))}")
+    if fmt == "json":
+        click.echo(json.dumps(p, indent=2))
+    else:
+        click.echo(f"Subject:  {p['subject']}")
+        click.echo(f"Type:     {p['type']}")
+        click.echo(f"Issuer:   {p.get('external_issuer', 'flux')}")
+        click.echo(f"Enabled:  {p.get('enabled', True)}")
+        if p.get("display_name"):
+            click.echo(f"Name:     {p['display_name']}")
+        click.echo(f"Roles:    {', '.join(p.get('roles', []))}")
 
 
 @principals.command("create")
@@ -524,7 +562,8 @@ def principals_show(subject, issuer):
 @click.option("--role", "roles", multiple=True)
 @click.option("--issuer", default=None)
 @click.option("--display-name", default=None)
-def principals_create(subject, principal_type, roles, issuer, display_name):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_create(subject, principal_type, roles, issuer, display_name, fmt):
     """Create a principal."""
     url = get_server_url()
     body = {"subject": subject, "type": principal_type}
@@ -537,7 +576,10 @@ def principals_create(subject, principal_type, roles, issuer, display_name):
     resp = httpx.post(f"{url}/admin/principals", json=body, headers=get_auth_headers())
     if resp.status_code in (200, 201):
         p = resp.json()
-        click.echo(f"Principal '{subject}' created (id: {p.get('id', '?')}).")
+        if fmt == "json":
+            click.echo(json.dumps(p, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' created (id: {p.get('id', '?')}).")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -546,7 +588,8 @@ def principals_create(subject, principal_type, roles, issuer, display_name):
 @click.argument("subject")
 @click.option("--role", required=True)
 @click.option("--issuer", default=None)
-def principals_grant(subject, role, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_grant(subject, role, issuer, fmt):
     """Grant a role to a principal."""
     url = get_server_url()
     params = {}
@@ -559,7 +602,10 @@ def principals_grant(subject, role, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{role}' granted to '{subject}'.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "role": role}, indent=2))
+        else:
+            click.echo(f"Role '{role}' granted to '{subject}'.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -568,7 +614,8 @@ def principals_grant(subject, role, issuer):
 @click.argument("subject")
 @click.option("--role", required=True)
 @click.option("--issuer", default=None)
-def principals_revoke(subject, role, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_revoke(subject, role, issuer, fmt):
     """Revoke a role from a principal."""
     url = get_server_url()
     params = {}
@@ -580,7 +627,10 @@ def principals_revoke(subject, role, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Role '{role}' revoked from '{subject}'.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "role": role}, indent=2))
+        else:
+            click.echo(f"Role '{role}' revoked from '{subject}'.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -588,7 +638,8 @@ def principals_revoke(subject, role, issuer):
 @principals.command("enable")
 @click.argument("subject")
 @click.option("--issuer", default=None)
-def principals_enable(subject, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_enable(subject, issuer, fmt):
     """Enable a principal."""
     url = get_server_url()
     params = {}
@@ -600,7 +651,10 @@ def principals_enable(subject, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Principal '{subject}' enabled.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "enabled": True}, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' enabled.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -608,7 +662,8 @@ def principals_enable(subject, issuer):
 @principals.command("disable")
 @click.argument("subject")
 @click.option("--issuer", default=None)
-def principals_disable(subject, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_disable(subject, issuer, fmt):
     """Disable a principal."""
     url = get_server_url()
     params = {}
@@ -620,7 +675,10 @@ def principals_disable(subject, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Principal '{subject}' disabled.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "enabled": False}, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' disabled.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -630,7 +688,8 @@ def principals_disable(subject, issuer):
 @click.option("--force", is_flag=True, help="Force deletion including cascade effects")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
 @click.option("--issuer", default=None)
-def principals_delete(subject, force, yes, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_delete(subject, force, yes, issuer, fmt):
     """Delete a principal."""
     url = get_server_url()
     if force and not yes:
@@ -649,7 +708,10 @@ def principals_delete(subject, force, yes, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"Principal '{subject}' deleted.")
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject}, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' deleted.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -659,7 +721,8 @@ def principals_delete(subject, force, yes, issuer):
 @click.option("--key-name", "-k", required=True)
 @click.option("--expires", "-e", default=None, help="Expiry in days, e.g. '90d'")
 @click.option("--issuer", default=None)
-def principals_create_key(subject, key_name, expires, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_create_key(subject, key_name, expires, issuer, fmt):
     """Create an API key for a service account principal."""
     url = get_server_url()
     body = {"name": key_name}
@@ -675,9 +738,13 @@ def principals_create_key(subject, key_name, expires, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code in (200, 201):
-        key = resp.json().get("key")
-        click.echo(f"API key created: {key}")
-        click.echo("Store this key securely — it will not be shown again.")
+        data = resp.json()
+        if fmt == "json":
+            click.echo(json.dumps(data, indent=2))
+        else:
+            key = data.get("key")
+            click.echo(f"API key created: {key}")
+            click.echo("Store this key securely — it will not be shown again.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")
 
@@ -685,7 +752,8 @@ def principals_create_key(subject, key_name, expires, issuer):
 @principals.command("list-keys")
 @click.argument("subject")
 @click.option("--issuer", default=None)
-def principals_list_keys(subject, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_list_keys(subject, issuer, fmt):
     """List API keys for a principal."""
     url = get_server_url()
     params = {}
@@ -700,20 +768,24 @@ def principals_list_keys(subject, issuer):
         click.echo(f"Error: {_error_detail(resp)}")
         return
     data = resp.json()
-    if not data:
-        click.echo("(no keys)")
-        return
-    for key in data:
-        expires = key.get("expires_at") or "never"
-        prefix = key.get("prefix") or key.get("key_prefix", "")
-        click.echo(f"  {key['name']} ({prefix}...) expires: {expires}")
+    if fmt == "json":
+        click.echo(json.dumps(data, indent=2))
+    else:
+        if not data:
+            click.echo("(no keys)")
+            return
+        for key in data:
+            expires = key.get("expires_at") or "never"
+            prefix = key.get("prefix") or key.get("key_prefix", "")
+            click.echo(f"  {key['name']} ({prefix}...) expires: {expires}")
 
 
 @principals.command("revoke-key")
 @click.argument("subject")
 @click.option("--key-name", "-k", required=True)
 @click.option("--issuer", default=None)
-def principals_revoke_key(subject, key_name, issuer):
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_revoke_key(subject, key_name, issuer, fmt):
     """Revoke an API key from a principal."""
     url = get_server_url()
     params = {}
@@ -725,6 +797,11 @@ def principals_revoke_key(subject, key_name, issuer):
         headers=get_auth_headers(),
     )
     if resp.status_code == 200:
-        click.echo(f"API key '{key_name}' revoked.")
+        if fmt == "json":
+            click.echo(
+                json.dumps({"status": "ok", "subject": subject, "key_name": key_name}, indent=2),
+            )
+        else:
+            click.echo(f"API key '{key_name}' revoked.")
     else:
         click.echo(f"Error: {_error_detail(resp)}")

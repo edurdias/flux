@@ -187,7 +187,7 @@ async def streaming_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "system_prompt",
         "You are a helpful AI assistant. Provide clear, detailed explanations.",
     )
-    model = input_data.get("model", "llama3.2")
+    model = input_data.get("model", "qwen3")
     ollama_url = input_data.get("ollama_url", "http://localhost:11434")
 
     # Validate required inputs

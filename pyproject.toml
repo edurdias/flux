@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.25.0"
+version = "0.26.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -91,7 +91,9 @@ markers = [
     "asyncio: marks tests as async tests",
     "integration: marks tests as integration tests (may require external dependencies)",
     "postgresql: marks tests as requiring PostgreSQL database",
-    "slow: marks tests as slow running"
+    "slow: marks tests as slow running",
+    "e2e: marks end-to-end tests requiring server + worker processes",
+    "ollama: marks tests requiring a running Ollama instance with a compatible model",
 ]
 
 # Custom commands for workflow management
@@ -128,6 +130,14 @@ args = [
     { name = "event", default = "paths", positional = true },
     { name = "dryrun", default = false, type = "boolean", options = ["--dryrun"] }
 ]
+
+[tool.poe.tasks.test-e2e]
+help = "Run E2E tests (starts its own server + worker)"
+cmd = "poetry run pytest tests/e2e/ -v"
+
+[tool.poe.tasks.test-e2e-no-ai]
+help = "Run E2E tests excluding Ollama/AI examples"
+cmd = "poetry run pytest tests/e2e/ -m 'not ollama' -v"
 
 [tool.poetry.extras]
 postgresql = ["psycopg2-binary"]

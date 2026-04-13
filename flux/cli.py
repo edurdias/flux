@@ -130,12 +130,19 @@ def list_namespaces(format: str, server_url: str | None):
 @workflow.command("register")
 @click.argument("filename")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def register_workflows(filename: str, server_url: str | None):
+def register_workflows(filename: str, format: str, server_url: str | None):
     """Register workflows from a file."""
     try:
         file_path = Path(filename)
@@ -151,9 +158,12 @@ def register_workflows(filename: str, server_url: str | None):
                 response.raise_for_status()
                 result = response.json()
 
-        click.echo(f"Successfully registered {len(result)} workflow(s) from '{filename}'.")
-        for workflow in result:
-            click.echo(f"  - {workflow['name']} (version {workflow['version']})")
+        if format == "json":
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"Successfully registered {len(result)} workflow(s) from '{filename}'.")
+            for workflow in result:
+                click.echo(f"  - {workflow['name']} (version {workflow['version']})")
 
     except Exception as ex:
         click.echo(f"Error registering workflow: {str(ex)}", err=True)
@@ -169,12 +179,19 @@ def register_workflows(filename: str, server_url: str | None):
     help="Specific workflow version to show (defaults to latest)",
 )
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format (simple or json)",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def show_workflow(workflow_name: str, version: int | None, server_url: str | None):
+def show_workflow(workflow_name: str, version: int | None, format: str, server_url: str | None):
     """Show the details of a registered workflow."""
     try:
         base_url = server_url or get_server_url()
@@ -189,13 +206,16 @@ def show_workflow(workflow_name: str, version: int | None, server_url: str | Non
             response.raise_for_status()
             workflow = response.json()
 
-        click.echo(f"\nWorkflow: {workflow['name']}")
-        click.echo(f"Version: {workflow['version']}")
-        if "description" in workflow:
-            click.echo(f"Description: {workflow['description']}")
-        click.echo("\nDetails:")
-        click.echo("-" * 50)
-        click.echo(to_json(workflow))
+        if format == "json":
+            click.echo(to_json(workflow))
+        else:
+            click.echo(f"\nWorkflow: {workflow['name']}")
+            click.echo(f"Version: {workflow['version']}")
+            if "description" in workflow:
+                click.echo(f"Description: {workflow['description']}")
+            click.echo("\nDetails:")
+            click.echo("-" * 50)
+            click.echo(to_json(workflow))
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -223,6 +243,12 @@ def show_workflow(workflow_name: str, version: int | None, server_url: str | Non
     help="Skip confirmation prompt",
 )
 @click.option(
+    "--format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -232,6 +258,7 @@ def delete_workflow(
     workflow_name: str,
     version: int | None,
     force: bool,
+    format: str,
     server_url: str | None,
 ):
     """Delete a workflow (all versions or a specific version)."""
@@ -256,7 +283,10 @@ def delete_workflow(
             )
             response.raise_for_status()
 
-        click.echo(f"Successfully deleted workflow '{workflow_name}'{version_str}.")
+        if format == "json":
+            click.echo(json.dumps({"status": "deleted", "workflow": workflow_name}, indent=2))
+        else:
+            click.echo(f"Successfully deleted workflow '{workflow_name}'{version_str}.")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -516,6 +546,36 @@ def workflow_status(
         click.echo(f"Error checking workflow status: {str(ex)}", err=True)
 
 
+@workflow.command("cancel")
+@click.argument("workflow_name")
+@click.argument("execution_id")
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def cancel_workflow(workflow_name: str, execution_id: str, server_url: str | None):
+    """Cancel a running workflow execution."""
+    try:
+        from flux.catalogs import resolve_workflow_ref
+
+        namespace, name = resolve_workflow_ref(workflow_name)
+        base_url = server_url or get_server_url()
+
+        with get_http_client() as client:
+            response = client.get(
+                f"{base_url}/workflows/{namespace}/{name}/cancel/{execution_id}",
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        click.echo(to_json(result))
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Execution '{execution_id}' not found.", err=True)
+        else:
+            click.echo(f"Error cancelling execution: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error cancelling execution: {str(ex)}", err=True)
+
+
 # =============================================================================
 # Execution Commands
 # =============================================================================
@@ -533,6 +593,12 @@ def execution():
     "-w",
     default=None,
     help="Filter by workflow reference (namespace/name or bare name)",
+)
+@click.option(
+    "--namespace",
+    "-n",
+    default=None,
+    help="Filter by namespace",
 )
 @click.option(
     "--state",
@@ -569,6 +635,7 @@ def execution():
 )
 def list_executions(
     workflow: str | None,
+    namespace: str | None,
     state: str | None,
     limit: int,
     offset: int,
@@ -579,11 +646,17 @@ def list_executions(
     try:
         base_url = server_url or get_server_url()
 
+        if workflow and namespace:
+            click.echo("Error: --workflow and --namespace are mutually exclusive.", err=True)
+            return
+
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         if workflow:
-            namespace, wf_name = resolve_workflow_ref(workflow)
-            params["namespace"] = namespace
+            wf_namespace, wf_name = resolve_workflow_ref(workflow)
+            params["namespace"] = wf_namespace
             params["workflow_name"] = wf_name
+        elif namespace:
+            params["namespace"] = namespace
         if state:
             params["state"] = state
 
@@ -748,12 +821,19 @@ def show_worker(name: str, server_url: str | None):
 
 @cli.command("health")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def health_check(server_url: str | None):
+def health_check(format: str, server_url: str | None):
     """Check the health of the Flux server."""
     try:
         base_url = server_url or get_server_url()
@@ -763,17 +843,20 @@ def health_check(server_url: str | None):
             response.raise_for_status()
             result = response.json()
 
-        status = result.get("status", "unknown")
-        database = "connected" if result.get("database") else "disconnected"
-        version = result.get("version", "unknown")
-
-        if status == "healthy":
-            click.echo("✓ Server is healthy")
+        if format == "json":
+            click.echo(json.dumps(result, indent=2))
         else:
-            click.echo("✗ Server is unhealthy", err=True)
+            status = result.get("status", "unknown")
+            database = "connected" if result.get("database") else "disconnected"
+            version = result.get("version", "unknown")
 
-        click.echo(f"  Database: {database}")
-        click.echo(f"  Version: {version}")
+            if status == "healthy":
+                click.echo("✓ Server is healthy")
+            else:
+                click.echo("✗ Server is unhealthy", err=True)
+
+            click.echo(f"  Database: {database}")
+            click.echo(f"  Version: {version}")
 
     except httpx.ConnectError:
         click.echo(f"✗ Cannot connect to server at {server_url or get_server_url()}", err=True)
@@ -910,6 +993,13 @@ def schedule():
     help="Service account to run the schedule as (required when auth is enabled)",
 )
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -925,6 +1015,7 @@ def create_schedule(
     description: str | None,
     input: str | None,
     run_as: str | None,
+    format: str,
     server_url: str | None,
 ):
     """Create a new schedule for a workflow."""
@@ -977,11 +1068,14 @@ def create_schedule(
             response.raise_for_status()
             result = response.json()
 
-        click.echo(
-            f"Successfully created schedule '{schedule_name}' for workflow '{workflow_name}'",
-        )
-        click.echo(f"Schedule ID: {result['id']}")
-        click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
+        if format == "json":
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(
+                f"Successfully created schedule '{schedule_name}' for workflow '{workflow_name}'",
+            )
+            click.echo(f"Schedule ID: {result['id']}")
+            click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
 
     except Exception as ex:
         click.echo(f"Error creating schedule: {str(ex)}", err=True)
@@ -1028,7 +1122,10 @@ def list_schedules(workflow: str | None, show_all: bool, format: str, server_url
             schedules = response.json()
 
         if not schedules:
-            click.echo("No schedules found.")
+            if format == "json":
+                click.echo("[]")
+            else:
+                click.echo("No schedules found.")
             return
 
         if format == "json":
@@ -1055,12 +1152,19 @@ def list_schedules(workflow: str | None, show_all: bool, format: str, server_url
 @schedule.command("show")
 @click.argument("schedule_id")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def show_schedule(schedule_id: str, server_url: str | None):
+def show_schedule(schedule_id: str, format: str, server_url: str | None):
     """Show details of a specific schedule."""
     try:
         base_url = server_url or get_server_url()
@@ -1070,20 +1174,23 @@ def show_schedule(schedule_id: str, server_url: str | None):
             response.raise_for_status()
             schedule = response.json()
 
-        click.echo(f"\nSchedule: {schedule['name']}")
-        click.echo(f"ID: {schedule['id']}")
-        click.echo(f"Workflow: {schedule['workflow_name']}")
-        click.echo(f"Type: {schedule['schedule_type']}")
-        click.echo(f"Status: {schedule['status']}")
-        click.echo(f"Created: {schedule['created_at']}")
-        click.echo(f"Updated: {schedule['updated_at']}")
-        click.echo(f"Last run: {schedule.get('last_run_at', 'Never')}")
-        click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
-        click.echo(f"Total runs: {schedule['run_count']}")
-        click.echo(f"Failures: {schedule['failure_count']}")
+        if format == "json":
+            click.echo(json.dumps(schedule, indent=2))
+        else:
+            click.echo(f"\nSchedule: {schedule['name']}")
+            click.echo(f"ID: {schedule['id']}")
+            click.echo(f"Workflow: {schedule['workflow_name']}")
+            click.echo(f"Type: {schedule['schedule_type']}")
+            click.echo(f"Status: {schedule['status']}")
+            click.echo(f"Created: {schedule['created_at']}")
+            click.echo(f"Updated: {schedule['updated_at']}")
+            click.echo(f"Last run: {schedule.get('last_run_at', 'Never')}")
+            click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
+            click.echo(f"Total runs: {schedule['run_count']}")
+            click.echo(f"Failures: {schedule['failure_count']}")
 
-        if schedule.get("description"):
-            click.echo(f"Description: {schedule['description']}")
+            if schedule.get("description"):
+                click.echo(f"Description: {schedule['description']}")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -1097,12 +1204,19 @@ def show_schedule(schedule_id: str, server_url: str | None):
 @schedule.command("pause")
 @click.argument("schedule_id")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def pause_schedule(schedule_id: str, server_url: str | None):
+def pause_schedule(schedule_id: str, format: str, server_url: str | None):
     """Pause a schedule."""
     try:
         base_url = server_url or get_server_url()
@@ -1112,7 +1226,10 @@ def pause_schedule(schedule_id: str, server_url: str | None):
             response.raise_for_status()
             result = response.json()
 
-        click.echo(f"Successfully paused schedule '{result['name']}'")
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "schedule_id": schedule_id}, indent=2))
+        else:
+            click.echo(f"Successfully paused schedule '{result['name']}'")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -1126,12 +1243,19 @@ def pause_schedule(schedule_id: str, server_url: str | None):
 @schedule.command("resume")
 @click.argument("schedule_id")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
-def resume_schedule(schedule_id: str, server_url: str | None):
+def resume_schedule(schedule_id: str, format: str, server_url: str | None):
     """Resume a paused schedule."""
     try:
         base_url = server_url or get_server_url()
@@ -1141,8 +1265,11 @@ def resume_schedule(schedule_id: str, server_url: str | None):
             response.raise_for_status()
             result = response.json()
 
-        click.echo(f"Successfully resumed schedule '{result['name']}'")
-        click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "schedule_id": schedule_id}, indent=2))
+        else:
+            click.echo(f"Successfully resumed schedule '{result['name']}'")
+            click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -1156,13 +1283,20 @@ def resume_schedule(schedule_id: str, server_url: str | None):
 @schedule.command("delete")
 @click.argument("schedule_id")
 @click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
     help="Server URL to connect to.",
 )
 @click.confirmation_option(prompt="Are you sure you want to delete this schedule?")
-def delete_schedule(schedule_id: str, server_url: str | None):
+def delete_schedule(schedule_id: str, format: str, server_url: str | None):
     """Delete a schedule."""
     try:
         base_url = server_url or get_server_url()
@@ -1171,7 +1305,10 @@ def delete_schedule(schedule_id: str, server_url: str | None):
             response = client.delete(f"{base_url}/schedules/{schedule_id}")
             response.raise_for_status()
 
-        click.echo(f"Successfully deleted schedule '{schedule_id}'")
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "schedule_id": schedule_id}, indent=2))
+        else:
+            click.echo(f"Successfully deleted schedule '{schedule_id}'")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -1260,19 +1397,29 @@ def secrets():
 
 
 @secrets.command("list")
-def list_secrets():
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def list_secrets(format: str):
     """List all available secrets (shows only secret names, not values)."""
     try:
         secret_manager = SecretManager.current()
         secrets_list = secret_manager.all()
 
-        if not secrets_list:
-            click.echo("No secrets found.")
-            return
+        if format == "json":
+            click.echo(json.dumps({"secrets": secrets_list}, indent=2))
+        else:
+            if not secrets_list:
+                click.echo("No secrets found.")
+                return
 
-        click.echo("Available secrets:")
-        for secret_name in secrets_list:
-            click.echo(f"  - {secret_name}")
+            click.echo("Available secrets:")
+            for secret_name in secrets_list:
+                click.echo(f"  - {secret_name}")
     except Exception as ex:
         click.echo(f"Error listing secrets: {str(ex)}", err=True)
 
@@ -1280,7 +1427,14 @@ def list_secrets():
 @secrets.command("set")
 @click.argument("name")
 @click.argument("value")
-def set_secret(name: str, value: str):
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def set_secret(name: str, value: str, format: str):
     """Set a secret value with given name and value.
 
     This command will create a new secret or update an existing one.
@@ -1288,27 +1442,41 @@ def set_secret(name: str, value: str):
     try:
         secret_manager = SecretManager.current()
         secret_manager.save(name, value)
-        click.echo(f"Secret '{name}' has been set successfully.")
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Secret '{name}' has been set successfully.")
     except Exception as ex:
         click.echo(f"Error setting secret: {str(ex)}", err=True)
 
 
 @secrets.command("get")
 @click.argument("name")
-def get_secret(name: str):
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def get_secret(name: str, format: str):
     """Get a secret value by name.
 
     Warning: This will display the secret value in the terminal.
     Only use this command for testing or in secure environments.
     """
     try:
-        if not click.confirm(f"Are you sure you want to display the secret '{name}'?"):
-            click.echo("Operation cancelled.")
-            return
+        if format != "json":
+            if not click.confirm(f"Are you sure you want to display the secret '{name}'?"):
+                click.echo("Operation cancelled.")
+                return
 
         secret_manager = SecretManager.current()
         result = secret_manager.get([name])
-        click.echo(f"Secret '{name}': {result[name]}")
+        if format == "json":
+            click.echo(json.dumps({"name": name, "value": result[name]}, indent=2))
+        else:
+            click.echo(f"Secret '{name}': {result[name]}")
     except ValueError as ex:
         click.echo(f"Secret not found: {str(ex)}", err=True)
     except Exception as ex:
@@ -1317,7 +1485,14 @@ def get_secret(name: str):
 
 @secrets.command("remove")
 @click.argument("name")
-def remove_secret(name: str):
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def remove_secret(name: str, format: str):
     """Remove a secret by name.
 
     This permanently deletes the secret from the database.
@@ -1325,7 +1500,10 @@ def remove_secret(name: str):
     try:
         secret_manager = SecretManager.current()
         secret_manager.remove(name)
-        click.echo(f"Secret '{name}' has been removed successfully.")
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Secret '{name}' has been removed successfully.")
     except Exception as ex:
         click.echo(f"Error removing secret: {str(ex)}", err=True)
 
