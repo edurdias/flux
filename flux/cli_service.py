@@ -111,7 +111,10 @@ def list_services(format, server_url):
             services = response.json()
 
         if not services:
-            click.echo("No services found.")
+            if format == "json":
+                click.echo("[]")
+            else:
+                click.echo("No services found.")
             return
 
         if format == "json":

@@ -56,17 +56,17 @@ def test_service_add_remove(cli):
             ["service", "add", SVC_NAME, "--workflow", "svc_other/multiply"],
         )
         r = cli._server_json(["service", "show", SVC_NAME, "--format", "json"])
-        endpoint_names = [ep.split("/")[-1] for ep in r.get("endpoints", [])]
+        endpoint_names = [ep["name"] for ep in r.get("endpoints", [])]
         assert "multiply" in endpoint_names
 
         cli._server_ok(["service", "exclude", SVC_NAME, "svc_test/add"])
         r = cli._server_json(["service", "show", SVC_NAME, "--format", "json"])
-        endpoint_names = [ep.split("/")[-1] for ep in r.get("endpoints", [])]
+        endpoint_names = [ep["name"] for ep in r.get("endpoints", [])]
         assert "add" not in endpoint_names
 
         cli._server_ok(["service", "include", SVC_NAME, "svc_test/add"])
         r = cli._server_json(["service", "show", SVC_NAME, "--format", "json"])
-        endpoint_names = [ep.split("/")[-1] for ep in r.get("endpoints", [])]
+        endpoint_names = [ep["name"] for ep in r.get("endpoints", [])]
         assert "add" in endpoint_names
     finally:
         _cleanup_service(cli)
@@ -158,23 +158,24 @@ def test_service_endpoint_not_found(cli):
 
 
 def test_service_dynamic_discovery(cli):
+    dyn_svc = "dyn_discovery_svc"
     try:
         cli._server_json(
-            ["service", "create", SVC_NAME, "--namespace", "svc_test", "--format", "json"],
+            ["service", "create", dyn_svc, "--namespace", "svc_dynamic", "--format", "json"],
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.post(f"/services/{SVC_NAME}/greet/sync", json="Pre")
+            resp = client.post(f"/services/{dyn_svc}/dyn_hello/sync", json="Pre")
             assert resp.status_code == 404
 
-        cli.register(str(FIXTURES / "service_a_workflow.py"))
+        cli.register(str(FIXTURES / "service_dynamic_workflow.py"))
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.post(f"/services/{SVC_NAME}/greet/sync", json="Post")
+            resp = client.post(f"/services/{dyn_svc}/dyn_hello/sync", json="Post")
             assert resp.status_code == 200
             assert resp.json()["message"] == "Hello, Post"
     finally:
-        _cleanup_service(cli)
+        _cleanup_service(cli, dyn_svc)
 
 
 def test_service_exclusion_endpoint(cli):
