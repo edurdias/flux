@@ -30,7 +30,14 @@ class StandaloneServiceProxy:
             if self._endpoints and (time.monotonic() - self._cache_time) < self.cache_ttl:
                 return
             response = await self._client.get(f"/services/{self.service_name}")
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    raise KeyError(f"Service '{self.service_name}' not found on server") from exc
+                raise ConnectionError(
+                    f"Failed to refresh service cache: {exc.response.status_code}",
+                ) from exc
             data = response.json()
             endpoints: dict[str, WorkflowRef] = {}
             for ep in data.get("endpoints", []):
@@ -113,6 +120,12 @@ def create_standalone_app(
         detailed: bool = Query(False),
         version: str | None = Query(None),
     ):
+        if mode not in ("sync", "async"):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Standalone proxy only supports 'sync' and 'async' modes"},
+            )
+
         try:
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:

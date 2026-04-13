@@ -2967,15 +2967,30 @@ class Server:
             request: Request,
             identity: FluxIdentity = Depends(get_identity),
         ):
+            from json import JSONDecodeError
+
             from flux.service_store import ServiceStore
 
-            body = await request.json()
+            try:
+                body = await request.json()
+            except (JSONDecodeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+
             name = body.get("name")
             if not name or not isinstance(name, str):
                 raise HTTPException(
                     status_code=400,
                     detail="Service name is required and must be a string",
                 )
+
+            for field in ("namespaces", "workflows", "exclusions"):
+                val = body.get(field, [])
+                if not isinstance(val, list):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"'{field}' must be a list",
+                    )
+
             try:
                 store = ServiceStore()
                 svc = store.create(
@@ -3086,9 +3101,30 @@ class Server:
             request: Request,
             identity: FluxIdentity = Depends(get_identity),
         ):
+            from json import JSONDecodeError
+
             from flux.service_store import ServiceStore, ServiceNotFoundError
 
-            body = await request.json()
+            try:
+                body = await request.json()
+            except (JSONDecodeError, ValueError):
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+            for field in (
+                "add_namespaces",
+                "add_workflows",
+                "add_exclusions",
+                "remove_namespaces",
+                "remove_workflows",
+                "remove_exclusions",
+            ):
+                val = body.get(field)
+                if val is not None and not isinstance(val, list):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"'{field}' must be a list",
+                    )
+
             try:
                 store = ServiceStore()
                 svc = store.update(
@@ -3201,12 +3237,16 @@ class Server:
             service_name: str,
             workflow_name: str,
             input: Any = Body(None),
-            mode: str = "async",
+            mode: str = "sync",
             detailed: bool = False,
             version: int | None = None,
             identity: FluxIdentity = Depends(get_identity),
         ):
-            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_resolver import (
+                CollisionError,
+                ServiceResolver,
+                WorkflowNotInServiceError,
+            )
             from flux.service_store import ServiceNotFoundError, ServiceStore
 
             try:
@@ -3306,6 +3346,8 @@ class Server:
                     status_code=404,
                     detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
                 )
+            except CollisionError as e:
+                raise HTTPException(status_code=409, detail=str(e))
             except WorkflowNotFoundError as e:
                 raise HTTPException(status_code=404, detail=str(e))
             except HTTPException:
@@ -3326,11 +3368,15 @@ class Server:
             workflow_name: str,
             execution_id: str,
             input: Any = Body(None),
-            mode: str = "async",
+            mode: str = "sync",
             detailed: bool = False,
             identity: FluxIdentity = Depends(get_identity),
         ):
-            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_resolver import (
+                CollisionError,
+                ServiceResolver,
+                WorkflowNotInServiceError,
+            )
             from flux.service_store import ServiceNotFoundError, ServiceStore
 
             try:
@@ -3454,6 +3500,8 @@ class Server:
                     status_code=404,
                     detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
                 )
+            except CollisionError as e:
+                raise HTTPException(status_code=409, detail=str(e))
             except HTTPException:
                 raise
             except Exception as e:
@@ -3473,7 +3521,11 @@ class Server:
             detailed: bool = False,
             identity: FluxIdentity = Depends(get_identity),
         ):
-            from flux.service_resolver import ServiceResolver, WorkflowNotInServiceError
+            from flux.service_resolver import (
+                CollisionError,
+                ServiceResolver,
+                WorkflowNotInServiceError,
+            )
             from flux.service_store import ServiceNotFoundError, ServiceStore
 
             try:
@@ -3498,15 +3550,19 @@ class Server:
                         status_code=404,
                         detail=f"Execution '{execution_id}' not found",
                     )
+
+                if (
+                    getattr(context, "workflow_namespace", None) != wf_info.namespace
+                    or getattr(context, "workflow_name", None) != wf_info.name
+                ):
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution '{execution_id}' does not belong to workflow {wf_info.namespace}/{wf_info.name}",
+                    )
+
                 dto = ExecutionContextDTO.from_domain(context)
                 ctx_dict = dto.model_dump() if hasattr(dto, "model_dump") else dto.dict()
-                return _map_service_response(
-                    ctx_dict,
-                    service_name,
-                    workflow_name,
-                    "sync",
-                    detailed,
-                )
+                return JSONResponse(status_code=200, content=ctx_dict)
 
             except ServiceNotFoundError:
                 raise HTTPException(
@@ -3518,6 +3574,8 @@ class Server:
                     status_code=404,
                     detail=f"Workflow '{workflow_name}' not found in service '{service_name}'",
                 )
+            except CollisionError as e:
+                raise HTTPException(status_code=409, detail=str(e))
             except HTTPException:
                 raise
             except Exception as e:

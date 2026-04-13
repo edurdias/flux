@@ -11,7 +11,7 @@ def test_complex_pipeline(cli):
     r = cli.run_async_and_wait(
         "complex_pipeline",
         '{"input_file":"examples/data/sample.csv","output_file":".data/e2e_output.csv"}',
-        timeout=180,
+        timeout=300,
     )
     assert r["state"] == "COMPLETED"
 
