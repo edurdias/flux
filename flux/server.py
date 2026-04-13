@@ -3010,6 +3010,7 @@ class Server:
                     namespaces=body.get("namespaces", []),
                     workflows=body.get("workflows", []),
                     exclusions=body.get("exclusions", []),
+                    mcp_enabled=bool(body.get("mcp_enabled", False)),
                 )
                 return {
                     "id": svc.id,
@@ -3017,6 +3018,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
@@ -3044,6 +3046,7 @@ class Server:
                         "namespaces": svc.namespaces,
                         "workflows": svc.workflows,
                         "exclusions": svc.exclusions,
+                        "mcp_enabled": svc.mcp_enabled,
                         "created_at": svc.created_at.isoformat() if svc.created_at else None,
                         "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                     }
@@ -3081,6 +3084,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
@@ -3092,6 +3096,8 @@ class Server:
                             "name": wf.name,
                             "namespace": wf.namespace,
                             "version": wf.version,
+                            "input_schema": (wf.metadata or {}).get("input_schema"),
+                            "description": (wf.metadata or {}).get("description"),
                         }
                         for wf in endpoints.values()
                     ]
@@ -3152,6 +3158,7 @@ class Server:
                     remove_namespaces=body.get("remove_namespaces"),
                     remove_workflows=body.get("remove_workflows"),
                     remove_exclusions=body.get("remove_exclusions"),
+                    mcp_enabled=body.get("mcp_enabled"),
                 )
                 return {
                     "id": svc.id,
@@ -3159,6 +3166,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
