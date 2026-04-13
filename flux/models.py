@@ -13,6 +13,7 @@ from Crypto.Hash import SHA256
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Random import get_random_bytes
 from sqlalchemy import BigInteger
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import create_engine
 from sqlalchemy import DateTime
@@ -759,6 +760,7 @@ class ServiceModel(Base):
     namespaces = Column(JSON, nullable=False, default=list)
     workflows = Column(JSON, nullable=False, default=list)
     exclusions = Column(JSON, nullable=False, default=list)
+    mcp_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime,
         nullable=False,
