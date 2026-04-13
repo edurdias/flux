@@ -3203,6 +3203,79 @@ class Server:
                 logger.error(f"Error deleting service: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error deleting service: {str(e)}")
 
+        @api.get("/services/{service_name}/mcp")
+        async def service_mcp_info(
+            service_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore
+            from flux.service_resolver import ServiceResolver, CollisionError
+
+            try:
+                store = ServiceStore()
+                svc = store.get(service_name)
+                if not svc or not svc.mcp_enabled:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"MCP not enabled for service '{service_name}'",
+                    )
+
+                catalog = WorkflowCatalog.create()
+                resolver = ServiceResolver(catalog, store)
+
+                try:
+                    endpoints = resolver.resolve(service_name)
+                except CollisionError:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Endpoint collision in service '{service_name}'",
+                    )
+
+                tools = []
+                for wf in endpoints.values():
+                    name = wf.name
+                    schema = (wf.metadata or {}).get("input_schema")
+                    desc = (wf.metadata or {}).get("description", "")
+                    tools.extend(
+                        [
+                            {
+                                "name": name,
+                                "description": f"Run {name} synchronously. {desc}".strip(),
+                                "input_schema": schema,
+                            },
+                            {"name": f"{name}_async", "description": f"Run {name} asynchronously."},
+                            {
+                                "name": f"resume_{name}",
+                                "description": f"Resume paused {name} synchronously.",
+                            },
+                            {
+                                "name": f"resume_{name}_async",
+                                "description": f"Resume paused {name} asynchronously.",
+                            },
+                            {
+                                "name": f"status_{name}",
+                                "description": f"Check {name} execution status.",
+                            },
+                        ],
+                    )
+
+                return {
+                    "service": service_name,
+                    "mcp_enabled": True,
+                    "mcp_url": f"/services/{service_name}/mcp",
+                    "tools": tools,
+                    "tool_count": len(tools),
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting service MCP info: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error getting service MCP info: {str(e)}",
+                )
+
         # ===========================================
         # Services: Execution endpoints
         # ===========================================
