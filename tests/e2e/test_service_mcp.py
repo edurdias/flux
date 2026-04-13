@@ -40,7 +40,7 @@ def test_service_mcp_disabled_returns_404(cli):
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.get(f"/services/{SVC_NAME}/mcp")
+            resp = client.get(f"/services/{SVC_NAME}/mcp/tools")
             assert resp.status_code == 404
     finally:
         _cleanup(cli)
@@ -94,7 +94,7 @@ def test_service_mcp_info_endpoint(cli):
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.get(f"/services/{SVC_NAME}/mcp")
+            resp = client.get(f"/services/{SVC_NAME}/mcp/tools")
             assert resp.status_code == 200
             body = resp.json()
             assert body["service"] == SVC_NAME
