@@ -123,7 +123,7 @@ async def conversational_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
         "system_prompt",
         "You are a helpful AI assistant. Be concise and informative.",
     )
-    model = initial_input.get("model", "llama3")
+    model = initial_input.get("model", "qwen3")
     max_turns = initial_input.get("max_turns", 10)
     ollama_url = initial_input.get("ollama_url", "http://localhost:11434")
 

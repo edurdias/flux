@@ -6,12 +6,8 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
-  test:
+  version-check:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
-
     steps:
     - uses: actions/checkout@v4
       with:
@@ -58,6 +54,54 @@ jobs:
           echo "✅ Version bump verified: $TARGET_VERSION -> $PR_VERSION"
         fi
 
+  lint:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-lint-deps
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-lint-deps.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --extras observability
+
+    - name: Ensure dependencies are available
+      if: steps.cached-lint-deps.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root --extras observability
+
+    - name: Linting and code quality
+      run: |
+        poetry run pre-commit run --all-files --show-diff-on-failure
+
+  unit:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
@@ -86,13 +130,9 @@ jobs:
       if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
       run: poetry install --no-interaction --no-root --extras observability
 
-    - name: Linting and code quality
+    - name: Run unit tests
       run: |
-        poetry run pre-commit run --all-files --show-diff-on-failure
-
-    - name: Run tests
-      run: |
-        poetry run pytest tests/ --cov=flux --cov-report=xml --cov-report=html --cov-report=term
+        poetry run pytest tests/ --ignore=tests/e2e --cov=flux --cov-report=xml --cov-report=html --cov-report=term
 
     - name: Archive coverage results
       uses: actions/upload-artifact@v4
@@ -100,3 +140,42 @@ jobs:
         name: coverage-report
         path: htmlcov/
         retention-days: 14
+
+  e2e:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-e2e-deps
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-e2e-deps.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction
+
+    - name: Ensure dependencies are available
+      if: steps.cached-e2e-deps.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root
+
+    - name: Run E2E tests
+      run: |
+        poetry run pytest tests/e2e/ -m "not ollama" -v
