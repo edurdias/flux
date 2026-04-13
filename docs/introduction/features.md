@@ -42,6 +42,13 @@
 - **MCP Client**: Connect to external MCP servers, discover tools at runtime, and use them as Flux tasks
 - **Provider Support**: Ollama, OpenAI, Anthropic, and Google Gemini for AI agents; any MCP-compliant server for tools
 
+## Workflow Services
+- **Microservice Endpoints**: Expose workflows as clean REST endpoints — request body in, output body out
+- **Dynamic Discovery**: New workflows appear as endpoints automatically when registered in a selected namespace
+- **Selector-Based**: Select workflows by namespace, individual ref, or a combination — with exclusions for fine-grained control
+- **Standalone Deployment**: Run a dedicated service process for independent scaling and isolation
+- **HTTP Semantics**: Proper status codes (200, 202, 404, 409, 500), sync/async/stream modes, pause/resume URLs
+
 ## API Integration
 - **HTTP API**: Built-in FastAPI server for HTTP access
 - **RESTful Endpoints**: Easy-to-use REST API for workflow management

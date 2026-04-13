@@ -21,7 +21,7 @@ async def load_data(file_name: str) -> pd.DataFrame:
 
 @task
 async def split_data(df: pd.DataFrame) -> list[pd.DataFrame]:
-    return np.array_split(df, 10)
+    return np.array_split(df, 5)
 
 
 @task
