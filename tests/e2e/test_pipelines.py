@@ -1,6 +1,10 @@
 """E2E tests — pipelines, output storage, resource requests, secrets."""
 from __future__ import annotations
 
+import os
+
+import pytest
+
 
 def test_complex_pipeline(cli):
     cli.register("examples/complex_pipeline.py")
@@ -18,6 +22,7 @@ def test_output_storage(cli):
     assert r["state"] == "COMPLETED"
 
 
+@pytest.mark.skipif((os.cpu_count() or 0) < 4, reason="requires >=4 CPUs for resource matching")
 def test_resource_requests_data(cli):
     cli.register("examples/resource_requests.py")
     r = cli.run_async_and_wait(
