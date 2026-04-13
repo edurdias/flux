@@ -249,6 +249,25 @@ def include_in_service(name, workflow_refs, format, server_url):
         click.echo(f"Error updating service: {str(ex)}", err=True)
 
 
+@service.command("start")
+@click.argument("name")
+@click.option("--port", "-p", default=9000, type=int, help="Port to listen on.")
+@click.option("--host", default="0.0.0.0", help="Host to bind to.")
+@click.option("--server-url", "-cp-url", default=None, help="Flux server URL to connect to.")
+@click.option("--cache-ttl", default=60, type=int, help="Endpoint cache TTL in seconds.")
+def start_service(name, port, host, server_url, cache_ttl):
+    """Start a standalone service proxy."""
+    from flux.service_proxy import create_standalone_app
+
+    import uvicorn
+
+    flux_url = server_url or get_server_url()
+    click.echo(f"Starting service '{name}' on {host}:{port}")
+    click.echo(f"Flux server: {flux_url}")
+    app = create_standalone_app(name, flux_url, cache_ttl)
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 @service.command("delete")
 @click.argument("name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
