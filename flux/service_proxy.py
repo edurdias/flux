@@ -23,11 +23,14 @@ class StandaloneServiceProxy:
         self._client = httpx.AsyncClient(base_url=self.server_url, timeout=30.0)
         self._lock = asyncio.Lock()
         self._endpoints: dict[str, WorkflowRef] = {}
-        self._cache_time: float = 0.0
+        self._cache_time: float | None = None
 
     async def _refresh_cache(self) -> None:
         async with self._lock:
-            if self._endpoints and (time.monotonic() - self._cache_time) < self.cache_ttl:
+            if (
+                self._cache_time is not None
+                and (time.monotonic() - self._cache_time) < self.cache_ttl
+            ):
                 return
             response = await self._client.get(f"/services/{self.service_name}")
             try:
@@ -55,7 +58,7 @@ class StandaloneServiceProxy:
 
     async def resolve(self, workflow_name: str) -> WorkflowRef:
         if workflow_name not in self._endpoints:
-            self._cache_time = 0.0
+            self._cache_time = None
             await self._refresh_cache()
         if workflow_name not in self._endpoints:
             raise KeyError(f"Workflow '{workflow_name}' not found in service '{self.service_name}'")
@@ -84,7 +87,7 @@ class StandaloneServiceProxy:
 
     @property
     def cache_age(self) -> float:
-        if self._cache_time == 0.0:
+        if self._cache_time is None:
             return 0.0
         return time.monotonic() - self._cache_time
 
@@ -130,6 +133,11 @@ def create_standalone_app(
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:
             return JSONResponse(status_code=404, content={"detail": str(e)})
+        except ConnectionError:
+            return JSONResponse(
+                status_code=502,
+                content={"detail": f"Cannot reach Flux server at {proxy.server_url}"},
+            )
 
         path = f"/workflows/{ref.namespace}/{ref.name}/run/{mode}"
         auth_headers = {}
@@ -142,7 +150,10 @@ def create_standalone_app(
         if version:
             params["version"] = version
 
-        body = await request.json() if await request.body() else None
+        try:
+            body = await request.json() if await request.body() else None
+        except Exception:
+            return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
 
         try:
             response = await proxy.forward("POST", path, auth_headers, body, params or None)
@@ -167,13 +178,21 @@ def create_standalone_app(
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:
             return JSONResponse(status_code=404, content={"detail": str(e)})
+        except ConnectionError:
+            return JSONResponse(
+                status_code=502,
+                content={"detail": f"Cannot reach Flux server at {proxy.server_url}"},
+            )
 
         path = f"/workflows/{ref.namespace}/{ref.name}/resume/{execution_id}/{mode}"
         auth_headers = {}
         if "authorization" in request.headers:
             auth_headers["authorization"] = request.headers["authorization"]
 
-        body = await request.json() if await request.body() else None
+        try:
+            body = await request.json() if await request.body() else None
+        except Exception:
+            return JSONResponse(status_code=400, content={"detail": "Invalid JSON body"})
 
         try:
             response = await proxy.forward("POST", path, auth_headers, body)
