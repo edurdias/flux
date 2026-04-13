@@ -99,6 +99,7 @@ def create_standalone_app(
     service_name: str,
     server_url: str,
     cache_ttl: int = 60,
+    enable_mcp: bool = False,
 ) -> FastAPI:
     app = FastAPI(title=f"Flux Service: {service_name}")
     proxy = StandaloneServiceProxy(service_name, server_url, cache_ttl)
