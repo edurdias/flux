@@ -109,10 +109,10 @@ def test_service_endpoint_detailed(cli):
             )
             assert resp.status_code == 200
             body = resp.json()
-            assert body["data"]["message"] == "Hello, Bob"
+            assert body["output"]["message"] == "Hello, Bob"
             assert "execution_id" in body
             assert body["state"] == "COMPLETED"
-            assert body["workflow_namespace"] == "svc_test"
+            assert body["namespace"] == "svc_test"
     finally:
         _cleanup_service(cli)
 
