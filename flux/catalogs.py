@@ -19,6 +19,76 @@ from flux.models import WorkflowModel
 from flux.domain.resource_request import ResourceRequest
 from flux.utils import get_logger
 
+
+def extract_workflow_input_schema(source: bytes, workflow_name: str) -> dict | None:
+    """Extract JSON Schema from workflow's ExecutionContext[T] if T is a Pydantic BaseModel.
+
+    Loads the source as a module, inspects type hints, and returns
+    T.model_json_schema() if T is a BaseModel subclass. Returns None otherwise.
+    """
+    import importlib.util
+    import sys
+    import tempfile
+    import typing
+
+    mod_name = f"_schema_extract_{workflow_name}"
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="wb") as f:
+            f.write(source)
+            f.flush()
+            spec = importlib.util.spec_from_file_location(mod_name, f.name)
+            if not spec or not spec.loader:
+                return None
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+
+        func = getattr(mod, workflow_name, None)
+        if func is None:
+            return None
+        if hasattr(func, "func"):
+            func = func.func
+
+        hints = typing.get_type_hints(func)
+        ctx_hint = hints.get("ctx") or (hints[next(iter(hints))] if hints else None)
+        if ctx_hint is None:
+            return None
+
+        args = typing.get_args(ctx_hint)
+        if not args:
+            return None
+
+        input_type = args[0]
+
+        try:
+            from pydantic import BaseModel
+
+            if isinstance(input_type, type) and issubclass(input_type, BaseModel):
+                return input_type.model_json_schema()  # type: ignore[attr-defined]
+        except ImportError:
+            pass
+
+        return None
+    except Exception:
+        return None
+    finally:
+        sys.modules.pop(mod_name, None)
+
+
+def extract_workflow_description(source: bytes, workflow_name: str) -> str | None:
+    """Extract the docstring from a workflow function via AST."""
+    try:
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == workflow_name:
+                    docstring = ast.get_docstring(node)
+                    return docstring.strip() if docstring else None
+        return None
+    except Exception:
+        return None
+
+
 logger = get_logger(__name__)
 
 
@@ -216,6 +286,12 @@ class WorkflowCatalog(ABC):
                             node,
                             tree,
                         )
+                        input_schema = extract_workflow_input_schema(source, node.name)
+                        if input_schema is not None:
+                            wf_metadata["input_schema"] = input_schema
+                        description = extract_workflow_description(source, node.name)
+                        if description is not None:
+                            wf_metadata["description"] = description
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
