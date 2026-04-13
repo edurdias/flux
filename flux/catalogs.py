@@ -101,6 +101,68 @@ def extract_workflow_description(source: bytes, workflow_name: str) -> str | Non
         return None
 
 
+def _enrich_workflow_metadata(source: bytes, workflow_infos: list) -> None:
+    """Extract input schemas and descriptions for all workflows from source."""
+    for wf in workflow_infos:
+        desc = extract_workflow_description(source, wf.name)
+        if desc is not None:
+            wf.metadata["description"] = desc
+
+    import importlib.util
+    import os
+    import sys
+    import tempfile
+    import typing
+
+    mod_name = "_schema_extract_batch"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="wb") as f:
+            tmp_path = f.name
+            f.write(source)
+            f.flush()
+            spec = importlib.util.spec_from_file_location(mod_name, f.name)
+            if not spec or not spec.loader:
+                return
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+
+        for wf in workflow_infos:
+            func = getattr(mod, wf.name, None)
+            if func is None:
+                continue
+            if hasattr(func, "func"):
+                func = func.func
+            try:
+                hints = typing.get_type_hints(func)
+            except Exception:
+                continue
+            ctx_hint = hints.get("ctx") or (hints[next(iter(hints))] if hints else None)
+            if ctx_hint is None:
+                continue
+            args = typing.get_args(ctx_hint)
+            if not args:
+                continue
+            input_type = args[0]
+            try:
+                from pydantic import BaseModel
+
+                if isinstance(input_type, type) and issubclass(input_type, BaseModel):
+                    wf.metadata["input_schema"] = input_type.model_json_schema()  # type: ignore[attr-defined]
+            except ImportError:
+                pass
+    except Exception:
+        pass
+    finally:
+        sys.modules.pop(mod_name, None)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 logger = get_logger(__name__)
 
 
@@ -298,12 +360,6 @@ class WorkflowCatalog(ABC):
                             node,
                             tree,
                         )
-                        input_schema = extract_workflow_input_schema(source, node.name)
-                        if input_schema is not None:
-                            wf_metadata["input_schema"] = input_schema
-                        description = extract_workflow_description(source, node.name)
-                        if description is not None:
-                            wf_metadata["description"] = description
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
@@ -318,6 +374,8 @@ class WorkflowCatalog(ABC):
 
             if not workflow_infos:
                 raise SyntaxError("No workflow found in the provided code.")
+
+            _enrich_workflow_metadata(source, workflow_infos)
 
             return workflow_infos
 

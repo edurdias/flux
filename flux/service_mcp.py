@@ -39,6 +39,17 @@ class ServiceMCPServer:
         self.provider = provider
         self.mcp = FastMCP(f"flux-service-{service_name}")
         self._registered_tools: set[str] = set()
+        self._tool_names: set[str] = set()
+
+    @property
+    def tool_names(self) -> set[str]:
+        return set(self._tool_names)
+
+    def get_tool_function(self, name: str):
+        for t in self.mcp._tool_manager.list_tools():
+            if t.name == name:
+                return t.fn
+        return None
 
     async def refresh(self) -> None:
         endpoints = await self.provider.get_endpoints()
@@ -56,6 +67,16 @@ class ServiceMCPServer:
             self._register_resume_tool(info, mode="async")
             self._register_status_tool(info)
             self._registered_tools.add(key)
+            suffix_async = "_async"
+            self._tool_names.update(
+                {
+                    info.name,
+                    f"{info.name}{suffix_async}",
+                    f"resume_{info.name}",
+                    f"resume_{info.name}{suffix_async}",
+                    f"status_{info.name}",
+                },
+            )
 
     def _register_run_tool(self, info: EndpointInfo, mode: str) -> None:
         suffix = "_async" if mode == "async" else ""

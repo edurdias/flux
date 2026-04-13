@@ -36,7 +36,7 @@ def _build_server(endpoints: dict[str, EndpointInfo]) -> ServiceMCPServer:
 
 
 def _tool_names(server: ServiceMCPServer) -> set[str]:
-    return {t.name for t in server.mcp._tool_manager.list_tools()}
+    return server.tool_names
 
 
 class TestToolGeneration:
@@ -76,13 +76,8 @@ class TestToolGeneration:
         ep = _make_endpoint("register", input_schema=schema)
         server = _build_server({"register": ep})
 
-        tool = None
-        for t in server.mcp._tool_manager.list_tools():
-            if t.name == "register":
-                tool = t
-                break
-        assert tool is not None
-        fn = tool.fn
+        fn = server.get_tool_function("register")
+        assert fn is not None
         assert fn.__annotations__["name"] is str
         assert fn.__annotations__["age"] is int
 
@@ -90,23 +85,14 @@ class TestToolGeneration:
         ep = _make_endpoint("simple")
         server = _build_server({"simple": ep})
 
-        tool = None
-        for t in server.mcp._tool_manager.list_tools():
-            if t.name == "simple":
-                tool = t
-                break
-        assert tool is not None
-        fn = tool.fn
+        fn = server.get_tool_function("simple")
+        assert fn is not None
         assert "input" in fn.__annotations__
 
     def test_tool_description_from_metadata(self):
         ep = _make_endpoint("deploy", description="Deploy to production")
         server = _build_server({"deploy": ep})
 
-        tool = None
-        for t in server.mcp._tool_manager.list_tools():
-            if t.name == "deploy":
-                tool = t
-                break
-        assert tool is not None
-        assert "Deploy to production" in (tool.fn.__doc__ or "")
+        fn = server.get_tool_function("deploy")
+        assert fn is not None
+        assert "Deploy to production" in (fn.__doc__ or "")

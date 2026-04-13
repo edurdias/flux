@@ -3270,7 +3270,7 @@ class Server:
                 return {
                     "service": service_name,
                     "mcp_enabled": True,
-                    "mcp_url": f"/services/{service_name}/mcp/tools",
+                    "tools_url": f"/services/{service_name}/mcp/tools",
                     "tools": tools,
                     "tool_count": len(tools),
                 }

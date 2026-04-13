@@ -122,7 +122,9 @@ def create_standalone_app(
                 import logging
 
                 logging.getLogger(__name__).warning(
-                    f"Failed to initialize MCP tools: {e}. MCP will retry on first connection.",
+                    f"Failed to initialize MCP tools on startup: {e}. "
+                    f"MCP endpoint mounted but has no tools. "
+                    f"Restart the service once the Flux server is available.",
                 )
 
         app.mount("/mcp", mcp_server.mcp.http_app())
