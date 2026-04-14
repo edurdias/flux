@@ -319,6 +319,74 @@ flux service start <name> [options]
   --cache-ttl SECONDS  Endpoint cache TTL (default: 60)
 ```
 
+## MCP Integration
+
+Services can expose their workflows as [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) tools, allowing AI agents and LLM-based applications to discover and invoke workflows through the standard MCP interface.
+
+### Enabling MCP
+
+Enable MCP when creating or updating a service:
+
+```bash
+# On create
+flux service create billing --namespace billing --mcp
+
+# Toggle on an existing service
+flux service update billing --mcp
+
+# Disable
+flux service update billing --no-mcp
+```
+
+### Built-in MCP endpoint
+
+When MCP is enabled, the main Flux server exposes an info endpoint:
+
+```
+GET /services/{name}/mcp/tools
+```
+
+This returns the list of generated tools and the MCP connection URL. If MCP is not enabled for the service, this endpoint returns 404.
+
+### Standalone MCP
+
+When a standalone service process starts with MCP enabled, it mounts a full MCP server at `/mcp`:
+
+```bash
+flux service start billing --port 9000 --server-url http://flux:8000
+# MCP available at http://localhost:9000/mcp
+```
+
+The `--mcp` / `--no-mcp` flags on `service start` override the stored setting. Without an explicit flag, the stored `mcp_enabled` value is used.
+
+### Tool generation
+
+Each workflow in the service produces **5 MCP tools**:
+
+| Tool | Description |
+|---|---|
+| `{name}` | Run the workflow synchronously |
+| `{name}_async` | Run asynchronously (returns execution ID) |
+| `resume_{name}` | Resume a paused execution synchronously |
+| `resume_{name}_async` | Resume asynchronously |
+| `status_{name}` | Check execution status |
+
+### Typed parameters
+
+If a workflow uses a Pydantic model as its input type, the generated MCP tool exposes individual parameters matching the model's fields. Workflows with untyped or `dict` inputs receive a single generic `input` parameter (JSON string).
+
+```python
+class InvoiceInput(BaseModel):
+    customer_id: str
+    amount: float
+
+@workflow.with_options(namespace="billing")
+async def invoice(ctx: ExecutionContext[InvoiceInput]):
+    ...
+```
+
+The `invoice` tool will have `customer_id: str` and `amount: float` as explicit parameters, making it easier for AI agents to call correctly.
+
 ## Authentication
 
 Services inherit the Flux auth system. When auth is enabled:
@@ -410,3 +478,7 @@ flux service create billing-api --workflow billing/invoice
 flux service add billing-api --workflow billing/refund
 flux service add billing-api --workflow billing/receipt
 ```
+
+## Upgrade Notes
+
+- This release adds the `mcp_enabled` column to the `services` table. Existing deployments must recreate their database or manually add the column (`ALTER TABLE services ADD COLUMN mcp_enabled BOOLEAN NOT NULL DEFAULT 0`). There is no automatic migration.

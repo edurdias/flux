@@ -25,8 +25,9 @@ def service():
     default="simple",
     help="Output format",
 )
+@click.option("--mcp", is_flag=True, default=False, help="Enable MCP endpoint.")
 @click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
-def create_service(name, namespace, workflow, exclude, format, server_url):
+def create_service(name, namespace, workflow, exclude, format, mcp, server_url):
     """Create a new workflow service."""
     try:
         base_url = server_url or get_server_url()
@@ -35,6 +36,7 @@ def create_service(name, namespace, workflow, exclude, format, server_url):
             "namespaces": list(namespace),
             "workflows": list(workflow),
             "exclusions": list(exclude),
+            "mcp_enabled": mcp,
         }
         with get_http_client() as client:
             response = client.post(f"{base_url}/services", json=data)
@@ -47,6 +49,37 @@ def create_service(name, namespace, workflow, exclude, format, server_url):
             click.echo(f"Service '{name}' created.")
     except Exception as ex:
         click.echo(f"Error creating service: {str(ex)}", err=True)
+
+
+@service.command("update")
+@click.argument("name")
+@click.option("--mcp/--no-mcp", default=None, help="Enable or disable MCP endpoint.")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def update_service(name, mcp, format, server_url):
+    """Update service-level settings."""
+    try:
+        base_url = server_url or get_server_url()
+        data = {}
+        if mcp is not None:
+            data["mcp_enabled"] = mcp
+        with get_http_client() as client:
+            response = client.put(f"{base_url}/services/{name}", json=data)
+            response.raise_for_status()
+            result = response.json()
+
+        if format == "json":
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"Service '{name}' updated.")
+    except Exception as ex:
+        click.echo(f"Error updating service: {str(ex)}", err=True)
 
 
 @service.command("show")
@@ -72,6 +105,7 @@ def show_service(name, format, server_url):
             click.echo(json.dumps(result, indent=2))
         else:
             click.echo(f"Service: {result['name']}")
+            click.echo(f"MCP: {'enabled' if result.get('mcp_enabled') else 'disabled'}")
             if result.get("namespaces"):
                 click.echo("Namespaces:")
                 for ns in result["namespaces"]:
@@ -256,18 +290,32 @@ def include_in_service(name, workflow_refs, format, server_url):
 @click.argument("name")
 @click.option("--port", "-p", default=9000, type=int, help="Port to listen on.")
 @click.option("--host", default="0.0.0.0", help="Host to bind to.")
+@click.option("--mcp/--no-mcp", default=None, help="Enable or disable MCP endpoint.")
 @click.option("--server-url", "-cp-url", default=None, help="Flux server URL to connect to.")
 @click.option("--cache-ttl", default=60, type=int, help="Endpoint cache TTL in seconds.")
-def start_service(name, port, host, server_url, cache_ttl):
+def start_service(name, port, host, mcp, server_url, cache_ttl):
     """Start a standalone service proxy."""
     from flux.service_proxy import create_standalone_app
 
     import uvicorn
 
     flux_url = server_url or get_server_url()
+
+    enable_mcp = mcp
+    if enable_mcp is None:
+        try:
+            with get_http_client() as client:
+                response = client.get(f"{flux_url}/services/{name}")
+                response.raise_for_status()
+                svc_info = response.json()
+                enable_mcp = svc_info.get("mcp_enabled", False)
+        except Exception:
+            enable_mcp = False
+
     click.echo(f"Starting service '{name}' on {host}:{port}")
     click.echo(f"Flux server: {flux_url}")
-    app = create_standalone_app(name, flux_url, cache_ttl)
+    click.echo(f"MCP: {'enabled' if enable_mcp else 'disabled'}")
+    app = create_standalone_app(name, flux_url, cache_ttl, enable_mcp=enable_mcp)
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

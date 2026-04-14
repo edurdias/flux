@@ -99,6 +99,7 @@ def create_standalone_app(
     service_name: str,
     server_url: str,
     cache_ttl: int = 60,
+    enable_mcp: bool = False,
 ) -> FastAPI:
     app = FastAPI(title=f"Flux Service: {service_name}")
     proxy = StandaloneServiceProxy(service_name, server_url, cache_ttl)
@@ -107,12 +108,46 @@ def create_standalone_app(
     async def shutdown():
         await proxy.close()
 
+    if enable_mcp:
+        from flux.service_mcp import create_service_mcp_server
+
+        mcp_server = create_service_mcp_server(service_name, proxy._client)
+
+        @app.on_event("startup")
+        async def _init_mcp_tools():
+            try:
+                endpoints = await mcp_server.provider.get_endpoints()
+                mcp_server._generate_tools(endpoints)
+            except Exception as e:
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to initialize MCP tools on startup: {e}. "
+                    f"MCP endpoint mounted but has no tools. "
+                    f"Restart the service once the Flux server is available.",
+                )
+
+        async def _mcp_refresh_loop():
+            while True:
+                await asyncio.sleep(cache_ttl)
+                try:
+                    await mcp_server.refresh()
+                except Exception:
+                    pass
+
+        @app.on_event("startup")
+        async def _start_mcp_refresh():
+            asyncio.create_task(_mcp_refresh_loop())
+
+        app.mount("/mcp", mcp_server.mcp.http_app())
+
     @app.get("/health")
     async def health():
         return {
             "service": proxy.service_name,
             "endpoints": proxy.endpoint_count,
             "cache_age": round(proxy.cache_age, 1),
+            "mcp_enabled": enable_mcp,
         }
 
     @app.post("/{workflow_name}")

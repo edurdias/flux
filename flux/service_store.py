@@ -22,6 +22,7 @@ class ServiceInfo:
     namespaces: list[str] = field(default_factory=list)
     workflows: list[str] = field(default_factory=list)
     exclusions: list[str] = field(default_factory=list)
+    mcp_enabled: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -33,6 +34,7 @@ def _to_info(model: ServiceModel) -> ServiceInfo:
         namespaces=list(model.namespaces or []),
         workflows=list(model.workflows or []),
         exclusions=list(model.exclusions or []),
+        mcp_enabled=bool(model.mcp_enabled),
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
@@ -48,6 +50,7 @@ class ServiceStore:
         namespaces: _list[str] | None = None,
         workflows: _list[str] | None = None,
         exclusions: _list[str] | None = None,
+        mcp_enabled: bool = False,
     ) -> ServiceInfo:
         with self._repository.session() as session:
             existing = session.query(ServiceModel).filter(ServiceModel.name == name).first()
@@ -59,6 +62,7 @@ class ServiceStore:
             model.namespaces = namespaces or []
             model.workflows = workflows or []
             model.exclusions = exclusions or []
+            model.mcp_enabled = mcp_enabled
 
             session.add(model)
             session.commit()
@@ -86,6 +90,7 @@ class ServiceStore:
         remove_namespaces: _list[str] | None = None,
         remove_workflows: _list[str] | None = None,
         remove_exclusions: _list[str] | None = None,
+        mcp_enabled: bool | None = None,
     ) -> ServiceInfo:
         with self._repository.session() as session:
             model = session.query(ServiceModel).filter(ServiceModel.name == name).first()
@@ -114,6 +119,8 @@ class ServiceStore:
             model.namespaces = current_ns
             model.workflows = current_wf
             model.exclusions = current_ex
+            if mcp_enabled is not None:
+                model.mcp_enabled = mcp_enabled
 
             session.commit()
             session.refresh(model)
