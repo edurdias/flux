@@ -64,12 +64,14 @@ class WorkerInfo:
         packages: list[dict[str, str]] = [],
         resources: WorkerResourcesInfo | None = None,
         session_token: str | None = None,
+        labels: dict[str, str] | None = None,
     ):
         self.name = name
         self.runtime = runtime
         self.packages = packages
         self.resources = resources
         self.session_token = session_token
+        self.labels = labels or {}
 
 
 class WorkerRegistry(ABC):
@@ -84,6 +86,7 @@ class WorkerRegistry(ABC):
         runtime: WorkerRuntimeInfo | None,
         packages: list[dict[str, str]],
         resources: WorkerResourcesInfo | None,
+        labels: dict[str, str] | None = None,
     ) -> WorkerInfo:  # pragma: no cover
         raise NotImplementedError()
 
@@ -123,6 +126,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
         runtime: WorkerRuntimeInfo | None,
         packages: list[dict[str, str]],
         resources: WorkerResourcesInfo | None,
+        labels: dict[str, str] | None = None,
     ) -> WorkerInfo:
         # Import here to avoid circular imports
         from flux.models import WorkerModel
@@ -133,9 +137,10 @@ class DatabaseWorkerRegistry(WorkerRegistry):
                 if model:
                     # generate a new session token
                     model.session_token = uuid4().hex
+                    model.labels = labels or {}
                 else:
                     # Creates a new model and assigns the session token
-                    model = self._from_info(name, runtime, packages, resources)
+                    model = self._from_info(name, runtime, packages, resources, labels=labels)
                     session.add(model)
                 session.commit()
                 return self._to_info(model)
@@ -151,7 +156,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             workers = session.query(WorkerModel).all()
             return [self._to_info(worker) for worker in workers]
 
-    def _from_info(self, name, runtime, packages, resources):
+    def _from_info(self, name, runtime, packages, resources, labels=None):
         # Import here to avoid circular imports
         from flux.models import (
             WorkerModel,
@@ -185,6 +190,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
                     for gpu in resources.gpus
                 ],
             ),
+            labels=labels,
         )
 
     def _to_info(self, model: WorkerModel) -> WorkerInfo:
@@ -213,4 +219,5 @@ class DatabaseWorkerRegistry(WorkerRegistry):
                 ],
             ),
             session_token=model.session_token,
+            labels=model.labels if model.labels else {},
         )
