@@ -199,6 +199,7 @@ class WorkflowInfo:
         namespace: str = "default",
         version: int = 1,
         requests: ResourceRequest | None = None,
+        affinity: dict[str, str] | None = None,
         schedule: Any | None = None,
         metadata: dict | None = None,
     ):
@@ -209,6 +210,7 @@ class WorkflowInfo:
         self.source = source
         self.version = version
         self.requests = requests
+        self.affinity = affinity
         self.schedule = schedule
         self.metadata = metadata
 
@@ -225,6 +227,7 @@ class WorkflowInfo:
             "imports": self.imports,
             "source": self.source,
             "requests": {},
+            "affinity": self.affinity,
             "metadata": self.metadata,
         }
 
@@ -319,6 +322,7 @@ class WorkflowCatalog(ABC):
                     workflow_name = None
                     workflow_namespace = DEFAULT_NAMESPACE
                     workflow_requests = None
+                    workflow_affinity = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -349,6 +353,8 @@ class WorkflowCatalog(ABC):
                                         ) from e
                                 elif kw.arg == "requests":
                                     workflow_requests = self._extract_workflow_requests(kw.value)
+                                elif kw.arg == "affinity":
+                                    workflow_affinity = self._extract_affinity(kw.value)
 
                             if not workflow_name:
                                 workflow_name = node.name
@@ -368,6 +374,7 @@ class WorkflowCatalog(ABC):
                                 imports=list(imports),
                                 source=source,
                                 requests=workflow_requests,
+                                affinity=workflow_affinity,
                                 metadata=wf_metadata,
                             ),
                         )
@@ -466,6 +473,15 @@ class WorkflowCatalog(ABC):
             if kw.arg == "auth_exempt" and isinstance(kw.value, ast.Constant):
                 return bool(kw.value.value)
         return False
+
+    def _extract_affinity(self, node: ast.AST) -> dict[str, str] | None:
+        if isinstance(node, ast.Dict):
+            result = {}
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
+                    result[str(key.value)] = str(value.value)
+            return result if result else None
+        return None
 
     def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """
@@ -615,6 +631,7 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         imports=wf.imports,
                         source=wf.source,
                         requests=requests_dict,
+                        affinity=wf.affinity,
                         metadata=wf.metadata,
                     )
                     session.add(model)
@@ -701,5 +718,6 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
             source=model.source,
             version=model.version,
             requests=requests,
+            affinity=model.affinity,
             metadata=model.wf_metadata,
         )

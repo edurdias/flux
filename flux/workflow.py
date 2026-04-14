@@ -24,6 +24,7 @@ class workflow:
         secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
+        affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
     ) -> Callable[[F], workflow]:
         """
@@ -49,6 +50,7 @@ class workflow:
                 secret_requests=secret_requests,
                 output_storage=output_storage,
                 requests=requests,
+                affinity=affinity,
                 schedule=schedule,
             )
 
@@ -62,6 +64,7 @@ class workflow:
         secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
+        affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
     ):
         self._func = func
@@ -70,6 +73,7 @@ class workflow:
         self._secret_requests = list(secret_requests) if secret_requests else []
         self._output_storage = output_storage
         self._requests = requests
+        self._affinity = affinity
         self._schedule = schedule
         wraps(func)(self)
 
@@ -96,6 +100,10 @@ class workflow:
     @property
     def requests(self) -> ResourceRequest | None:
         return self._requests
+
+    @property
+    def affinity(self) -> dict[str, str] | None:
+        return self._affinity
 
     @property
     def schedule(self) -> Schedule | None:

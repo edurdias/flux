@@ -429,6 +429,7 @@ class WorkflowModel(Base):
     imports = Column(Base64Type(), nullable=True)
     source = Column(Base64Type(), nullable=False)
     requests = Column(Base64Type(), nullable=True)
+    affinity = Column(Base64Type(), nullable=True)
     # Named wf_metadata instead of metadata to avoid conflict with SQLAlchemy's
     # reserved `metadata` attribute on declarative base classes.
     wf_metadata = Column(Base64Type(), nullable=True)
@@ -459,6 +460,7 @@ class WorkflowModel(Base):
         source: bytes,
         namespace: str = "default",
         requests: dict | ResourceRequest | None = None,
+        affinity: dict[str, str] | None = None,
         metadata: dict | None = None,
     ):
         self.id = id
@@ -468,6 +470,7 @@ class WorkflowModel(Base):
         self.imports = imports
         self.source = source
         self.requests = requests
+        self.affinity = affinity
         self.wf_metadata = metadata
 
 
