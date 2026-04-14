@@ -66,6 +66,10 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def release_worker(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def list(
         self,
         workflow_name: str | None = None,
@@ -315,20 +319,30 @@ class DatabaseContextManager(ContextManager):
             raise ExecutionContextNotFoundError(execution_id)
 
     def unclaim(self, execution_id: str) -> ExecutionContext:
-        """Release a worker's claim on an execution.
-
-        For active executions (SCHEDULED, CLAIMED, RUNNING): resets state to
-        CREATED and clears worker_name so the execution can be rescheduled.
-
-        For suspended executions (PAUSED, RESUMING): clears worker_name but
-        preserves state.  This allows another worker to pick up the execution
-        when it is resumed.
-        """
-        reschedulable = {
+        """Reset an active execution back to CREATED for rescheduling."""
+        reclaimable = {
             ExecutionState.SCHEDULED,
             ExecutionState.CLAIMED,
             ExecutionState.RUNNING,
         }
+        with self.session() as session:
+            model = session.get(ExecutionContextModel, execution_id)
+            if not model:
+                raise ExecutionContextNotFoundError(execution_id)
+            if model.state not in reclaimable:
+                return model.to_plain()
+            model.state = ExecutionState.CREATED
+            model.worker_name = None
+            session.commit()
+            return model.to_plain()
+
+    def release_worker(self, execution_id: str) -> ExecutionContext:
+        """Clear worker assignment on a suspended execution.
+
+        For PAUSED or RESUMING executions, clears worker_name without
+        changing state.  Called during worker eviction so that another
+        worker can pick up the execution via affinity matching.
+        """
         releasable = {
             ExecutionState.PAUSED,
             ExecutionState.RESUMING,
@@ -337,13 +351,9 @@ class DatabaseContextManager(ContextManager):
             model = session.get(ExecutionContextModel, execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(execution_id)
-            if model.state in reschedulable:
-                model.state = ExecutionState.CREATED
-                model.worker_name = None
-            elif model.state in releasable:
-                model.worker_name = None
-            else:
+            if model.state not in releasable:
                 return model.to_plain()
+            model.worker_name = None
             session.commit()
             return model.to_plain()
 
