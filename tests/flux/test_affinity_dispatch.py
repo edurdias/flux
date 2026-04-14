@@ -218,8 +218,9 @@ def test_resume_falls_back_to_label_match(clean_env):
         model.state = ExecutionState.PAUSED
         session.commit()
 
-    # w1 goes offline — eviction calls unclaim, which clears worker_name on PAUSED
-    cm.unclaim(ctx.execution_id)
+    # w1 goes offline — eviction calls unclaim (no-op for PAUSED), then release_worker
+    cm.unclaim(ctx.execution_id)  # returns unchanged (PAUSED not reclaimable)
+    cm.release_worker(ctx.execution_id)  # clears worker_name, keeps PAUSED
 
     with repo.session() as session:
         model = session.get(ExecutionContextModel, ctx.execution_id)
@@ -260,6 +261,7 @@ def test_resume_fallback_rejects_affinity_mismatch(clean_env):
         session.commit()
 
     cm.unclaim(ctx.execution_id)
+    cm.release_worker(ctx.execution_id)
 
     with repo.session() as session:
         model = session.get(ExecutionContextModel, ctx.execution_id)
@@ -271,8 +273,8 @@ def test_resume_fallback_rejects_affinity_mismatch(clean_env):
     assert result is None
 
 
-def test_unclaim_paused_clears_worker_name(clean_env):
-    """Unclaim on a PAUSED execution clears worker_name but preserves PAUSED state."""
+def test_release_worker_paused_clears_worker_name(clean_env):
+    """release_worker on PAUSED clears worker_name but preserves state."""
     cm, registry = clean_env
     _register_worker(registry, "w1", labels={"role": "harness"})
     w1 = registry.get("w1")
@@ -289,13 +291,13 @@ def test_unclaim_paused_clears_worker_name(clean_env):
         model.state = ExecutionState.PAUSED
         session.commit()
 
-    result = cm.unclaim(ctx.execution_id)
+    result = cm.release_worker(ctx.execution_id)
     assert result.state == ExecutionState.PAUSED
     assert result.current_worker == ""
 
 
-def test_unclaim_resuming_clears_worker_name(clean_env):
-    """Unclaim on a RESUMING execution clears worker_name but preserves RESUMING state."""
+def test_release_worker_resuming_clears_worker_name(clean_env):
+    """release_worker on RESUMING clears worker_name but preserves state."""
     cm, registry = clean_env
     _register_worker(registry, "w1", labels={"role": "harness"})
     w1 = registry.get("w1")
@@ -312,9 +314,31 @@ def test_unclaim_resuming_clears_worker_name(clean_env):
         model.state = ExecutionState.RESUMING
         session.commit()
 
-    result = cm.unclaim(ctx.execution_id)
+    result = cm.release_worker(ctx.execution_id)
     assert result.state == ExecutionState.RESUMING
     assert result.current_worker == ""
+
+
+def test_release_worker_noop_on_running(clean_env):
+    """release_worker is a no-op on RUNNING executions (not releasable)."""
+    cm, registry = clean_env
+    _register_worker(registry, "w1", labels={"role": "harness"})
+    w1 = registry.get("w1")
+
+    wf_id = _create_workflow(cm, "agent5", affinity={"role": "harness"})
+    ctx = _create_execution(cm, wf_id, name="agent5")
+
+    cm.claim(ctx.execution_id, w1)
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.RUNNING
+        session.commit()
+
+    result = cm.release_worker(ctx.execution_id)
+    assert result.current_worker == "w1"
 
 
 def test_dispatch_affinity_matches_but_resources_insufficient(clean_env):
