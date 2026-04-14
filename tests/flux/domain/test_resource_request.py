@@ -192,3 +192,43 @@ def test_no_requirements():
     worker_packages = []
 
     assert empty_request.matches_worker(worker_resources, worker_packages)
+
+
+def test_matches_labels_exact_match():
+    worker_labels = {"role": "harness", "env": "sandbox"}
+    affinity = {"role": "harness", "env": "sandbox"}
+    assert ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_subset():
+    worker_labels = {"role": "harness", "env": "sandbox", "region": "us-east"}
+    affinity = {"role": "harness"}
+    assert ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_mismatch():
+    worker_labels = {"role": "harness", "env": "production"}
+    affinity = {"role": "harness", "env": "sandbox"}
+    assert not ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_missing_key():
+    worker_labels = {"role": "harness"}
+    affinity = {"role": "harness", "env": "sandbox"}
+    assert not ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_empty_affinity():
+    worker_labels = {"role": "harness"}
+    affinity = {}
+    assert ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_empty_worker_labels():
+    worker_labels = {}
+    affinity = {"role": "harness"}
+    assert not ResourceRequest.matches_labels(worker_labels, affinity)
+
+
+def test_matches_labels_both_empty():
+    assert ResourceRequest.matches_labels({}, {})
