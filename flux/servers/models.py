@@ -36,6 +36,7 @@ class ExecutionContext(BaseModel):
     input: Any = None
     output: Any = None
     state: str
+    current_worker: str = ""
     events: list[ExecutionEvent] = []
 
     class Config:
@@ -78,6 +79,7 @@ class ExecutionContext(BaseModel):
             input=ctx.input,
             state=ctx.state.value,
             output=ctx.output,
+            current_worker=ctx.current_worker,
             events=[
                 ExecutionEvent(
                     id=event.id,
@@ -101,6 +103,7 @@ class ExecutionContext(BaseModel):
             "input": self.input,
             "output": self.output,
             "state": self.state,
+            "current_worker": self.current_worker,
         }
 
     @classmethod
