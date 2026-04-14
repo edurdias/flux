@@ -4,6 +4,7 @@ from abc import ABC
 from abc import abstractmethod
 
 from sqlalchemy import func
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -144,15 +145,69 @@ class DatabaseContextManager(ContextManager):
             session.commit()
             return ctx
 
+    def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
+        if workflow.affinity:
+            if not ResourceRequest.matches_labels(worker.labels, workflow.affinity):
+                return False
+        if workflow.requests:
+            requests = ResourceRequest(**(workflow.requests or {}))
+            if worker.resources is None:
+                return False
+            if not requests.matches_worker(worker.resources, worker.packages):
+                return False
+        return True
+
+    def _next_matching_execution(
+        self,
+        worker: WorkerInfo,
+        session: Session,
+        state: ExecutionState = ExecutionState.CREATED,
+        constrained_only: bool = False,
+    ):
+        query = (
+            session.query(ExecutionContextModel, WorkflowModel)
+            .join(WorkflowModel)
+            .filter(ExecutionContextModel.state == state)
+            .with_for_update(skip_locked=True)
+        )
+
+        if constrained_only:
+            query = query.filter(
+                or_(WorkflowModel.requests.is_not(None), WorkflowModel.affinity.is_not(None)),
+            )
+        else:
+            query = query.filter(
+                WorkflowModel.requests.is_(None),
+                WorkflowModel.affinity.is_(None),
+            )
+
+        if not constrained_only:
+            result = query.limit(1).first()
+            return result if result else (None, None)
+
+        for model, workflow in query:
+            if not self._worker_matches_workflow(worker, workflow):
+                continue
+            return model, workflow
+        return None, None
+
     def next_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
             if not self._is_least_loaded_worker(worker, session):
                 return None
 
-            model, workflow = self._next_execution_with_requests(worker, session)
+            model, workflow = self._next_matching_execution(
+                worker,
+                session,
+                constrained_only=True,
+            )
 
             if not model or not workflow:
-                model, workflow = self._next_execution_without_requests(session)
+                model, workflow = self._next_matching_execution(
+                    worker,
+                    session,
+                    constrained_only=False,
+                )
 
             if model and workflow:
                 ctx = model.to_plain()
@@ -215,63 +270,36 @@ class DatabaseContextManager(ContextManager):
 
     def next_resume(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
-            model, workflow = self._next_execution_with_requests(
-                worker,
-                session,
-                ExecutionState.RESUMING,
-            )
-
-            if not model or not workflow:
-                model, workflow = self._next_execution_without_requests(
-                    session,
-                    ExecutionState.RESUMING,
+            sticky_query = (
+                session.query(ExecutionContextModel, WorkflowModel)
+                .join(WorkflowModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.RESUMING,
+                    ExecutionContextModel.worker_name == worker.name,
                 )
-
-            if model:
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+            result = sticky_query.first()
+            if result:
+                model, workflow = result
                 return model.to_plain()
+
+            fallback_query = (
+                session.query(ExecutionContextModel, WorkflowModel)
+                .join(WorkflowModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.RESUMING,
+                    ExecutionContextModel.worker_name.is_(None),
+                )
+                .with_for_update(skip_locked=True)
+            )
+            for model, workflow in fallback_query:
+                if not self._worker_matches_workflow(worker, workflow):
+                    continue
+                return model.to_plain()
+
             return None
-
-    def _next_execution_without_requests(
-        self,
-        session: Session,
-        state: ExecutionState = ExecutionState.CREATED,
-    ):
-        no_requests_query = (
-            session.query(ExecutionContextModel, WorkflowModel)
-            .join(WorkflowModel)
-            .filter(
-                ExecutionContextModel.state == state,
-                WorkflowModel.requests.is_(None),
-            )
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
-        result = no_requests_query.first()
-        if result:
-            return result
-        return None, None
-
-    def _next_execution_with_requests(
-        self,
-        worker,
-        session: Session,
-        state: ExecutionState = ExecutionState.CREATED,
-    ):
-        with_requests_query = (
-            session.query(ExecutionContextModel, WorkflowModel)
-            .join(WorkflowModel)
-            .filter(
-                ExecutionContextModel.state == state,
-                WorkflowModel.requests.is_not(None),
-            )
-            .with_for_update(skip_locked=True)
-        )
-        for model, workflow in with_requests_query:
-            requests = workflow.requests if workflow else None
-            requests = ResourceRequest(**(requests or {}))
-            if requests.matches_worker(worker.resources, worker.packages):
-                return model, workflow
-        return None, None
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
