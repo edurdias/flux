@@ -36,6 +36,7 @@ class workflow:
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
             requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
+            affinity (dict[str, str] | None, optional): Label-based worker affinity constraints. Workers must have all specified labels to run this workflow. Defaults to None.
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
 
         Returns:
