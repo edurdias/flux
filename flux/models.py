@@ -392,6 +392,7 @@ class WorkerModel(Base):
         default=lambda: f"worker-{uuid4().hex}",
     )
     session_token = Column(String, nullable=False, default=lambda: uuid4().hex)
+    labels = Column(Base64Type(), nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")
@@ -409,11 +410,13 @@ class WorkerModel(Base):
         runtime: WorkerRuntimeModel | None = None,
         packages: list[WorkerPackageModel] | None = None,
         resources: WorkerResourcesModel | None = None,
+        labels: dict[str, str] | None = None,
     ):
         self.name = name
         self.runtime = runtime
         self.packages = packages or []
         self.resources = resources
+        self.labels = labels or {}
 
 
 class WorkflowModel(Base):
