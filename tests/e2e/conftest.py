@@ -65,6 +65,7 @@ class FluxCLI:
         self.server_url = server_url
         self.timeout = timeout
         self._env = {**os.environ}
+        self._extra_workers: list[subprocess.Popen] = []
 
     # -- low-level helpers ------------------------------------------------
 
@@ -233,6 +234,46 @@ class FluxCLI:
 
     def worker_show(self, name: str) -> dict:
         return self._server_json(["worker", "show", name])
+
+    def start_worker(
+        self,
+        name: str,
+        labels: dict[str, str] | None = None,
+    ) -> subprocess.Popen:
+        cmd = [
+            "poetry", "run", "flux", "start", "worker",
+            name, "--server-url", self.server_url,
+        ]
+        for k, v in (labels or {}).items():
+            cmd.extend(["--label", f"{k}={v}"])
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            cwd=PROJECT_ROOT,
+            env=self._env,
+        )
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                r = httpx.get(f"{self.server_url}/workers", timeout=2)
+                if r.status_code == 200:
+                    if any(w["name"] == name for w in r.json()):
+                        self._extra_workers.append(proc)
+                        return proc
+            except httpx.ConnectError:
+                pass
+            time.sleep(1)
+
+        _kill_process(proc, name)
+        raise RuntimeError(f"Worker '{name}' did not connect within 30s")
+
+    def stop_worker(self, proc: subprocess.Popen):
+        _kill_process(proc, "worker")
+        if proc in self._extra_workers:
+            self._extra_workers.remove(proc)
 
     # -- admin: roles ------------------------------------------------------
 
@@ -512,6 +553,8 @@ def cli(tmp_path_factory):
     yield flux_cli
 
     # -- teardown ---------------------------------------------------------
+    for proc in flux_cli._extra_workers:
+        _kill_process(proc, "extra-worker")
     _kill_process(wkr, "worker")
     _kill_process(srv, "server")
     srv_log.close()
