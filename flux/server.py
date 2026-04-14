@@ -87,6 +87,7 @@ class WorkerRegistration(BaseModel):
     runtime: WorkerRuntimeModel
     packages: list[dict[str, str]]
     resources: WorkerResourcesModel
+    labels: dict[str, str] = {}
 
 
 class SecretRequest(BaseModel):
@@ -231,6 +232,7 @@ class WorkerResponse(BaseModel):
     runtime: WorkerRuntimeModel | None = None
     resources: WorkerResourcesModel | None = None
     packages: list[dict[str, str]] = []
+    labels: dict[str, str] = {}
 
 
 class HealthResponse(BaseModel):
@@ -1526,6 +1528,7 @@ class Server:
                     registration.runtime,
                     registration.packages,
                     registration.resources,
+                    labels=registration.labels,
                 )
 
                 self._worker_cache[registration.name] = WorkerResponse(
@@ -1559,6 +1562,7 @@ class Server:
                     ]
                     if registration.packages
                     else [],
+                    labels=registration.labels,
                 )
                 if registration.name in self._worker_names:
                     self._worker_offline_since.pop(registration.name, None)
@@ -2765,6 +2769,7 @@ class Server:
                 packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
                 if w.packages
                 else [],
+                labels=w.labels,
             )
 
             if w.runtime:

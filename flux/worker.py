@@ -78,8 +78,9 @@ class WorkflowExecutionRequest(BaseModel):
 
 
 class Worker:
-    def __init__(self, name: str, server_url: str):
+    def __init__(self, name: str, server_url: str, labels: dict[str, str] | None = None):
         self.name = name
+        self.labels = labels or {}
         config = Configuration.get().settings.workers
         self.bootstrap_token = config.bootstrap_token
         self.base_url = f"{server_url or config.server_url}/workers"
@@ -178,6 +179,7 @@ class Worker:
                 "runtime": runtime,
                 "resources": resources,
                 "packages": packages,
+                "labels": self.labels,
             }
 
             logger.debug("Sending registration request to server...")
