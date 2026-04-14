@@ -79,7 +79,7 @@ class ExecutionContext(BaseModel):
             input=ctx.input,
             state=ctx.state.value,
             output=ctx.output,
-            current_worker=ctx.current_worker,
+            current_worker=ctx.current_worker if isinstance(ctx.current_worker, str) else "",
             events=[
                 ExecutionEvent(
                     id=event.id,
