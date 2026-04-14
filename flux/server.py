@@ -3003,6 +3003,10 @@ class Server:
                         detail=f"'{field}' must be a list of strings",
                     )
 
+            mcp_val = body.get("mcp_enabled", False)
+            if not isinstance(mcp_val, bool):
+                raise HTTPException(status_code=400, detail="mcp_enabled must be a boolean")
+
             try:
                 store = ServiceStore()
                 svc = store.create(
@@ -3010,6 +3014,7 @@ class Server:
                     namespaces=body.get("namespaces", []),
                     workflows=body.get("workflows", []),
                     exclusions=body.get("exclusions", []),
+                    mcp_enabled=mcp_val,
                 )
                 return {
                     "id": svc.id,
@@ -3017,6 +3022,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
@@ -3044,6 +3050,7 @@ class Server:
                         "namespaces": svc.namespaces,
                         "workflows": svc.workflows,
                         "exclusions": svc.exclusions,
+                        "mcp_enabled": svc.mcp_enabled,
                         "created_at": svc.created_at.isoformat() if svc.created_at else None,
                         "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                     }
@@ -3081,6 +3088,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
@@ -3092,6 +3100,8 @@ class Server:
                             "name": wf.name,
                             "namespace": wf.namespace,
                             "version": wf.version,
+                            "input_schema": (wf.metadata or {}).get("input_schema"),
+                            "description": (wf.metadata or {}).get("description"),
                         }
                         for wf in endpoints.values()
                     ]
@@ -3142,6 +3152,10 @@ class Server:
                         detail=f"'{field}' must be a list of strings",
                     )
 
+            mcp_val = body.get("mcp_enabled")
+            if mcp_val is not None and not isinstance(mcp_val, bool):
+                raise HTTPException(status_code=400, detail="mcp_enabled must be a boolean")
+
             try:
                 store = ServiceStore()
                 svc = store.update(
@@ -3152,6 +3166,7 @@ class Server:
                     remove_namespaces=body.get("remove_namespaces"),
                     remove_workflows=body.get("remove_workflows"),
                     remove_exclusions=body.get("remove_exclusions"),
+                    mcp_enabled=mcp_val,
                 )
                 return {
                     "id": svc.id,
@@ -3159,6 +3174,7 @@ class Server:
                     "namespaces": svc.namespaces,
                     "workflows": svc.workflows,
                     "exclusions": svc.exclusions,
+                    "mcp_enabled": svc.mcp_enabled,
                     "created_at": svc.created_at.isoformat() if svc.created_at else None,
                     "updated_at": svc.updated_at.isoformat() if svc.updated_at else None,
                 }
@@ -3194,6 +3210,79 @@ class Server:
             except Exception as e:
                 logger.error(f"Error deleting service: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error deleting service: {str(e)}")
+
+        @api.get("/services/{service_name}/mcp/tools")
+        async def service_mcp_info(
+            service_name: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.service_store import ServiceStore
+            from flux.service_resolver import ServiceResolver, CollisionError
+
+            try:
+                store = ServiceStore()
+                svc = store.get(service_name)
+                if not svc or not svc.mcp_enabled:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"MCP not enabled for service '{service_name}'",
+                    )
+
+                catalog = WorkflowCatalog.create()
+                resolver = ServiceResolver(catalog, store)
+
+                try:
+                    endpoints = resolver.resolve(service_name)
+                except CollisionError:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Endpoint collision in service '{service_name}'",
+                    )
+
+                tools = []
+                for wf in endpoints.values():
+                    name = wf.name
+                    schema = (wf.metadata or {}).get("input_schema")
+                    desc = (wf.metadata or {}).get("description", "")
+                    tools.extend(
+                        [
+                            {
+                                "name": name,
+                                "description": f"Run {name} synchronously. {desc}".strip(),
+                                "input_schema": schema,
+                            },
+                            {"name": f"{name}_async", "description": f"Run {name} asynchronously."},
+                            {
+                                "name": f"resume_{name}",
+                                "description": f"Resume paused {name} synchronously.",
+                            },
+                            {
+                                "name": f"resume_{name}_async",
+                                "description": f"Resume paused {name} asynchronously.",
+                            },
+                            {
+                                "name": f"status_{name}",
+                                "description": f"Check {name} execution status.",
+                            },
+                        ],
+                    )
+
+                return {
+                    "service": service_name,
+                    "mcp_enabled": True,
+                    "tools_url": f"/services/{service_name}/mcp/tools",
+                    "tools": tools,
+                    "tool_count": len(tools),
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error getting service MCP info: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error getting service MCP info: {str(e)}",
+                )
 
         # ===========================================
         # Services: Execution endpoints

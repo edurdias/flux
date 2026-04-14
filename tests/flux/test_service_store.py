@@ -156,6 +156,31 @@ class TestServiceStoreUpdateEdgeCases:
         assert "ns3" in updated.namespaces
 
 
+class TestServiceStoreMCP:
+    def test_create_mcp_enabled(self, store):
+        info = store.create("svc1", namespaces=["ns1"], mcp_enabled=True)
+        assert info.mcp_enabled is True
+
+    def test_create_default_mcp_disabled(self, store):
+        info = store.create("svc1")
+        assert info.mcp_enabled is False
+
+    def test_update_enable_mcp(self, store):
+        store.create("svc1")
+        updated = store.update("svc1", mcp_enabled=True)
+        assert updated.mcp_enabled is True
+
+    def test_update_disable_mcp(self, store):
+        store.create("svc1", mcp_enabled=True)
+        updated = store.update("svc1", mcp_enabled=False)
+        assert updated.mcp_enabled is False
+
+    def test_update_mcp_none_preserves(self, store):
+        store.create("svc1", mcp_enabled=True)
+        updated = store.update("svc1", add_namespaces=["ns2"])
+        assert updated.mcp_enabled is True
+
+
 class TestServiceStoreDelete:
     def test_existing(self, store):
         store.create("svc1")
