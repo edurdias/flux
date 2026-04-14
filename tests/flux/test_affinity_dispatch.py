@@ -197,16 +197,16 @@ def test_resume_prefers_original_worker(clean_env):
 
 
 def test_resume_falls_back_to_label_match(clean_env):
+    """When original worker is gone and worker_name is cleared, another worker picks up via labels."""
     cm, registry = clean_env
     _register_worker(registry, "w1", labels={"role": "harness"})
     _register_worker(registry, "w2", labels={"role": "harness"})
-    w1 = registry.get("w1")
     w2 = registry.get("w2")
 
     wf_id = _create_workflow(cm, "agent", affinity={"role": "harness"})
     ctx = _create_execution(cm, wf_id, name="agent")
 
-    cm.claim(ctx.execution_id, w1)
+    # Execution is resuming with worker_name cleared (e.g., by cleanup after w1 went offline)
     from flux.models import ExecutionContextModel, RepositoryFactory
 
     repo = RepositoryFactory.create_repository()
@@ -219,3 +219,41 @@ def test_resume_falls_back_to_label_match(clean_env):
     result = cm.next_resume(w2)
     assert result is not None
     assert result.execution_id == ctx.execution_id
+
+
+def test_resume_fallback_rejects_affinity_mismatch(clean_env):
+    """Resume fallback rejects workers that don't match affinity."""
+    cm, registry = clean_env
+    _register_worker(registry, "w2", labels={"role": "compute"})
+    w2 = registry.get("w2")
+
+    wf_id = _create_workflow(cm, "agent2", affinity={"role": "harness"})
+    ctx = _create_execution(cm, wf_id, name="agent2")
+
+    # Execution is resuming with no worker assigned
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.RESUMING
+        model.worker_name = None
+        session.commit()
+
+    result = cm.next_resume(w2)
+    assert result is None
+
+
+def test_dispatch_affinity_matches_but_resources_insufficient(clean_env):
+    """Worker matches affinity labels but fails resource requirements."""
+    cm, registry = clean_env
+    _register_worker(registry, "w1", labels={"role": "harness"})
+    w1 = registry.get("w1")
+
+    # Request 128 CPUs — far more than the worker has
+    requests_dict = {"cpu": 128}
+    wf_id = _create_workflow(cm, "agent", affinity={"role": "harness"}, requests=requests_dict)
+    _create_execution(cm, wf_id, name="agent")
+
+    result = cm.next_execution(w1)
+    assert result is None
