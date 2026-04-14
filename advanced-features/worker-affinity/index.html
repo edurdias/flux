@@ -11,10 +11,6 @@
       
       
       
-        <link rel="prev" href="../../getting-started/quick-start-guide/">
-      
-      
-        <link rel="next" href="../tasks/">
       
       
         
@@ -25,7 +21,7 @@
     
     
       
-        <title>Workflows Management - Flux Documentation</title>
+        <title>Worker Affinity - Flux Documentation</title>
       
     
     
@@ -78,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#workflow-management" class="md-skip">
+        <a href="#worker-affinity" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Workflows Management
+              Worker Affinity
             
           </span>
         </div>
@@ -592,10 +588,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -616,11 +610,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -641,7 +637,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -656,37 +652,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Workflows Management
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../core-concepts/workflow-management/" class="md-nav__link">
         
   
   
@@ -702,76 +671,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#creating-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Creating Workflows
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Creating Workflows">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#workflow-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workflow-lifecycle" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow Lifecycle
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workflow-states" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow States
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -784,7 +683,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tasks/" class="md-nav__link">
+      <a href="../../core-concepts/tasks/" class="md-nav__link">
         
   
   
@@ -812,7 +711,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../error-handling/" class="md-nav__link">
+      <a href="../../core-concepts/error-handling/" class="md-nav__link">
         
   
   
@@ -840,7 +739,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../execution-model/" class="md-nav__link">
+      <a href="../../core-concepts/execution-model/" class="md-nav__link">
         
   
   
@@ -945,7 +844,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/task-patterns/" class="md-nav__link">
+      <a href="../task-patterns/" class="md-nav__link">
         
   
   
@@ -973,7 +872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/workflow-controls/" class="md-nav__link">
+      <a href="../workflow-controls/" class="md-nav__link">
         
   
   
@@ -1001,7 +900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/observability/" class="md-nav__link">
+      <a href="../observability/" class="md-nav__link">
         
   
   
@@ -1029,7 +928,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/task-progress/" class="md-nav__link">
+      <a href="../task-progress/" class="md-nav__link">
         
   
   
@@ -1057,7 +956,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/agent-skills/" class="md-nav__link">
+      <a href="../agent-skills/" class="md-nav__link">
         
   
   
@@ -1085,7 +984,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/mcp-client/" class="md-nav__link">
+      <a href="../mcp-client/" class="md-nav__link">
         
   
   
@@ -1113,7 +1012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../advanced-features/ai-memory/" class="md-nav__link">
+      <a href="../ai-memory/" class="md-nav__link">
         
   
   
@@ -1168,38 +1067,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#creating-workflows" class="md-nav__link">
+  <a href="#what-is-worker-affinity" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Creating Workflows
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Creating Workflows">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#workflow-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow Configuration
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#workflow-lifecycle" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Workflow Lifecycle
+        What is Worker Affinity
       
     </span>
   </a>
@@ -1207,10 +1078,65 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#workflow-states" class="md-nav__link">
+  <a href="#starting-a-worker-with-labels" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Workflow States
+        Starting a Worker with Labels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declaring-workflow-affinity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring Workflow Affinity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#matching-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matching Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-vs-resource-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels vs Resource Requests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume Behavior
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-pinning-to-a-sandbox-harness-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Pinning to a Sandbox Harness Worker
       
     </span>
   </a>
@@ -1237,120 +1163,112 @@
   
 
 
-<h1 id="workflow-management">Workflow Management<a class="headerlink" href="#workflow-management" title="Permanent link">&para;</a></h1>
-<h2 id="creating-workflows">Creating Workflows<a class="headerlink" href="#creating-workflows" title="Permanent link">&para;</a></h2>
-<p>A workflow in Flux is created by combining the <code>@workflow</code> decorator with a Python async function that uses await for tasks. Workflows are the primary way to organize and orchestrate task execution.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span><span class="p">,</span> <span class="n">task</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nd">@task</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_data</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="k">return</span> <span class="n">data</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nd">@workflow</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="c1"># Workflows must take an ExecutionContext as first argument</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="c1"># The type parameter [str] indicates the expected input type</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_data</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="k">return</span> <span class="n">result</span>
+<h1 id="worker-affinity">Worker Affinity<a class="headerlink" href="#worker-affinity" title="Permanent link">&para;</a></h1>
+<p>Worker affinity lets you target workflows to specific workers based on capability labels. Workers can declare labels (like <code>role=harness</code>, <code>browser=true</code>), and workflows can declare affinity requirements to route tasks to workers with matching labels.</p>
+<h2 id="what-is-worker-affinity">What is Worker Affinity<a class="headerlink" href="#what-is-worker-affinity" title="Permanent link">&para;</a></h2>
+<p>Worker affinity is a routing mechanism:</p>
+<ol>
+<li>A <strong>worker</strong> declares immutable capability labels when it starts</li>
+<li>A <strong>workflow</strong> declares affinity constraints using <code>@workflow.with_options</code></li>
+<li>When a workflow runs, the system only dispatches to workers whose labels match all affinity requirements</li>
+</ol>
+<p>This is different from resource requests: labels describe <em>capability</em> (what kind of tools or environment), while resources describe <em>capacity</em> (CPU, memory, GPU).</p>
+<h2 id="starting-a-worker-with-labels">Starting a Worker with Labels<a class="headerlink" href="#starting-a-worker-with-labels" title="Permanent link">&para;</a></h2>
+<p>Labels are declared when a worker starts and cannot be changed without restarting. Start a worker with labels using the <code>--label</code> flag:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>flux<span class="w"> </span>start<span class="w"> </span>worker<span class="w"> </span>--label<span class="w"> </span><span class="nv">role</span><span class="o">=</span>harness<span class="w"> </span>--label<span class="w"> </span><span class="nv">env</span><span class="o">=</span>sandbox<span class="w"> </span>--label<span class="w"> </span><span class="nv">browser</span><span class="o">=</span><span class="nb">true</span>
 </code></pre></div>
-<h3 id="workflow-configuration">Workflow Configuration<a class="headerlink" href="#workflow-configuration" title="Permanent link">&para;</a></h3>
-<p>Workflows can be configured using <code>with_options</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">&quot;custom_workflow&quot;</span><span class="p">,</span>              <span class="c1"># Custom name for the workflow</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">secret_requests</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;API_KEY&quot;</span><span class="p">],</span>         <span class="c1"># Secrets required by the workflow</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">output_storage</span><span class="o">=</span><span class="n">custom_storage</span><span class="p">,</span>       <span class="c1"># Custom storage for workflow outputs</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;harness&quot;</span><span class="p">}</span>         <span class="c1"># Target workers with specific labels</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">configured_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="k">pass</span>
+<p>Multiple <code>--label</code> flags declare multiple labels. Label keys and values are strings.</p>
+<p>View a worker's labels:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flux<span class="w"> </span>worker<span class="w"> </span>list
 </code></pre></div>
-<p>Common configuration options:</p>
+<p>This shows each worker's labels in the output.</p>
+<h2 id="declaring-workflow-affinity">Declaring Workflow Affinity<a class="headerlink" href="#declaring-workflow-affinity" title="Permanent link">&para;</a></h2>
+<p>Use <code>affinity</code> in <code>@workflow.with_options</code> to specify required worker labels:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;harness&quot;</span><span class="p">,</span> <span class="s2">&quot;browser&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">})</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_agent</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="c1"># This workflow only runs on workers with both</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="c1"># role=harness AND browser=true</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="k">return</span> <span class="s2">&quot;Running on a harness worker with browser tools&quot;</span>
+</code></pre></div>
+<p>The <code>affinity</code> dict is a mapping of label keys to label values. All keys and values are strings.</p>
+<h2 id="matching-semantics">Matching Semantics<a class="headerlink" href="#matching-semantics" title="Permanent link">&para;</a></h2>
+<p>Affinity matching follows these rules:</p>
 <ul>
-<li><code>name</code> — Custom name for the workflow (defaults to function name)</li>
-<li><code>secret_requests</code> — List of secrets the workflow needs</li>
-<li><code>output_storage</code> — Custom storage backend for workflow outputs</li>
-<li><code>affinity</code> — Dict of label keys/values; workflow only runs on workers with matching labels</li>
+<li>A worker matches affinity if it has <strong>all</strong> labels specified in the affinity dict</li>
+<li>Extra labels on the worker are ignored</li>
+<li>A worker with <code>role=harness, env=sandbox, browser=true</code> matches affinity <code>{"role": "harness", "browser": "true"}</code></li>
+<li>A worker with <code>role=harness</code> does <strong>not</strong> match affinity <code>{"role": "harness", "browser": "true"}</code></li>
+<li>No affinity constraint = any worker (no filtering)</li>
 </ul>
-<p>See <a href="../../advanced-features/worker-affinity/">Worker Affinity</a> for details on using <code>affinity</code> to target specific workers.</p>
-<h2 id="workflow-lifecycle">Workflow Lifecycle<a class="headerlink" href="#workflow-lifecycle" title="Permanent link">&para;</a></h2>
-<p>A workflow goes through several stages during its execution:</p>
+<p>If no worker matches the affinity requirements when a workflow is dispatched, the workflow cannot run and remains pending until a matching worker appears.</p>
+<h2 id="labels-vs-resource-requests">Labels vs Resource Requests<a class="headerlink" href="#labels-vs-resource-requests" title="Permanent link">&para;</a></h2>
+<p>Labels and resource requests are independent mechanisms:</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Labels</th>
+<th>Resources</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Purpose</strong></td>
+<td>Capability (what kind)</td>
+<td>Capacity (how much)</td>
+</tr>
+<tr>
+<td><strong>Examples</strong></td>
+<td><code>role</code>, <code>env</code>, <code>browser</code>, <code>gpu_model</code></td>
+<td>CPU cores, memory, GPU count</td>
+</tr>
+<tr>
+<td><strong>Matching</strong></td>
+<td>All labels in affinity must match</td>
+<td>All resources must be available</td>
+</tr>
+<tr>
+<td><strong>Immutability</strong></td>
+<td>Immutable; requires restart to change</td>
+<td>Can be dynamic per task</td>
+</tr>
+</tbody>
+</table>
+<p>A dispatch checks both: the worker must match the affinity labels <strong>and</strong> have sufficient resources.</p>
+<h2 id="resume-behavior">Resume Behavior<a class="headerlink" href="#resume-behavior" title="Permanent link">&para;</a></h2>
+<p>When a paused workflow resumes:</p>
 <ol>
-<li>
-<p><strong>Initialization</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Workflow is registered with a unique execution ID</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">my_workflow</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;input_data&quot;</span><span class="p">)</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Execution</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nd">@workflow</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifecycle_example</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="c1"># Start event is generated</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">first_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task_one</span><span class="p">()</span>    <span class="c1"># Task execution</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">second_result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task_two</span><span class="p">()</span>    <span class="c1"># Next task</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="k">return</span> <span class="n">second_result</span>                <span class="c1"># Completion</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Completion or Failure</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Check workflow status</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">has_finished</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">has_succeeded</span><span class="p">:</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Success: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="k">elif</span> <span class="n">ctx</span><span class="o">.</span><span class="n">has_failed</span><span class="p">:</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed: </span><span class="si">{</span><span class="n">ctx</span><span class="o">.</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># Contains error information</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Replay or Resume</strong> (if needed)
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Resume a previous execution</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">my_workflow</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">execution_id</span><span class="o">=</span><span class="n">previous_execution_id</span><span class="p">)</span>
-</code></pre></div></p>
-</li>
+<li>The system <strong>prefers</strong> the original worker that executed it before</li>
+<li>If the original worker is unavailable (offline, removed), the system falls back to any worker matching the affinity labels</li>
+<li>Resume always respects affinity constraints — a worker without the required labels cannot pick up a resumed workflow</li>
 </ol>
-<h2 id="workflow-states">Workflow States<a class="headerlink" href="#workflow-states" title="Permanent link">&para;</a></h2>
-<p>Workflows can be in several states:</p>
-<ol>
-<li>
-<p><strong>Running</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">my_workflow</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;input&quot;</span><span class="p">)</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">has_finished</span><span class="p">)</span>  <span class="c1"># False while running</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Paused</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Workflow with pause point</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">pause</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="nd">@workflow</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">pausable_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="k">await</span> <span class="n">some_task</span><span class="p">()</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="k">await</span> <span class="n">pause</span><span class="p">(</span><span class="s2">&quot;manual_approval&quot;</span><span class="p">)</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="k">return</span> <span class="s2">&quot;Complete&quot;</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">pausable_workflow</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">is_paused</span><span class="p">)</span>  <span class="c1"># True when paused</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">has_finished</span><span class="p">)</span>  <span class="c1"># False when paused</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="c1"># Resume paused workflow</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">pausable_workflow</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">execution_id</span><span class="o">=</span><span class="n">ctx</span><span class="o">.</span><span class="n">execution_id</span><span class="p">)</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Completed</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Successfully completed</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">has_finished</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">has_succeeded</span><span class="p">)</span>  <span class="c1"># True</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">output</span><span class="p">)</span>  <span class="c1"># Contains workflow result</span>
-</code></pre></div></p>
-</li>
-<li>
-<p><strong>Failed</strong>
-   <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Failed execution</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">has_finished</span> <span class="ow">and</span> <span class="n">ctx</span><span class="o">.</span><span class="n">has_failed</span><span class="p">)</span>  <span class="c1"># True</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">output</span><span class="p">)</span>  <span class="c1"># Contains error information</span>
-</code></pre></div></p>
-</li>
-</ol>
+<p>This ensures workflows can reconnect to the same worker context when possible, improving task continuity.</p>
+<h2 id="example-pinning-to-a-sandbox-harness-worker">Example: Pinning to a Sandbox Harness Worker<a class="headerlink" href="#example-pinning-to-a-sandbox-harness-worker" title="Permanent link">&para;</a></h2>
+<p>Here's a practical example: an AI agent that needs browser tools and a sandboxed environment.</p>
+<p>First, start a specialized worker:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>flux<span class="w"> </span>start<span class="w"> </span>worker<span class="w"> </span>--label<span class="w"> </span><span class="nv">role</span><span class="o">=</span>harness<span class="w"> </span>--label<span class="w"> </span><span class="nv">env</span><span class="o">=</span>sandbox<span class="w"> </span>--label<span class="w"> </span><span class="nv">browser</span><span class="o">=</span><span class="nb">true</span>
+</code></pre></div>
+<p>Then declare a workflow that targets it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span><span class="p">,</span> <span class="n">task</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nd">@task</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">check_website</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Use browser tools to visit a URL.&quot;&quot;&quot;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="c1"># Browser tools available only on harness workers</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Checked </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;harness&quot;</span><span class="p">,</span> <span class="s2">&quot;env&quot;</span><span class="p">:</span> <span class="s2">&quot;sandbox&quot;</span><span class="p">,</span> <span class="s2">&quot;browser&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">})</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ai_researcher</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="n">url</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">input</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">check_website</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>    <span class="k">return</span> <span class="n">result</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="c1"># This workflow will only dispatch to the worker started above</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">ai_researcher</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Without the affinity constraint, the workflow might run on a generic worker without browser tools and fail.</p>
 
 
 
