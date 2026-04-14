@@ -315,20 +315,35 @@ class DatabaseContextManager(ContextManager):
             raise ExecutionContextNotFoundError(execution_id)
 
     def unclaim(self, execution_id: str) -> ExecutionContext:
-        """Reset an active execution back to CREATED for rescheduling."""
-        reclaimable = {
+        """Release a worker's claim on an execution.
+
+        For active executions (SCHEDULED, CLAIMED, RUNNING): resets state to
+        CREATED and clears worker_name so the execution can be rescheduled.
+
+        For suspended executions (PAUSED, RESUMING): clears worker_name but
+        preserves state.  This allows another worker to pick up the execution
+        when it is resumed.
+        """
+        reschedulable = {
             ExecutionState.SCHEDULED,
             ExecutionState.CLAIMED,
             ExecutionState.RUNNING,
+        }
+        releasable = {
+            ExecutionState.PAUSED,
+            ExecutionState.RESUMING,
         }
         with self.session() as session:
             model = session.get(ExecutionContextModel, execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(execution_id)
-            if model.state not in reclaimable:
+            if model.state in reschedulable:
+                model.state = ExecutionState.CREATED
+                model.worker_name = None
+            elif model.state in releasable:
+                model.worker_name = None
+            else:
                 return model.to_plain()
-            model.state = ExecutionState.CREATED
-            model.worker_name = None
             session.commit()
             return model.to_plain()
 
