@@ -124,6 +124,16 @@ class ResourceRequest:
         # All requirements met
         return True
 
+    @staticmethod
+    def matches_labels(
+        worker_labels: dict[str, str],
+        required_affinity: dict[str, str],
+    ) -> bool:
+        return all(
+            worker_labels.get(k) == v
+            for k, v in required_affinity.items()
+        )
+
     def _check_cpu_requirement(self, worker_resources: WorkerResourcesInfo) -> bool:
         """Check if worker meets CPU requirements."""
         if self.cpu is None:
