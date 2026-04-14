@@ -777,7 +777,9 @@ def list_workers(format: str, server_url: str | None):
             for w in workers:
                 runtime = w.get("runtime")
                 py_version = runtime.get("python_version", "unknown") if runtime else "unknown"
-                click.echo(f"  {w['name']:30}  Python {py_version}")
+                labels = w.get("labels", {})
+                label_str = ", ".join(f"{k}={v}" for k, v in labels.items()) if labels else ""
+                click.echo(f"  {w['name']:30}  Python {py_version}  {label_str}")
 
     except httpx.HTTPStatusError as ex:
         click.echo(f"Error listing workers: {str(ex)}", err=True)
@@ -899,11 +901,26 @@ def server(host: str | None = None, port: int | None = None):
     default=None,
     help="Server URL to connect to.",
 )
-def start_worker(name: str | None, server_url: str | None = None):
+@click.option(
+    "--label",
+    "-l",
+    multiple=True,
+    help="Worker label in key=value format (repeatable).",
+)
+def start_worker(name: str | None, server_url: str | None = None, label: tuple[str, ...] = ()):
     name = name or f"worker-{uuid4().hex[-6:]}"
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
-    Worker(name, server_url).start()
+
+    labels = {}
+    for item in label:
+        if "=" not in item:
+            click.echo(f"Invalid label format: '{item}'. Expected key=value.", err=True)
+            raise SystemExit(1)
+        k, v = item.split("=", 1)
+        labels[k.strip()] = v.strip()
+
+    Worker(name, server_url, labels=labels).start()
 
 
 @start.command()
