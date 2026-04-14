@@ -241,8 +241,14 @@ class FluxCLI:
         labels: dict[str, str] | None = None,
     ) -> subprocess.Popen:
         cmd = [
-            "poetry", "run", "flux", "start", "worker",
-            name, "--server-url", self.server_url,
+            "poetry",
+            "run",
+            "flux",
+            "start",
+            "worker",
+            name,
+            "--server-url",
+            self.server_url,
         ]
         for k, v in (labels or {}).items():
             cmd.extend(["--label", f"{k}={v}"])
