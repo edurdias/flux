@@ -150,10 +150,10 @@ class DatabaseContextManager(ContextManager):
             return ctx
 
     def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
-        if workflow.affinity:
+        if workflow.affinity is not None:
             if not ResourceRequest.matches_labels(worker.labels, workflow.affinity):
                 return False
-        if workflow.requests:
+        if workflow.requests is not None:
             requests = ResourceRequest(**(workflow.requests or {}))
             if worker.resources is None:
                 return False

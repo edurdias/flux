@@ -918,7 +918,15 @@ def start_worker(name: str | None, server_url: str | None = None, label: tuple[s
             click.echo(f"Invalid label format: '{item}'. Expected key=value.", err=True)
             raise SystemExit(1)
         k, v = item.split("=", 1)
-        labels[k.strip()] = v.strip()
+        key = k.strip()
+        value = v.strip()
+        if not key:
+            click.echo(f"Invalid label: '{item}'. Label key must be non-empty.", err=True)
+            raise SystemExit(1)
+        if not value:
+            click.echo(f"Invalid label: '{item}'. Label value must be non-empty.", err=True)
+            raise SystemExit(1)
+        labels[key] = value
 
     Worker(name, server_url, labels=labels).start()
 
