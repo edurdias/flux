@@ -630,8 +630,8 @@ class DatabaseWorkflowCatalog(WorkflowCatalog):
                         version=wf.version,
                         imports=wf.imports,
                         source=wf.source,
-                        requests=requests_dict,
-                        affinity=wf.affinity,
+                        requests=requests_dict or None,
+                        affinity=wf.affinity or None,
                         metadata=wf.metadata,
                     )
                     session.add(model)

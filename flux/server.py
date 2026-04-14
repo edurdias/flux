@@ -24,7 +24,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette import EventSourceResponse
 from flux import ExecutionContext
 from flux.catalogs import WorkflowCatalog, WorkflowInfo
@@ -87,7 +87,7 @@ class WorkerRegistration(BaseModel):
     runtime: WorkerRuntimeModel
     packages: list[dict[str, str]]
     resources: WorkerResourcesModel
-    labels: dict[str, str] = {}
+    labels: dict[str, str] = Field(default_factory=dict)
 
 
 class SecretRequest(BaseModel):
@@ -231,8 +231,8 @@ class WorkerResponse(BaseModel):
     status: str = "offline"
     runtime: WorkerRuntimeModel | None = None
     resources: WorkerResourcesModel | None = None
-    packages: list[dict[str, str]] = []
-    labels: dict[str, str] = {}
+    packages: list[dict[str, str]] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):
