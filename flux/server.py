@@ -2779,7 +2779,7 @@ class Server:
                 packages=[{"name": p["name"], "version": p["version"]} for p in w.packages]
                 if w.packages
                 else [],
-                labels=w.labels,
+                labels=w.labels if isinstance(w.labels, dict) else {},
             )
 
             if w.runtime:
