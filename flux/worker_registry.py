@@ -61,14 +61,14 @@ class WorkerInfo:
         self,
         name: str,
         runtime: WorkerRuntimeInfo | None = None,
-        packages: list[dict[str, str]] = [],
+        packages: list[dict[str, str]] | None = None,
         resources: WorkerResourcesInfo | None = None,
         session_token: str | None = None,
         labels: dict[str, str] | None = None,
     ):
         self.name = name
         self.runtime = runtime
-        self.packages = packages
+        self.packages = list(packages) if packages is not None else []
         self.resources = resources
         self.session_token = session_token
         self.labels = labels or {}

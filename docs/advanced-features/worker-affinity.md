@@ -17,7 +17,7 @@ This is different from resource requests: labels describe *capability* (what kin
 Labels are declared when a worker starts and cannot be changed without restarting. Start a worker with labels using the `--label` flag:
 
 ```bash
-flux worker start --label role=harness --label env=sandbox --label browser=true
+flux start worker --label role=harness --label env=sandbox --label browser=true
 ```
 
 Multiple `--label` flags declare multiple labels. Label keys and values are strings.
@@ -88,7 +88,7 @@ Here's a practical example: an AI agent that needs browser tools and a sandboxed
 First, start a specialized worker:
 
 ```bash
-flux worker start --label role=harness --label env=sandbox --label browser=true
+flux start worker --label role=harness --label env=sandbox --label browser=true
 ```
 
 Then declare a workflow that targets it:

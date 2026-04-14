@@ -255,8 +255,8 @@ class FluxCLI:
 
         proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             cwd=PROJECT_ROOT,
             env=self._env,
         )
