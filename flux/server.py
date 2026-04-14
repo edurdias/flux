@@ -659,7 +659,13 @@ class Server:
             m.record_worker_disconnected(name, reason)
 
     def _unclaim_worker_executions(self, worker_name: str) -> None:
-        """Reset all executions assigned to an evicted worker for rescheduling."""
+        """Release all executions assigned to an evicted worker.
+
+        Active executions (SCHEDULED, CLAIMED, RUNNING) are reset to CREATED
+        for rescheduling.  Suspended executions (PAUSED, RESUMING) have their
+        worker assignment cleared so another worker can pick them up via
+        affinity matching.
+        """
         execution_ids = self._worker_executions.pop(worker_name, set())
         if not execution_ids:
             return
@@ -669,7 +675,11 @@ class Server:
         context_manager = ContextManager.create()
         for execution_id in execution_ids:
             try:
-                context_manager.unclaim(execution_id)
+                from flux.domain import ExecutionState
+
+                ctx = context_manager.unclaim(execution_id)
+                if ctx.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
+                    context_manager.release_worker(execution_id)
                 self._execution_queue_times[execution_id] = time.monotonic()
                 m = get_metrics()
                 if m:
