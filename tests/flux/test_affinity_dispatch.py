@@ -197,25 +197,42 @@ def test_resume_prefers_original_worker(clean_env):
 
 
 def test_resume_falls_back_to_label_match(clean_env):
-    """When original worker is gone and worker_name is cleared, another worker picks up via labels."""
+    """Realistic scenario: w1 runs, pauses, gets evicted (unclaim clears worker_name),
+    resume is called, w2 picks it up via affinity label match."""
     cm, registry = clean_env
     _register_worker(registry, "w1", labels={"role": "harness"})
     _register_worker(registry, "w2", labels={"role": "harness"})
+    w1 = registry.get("w1")
     w2 = registry.get("w2")
 
     wf_id = _create_workflow(cm, "agent", affinity={"role": "harness"})
     ctx = _create_execution(cm, wf_id, name="agent")
 
-    # Execution is resuming with worker_name cleared (e.g., by cleanup after w1 went offline)
+    # w1 claims and runs the execution, then it pauses
+    cm.claim(ctx.execution_id, w1)
     from flux.models import ExecutionContextModel, RepositoryFactory
 
     repo = RepositoryFactory.create_repository()
     with repo.session() as session:
         model = session.get(ExecutionContextModel, ctx.execution_id)
-        model.state = ExecutionState.RESUMING
-        model.worker_name = None
+        model.state = ExecutionState.PAUSED
         session.commit()
 
+    # w1 goes offline — eviction calls unclaim, which clears worker_name on PAUSED
+    cm.unclaim(ctx.execution_id)
+
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        assert model.state == ExecutionState.PAUSED
+        assert model.worker_name is None
+
+    # Resume is called — transitions to RESUMING with worker_name still NULL
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.RESUMING
+        session.commit()
+
+    # w2 picks it up via affinity fallback
     result = cm.next_resume(w2)
     assert result is not None
     assert result.execution_id == ctx.execution_id
@@ -224,24 +241,80 @@ def test_resume_falls_back_to_label_match(clean_env):
 def test_resume_fallback_rejects_affinity_mismatch(clean_env):
     """Resume fallback rejects workers that don't match affinity."""
     cm, registry = clean_env
+    _register_worker(registry, "w1", labels={"role": "harness"})
     _register_worker(registry, "w2", labels={"role": "compute"})
+    w1 = registry.get("w1")
     w2 = registry.get("w2")
 
     wf_id = _create_workflow(cm, "agent2", affinity={"role": "harness"})
     ctx = _create_execution(cm, wf_id, name="agent2")
 
-    # Execution is resuming with no worker assigned
+    # w1 claimed, paused, then evicted
+    cm.claim(ctx.execution_id, w1)
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.PAUSED
+        session.commit()
+
+    cm.unclaim(ctx.execution_id)
+
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.RESUMING
+        session.commit()
+
+    # w2 has wrong labels — should not get the execution
+    result = cm.next_resume(w2)
+    assert result is None
+
+
+def test_unclaim_paused_clears_worker_name(clean_env):
+    """Unclaim on a PAUSED execution clears worker_name but preserves PAUSED state."""
+    cm, registry = clean_env
+    _register_worker(registry, "w1", labels={"role": "harness"})
+    w1 = registry.get("w1")
+
+    wf_id = _create_workflow(cm, "agent3", affinity={"role": "harness"})
+    ctx = _create_execution(cm, wf_id, name="agent3")
+
+    cm.claim(ctx.execution_id, w1)
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.PAUSED
+        session.commit()
+
+    result = cm.unclaim(ctx.execution_id)
+    assert result.state == ExecutionState.PAUSED
+    assert result.current_worker == ""
+
+
+def test_unclaim_resuming_clears_worker_name(clean_env):
+    """Unclaim on a RESUMING execution clears worker_name but preserves RESUMING state."""
+    cm, registry = clean_env
+    _register_worker(registry, "w1", labels={"role": "harness"})
+    w1 = registry.get("w1")
+
+    wf_id = _create_workflow(cm, "agent4", affinity={"role": "harness"})
+    ctx = _create_execution(cm, wf_id, name="agent4")
+
+    cm.claim(ctx.execution_id, w1)
     from flux.models import ExecutionContextModel, RepositoryFactory
 
     repo = RepositoryFactory.create_repository()
     with repo.session() as session:
         model = session.get(ExecutionContextModel, ctx.execution_id)
         model.state = ExecutionState.RESUMING
-        model.worker_name = None
         session.commit()
 
-    result = cm.next_resume(w2)
-    assert result is None
+    result = cm.unclaim(ctx.execution_id)
+    assert result.state == ExecutionState.RESUMING
+    assert result.current_worker == ""
 
 
 def test_dispatch_affinity_matches_but_resources_insufficient(clean_env):
@@ -250,7 +323,6 @@ def test_dispatch_affinity_matches_but_resources_insufficient(clean_env):
     _register_worker(registry, "w1", labels={"role": "harness"})
     w1 = registry.get("w1")
 
-    # Request 128 CPUs — far more than the worker has
     requests_dict = {"cpu": 128}
     wf_id = _create_workflow(cm, "agent", affinity={"role": "harness"}, requests=requests_dict)
     _create_execution(cm, wf_id, name="agent")
