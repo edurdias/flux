@@ -1,6 +1,7 @@
 """E2E tests for worker affinity label-based dispatch."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,6 @@ def test_affinity_skips_nonmatching_then_dispatches_when_matching_appears(cli):
     exec_id = r["execution_id"]
 
     # Give the scheduler a moment to attempt dispatch
-    import time
     time.sleep(3)
 
     s = cli.status("affinity_task", exec_id)
