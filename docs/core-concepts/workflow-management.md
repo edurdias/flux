@@ -27,11 +27,21 @@ Workflows can be configured using `with_options`:
 @workflow.with_options(
     name="custom_workflow",              # Custom name for the workflow
     secret_requests=["API_KEY"],         # Secrets required by the workflow
-    output_storage=custom_storage        # Custom storage for workflow outputs
+    output_storage=custom_storage,       # Custom storage for workflow outputs
+    affinity={"role": "harness"}         # Target workers with specific labels
 )
 async def configured_workflow(ctx: ExecutionContext):
     pass
 ```
+
+Common configuration options:
+
+- `name` — Custom name for the workflow (defaults to function name)
+- `secret_requests` — List of secrets the workflow needs
+- `output_storage` — Custom storage backend for workflow outputs
+- `affinity` — Dict of label keys/values; workflow only runs on workers with matching labels
+
+See [Worker Affinity](../advanced-features/worker-affinity.md) for details on using `affinity` to target specific workers.
 
 ## Workflow Lifecycle
 
