@@ -146,24 +146,37 @@ def test_service_mcp_invalid_mcp_enabled_rejected(cli):
 
 
 def test_service_mcp_dynamic_discovery(cli):
+    dyn_svc = "mcp_dyn_svc"
     try:
         cli._server_json(
-            ["service", "create", SVC_NAME, "--namespace", "mcp_test", "--mcp", "--format", "json"],
+            [
+                "service",
+                "create",
+                dyn_svc,
+                "--namespace",
+                "mcp_dynamic",
+                "--mcp",
+                "--format",
+                "json",
+            ],
         )
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.get(f"/services/{SVC_NAME}/mcp/tools")
+            resp = client.get(f"/services/{dyn_svc}/mcp/tools")
             assert resp.status_code == 200
-            initial_count = resp.json()["tool_count"]
+            assert resp.json()["tool_count"] == 0
 
-        cli.register(str(FIXTURES / "service_mcp_workflow.py"))
+        cli.register(str(FIXTURES / "service_mcp_dynamic.py"))
 
         with httpx.Client(base_url=E2E_SERVER_URL, timeout=60) as client:
-            resp = client.get(f"/services/{SVC_NAME}/mcp/tools")
+            resp = client.get(f"/services/{dyn_svc}/mcp/tools")
             assert resp.status_code == 200
-            assert resp.json()["tool_count"] > initial_count
+            assert resp.json()["tool_count"] == 5
     finally:
-        _cleanup(cli)
+        try:
+            cli._server_ok(["service", "delete", dyn_svc, "--yes"])
+        except Exception:
+            pass
 
 
 def test_service_mcp_exclusion_hides_from_tools(cli):
