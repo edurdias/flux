@@ -417,6 +417,65 @@ class FluxCLI:
     def secrets_remove(self, name: str) -> None:
         self._ok(["secrets", "remove", name])
 
+    # -- config (local, no --server-url) -----------------------------------
+
+    def config_set(self, name: str, value: str) -> None:
+        self._ok(["config", "set", name, value])
+
+    def config_get(self, name: str) -> dict:
+        return self._json(["config", "get", name, "--format", "json"])
+
+    def config_list(self) -> dict:
+        return self._json(["config", "list", "--format", "json"])
+
+    def config_remove(self, name: str) -> None:
+        self._ok(["config", "remove", name])
+
+    # -- agent (local, no --server-url) ------------------------------------
+
+    def agent_create(
+        self,
+        name: str,
+        model: str,
+        system_prompt: str,
+        **kwargs: Any,
+    ) -> None:
+        args = [
+            "agent",
+            "create",
+            name,
+            "--model",
+            model,
+            "--system-prompt",
+            system_prompt,
+        ]
+        for k, v in kwargs.items():
+            flag = f"--{k.replace('_', '-')}"
+            if isinstance(v, bool):
+                if v:
+                    args.append(flag)
+            else:
+                args.extend([flag, str(v)])
+        args.extend(["--format", "json"])
+        self._ok(args)
+
+    def agent_list(self) -> dict:
+        return self._json(["agent", "list", "--format", "json"])
+
+    def agent_show(self, name: str) -> dict:
+        return self._json(["agent", "show", name, "--format", "json"])
+
+    def agent_update(self, name: str, **kwargs: Any) -> None:
+        args = ["agent", "update", name]
+        for k, v in kwargs.items():
+            flag = f"--{k.replace('_', '-')}"
+            args.extend([flag, str(v)])
+        args.extend(["--format", "json"])
+        self._ok(args)
+
+    def agent_delete(self, name: str) -> None:
+        self._ok(["agent", "delete", name])
+
     # -- polling helpers ---------------------------------------------------
 
     def wait_for_state(
