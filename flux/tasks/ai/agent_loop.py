@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from flux.errors import PauseRequested
 from flux.tasks.ai.models import LLMResponse
 from flux.tasks.ai.tool_executor import execute_tools
+from flux.tasks.progress import progress
 
 if TYPE_CHECKING:
     from flux.task import task as TaskType
@@ -76,8 +77,6 @@ async def run_agent_loop(
     on_pause: list[Any] | None = None,
     agent_name: str = "agent",
 ) -> str | BaseModel:
-    from flux.tasks.progress import progress
-
     user_content = instruction
     if context:
         user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
@@ -144,6 +143,16 @@ async def run_agent_loop(
                 json.dumps({"calls": tool_call_dicts}),
             )
 
+        if stream:
+            for tc in response.tool_calls:
+                await progress(
+                    {
+                        "type": "tool_start",
+                        "name": tc.name,
+                        "args": tc.arguments,
+                    },
+                )
+
         try:
             results = await execute_tools(
                 tool_call_dicts,
@@ -157,6 +166,17 @@ async def run_agent_loop(
             await _fire_hooks(on_pause, agent_name, None)
             raise
         tool_iteration += 1
+
+        if stream:
+            for tc_dict, result in zip(tool_call_dicts, results):
+                status = "error" if result.get("error") or not result.get("output") else "success"
+                await progress(
+                    {
+                        "type": "tool_done",
+                        "name": tc_dict.get("name", ""),
+                        "status": status,
+                    },
+                )
 
         if working_memory:
             for tc_dict, result in zip(tool_call_dicts, results):
