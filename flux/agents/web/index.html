@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flux Agent</title>
+    <style>
+        :root {
+            --bg: #ffffff; --fg: #1a1a1a; --border: #e0e0e0;
+            --msg-user: #f0f0f0; --msg-agent: #ffffff;
+            --accent: #2563eb; --input-bg: #ffffff;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1a1a1a; --fg: #e0e0e0; --border: #333;
+                --msg-user: #2a2a2a; --msg-agent: #1a1a1a;
+                --accent: #60a5fa; --input-bg: #2a2a2a;
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg); color: var(--fg);
+            height: 100vh; display: flex; flex-direction: column;
+        }
+        #header {
+            padding: 12px 16px; border-bottom: 1px solid var(--border);
+            font-weight: 600; font-size: 14px;
+        }
+        #session-info { font-weight: 400; color: #888; font-size: 12px; }
+        #messages {
+            flex: 1; overflow-y: auto; padding: 16px;
+            display: flex; flex-direction: column; gap: 12px;
+        }
+        .message {
+            max-width: 80%; padding: 10px 14px;
+            border-radius: 8px; font-size: 14px; line-height: 1.5;
+            white-space: pre-wrap;
+        }
+        .user { align-self: flex-end; background: var(--msg-user); }
+        .agent { align-self: flex-start; background: var(--msg-agent); border: 1px solid var(--border); }
+        .tool-info { font-size: 12px; color: #888; font-style: italic; }
+        #input-area {
+            padding: 12px 16px; border-top: 1px solid var(--border);
+            display: flex; gap: 8px;
+        }
+        #input {
+            flex: 1; padding: 10px 14px; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--input-bg); color: var(--fg);
+            font-size: 14px; outline: none;
+        }
+        #input:focus { border-color: var(--accent); }
+        #send {
+            padding: 10px 20px; background: var(--accent); color: white;
+            border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+        }
+        #send:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        Flux Agent
+        <span id="session-info"></span>
+    </div>
+    <div id="messages"></div>
+    <div id="input-area">
+        <input id="input" type="text" placeholder="Type a message..." autofocus />
+        <button id="send">Send</button>
+    </div>
+    <script>
+        const messages = document.getElementById('messages');
+        const input = document.getElementById('input');
+        const sendBtn = document.getElementById('send');
+        let sessionId = null;
+        let currentAgentMsg = null;
+
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+            return div;
+        }
+
+        function addToolInfo(text) {
+            const div = document.createElement('div');
+            div.className = 'tool-info';
+            div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+
+            addMessage(text, 'user');
+            currentAgentMsg = null;
+
+            const url = sessionId ? `/chat?session=${sessionId}` : '/chat';
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: text}),
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, {stream: true});
+
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const event = JSON.parse(line.slice(6));
+                            handleEvent(event);
+                        } catch (e) {}
+                    }
+                }
+            }
+        }
+
+        function handleEvent(event) {
+            switch (event.type) {
+                case 'token':
+                    if (!currentAgentMsg) {
+                        currentAgentMsg = addMessage('', 'agent');
+                    }
+                    currentAgentMsg.textContent += event.text;
+                    break;
+                case 'tool_start':
+                    const args = Object.entries(event.args || {})
+                        .map(([k,v]) => `${k}="${v}"`).join(', ');
+                    addToolInfo(`Calling ${event.name}(${args})...`);
+                    break;
+                case 'tool_done':
+                    addToolInfo(event.status === 'success' ? 'Done.' : 'Error.');
+                    break;
+                case 'response':
+                    if (event.content) {
+                        addMessage(event.content, 'agent');
+                        currentAgentMsg = null;
+                    }
+                    break;
+                case 'session_id':
+                    sessionId = event.id;
+                    document.getElementById('session-info').textContent =
+                        `Session: ${sessionId}`;
+                    break;
+                case 'elicitation':
+                    const link = document.createElement('a');
+                    link.href = event.url;
+                    link.target = '_blank';
+                    link.textContent = `[${event.server_name}] ${event.message} — Click to authorize`;
+                    const div = document.createElement('div');
+                    div.className = 'message agent';
+                    div.appendChild(link);
+                    messages.appendChild(div);
+                    break;
+            }
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>

@@ -1912,6 +1912,149 @@ def delete_agent(name, format):
         click.echo(f"Error deleting agent: {str(ex)}", err=True)
 
 
+@agent.command("start")
+@click.argument("name")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["terminal", "web", "api"]),
+    default="terminal",
+    help="Serving mode",
+)
+@click.option("--session", "-s", "session_id", help="Attach to existing session")
+@click.option("--port", "-p", type=int, help="Port for web/api mode")
+@click.option("--server", default=None, help="Flux server URL (default: from config)")
+def start_agent(name, mode, session_id, port, server):
+    """Start an agent in the specified mode."""
+    import asyncio
+
+    from flux.agents.process import AgentProcess
+    from flux.config import Configuration
+
+    try:
+        if server is None:
+            settings = Configuration.get().settings
+            server = f"http://{settings.server_host}:{settings.server_port}"
+
+        token = _get_auth_token()
+
+        process = AgentProcess(
+            agent_name=name,
+            server_url=server,
+            mode=mode,
+            session_id=session_id,
+            token=token,
+            port=port,
+        )
+        asyncio.run(process.run())
+    except KeyboardInterrupt:
+        pass
+    except Exception as ex:
+        click.echo(f"Error starting agent: {str(ex)}", err=True)
+
+
+@agent.command("stop")
+@click.argument("session_id")
+def stop_agent(session_id):
+    """Stop a running agent session."""
+    import httpx
+
+    from flux.config import Configuration
+
+    click.echo(f"Stopping session {session_id}...")
+
+    try:
+        settings = Configuration.get().settings
+        server_url = f"http://{settings.server_host}:{settings.server_port}"
+        token = _get_auth_token()
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        response = httpx.post(
+            f"{server_url}/executions/{session_id}/cancel",
+            headers=headers,
+        )
+        response.raise_for_status()
+        click.echo(f"Session {session_id} stopped.")
+    except Exception as ex:
+        click.echo(f"Error stopping session: {str(ex)}", err=True)
+
+
+@agent.group("session")
+def agent_session():
+    """Manage agent sessions."""
+    pass
+
+
+@agent_session.command("list")
+@click.argument("agent_name", required=False)
+@click.option(
+    "--format", "-f", type=click.Choice(["simple", "json"]), default="simple"
+)
+def list_sessions(agent_name, format):
+    """List agent sessions."""
+    click.echo("Session listing requires server integration (not yet implemented).")
+
+
+@agent_session.command("show")
+@click.argument("session_id")
+@click.option(
+    "--format", "-f", type=click.Choice(["simple", "json"]), default="simple"
+)
+def show_session(session_id, format):
+    """Show session details."""
+    click.echo(f"Session details for {session_id} (not yet implemented).")
+
+
+@agent_session.command("resume")
+@click.argument("session_id")
+def resume_session(session_id):
+    """Resume a session in terminal mode (shortcut for start --session)."""
+    import asyncio
+
+    from flux.agents.process import AgentProcess
+    from flux.config import Configuration
+
+    try:
+        settings = Configuration.get().settings
+        server = f"http://{settings.server_host}:{settings.server_port}"
+        token = _get_auth_token()
+
+        process = AgentProcess(
+            agent_name="",
+            server_url=server,
+            mode="terminal",
+            session_id=session_id,
+            token=token,
+        )
+        asyncio.run(process.run())
+    except KeyboardInterrupt:
+        pass
+    except Exception as ex:
+        click.echo(f"Error resuming session: {str(ex)}", err=True)
+
+
+def _get_auth_token() -> str | None:
+    import os
+
+    token = os.environ.get("FLUX_AUTH_TOKEN")
+    if token:
+        return token
+
+    try:
+        from flux.cli_auth import get_auth_headers
+
+        headers = get_auth_headers()
+        if headers and "Authorization" in headers:
+            return headers["Authorization"].replace("Bearer ", "")
+    except Exception:
+        pass
+
+    return None
+
+
 cli.add_command(auth)
 cli.add_command(roles)
 cli.add_command(principals)
