@@ -39,7 +39,7 @@ class AgentDefinition(BaseModel):
     def validate_reasoning_effort(cls, v: str | None) -> str | None:
         if v is not None and v not in ("low", "medium", "high"):
             raise ValueError(
-                f"reasoning_effort must be 'low', 'medium', 'high', or None, got: '{v}'"
+                f"reasoning_effort must be 'low', 'medium', 'high', or None, got: '{v}'",
             )
         return v
 

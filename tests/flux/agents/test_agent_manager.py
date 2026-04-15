@@ -103,7 +103,7 @@ def test_list_agents(manager):
                 name=name,
                 model="openai/gpt-4o",
                 system_prompt="Help.",
-            )
+            ),
         )
     result = manager.list()
     names = [a.name for a in result]

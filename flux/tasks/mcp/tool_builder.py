@@ -5,6 +5,22 @@ import re
 from typing import Any
 
 from flux.task import task
+from flux.tasks.mcp.elicitation import ElicitationRequestOutput
+
+
+def _handle_elicitation_error(error: Exception, server_name: str) -> ElicitationRequestOutput:
+    data = error.data if hasattr(error, "data") else {}
+    elicitations = data.get("elicitations", []) if isinstance(data, dict) else []
+    if not elicitations:
+        raise error
+
+    elicitation = elicitations[0]
+    return ElicitationRequestOutput(
+        elicitation_id=elicitation.get("elicitationId", ""),
+        url=elicitation.get("url", ""),
+        message=elicitation.get("message", ""),
+        server_name=server_name,
+    )
 
 
 JSON_TYPE_MAP: dict[str, type] = {
@@ -97,7 +113,17 @@ def build_tool_task(
             await client._discard_connection()
             raise ToolExecutionError(tool_name, str(e), inner_exception=e)
         except Exception as e:
-            raise ToolExecutionError(tool_name, str(e), inner_exception=e)
+            if hasattr(e, "code") and e.code == -32042:
+                from flux.tasks.pause import pause
+
+                elicitation_output = _handle_elicitation_error(e, server_name=server_name)
+                await pause(
+                    f"elicitation_{tool_name}",
+                    output=elicitation_output.model_dump(),
+                )
+                result = await connection.call_tool(tool_name, call_kwargs)
+            else:
+                raise ToolExecutionError(tool_name, str(e), inner_exception=e)
         finally:
             if client._connection == "per-call":
                 await client._close_connection(connection)

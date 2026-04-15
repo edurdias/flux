@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -65,7 +64,7 @@ def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "sunny"}]
 
-            result = asyncio.get_event_loop().run_until_complete(
+            asyncio.get_event_loop().run_until_complete(
                 run_agent_loop(
                     llm_task=llm_task,
                     formatter=mock_formatter,
@@ -74,7 +73,7 @@ def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
                     tools=[mock_tool],
                     tool_schemas=tool_schemas,
                     stream=True,
-                )
+                ),
             )
 
     tool_start_events = [e for e in events if e.get("type") == "tool_start"]
@@ -102,7 +101,7 @@ def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "hello"}]
 
-            result = asyncio.get_event_loop().run_until_complete(
+            asyncio.get_event_loop().run_until_complete(
                 run_agent_loop(
                     llm_task=llm_task,
                     formatter=mock_formatter,
@@ -111,7 +110,7 @@ def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
                     tools=[mock_tool],
                     tool_schemas=tool_schemas,
                     stream=True,
-                )
+                ),
             )
 
     tool_done_events = [e for e in events if e.get("type") == "tool_done"]
@@ -137,9 +136,11 @@ def test_tool_done_error_status(mock_formatter, progress_events):
 
     with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
-            mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "", "error": "exit code 1"}]
+            mock_exec.return_value = [
+                {"tool_call_id": "tc_1", "output": "", "error": "exit code 1"},
+            ]
 
-            result = asyncio.get_event_loop().run_until_complete(
+            asyncio.get_event_loop().run_until_complete(
                 run_agent_loop(
                     llm_task=llm_task,
                     formatter=mock_formatter,
@@ -148,7 +149,7 @@ def test_tool_done_error_status(mock_formatter, progress_events):
                     tools=[mock_tool],
                     tool_schemas=tool_schemas,
                     stream=True,
-                )
+                ),
             )
 
     tool_done_events = [e for e in events if e.get("type") == "tool_done"]
@@ -183,7 +184,7 @@ def test_progress_events_order(mock_formatter, progress_events):
                     tools=[mock_tool],
                     tool_schemas=[{"name": "search_web", "parameters": {}}],
                     stream=True,
-                )
+                ),
             )
 
     types = [e["type"] for e in events if e.get("type") in ("tool_start", "tool_done")]
