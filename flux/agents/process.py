@@ -89,9 +89,8 @@ class AgentProcess:
         return execution_id
 
     async def _send_message(self, message: str) -> None:
-        async for event in self.client.resume(
-            self.session_id, message, namespace="agents"
-        ):
+        assert self.session_id is not None
+        async for event in self.client.resume(self.session_id, message, namespace="agents"):
             await self._handle_event(event)
 
     async def _handle_event(self, event: dict) -> None:
@@ -104,13 +103,9 @@ class AgentProcess:
             if progress_type == "token":
                 await self.ui.display_token(value.get("text", ""))
             elif progress_type == "tool_start":
-                await self.ui.display_tool_start(
-                    value.get("name", ""), value.get("args", {})
-                )
+                await self.ui.display_tool_start(value.get("name", ""), value.get("args", {}))
             elif progress_type == "tool_done":
-                await self.ui.display_tool_done(
-                    value.get("name", ""), value.get("status", "")
-                )
+                await self.ui.display_tool_done(value.get("name", ""), value.get("status", ""))
 
         elif "paused" in event_type:
             output = event.get("output", {})

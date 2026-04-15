@@ -22,7 +22,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     tools = resolve_builtin_tools(agent_def.get("tools", []))
 
     from flux.tasks.ai import agent
-    from flux.tasks.ai.memory.working_memory import working_memory
+    from flux.tasks.ai.memory import working_memory
 
     wm = working_memory(window=agent_def.get("memory_window", 50))
 
