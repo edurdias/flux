@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from typing import Any
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -24,9 +25,7 @@ class FluxClient:
     def _start_url(self, namespace: str, workflow_name: str) -> str:
         return f"{self.server_url}/workflows/{namespace}/{workflow_name}/run/stream"
 
-    def _resume_url(
-        self, namespace: str, workflow_name: str, execution_id: str
-    ) -> str:
+    def _resume_url(self, namespace: str, workflow_name: str, execution_id: str) -> str:
         return (
             f"{self.server_url}/workflows/{namespace}/{workflow_name}"
             f"/resume/{execution_id}/stream"
@@ -43,7 +42,10 @@ class FluxClient:
 
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
-                "POST", url, json=payload, headers=self._build_headers()
+                "POST",
+                url,
+                json=payload,
+                headers=self._build_headers(),
             ) as response:
                 response.raise_for_status()
                 execution_id = None
@@ -60,16 +62,26 @@ class FluxClient:
     async def resume(
         self,
         execution_id: str,
-        message: str,
+        message: str | None = None,
         namespace: str = "agents",
         workflow_name: str = "agent_chat",
+        payload: dict[str, Any] | None = None,
     ) -> AsyncIterator[dict]:
         url = self._resume_url(namespace, workflow_name, execution_id)
-        payload = {"input": json.dumps({"message": message})}
+        if payload is not None:
+            resume_input = payload
+        elif message is not None:
+            resume_input = {"message": message}
+        else:
+            resume_input = {}
+        request_payload = {"input": json.dumps(resume_input)}
 
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
-                "POST", url, json=payload, headers=self._build_headers()
+                "POST",
+                url,
+                json=request_payload,
+                headers=self._build_headers(),
             ) as response:
                 response.raise_for_status()
 

@@ -1990,9 +1990,7 @@ def agent_session():
 
 @agent_session.command("list")
 @click.argument("agent_name", required=False)
-@click.option(
-    "--format", "-f", type=click.Choice(["simple", "json"]), default="simple"
-)
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
 def list_sessions(agent_name, format):
     """List agent sessions."""
     click.echo("Session listing requires server integration (not yet implemented).")
@@ -2000,9 +1998,7 @@ def list_sessions(agent_name, format):
 
 @agent_session.command("show")
 @click.argument("session_id")
-@click.option(
-    "--format", "-f", type=click.Choice(["simple", "json"]), default="simple"
-)
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
 def show_session(session_id, format):
     """Show session details."""
     click.echo(f"Session details for {session_id} (not yet implemented).")

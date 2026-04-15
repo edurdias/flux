@@ -51,9 +51,7 @@ class ApiUI(UI):
         await self._event_queue.put({"type": "tool_start", "name": name, "args": args})
 
     async def display_tool_done(self, name: str, status: str) -> None:
-        await self._event_queue.put(
-            {"type": "tool_done", "name": name, "status": status}
-        )
+        await self._event_queue.put({"type": "tool_done", "name": name, "status": status})
 
     async def display_token(self, text: str) -> None:
         await self._event_queue.put({"type": "token", "text": text})

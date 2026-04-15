@@ -73,5 +73,5 @@ def _resolve_by_name(name: str) -> list[task]:
         return _resolve_tool_group(name, {})
     except ValueError:
         raise ValueError(
-            f"Unknown tool: '{name}'. Available: system_tools, shell, files, search, directory"
+            f"Unknown tool: '{name}'. Available: system_tools, shell, files, search, directory",
         )

@@ -9,5 +9,7 @@ from flux.task import task
     name="get_config_{key}",
     config_requests=["{key}"],
 )
-async def get_config(key: str, config: dict = {}) -> Any:
+async def get_config(key: str, config: dict | None = None) -> Any:
+    if config is None:
+        raise ValueError(f"Config '{key}' not found")
     return config[key]

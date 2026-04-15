@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -45,7 +44,8 @@ def _make_llm_task(responses):
     return llm_task
 
 
-def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
+@pytest.mark.asyncio
+async def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
     events, mock_progress = progress_events
 
     tool_call = ToolCall(id="tc_1", name="search_web", arguments={"query": "weather"})
@@ -64,16 +64,14 @@ def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "sunny"}]
 
-            asyncio.get_event_loop().run_until_complete(
-                run_agent_loop(
-                    llm_task=llm_task,
-                    formatter=mock_formatter,
-                    system_prompt="You are helpful.",
-                    instruction="What is the weather?",
-                    tools=[mock_tool],
-                    tool_schemas=tool_schemas,
-                    stream=True,
-                ),
+            await run_agent_loop(
+                llm_task=llm_task,
+                formatter=mock_formatter,
+                system_prompt="You are helpful.",
+                instruction="What is the weather?",
+                tools=[mock_tool],
+                tool_schemas=tool_schemas,
+                stream=True,
             )
 
     tool_start_events = [e for e in events if e.get("type") == "tool_start"]
@@ -82,7 +80,8 @@ def test_tool_start_progress_event_emitted(mock_formatter, progress_events):
     assert tool_start_events[0]["args"] == {"query": "weather"}
 
 
-def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
+@pytest.mark.asyncio
+async def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
     events, mock_progress = progress_events
 
     tool_call = ToolCall(id="tc_1", name="read_file", arguments={"path": "/tmp/test"})
@@ -101,16 +100,14 @@ def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "hello"}]
 
-            asyncio.get_event_loop().run_until_complete(
-                run_agent_loop(
-                    llm_task=llm_task,
-                    formatter=mock_formatter,
-                    system_prompt="You are helpful.",
-                    instruction="Read the file.",
-                    tools=[mock_tool],
-                    tool_schemas=tool_schemas,
-                    stream=True,
-                ),
+            await run_agent_loop(
+                llm_task=llm_task,
+                formatter=mock_formatter,
+                system_prompt="You are helpful.",
+                instruction="Read the file.",
+                tools=[mock_tool],
+                tool_schemas=tool_schemas,
+                stream=True,
             )
 
     tool_done_events = [e for e in events if e.get("type") == "tool_done"]
@@ -119,7 +116,8 @@ def test_tool_done_progress_event_emitted(mock_formatter, progress_events):
     assert tool_done_events[0]["status"] == "success"
 
 
-def test_tool_done_error_status(mock_formatter, progress_events):
+@pytest.mark.asyncio
+async def test_tool_done_error_status(mock_formatter, progress_events):
     events, mock_progress = progress_events
 
     tool_call = ToolCall(id="tc_1", name="shell", arguments={"cmd": "false"})
@@ -140,16 +138,14 @@ def test_tool_done_error_status(mock_formatter, progress_events):
                 {"tool_call_id": "tc_1", "output": "", "error": "exit code 1"},
             ]
 
-            asyncio.get_event_loop().run_until_complete(
-                run_agent_loop(
-                    llm_task=llm_task,
-                    formatter=mock_formatter,
-                    system_prompt="You are helpful.",
-                    instruction="Run false.",
-                    tools=[mock_tool],
-                    tool_schemas=tool_schemas,
-                    stream=True,
-                ),
+            await run_agent_loop(
+                llm_task=llm_task,
+                formatter=mock_formatter,
+                system_prompt="You are helpful.",
+                instruction="Run false.",
+                tools=[mock_tool],
+                tool_schemas=tool_schemas,
+                stream=True,
             )
 
     tool_done_events = [e for e in events if e.get("type") == "tool_done"]
@@ -157,7 +153,8 @@ def test_tool_done_error_status(mock_formatter, progress_events):
     assert tool_done_events[0]["status"] == "error"
 
 
-def test_progress_events_order(mock_formatter, progress_events):
+@pytest.mark.asyncio
+async def test_progress_events_order(mock_formatter, progress_events):
     events, mock_progress = progress_events
 
     tool_call = ToolCall(id="tc_1", name="search_web", arguments={"q": "test"})
@@ -175,16 +172,14 @@ def test_progress_events_order(mock_formatter, progress_events):
         with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "ok"}]
 
-            asyncio.get_event_loop().run_until_complete(
-                run_agent_loop(
-                    llm_task=llm_task,
-                    formatter=mock_formatter,
-                    system_prompt="Help.",
-                    instruction="Search.",
-                    tools=[mock_tool],
-                    tool_schemas=[{"name": "search_web", "parameters": {}}],
-                    stream=True,
-                ),
+            await run_agent_loop(
+                llm_task=llm_task,
+                formatter=mock_formatter,
+                system_prompt="Help.",
+                instruction="Search.",
+                tools=[mock_tool],
+                tool_schemas=[{"name": "search_web", "parameters": {}}],
+                stream=True,
             )
 
     types = [e["type"] for e in events if e.get("type") in ("tool_start", "tool_done")]

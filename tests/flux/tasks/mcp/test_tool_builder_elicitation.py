@@ -17,8 +17,8 @@ class MockElicitationError(Exception):
                     "elicitationId": elicitation_id,
                     "url": url,
                     "message": message,
-                }
-            ]
+                },
+            ],
         }
         super().__init__(message)
 

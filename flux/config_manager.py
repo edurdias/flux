@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -41,12 +42,14 @@ class DatabaseConfigManager(ConfigManager):
         if value is None:
             raise ValueError("Config value cannot be None")
 
+        serialized = json.dumps(value)
+
         with self.session() as session:
             config = session.get(ConfigModel, name)
             if config:
-                config.value = value
+                config.value = serialized
             else:
-                session.add(ConfigModel(name=name, value=value))
+                session.add(ConfigModel(name=name, value=serialized))
             session.commit()
 
     def remove(self, name: str) -> None:
@@ -61,7 +64,7 @@ class DatabaseConfigManager(ConfigManager):
             stmt = select(ConfigModel.name, ConfigModel.value).where(
                 ConfigModel.name.in_(config_requests),
             )
-            result = {row[0]: row[1] for row in session.execute(stmt)}
+            result = {row[0]: json.loads(row[1]) for row in session.execute(stmt)}
             if missing := set(config_requests) - set(result):
                 raise ValueError(f"The following configs were not found: {list(missing)}")
             return result

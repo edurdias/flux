@@ -33,7 +33,8 @@ class TerminalUI(UI):
 
         print(f"\n[{server_name}] {message}")
         answer = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: input("Open browser to authorize? [Y/n]: ")
+            None,
+            lambda: input("Open browser to authorize? [Y/n]: "),
         )
 
         if answer.strip().lower() in ("", "y", "yes"):
@@ -43,20 +44,18 @@ class TerminalUI(UI):
                 "elicitation_response": {
                     "elicitation_id": elicitation_id,
                     "action": "accept",
-                }
+                },
             }
         else:
             return {
                 "elicitation_response": {
                     "elicitation_id": elicitation_id,
                     "action": "decline",
-                }
+                },
             }
 
     async def prompt_user(self) -> str:
-        line = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: input("> ")
-        )
+        line = await asyncio.get_event_loop().run_in_executor(None, lambda: input("> "))
         return line
 
     async def display_session_info(self, session_id: str, agent_name: str) -> None:

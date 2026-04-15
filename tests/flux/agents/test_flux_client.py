@@ -32,7 +32,4 @@ def test_start_agent_url():
 def test_resume_url():
     client = FluxClient(server_url="http://localhost:8000")
     url = client._resume_url("agents", "agent_chat", "exec_123")
-    assert (
-        url
-        == "http://localhost:8000/workflows/agents/agent_chat/resume/exec_123/stream"
-    )
+    assert url == "http://localhost:8000/workflows/agents/agent_chat/resume/exec_123/stream"

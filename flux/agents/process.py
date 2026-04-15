@@ -100,8 +100,8 @@ class AgentProcess:
             value = event.get("value", {})
             progress_type = value.get("type", "")
 
-            if progress_type == "token":
-                await self.ui.display_token(value.get("text", ""))
+            if "token" in value:
+                await self.ui.display_token(value["token"])
             elif progress_type == "tool_start":
                 await self.ui.display_tool_start(value.get("name", ""), value.get("args", {}))
             elif progress_type == "tool_done":
@@ -114,7 +114,14 @@ class AgentProcess:
             if pause_type == "chat_response":
                 await self.ui.display_response(output.get("content"))
             elif pause_type == "elicitation":
-                await self.ui.display_elicitation(output)
+                response = await self.ui.display_elicitation(output)
+                if response and self.session_id:
+                    async for resume_event in self.client.resume(
+                        self.session_id,
+                        namespace="agents",
+                        payload=response,
+                    ):
+                        await self._handle_event(resume_event)
 
     async def _run_server(self) -> None:
         raise NotImplementedError("Web/API mode not yet implemented")

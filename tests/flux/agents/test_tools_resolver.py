@@ -8,9 +8,7 @@ from flux.agents.tools_resolver import resolve_builtin_tools
 
 
 def test_resolve_system_tools():
-    tools = resolve_builtin_tools(
-        [{"system_tools": {"workspace": "/tmp", "timeout": 30}}]
-    )
+    tools = resolve_builtin_tools([{"system_tools": {"workspace": "/tmp", "timeout": 30}}])
     assert len(tools) > 0
     tool_names = [t.name for t in tools]
     assert "shell" in tool_names or any("shell" in n for n in tool_names)
@@ -31,7 +29,7 @@ def test_resolve_mixed_tools():
         [
             {"shell": {"workspace": "/tmp"}},
             {"files": {"workspace": "/tmp"}},
-        ]
+        ],
     )
     assert len(tools) > 0
 
