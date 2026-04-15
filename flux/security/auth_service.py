@@ -30,11 +30,15 @@ BUILT_IN_ROLES = {
         "workflow:*:*:task:*:execute",
         "schedule:*",
         "execution:*",
+        "agent:*:*",
+        "config:*:read",
     ],
     "viewer": [
         "workflow:*:*:read",
         "execution:*:read",
         "schedule:*:read",
+        "agent:*:read",
+        "config:*:read",
     ],
 }
 

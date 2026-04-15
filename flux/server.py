@@ -104,6 +104,11 @@ class SecretResponse(BaseModel):
     value: Any | None = None
 
 
+class ConfigRequest(BaseModel):
+    name: str
+    value: Any
+
+
 class ScheduleRequest(BaseModel):
     """Model for schedule creation/update requests"""
 
@@ -2037,6 +2042,164 @@ class Server:
                 raise
             except Exception as ex:
                 logger.error(f"Admin API: Error in admin_delete_secret for '{name}': {str(ex)}")
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        # Config API
+
+        @api.get("/admin/configs")
+        async def admin_list_configs(
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                return manager.all()
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.get("/admin/configs/{name}")
+        async def admin_get_config(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                result = manager.get([name])
+                return {"name": name, "value": result[name]}
+            except ValueError:
+                raise HTTPException(status_code=404, detail=f"Config not found: {name}")
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/configs")
+        async def admin_create_or_update_config(
+            config_req: ConfigRequest = Body(...),
+            identity: FluxIdentity = Depends(require_permission("config:*:manage")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                manager.save(config_req.name, config_req.value)
+                return {
+                    "status": "success",
+                    "message": f"Config '{config_req.name}' saved successfully",
+                }
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.delete("/admin/configs/{name}")
+        async def admin_delete_config(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("config:*:manage")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                manager.remove(name)
+                return {
+                    "status": "success",
+                    "message": f"Config '{name}' deleted successfully",
+                }
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        # Agent API
+
+        @api.get("/admin/agents")
+        async def admin_list_agents(
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                agents = manager.list()
+                return [a.model_dump() for a in agents]
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.get("/admin/agents/{name}")
+        async def admin_get_agent(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                agent_def = manager.get(name)
+                return agent_def.model_dump()
+            except ValueError:
+                raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/agents")
+        async def admin_create_agent(
+            agent_data: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+        ):
+            from flux.agents.manager import AgentManager
+            from flux.agents.types import AgentDefinition
+
+            try:
+                definition = AgentDefinition(**agent_data)
+                manager = AgentManager.current()
+                manager.create(definition)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{definition.name}' created successfully",
+                }
+            except ValueError as ex:
+                raise HTTPException(status_code=409, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.put("/admin/agents/{name}")
+        async def admin_update_agent(
+            name: str,
+            agent_data: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+        ):
+            from flux.agents.manager import AgentManager
+            from flux.agents.types import AgentDefinition
+
+            try:
+                agent_data["name"] = name
+                definition = AgentDefinition(**agent_data)
+                manager = AgentManager.current()
+                manager.update(definition)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{name}' updated successfully",
+                }
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.delete("/admin/agents/{name}")
+        async def admin_delete_agent(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                manager.delete(name)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{name}' deleted successfully",
+                }
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
         # Scheduling API

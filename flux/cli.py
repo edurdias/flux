@@ -1533,6 +1533,385 @@ def remove_secret(name: str, format: str):
         click.echo(f"Error removing secret: {str(ex)}", err=True)
 
 
+@cli.group()
+def config():
+    """Manage Flux configuration key-value pairs."""
+    pass
+
+
+@config.command("list")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def list_configs(format: str):
+    """List all configuration keys."""
+    try:
+        from flux.config_manager import ConfigManager
+
+        manager = ConfigManager.current()
+        config_list = manager.all()
+        if format == "json":
+            click.echo(json.dumps({"configs": config_list}, indent=2))
+        else:
+            if not config_list:
+                click.echo("No configs found.")
+                return
+            click.echo("Available configs:")
+            for name in config_list:
+                click.echo(f"  - {name}")
+    except Exception as ex:
+        click.echo(f"Error listing configs: {str(ex)}", err=True)
+
+
+@config.command("set")
+@click.argument("name")
+@click.argument("value")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def set_config(name: str, value: str, format: str):
+    """Set a configuration value."""
+    try:
+        from flux.config_manager import ConfigManager
+
+        manager = ConfigManager.current()
+        manager.save(name, value)
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Config '{name}' has been set successfully.")
+    except Exception as ex:
+        click.echo(f"Error setting config: {str(ex)}", err=True)
+
+
+@config.command("get")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def get_config_cmd(name: str, format: str):
+    """Get a configuration value by name."""
+    try:
+        from flux.config_manager import ConfigManager
+
+        manager = ConfigManager.current()
+        result = manager.get([name])
+        if format == "json":
+            click.echo(json.dumps({"name": name, "value": result[name]}, indent=2))
+        else:
+            click.echo(f"Config '{name}': {result[name]}")
+    except ValueError as ex:
+        click.echo(f"Config not found: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error getting config: {str(ex)}", err=True)
+
+
+@config.command("remove")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+def remove_config(name: str, format: str):
+    """Remove a configuration by name."""
+    try:
+        from flux.config_manager import ConfigManager
+
+        manager = ConfigManager.current()
+        manager.remove(name)
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Config '{name}' has been removed successfully.")
+    except Exception as ex:
+        click.echo(f"Error removing config: {str(ex)}", err=True)
+
+
+@cli.group()
+def agent():
+    """Manage Flux agents."""
+    pass
+
+
+@agent.command("create")
+@click.argument("name")
+@click.option("--model", "-m", required=False, help="Model in provider/model_name format")
+@click.option("--system-prompt", "-s", required=False, help="System prompt text")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True),
+    help="Read system prompt from file",
+)
+@click.option("--description", "-d", help="Agent description")
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    help="YAML definition file",
+)
+@click.option("--tools", multiple=True, help="Built-in tool names (repeatable)")
+@click.option("--tools-file", type=click.Path(exists=True), help="Python file with @task tools")
+@click.option("--workflow-file", type=click.Path(exists=True), help="Custom workflow file")
+@click.option("--mcp-server", multiple=True, help="MCP server URL (repeatable)")
+@click.option("--skills-dir", type=click.Path(exists=True), help="Skills directory")
+@click.option("--planning/--no-planning", default=None, help="Enable planning")
+@click.option("--max-tool-calls", type=int, help="Max tool call iterations")
+@click.option("--max-tokens", type=int, help="Max LLM response tokens")
+@click.option(
+    "--reasoning-effort",
+    type=click.Choice(["low", "medium", "high"]),
+    help="Reasoning depth",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+def create_agent(
+    name,
+    model,
+    system_prompt,
+    system_prompt_file,
+    description,
+    definition_file,
+    tools,
+    tools_file,
+    workflow_file,
+    mcp_server,
+    skills_dir,
+    planning,
+    max_tool_calls,
+    max_tokens,
+    reasoning_effort,
+    output_format,
+):
+    """Create an agent definition."""
+    import yaml
+
+    from flux.agents.manager import AgentManager
+    from flux.agents.types import AgentDefinition
+
+    try:
+        data = {}
+        if definition_file:
+            with open(definition_file) as f:
+                data = yaml.safe_load(f)
+
+        data["name"] = name
+        if model:
+            data["model"] = model
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if system_prompt_file:
+            with open(system_prompt_file) as f:
+                data["system_prompt"] = f.read()
+        if description:
+            data["description"] = description
+        if tools:
+            data["tools"] = list(tools)
+        if tools_file:
+            data["tools_file"] = tools_file
+        if workflow_file:
+            data["workflow_file"] = workflow_file
+        if mcp_server:
+            data["mcp_servers"] = [{"url": url} for url in mcp_server]
+        if skills_dir:
+            data["skills_dir"] = skills_dir
+        if planning is not None:
+            data["planning"] = planning
+        if max_tool_calls is not None:
+            data["max_tool_calls"] = max_tool_calls
+        if max_tokens is not None:
+            data["max_tokens"] = max_tokens
+        if reasoning_effort:
+            data["reasoning_effort"] = reasoning_effort
+
+        definition = AgentDefinition(**data)
+        manager = AgentManager.current()
+        manager.create(definition)
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' created successfully.")
+    except Exception as ex:
+        click.echo(f"Error creating agent: {str(ex)}", err=True)
+
+
+@agent.command("list")
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+def list_agents(format):
+    """List all agents."""
+    from flux.agents.manager import AgentManager
+
+    try:
+        manager = AgentManager.current()
+        agents = manager.list()
+        if format == "json":
+            click.echo(json.dumps({"agents": [a.model_dump() for a in agents]}, indent=2))
+        else:
+            if not agents:
+                click.echo("No agents found.")
+                return
+            click.echo("Agents:")
+            for a in agents:
+                desc = f" — {a.description}" if a.description else ""
+                click.echo(f"  {a.name} ({a.model}){desc}")
+    except Exception as ex:
+        click.echo(f"Error listing agents: {str(ex)}", err=True)
+
+
+@agent.command("show")
+@click.argument("name")
+@click.option("--format", "-f", type=click.Choice(["simple", "json", "yaml"]), default="yaml")
+def show_agent(name, format):
+    """Show agent definition."""
+    import yaml
+
+    from flux.agents.manager import AgentManager
+
+    try:
+        manager = AgentManager.current()
+        agent_def = manager.get(name)
+        data = agent_def.model_dump()
+        if format == "json":
+            click.echo(json.dumps(data, indent=2))
+        elif format == "yaml":
+            click.echo(yaml.dump(data, default_flow_style=False, sort_keys=False))
+        else:
+            for key, value in data.items():
+                click.echo(f"  {key}: {value}")
+    except ValueError as ex:
+        click.echo(f"Agent not found: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing agent: {str(ex)}", err=True)
+
+
+@agent.command("update")
+@click.argument("name")
+@click.option("--model", "-m", help="Model in provider/model_name format")
+@click.option("--system-prompt", "-s", help="System prompt text")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True),
+    help="Read system prompt from file",
+)
+@click.option("--description", "-d", help="Agent description")
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    help="YAML definition file",
+)
+@click.option("--planning/--no-planning", default=None, help="Enable planning")
+@click.option("--max-tool-calls", type=int, help="Max tool call iterations")
+@click.option(
+    "--reasoning-effort",
+    type=click.Choice(["low", "medium", "high"]),
+    help="Reasoning depth",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+def update_agent(
+    name,
+    model,
+    system_prompt,
+    system_prompt_file,
+    description,
+    definition_file,
+    planning,
+    max_tool_calls,
+    reasoning_effort,
+    output_format,
+):
+    """Update an agent definition."""
+    import yaml
+
+    from flux.agents.manager import AgentManager
+    from flux.agents.types import AgentDefinition
+
+    try:
+        manager = AgentManager.current()
+        existing = manager.get(name)
+        data = existing.model_dump()
+
+        if definition_file:
+            with open(definition_file) as f:
+                file_data = yaml.safe_load(f)
+                data.update(file_data)
+
+        if model:
+            data["model"] = model
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if system_prompt_file:
+            with open(system_prompt_file) as f:
+                data["system_prompt"] = f.read()
+        if description:
+            data["description"] = description
+        if planning is not None:
+            data["planning"] = planning
+        if max_tool_calls is not None:
+            data["max_tool_calls"] = max_tool_calls
+        if reasoning_effort:
+            data["reasoning_effort"] = reasoning_effort
+
+        data["name"] = name
+        definition = AgentDefinition(**data)
+        manager.update(definition)
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' updated successfully.")
+    except Exception as ex:
+        click.echo(f"Error updating agent: {str(ex)}", err=True)
+
+
+@agent.command("delete")
+@click.argument("name")
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+def delete_agent(name, format):
+    """Delete an agent definition."""
+    from flux.agents.manager import AgentManager
+
+    try:
+        manager = AgentManager.current()
+        manager.delete(name)
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' deleted successfully.")
+    except ValueError as ex:
+        click.echo(f"Agent not found: {str(ex)}", err=True)
+    except Exception as ex:
+        click.echo(f"Error deleting agent: {str(ex)}", err=True)
+
+
 cli.add_command(auth)
 cli.add_command(roles)
 cli.add_command(principals)
