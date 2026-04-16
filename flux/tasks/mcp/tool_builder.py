@@ -23,6 +23,28 @@ def _handle_elicitation_error(error: Exception, server_name: str) -> Elicitation
     )
 
 
+def _extract_elicitation_action(resume_payload: Any) -> str:
+    """Extract the elicitation action from a resume payload.
+
+    The agent process resumes with either:
+      - {"elicitation_response": {"elicitation_id": ..., "action": "accept"}}
+      - An ElicitationResponse Pydantic model dumped to dict directly
+      - {} or None when not resumed via the agent UI — treat as decline.
+
+    Returns one of "accept", "decline", "cancel". Defaults to "decline" when
+    the payload shape is unrecognized to fail closed.
+    """
+    if not resume_payload:
+        return "decline"
+    if isinstance(resume_payload, dict):
+        nested = resume_payload.get("elicitation_response")
+        if isinstance(nested, dict) and "action" in nested:
+            return str(nested["action"])
+        if "action" in resume_payload:
+            return str(resume_payload["action"])
+    return "decline"
+
+
 JSON_TYPE_MAP: dict[str, type] = {
     "string": str,
     "integer": int,
@@ -117,11 +139,18 @@ def build_tool_task(
                 from flux.tasks.pause import pause
 
                 elicitation_output = _handle_elicitation_error(e, server_name=server_name)
-                await pause(
+                resume_payload = await pause(
                     f"elicitation_{tool_name}",
                     output=elicitation_output.model_dump(),
                 )
-                result = await connection.call_tool(tool_name, call_kwargs)
+                action = _extract_elicitation_action(resume_payload)
+                if action == "accept":
+                    result = await connection.call_tool(tool_name, call_kwargs)
+                else:
+                    raise ToolExecutionError(
+                        tool_name,
+                        f"Elicitation {action} by user",
+                    )
             else:
                 raise ToolExecutionError(tool_name, str(e), inner_exception=e)
         finally:
