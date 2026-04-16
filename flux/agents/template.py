@@ -12,7 +12,7 @@ from flux.agents.tools_resolver import resolve_builtin_tools
 from flux.agents.types import ChatResponseOutput
 
 
-@workflow
+@workflow.with_options(namespace="agents")
 async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     agent_name = ctx.input["agent"]
 
