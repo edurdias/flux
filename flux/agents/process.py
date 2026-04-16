@@ -91,6 +91,10 @@ class AgentProcess:
             await self.ui.display_tool_done(event.data["name"], event.data["status"])
         elif event.kind == "chat_response":
             await self.ui.display_response(event.data["content"])
+        elif event.kind == "session_end":
+            from flux.agents.types import SessionEndOutput
+
+            await self.ui.display_session_end(SessionEndOutput(**event.data))
         elif event.kind == "elicitation":
             response = await self.ui.display_elicitation(event.data)
             if response:
@@ -104,10 +108,10 @@ class AgentProcess:
         from flux.agents.ui.web import WebUI
 
         server_cls = WebUI if self.mode == "web" else ApiUI
-        server = server_cls(  # type: ignore[call-arg]
+        server = server_cls(  # type: ignore[call-arg]  # TODO(task-6/7): ApiUI/WebUI constructor signature updates land in Tasks 6/7
             server_url=self.server_url,
             agent_name=self.agent_name,
             operator_token=self.token,
             port=self.port or 8080,
         )
-        await server.serve()  # type: ignore[attr-defined]
+        await server.serve()  # type: ignore[attr-defined]  # TODO(task-6/7): .serve() method lands in Tasks 6/7
