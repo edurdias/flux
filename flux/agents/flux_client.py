@@ -2,9 +2,39 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 
 import httpx
+
+
+async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict]:
+    """Yield one decoded JSON object per SSE ``data:`` frame.
+
+    Per the SSE spec a single event may span multiple ``data:`` lines; the
+    receiver joins them with ``\\n``. A blank line terminates the event. Flux
+    streams pretty-printed JSON, so buffering is required; parsing each line
+    individually produces ``Expecting property name`` errors on ``data: {``.
+    """
+    buf: list[str] = []
+    async for raw in lines:
+        if raw == "" or raw is None:
+            if buf:
+                try:
+                    yield json.loads("\n".join(buf))
+                except json.JSONDecodeError:
+                    pass
+                buf = []
+            continue
+        if raw.startswith("data:"):
+            chunk = raw[5:]
+            if chunk.startswith(" "):
+                chunk = chunk[1:]
+            buf.append(chunk)
+    if buf:
+        try:
+            yield json.loads("\n".join(buf))
+        except json.JSONDecodeError:
+            pass
 
 
 class FluxClient:
@@ -38,26 +68,22 @@ class FluxClient:
         workflow_name: str = "agent_chat",
     ) -> AsyncIterator[tuple[str | None, dict]]:
         url = self._start_url(namespace, workflow_name)
-        payload = {"input": json.dumps({"agent": agent_name})}
+        body: dict[str, Any] = {"agent": agent_name}
 
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST",
                 url,
-                json=payload,
+                json=body,
                 headers=self._build_headers(),
             ) as response:
                 response.raise_for_status()
                 execution_id = None
 
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    if line.startswith("data: "):
-                        data = json.loads(line[6:])
-                        if execution_id is None and "execution_id" in data:
-                            execution_id = data["execution_id"]
-                        yield execution_id, data
+                async for data in _iter_sse_data_frames(response.aiter_lines()):
+                    if execution_id is None and "execution_id" in data:
+                        execution_id = data["execution_id"]
+                    yield execution_id, data
 
     async def resume(
         self,
@@ -69,27 +95,23 @@ class FluxClient:
     ) -> AsyncIterator[dict]:
         url = self._resume_url(namespace, workflow_name, execution_id)
         if payload is not None:
-            resume_input = payload
+            resume_input: dict[str, Any] = payload
         elif message is not None:
             resume_input = {"message": message}
         else:
             resume_input = {}
-        request_payload = {"input": json.dumps(resume_input)}
 
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream(
                 "POST",
                 url,
-                json=request_payload,
+                json=resume_input,
                 headers=self._build_headers(),
             ) as response:
                 response.raise_for_status()
 
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    if line.startswith("data: "):
-                        yield json.loads(line[6:])
+                async for data in _iter_sse_data_frames(response.aiter_lines()):
+                    yield data
 
     async def get_agent(self, name: str) -> dict:
         url = f"{self.server_url}/admin/agents/{name}"
