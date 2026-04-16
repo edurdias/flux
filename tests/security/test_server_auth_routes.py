@@ -788,3 +788,117 @@ class TestNamespaceScopedVisibility:
                     "workflow_namespace" in func_src and "workflow_name" in func_src
                 ), "get_schedule does not use the schedule's namespace+name in the check"
                 break
+
+
+class TestAgentAdminEndpointsRBAC:
+    """Regression: admin_update_agent and admin_delete_agent require the correct permission."""
+
+    def _run_with_auth(self, client, method, path, expected_permission, granted_permissions):
+        """Call the endpoint with auth enabled, granting only the listed permissions.
+
+        Returns a tuple: (response, permissions_checked) where permissions_checked is
+        the set of permissions the endpoint's dependency asked about.
+        """
+        from flux.config import Configuration
+        from flux.security.identity import FluxIdentity
+
+        permissions_checked: list[str] = []
+
+        identity = FluxIdentity(subject="limited-user", roles=frozenset({"role-x"}))
+
+        async def mock_authenticate(token):
+            return identity
+
+        async def mock_is_authorized(ident, permission):
+            permissions_checked.append(permission)
+            return permission in granted_permissions
+
+        mock_auth_service = MagicMock()
+        mock_auth_service.authenticate = mock_authenticate
+        mock_auth_service.is_authorized = mock_is_authorized
+
+        settings = Configuration.get().settings
+        orig_keys = settings.security.auth.api_keys.enabled
+        settings.security.auth.api_keys.enabled = True
+
+        with patch(
+            "flux.security.dependencies._get_auth_service",
+            return_value=mock_auth_service,
+        ):
+            try:
+                if method == "PUT":
+                    resp = client.put(
+                        path,
+                        json={"name": "coder", "model": "anthropic/claude", "system_prompt": "x"},
+                        headers={"Authorization": "Bearer fake-token"},
+                    )
+                elif method == "DELETE":
+                    resp = client.delete(
+                        path,
+                        headers={"Authorization": "Bearer fake-token"},
+                    )
+                else:
+                    raise ValueError(method)
+            finally:
+                settings.security.auth.api_keys.enabled = orig_keys
+
+        return resp, permissions_checked
+
+    def test_update_agent_requires_update_permission_not_create(self, client):
+        """PUT /admin/agents/{name} must require agent:*:update, NOT agent:*:create."""
+        resp, perms = self._run_with_auth(
+            client,
+            "PUT",
+            "/admin/agents/coder",
+            expected_permission="agent:*:update",
+            granted_permissions={"agent:*:create"},
+        )
+        assert resp.status_code in (
+            401,
+            403,
+        ), f"Expected 401/403 when only agent:*:create is granted, got {resp.status_code}"
+        assert (
+            "agent:*:update" in perms or "agent:*:create" not in perms
+        ), f"Expected endpoint to check agent:*:update; checked: {perms}"
+
+    def test_update_agent_allows_with_update_permission(self, client):
+        """PUT /admin/agents/{name} must pass the permission check when agent:*:update is granted."""
+        resp, perms = self._run_with_auth(
+            client,
+            "PUT",
+            "/admin/agents/coder",
+            expected_permission="agent:*:update",
+            granted_permissions={"agent:*:update"},
+        )
+        assert (
+            resp.status_code not in (401, 403)
+        ), f"agent:*:update should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        assert "agent:*:update" in perms
+
+    def test_delete_agent_requires_delete_permission_not_create(self, client):
+        """DELETE /admin/agents/{name} must require agent:*:delete, NOT agent:*:create."""
+        resp, perms = self._run_with_auth(
+            client,
+            "DELETE",
+            "/admin/agents/coder",
+            expected_permission="agent:*:delete",
+            granted_permissions={"agent:*:create"},
+        )
+        assert resp.status_code in (401, 403)
+        assert (
+            "agent:*:delete" in perms or "agent:*:create" not in perms
+        ), f"Expected endpoint to check agent:*:delete; checked: {perms}"
+
+    def test_delete_agent_allows_with_delete_permission(self, client):
+        """DELETE /admin/agents/{name} must pass the permission check when agent:*:delete is granted."""
+        resp, perms = self._run_with_auth(
+            client,
+            "DELETE",
+            "/admin/agents/coder",
+            expected_permission="agent:*:delete",
+            granted_permissions={"agent:*:delete"},
+        )
+        assert (
+            resp.status_code not in (401, 403)
+        ), f"agent:*:delete should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        assert "agent:*:delete" in perms
