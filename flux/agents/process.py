@@ -108,7 +108,7 @@ class AgentProcess:
         from flux.agents.ui.web import WebUI
 
         server_cls = WebUI if self.mode == "web" else ApiUI
-        server = server_cls(  # type: ignore[call-arg]  # TODO(task-7): WebUI constructor signature updates land in Task 7
+        server = server_cls(
             server_url=self.server_url,
             agent_name=self.agent_name,
             operator_token=self.token,
