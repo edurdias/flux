@@ -167,12 +167,11 @@ def _has_tool_calls(events: list[tuple[str, dict]]) -> bool:
 
 
 def _provision_agent(cli, name: str, agent_def: dict) -> None:
-    """Create the agent and publish its definition as a config entry.
+    """Create an agent via the admin API — the same path operators would use.
 
-    The ``agents/agent_chat`` template loads its definition at runtime via
-    ``get_config("agent:<name>")``, which reads from the ``configs`` table —
-    a separate store from the ``agents`` table populated by ``agent create``.
-    Tests that drive the real template must seed both stores.
+    ``AgentManager.create`` publishes the definition to both the ``agents``
+    table and the ``configs`` table (key ``agent:<name>``), which is what the
+    ``agents/agent_chat`` template loads at runtime via ``get_config``.
     """
     agent_def = {**agent_def, "name": name}
     r = httpx.post(
@@ -181,15 +180,14 @@ def _provision_agent(cli, name: str, agent_def: dict) -> None:
         timeout=10,
     )
     r.raise_for_status()
-    cli.config_set(f"agent:{name}", json.dumps(agent_def))
 
 
 def _teardown_agent(cli, name: str) -> None:
-    """Best-effort cleanup for an agent provisioned via :func:`_provision_agent`."""
-    try:
-        cli.config_remove(f"agent:{name}")
-    except Exception:
-        pass
+    """Best-effort cleanup for an agent provisioned via :func:`_provision_agent`.
+
+    Deleting the agent also removes its config entry; that is handled inside
+    ``AgentManager.delete``, so callers need only issue the DELETE.
+    """
     try:
         httpx.delete(f"{cli.server_url}/admin/agents/{name}", timeout=10)
     except Exception:
@@ -476,9 +474,7 @@ async def test_api_mode_session_resume_after_process_restart_ollama(
         # Session plumbing: the SECOND AgentProcess resumed the SAME execution
         # across a process boundary — this is the architecturally important
         # bit, and success means we got any SSE events back on the resume POST.
-        assert text or "chat_response" in kinds2, (
-            f"Resume produced no events; kinds={kinds2}"
-        )
+        assert text or "chat_response" in kinds2, f"Resume produced no events; kinds={kinds2}"
         # Memory recall: best-effort. Small local models (qwen3:latest) are
         # flaky at precise recall; a stronger model would reliably say
         # "purple". We log it for visibility but do not fail the test on

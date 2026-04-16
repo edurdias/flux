@@ -3,7 +3,18 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from flux.agents.types import AgentDefinition
+from flux.config_manager import ConfigManager
 from flux.models import AgentModel, RepositoryFactory
+
+
+def _config_key(name: str) -> str:
+    """Config key under which an agent definition is published.
+
+    The ``agents/agent_chat`` template loads an agent definition at runtime
+    via ``get_config(f"agent:{agent_name}")``. Keeping the key convention in
+    a single helper means no caller has to know the string format.
+    """
+    return f"agent:{name}"
 
 
 class AgentManager(ABC):
@@ -47,6 +58,12 @@ class DatabaseAgentManager(AgentManager):
             model = AgentModel(**definition.model_dump())
             session.add(model)
             session.commit()
+        # Publish the definition to the configs table so the agent_chat
+        # template can load it at runtime via get_config("agent:<name>").
+        # Kept outside the agents-table transaction to respect each manager's
+        # session boundary; a failure here leaves the agents row behind, which
+        # update()/delete() cope with idempotently.
+        ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
 
     def get(self, name: str) -> AgentDefinition:
         with self.session() as session:
@@ -64,6 +81,7 @@ class DatabaseAgentManager(AgentManager):
             for key, value in data.items():
                 setattr(model, key, value)
             session.commit()
+        ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
 
     def delete(self, name: str) -> None:
         with self.session() as session:
@@ -72,6 +90,9 @@ class DatabaseAgentManager(AgentManager):
                 raise ValueError(f"Agent '{name}' not found")
             session.delete(model)
             session.commit()
+        # Best-effort config cleanup; ConfigManager.remove is a no-op if
+        # the key is already absent so this is safe to call unconditionally.
+        ConfigManager.current().remove(_config_key(name))
 
     def list(self) -> list[AgentDefinition]:
         with self.session() as session:

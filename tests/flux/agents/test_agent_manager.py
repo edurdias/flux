@@ -131,3 +131,61 @@ def test_create_with_full_config(manager):
     assert result.reasoning_effort == "high"
     assert result.long_term_memory == {"provider": "sqlite", "scope": "default"}
     assert result.tools == [{"system_tools": {"workspace": "/tmp", "timeout": 30}}]
+
+
+# ---------------------------------------------------------------------------
+# Config sync: AgentManager.create/update/delete must keep the ``agent:<name>``
+# config entry in sync, because the agent_chat template loads definitions via
+# get_config("agent:<name>") at runtime. Without this sync every agent creation
+# would appear to succeed but the template would fail with
+# "The following configs were not found: ['agent:<name>']".
+# ---------------------------------------------------------------------------
+
+
+def test_create_publishes_config_entry(manager):
+    from flux.config_manager import ConfigManager
+
+    definition = AgentDefinition(
+        name="test_agent",
+        model="ollama/qwen3:latest",
+        system_prompt="You are terse.",
+    )
+    manager.create(definition)
+
+    config = ConfigManager.current().get(["agent:test_agent"])
+    assert "agent:test_agent" in config
+    assert config["agent:test_agent"]["name"] == "test_agent"
+    assert config["agent:test_agent"]["model"] == "ollama/qwen3:latest"
+    assert config["agent:test_agent"]["system_prompt"] == "You are terse."
+
+
+def test_update_republishes_config_entry(manager):
+    from flux.config_manager import ConfigManager
+
+    definition = AgentDefinition(
+        name="update_agent",
+        model="openai/gpt-4o",
+        system_prompt="Original.",
+    )
+    manager.create(definition)
+
+    definition.system_prompt = "Updated."
+    manager.update(definition)
+
+    config = ConfigManager.current().get(["agent:update_agent"])
+    assert config["agent:update_agent"]["system_prompt"] == "Updated."
+
+
+def test_delete_removes_config_entry(manager):
+    from flux.config_manager import ConfigManager
+
+    definition = AgentDefinition(
+        name="delete_agent",
+        model="openai/gpt-4o",
+        system_prompt="Help.",
+    )
+    manager.create(definition)
+    manager.delete("delete_agent")
+
+    with pytest.raises(ValueError, match="not found"):
+        ConfigManager.current().get(["agent:delete_agent"])
