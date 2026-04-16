@@ -81,3 +81,11 @@ def test_health_ok_without_header():
     client = TestClient(ui.app)
     response = client.get("/health")
     assert response.status_code == 200
+
+
+def test_health_public_even_without_operator_token():
+    ui = _make_ui(token=None)
+    client = TestClient(ui.app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

@@ -67,11 +67,11 @@ class ApiUI:
         return _dep
 
     def _setup_routes(self) -> None:
-        token_dep = self._get_token_dependency()
-
         @self.app.get("/health")
-        async def health(token: str = Depends(token_dep)):  # noqa: ARG001
+        async def health() -> dict:
             return {"status": "ok"}
+
+        token_dep = self._get_token_dependency()
 
         @self.app.post("/chat")
         async def chat(

@@ -34,6 +34,7 @@ class WebUI(ApiUI):
 
     def _get_token_dependency(self):
         """Override: use operator_token instead of requiring a request Bearer."""
+        # captured once at dep-registration; operator_token is immutable after __init__
         token = self.operator_token
 
         def _dep(authorization: str | None = Header(default=None)) -> str:  # noqa: ARG001
@@ -53,7 +54,3 @@ class WebUI(ApiUI):
         @self.app.get("/")
         async def index() -> FileResponse:
             return FileResponse(web_dir / "index.html")
-
-        @self.app.get("/health")
-        async def health() -> dict:
-            return {"status": "ok"}

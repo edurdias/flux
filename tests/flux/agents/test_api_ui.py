@@ -52,7 +52,7 @@ def _mock_session_send(events):
 def test_health_endpoint():
     ui = _make_ui()
     client = TestClient(ui.app)
-    response = client.get("/health", headers={"Authorization": "Bearer t"})
+    response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
@@ -216,5 +216,5 @@ def test_session_rejects_missing_bearer():
 def test_empty_bearer_token_rejected():
     ui = _make_ui()
     client = TestClient(ui.app)
-    response = client.get("/health", headers={"Authorization": "Bearer   "})
+    response = client.get("/session/exec-1", headers={"Authorization": "Bearer   "})
     assert response.status_code == 401
