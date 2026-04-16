@@ -9,7 +9,7 @@ from flux.agents.ui.api import ApiUI
 
 class WebUI(ApiUI):
     def __init__(self, port: int | None = None):
-        super().__init__(port=port or 8080)
+        super().__init__(port=port or 8080)  # type: ignore[call-arg]  # TODO(task-7): WebUI constructor rewrite lands in Task 7
         self._setup_web_routes()
 
     def _setup_web_routes(self):
