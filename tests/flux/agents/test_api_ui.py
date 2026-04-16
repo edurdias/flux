@@ -144,3 +144,77 @@ def test_get_session_returns_execution_state():
         )
     assert response.status_code == 200
     assert response.json()["state"] == "PAUSED"
+
+
+def test_chat_stream_emits_error_on_exception():
+    ui = _make_ui()
+
+    async def _boom(self):
+        raise RuntimeError("flux exploded")
+        yield  # unreachable
+
+    with patch("flux.agents.session.AgentSession.start", _boom):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/chat",
+            json={"message": ""},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    payloads = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    error_frames = [p for p in payloads if p.get("type") == "error"]
+    assert len(error_frames) == 1
+    assert "flux exploded" in error_frames[0]["message"]
+
+
+def test_elicitation_stream_emits_error_on_exception():
+    ui = _make_ui()
+
+    async def _boom(self, payload):
+        raise RuntimeError("resume failed")
+        yield  # unreachable
+
+    with patch("flux.agents.session.AgentSession.respond_to_elicitation", _boom):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/elicitation/el-1?session=exec-1",
+            json={"elicitation_id": "el-1", "action": "accept"},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    payloads = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    error_frames = [p for p in payloads if p.get("type") == "error"]
+    assert len(error_frames) == 1
+    assert "resume failed" in error_frames[0]["message"]
+
+
+def test_elicitation_rejects_missing_bearer():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.post(
+        "/elicitation/el-1?session=exec-1",
+        json={"elicitation_id": "el-1", "action": "accept"},
+    )
+    assert response.status_code == 401
+
+
+def test_session_rejects_missing_bearer():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.get("/session/exec-1")
+    assert response.status_code == 401
+
+
+def test_empty_bearer_token_rejected():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.get("/health", headers={"Authorization": "Bearer   "})
+    assert response.status_code == 401

@@ -50,7 +50,10 @@ class ApiUI:
                 status_code=401,
                 detail="Missing or invalid Authorization header",
             )
-        return authorization.split(" ", 1)[1].strip()
+        token = authorization.split(" ", 1)[1].strip()
+        if not token:
+            raise HTTPException(status_code=401, detail="Empty Bearer token")
+        return token
 
     def _make_client(self, token: str) -> FluxClient:
         return FluxClient(server_url=self.server_url, token=token)
@@ -85,15 +88,18 @@ class ApiUI:
             )
 
             async def event_stream() -> AsyncIterator[dict]:
-                if session is None:
-                    async for event in agent_session.start():
-                        yield {"data": json.dumps(_event_to_sse_payload(event))}
-                    if message:
+                try:
+                    if session is None:
+                        async for event in agent_session.start():
+                            yield {"data": json.dumps(_event_to_sse_payload(event))}
+                        if message:
+                            async for event in agent_session.send(message):
+                                yield {"data": json.dumps(_event_to_sse_payload(event))}
+                    else:
                         async for event in agent_session.send(message):
                             yield {"data": json.dumps(_event_to_sse_payload(event))}
-                else:
-                    async for event in agent_session.send(message):
-                        yield {"data": json.dumps(_event_to_sse_payload(event))}
+                except Exception as exc:  # noqa: BLE001
+                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
 
             return EventSourceResponse(event_stream())
 
@@ -118,8 +124,11 @@ class ApiUI:
             }
 
             async def event_stream() -> AsyncIterator[dict]:
-                async for event in agent_session.respond_to_elicitation(payload):
-                    yield {"data": json.dumps(_event_to_sse_payload(event))}
+                try:
+                    async for event in agent_session.respond_to_elicitation(payload):
+                        yield {"data": json.dumps(_event_to_sse_payload(event))}
+                except Exception as exc:  # noqa: BLE001
+                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
 
             return EventSourceResponse(event_stream())
 
