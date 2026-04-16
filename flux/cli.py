@@ -2033,6 +2033,16 @@ def resume_session(session_id):
 
 
 def _get_auth_token() -> str | None:
+    """Resolve the operator auth token for agent processes.
+
+    Resolution order:
+    1. ``FLUX_AUTH_TOKEN`` environment variable.
+    2. Bearer token derived from OIDC credentials via ``cli_auth.get_auth_headers()``
+       (refresh-token exchange on each invocation).
+
+    Returns ``None`` when no token can be resolved so callers may proceed
+    unauthenticated against servers that do not enforce auth.
+    """
     import os
 
     token = os.environ.get("FLUX_AUTH_TOKEN")
@@ -2043,8 +2053,9 @@ def _get_auth_token() -> str | None:
         from flux.cli_auth import get_auth_headers
 
         headers = get_auth_headers()
-        if headers and "Authorization" in headers:
-            return headers["Authorization"].replace("Bearer ", "")
+        auth_header = headers.get("Authorization", "") if headers else ""
+        if auth_header.startswith("Bearer "):
+            return auth_header[len("Bearer ") :]
     except Exception:
         pass
 
