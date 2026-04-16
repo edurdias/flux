@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flux.agents.events import AgentEvent, parse_event
+from flux.agents.events import AgentEvent, is_terminal_state, parse_event
 
 
 def test_parses_session_id_event():
@@ -12,14 +12,14 @@ def test_parses_session_id_event():
 
 
 def test_parses_token_progress():
-    raw = {"type": "task.progress", "value": {"token": "hello"}}
+    raw = {"type": "TASK_PROGRESS", "value": {"token": "hello"}}
     events = list(parse_event(raw))
     assert events == [AgentEvent(kind="token", data={"text": "hello"})]
 
 
 def test_parses_tool_start():
     raw = {
-        "type": "task.progress",
+        "type": "TASK_PROGRESS",
         "value": {"type": "tool_start", "name": "shell", "args": {"cmd": "ls"}},
     }
     events = list(parse_event(raw))
@@ -30,7 +30,7 @@ def test_parses_tool_start():
 
 def test_parses_tool_done():
     raw = {
-        "type": "task.progress",
+        "type": "TASK_PROGRESS",
         "value": {"type": "tool_done", "name": "shell", "status": "success"},
     }
     events = list(parse_event(raw))
@@ -39,20 +39,25 @@ def test_parses_tool_done():
     ]
 
 
-def test_parses_chat_response_pause():
+def test_parses_chat_response_pause_from_state_dto():
+    """Real Flux DTO shape: state=PAUSED + output dict, no 'type' key."""
     raw = {
-        "type": "execution.paused",
+        "execution_id": "exec-1",
+        "state": "PAUSED",
         "output": {"type": "chat_response", "content": "hi", "turn": 1},
     }
     events = list(parse_event(raw))
-    assert events == [
+    kinds = [e.kind for e in events]
+    assert "session_id" in kinds
+    chat_events = [e for e in events if e.kind == "chat_response"]
+    assert chat_events == [
         AgentEvent(kind="chat_response", data={"content": "hi", "turn": 1}),
     ]
 
 
-def test_parses_elicitation_pause():
+def test_parses_elicitation_pause_from_state_dto():
     raw = {
-        "type": "execution.paused",
+        "state": "PAUSED",
         "output": {
             "type": "elicitation",
             "mode": "url",
@@ -69,9 +74,9 @@ def test_parses_elicitation_pause():
     assert events[0].data["url"] == "https://auth.example.com"
 
 
-def test_parses_session_end_pause():
+def test_parses_session_end_pause_from_state_dto():
     raw = {
-        "type": "execution.paused",
+        "state": "PAUSED",
         "output": {"type": "session_end", "reason": "user_exit", "turns": 3},
     }
     events = list(parse_event(raw))
@@ -80,16 +85,34 @@ def test_parses_session_end_pause():
     ]
 
 
+def test_lowercase_state_is_accepted():
+    """Defensive: server may emit lowercase state values in some code paths."""
+    raw = {
+        "state": "paused",
+        "output": {"type": "chat_response", "content": "ok", "turn": 0},
+    }
+    events = list(parse_event(raw))
+    assert any(e.kind == "chat_response" for e in events)
+
+
 def test_ignores_unknown_events():
     raw = {"type": "something.unrelated", "foo": "bar"}
     events = list(parse_event(raw))
     assert events == []
 
 
-def test_parses_execution_id_alongside_other_data():
+def test_ignores_non_terminal_state_frame():
+    """A state frame with RUNNING/CLAIMED has no agent-visible content."""
+    raw = {"execution_id": "exec-1", "state": "RUNNING", "output": None}
+    events = list(parse_event(raw))
+    # Only the session_id handshake is meaningful.
+    assert events == [AgentEvent(kind="session_id", data={"id": "exec-1"})]
+
+
+def test_parses_execution_id_alongside_task_progress():
     raw = {
         "execution_id": "exec-1",
-        "type": "task.progress",
+        "type": "TASK_PROGRESS",
         "value": {"token": "ok"},
     }
     events = list(parse_event(raw))
@@ -98,12 +121,43 @@ def test_parses_execution_id_alongside_other_data():
 
 
 def test_parses_task_progress_with_null_value():
-    raw = {"type": "task.progress", "value": None}
+    raw = {"type": "TASK_PROGRESS", "value": None}
     events = list(parse_event(raw))
     assert events == []
 
 
 def test_parses_paused_with_null_output():
-    raw = {"type": "execution.paused", "output": None}
+    raw = {"state": "PAUSED", "output": None}
     events = list(parse_event(raw))
     assert events == []
+
+
+# --- is_terminal_state ----------------------------------------------------
+
+
+def test_is_terminal_state_paused():
+    assert is_terminal_state({"state": "PAUSED"}) is True
+
+
+def test_is_terminal_state_completed():
+    assert is_terminal_state({"state": "COMPLETED"}) is True
+
+
+def test_is_terminal_state_failed():
+    assert is_terminal_state({"state": "FAILED"}) is True
+
+
+def test_is_terminal_state_cancelled():
+    assert is_terminal_state({"state": "CANCELLED"}) is True
+
+
+def test_is_terminal_state_running():
+    assert is_terminal_state({"state": "RUNNING"}) is False
+
+
+def test_is_terminal_state_no_state():
+    assert is_terminal_state({"type": "TASK_PROGRESS"}) is False
+
+
+def test_is_terminal_state_lowercase():
+    assert is_terminal_state({"state": "paused"}) is True

@@ -15,11 +15,12 @@ async def test_start_captures_session_id_and_yields_events():
 
     async def fake_start(agent_name, namespace="agents", workflow_name="agent_chat"):
         yield "exec-1", {"execution_id": "exec-1"}
-        yield "exec-1", {"type": "task.progress", "value": {"token": "hi"}}
+        yield "exec-1", {"type": "TASK_PROGRESS", "value": {"token": "hi"}}
         yield (
             "exec-1",
             {
-                "type": "execution.paused",
+                "execution_id": "exec-1",
+                "state": "PAUSED",
                 "output": {"type": "chat_response", "content": None, "turn": 0},
             },
         )
@@ -60,7 +61,7 @@ async def test_send_resumes_with_message():
         payload=None,
     ):
         resume_mock(execution_id=execution_id, message=message, payload=payload)
-        yield {"type": "task.progress", "value": {"token": "ok"}}
+        yield {"type": "TASK_PROGRESS", "value": {"token": "ok"}}
 
     client.resume = fake_resume
 
@@ -89,7 +90,7 @@ async def test_respond_to_elicitation_uses_payload():
         payload=None,
     ):
         resume_mock(execution_id=execution_id, message=message, payload=payload)
-        yield {"type": "task.progress", "value": {"token": "done"}}
+        yield {"type": "TASK_PROGRESS", "value": {"token": "done"}}
 
     client.resume = fake_resume
 

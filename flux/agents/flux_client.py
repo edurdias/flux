@@ -6,6 +6,8 @@ from collections.abc import AsyncIterable, AsyncIterator
 
 import httpx
 
+from flux.agents.events import is_terminal_state
+
 
 async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict]:
     """Yield one decoded JSON object per SSE ``data:`` frame.
@@ -84,6 +86,12 @@ class FluxClient:
                     if execution_id is None and "execution_id" in data:
                         execution_id = data["execution_id"]
                     yield execution_id, data
+                    # Flux keeps the SSE open while the workflow is running.
+                    # PAUSED / COMPLETED / FAILED / CANCELLED all mean "no more
+                    # events until the caller initiates a new action", so we
+                    # close the stream here rather than block indefinitely.
+                    if is_terminal_state(data):
+                        break
 
     async def resume(
         self,
@@ -112,6 +120,8 @@ class FluxClient:
 
                 async for data in _iter_sse_data_frames(response.aiter_lines()):
                     yield data
+                    if is_terminal_state(data):
+                        break
 
     async def get_agent(self, name: str) -> dict:
         url = f"{self.server_url}/admin/agents/{name}"
