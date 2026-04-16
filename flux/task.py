@@ -60,8 +60,8 @@ class _WithOptions:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        secret_requests: list[str] = [],
-        config_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
+        config_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
@@ -77,8 +77,8 @@ class _WithOptions:
                 retry_delay=retry_delay,
                 retry_backoff=retry_backoff,
                 timeout=timeout,
-                secret_requests=secret_requests,
-                config_requests=config_requests,
+                secret_requests=list(secret_requests) if secret_requests else [],
+                config_requests=list(config_requests) if config_requests else [],
                 output_storage=output_storage,
                 cache=cache,
                 metadata=metadata,
@@ -101,8 +101,8 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        secret_requests: list[str] = [],
-        config_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
+        config_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
@@ -117,8 +117,8 @@ class task:
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
-        self.secret_requests = secret_requests
-        self.config_requests = config_requests
+        self.secret_requests = list(secret_requests) if secret_requests else []
+        self.config_requests = list(config_requests) if config_requests else []
         self.output_storage = output_storage if output_storage else InlineOutputStorage()
         self.cache = cache
         self.metadata = metadata

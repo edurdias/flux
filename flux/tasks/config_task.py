@@ -10,6 +10,6 @@ from flux.task import task
     config_requests=["{key}"],
 )
 async def get_config(key: str, config: dict | None = None) -> Any:
-    if config is None:
+    if config is None or key not in config:
         raise ValueError(f"Config '{key}' not found")
     return config[key]
