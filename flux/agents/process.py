@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from flux.agents.events import AgentEvent
 from flux.agents.flux_client import FluxClient
+from flux.agents.session import AgentSession
 from flux.agents.ui import UI
 from flux.agents.ui.terminal import TerminalUI
 
@@ -25,32 +27,31 @@ class AgentProcess:
         self.server_url = server_url
         self.mode = mode
         self.session_id = session_id
+        self.token = token
         self.port = port
         self.client = FluxClient(server_url=server_url, token=token)
-        self.ui: UI = self._create_ui(mode)
-
-    def _create_ui(self, mode: str) -> UI:
-        if mode == "terminal":
-            return TerminalUI()
-        elif mode == "web":
-            from flux.agents.ui.web import WebUI
-
-            return WebUI(port=self.port)
-        elif mode == "api":
-            from flux.agents.ui.api import ApiUI
-
-            return ApiUI(port=self.port)
-        raise ValueError(f"Unknown mode: {mode}")
+        self.ui: UI | None = TerminalUI() if mode == "terminal" else None
 
     async def run(self) -> None:
         if self.mode == "terminal":
             await self._run_terminal()
-        elif self.mode in ("web", "api"):
+        else:
             await self._run_server()
 
     async def _run_terminal(self) -> None:
-        if not self.session_id:
-            self.session_id = await self._start_new_session()
+        assert self.ui is not None
+        session = AgentSession(
+            client=self.client,
+            agent_name=self.agent_name,
+            session_id=self.session_id,
+        )
+
+        if self.session_id is None:
+            async for event in session.start():
+                await self._dispatch(event, session)
+
+        self.session_id = session.session_id
+        assert self.session_id is not None
 
         await self.ui.display_session_info(self.session_id, self.agent_name)
 
@@ -61,67 +62,52 @@ class AgentProcess:
                 except EOFError:
                     break
 
-                if user_input.strip() == "/quit":
+                stripped = user_input.strip()
+                if stripped == "/quit":
                     break
-                elif user_input.strip() == "/session":
+                if stripped == "/session":
                     print(f"Session: {self.session_id}")
                     continue
-                elif user_input.strip() == "/help":
+                if stripped == "/help":
                     print("Commands: /help, /session, /quit")
                     continue
-                elif not user_input.strip():
+                if not stripped:
                     continue
 
-                await self._send_message(user_input)
+                async for event in session.send(user_input):
+                    await self._dispatch(event, session)
         except KeyboardInterrupt:
             pass
 
         print(f"\nSession: {self.session_id}")
 
-    async def _start_new_session(self) -> str:
-        execution_id = None
-        async for eid, event in self.client.start_agent(self.agent_name):
-            if eid is not None:
-                execution_id = eid
-            await self._handle_event(event)
-        if execution_id is None:
-            raise RuntimeError("Failed to get execution ID from server")
-        return execution_id
-
-    async def _send_message(self, message: str) -> None:
-        assert self.session_id is not None
-        async for event in self.client.resume(self.session_id, message, namespace="agents"):
-            await self._handle_event(event)
-
-    async def _handle_event(self, event: dict) -> None:
-        event_type = event.get("type", "")
-
-        if event_type == "task.progress":
-            value = event.get("value", {})
-            progress_type = value.get("type", "")
-
-            if "token" in value:
-                await self.ui.display_token(value["token"])
-            elif progress_type == "tool_start":
-                await self.ui.display_tool_start(value.get("name", ""), value.get("args", {}))
-            elif progress_type == "tool_done":
-                await self.ui.display_tool_done(value.get("name", ""), value.get("status", ""))
-
-        elif "paused" in event_type:
-            output = event.get("output", {})
-            pause_type = output.get("type", "")
-
-            if pause_type == "chat_response":
-                await self.ui.display_response(output.get("content"))
-            elif pause_type == "elicitation":
-                response = await self.ui.display_elicitation(output)
-                if response and self.session_id:
-                    async for resume_event in self.client.resume(
-                        self.session_id,
-                        namespace="agents",
-                        payload=response,
-                    ):
-                        await self._handle_event(resume_event)
+    async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
+        assert self.ui is not None
+        if event.kind == "token":
+            await self.ui.display_token(event.data["text"])
+        elif event.kind == "tool_start":
+            await self.ui.display_tool_start(event.data["name"], event.data["args"])
+        elif event.kind == "tool_done":
+            await self.ui.display_tool_done(event.data["name"], event.data["status"])
+        elif event.kind == "chat_response":
+            await self.ui.display_response(event.data["content"])
+        elif event.kind == "elicitation":
+            response = await self.ui.display_elicitation(event.data)
+            if response:
+                async for resume_event in session.respond_to_elicitation(response):
+                    await self._dispatch(resume_event, session)
+        elif event.kind == "session_id":
+            pass
 
     async def _run_server(self) -> None:
-        raise NotImplementedError("Web/API mode not yet implemented")
+        from flux.agents.ui.api import ApiUI
+        from flux.agents.ui.web import WebUI
+
+        server_cls = WebUI if self.mode == "web" else ApiUI
+        server = server_cls(  # type: ignore[call-arg]
+            server_url=self.server_url,
+            agent_name=self.agent_name,
+            operator_token=self.token,
+            port=self.port or 8080,
+        )
+        await server.serve()  # type: ignore[attr-defined]
