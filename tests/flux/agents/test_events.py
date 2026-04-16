@@ -95,3 +95,15 @@ def test_parses_execution_id_alongside_other_data():
     events = list(parse_event(raw))
     assert AgentEvent(kind="session_id", data={"id": "exec-1"}) in events
     assert AgentEvent(kind="token", data={"text": "ok"}) in events
+
+
+def test_parses_task_progress_with_null_value():
+    raw = {"type": "task.progress", "value": None}
+    events = list(parse_event(raw))
+    assert events == []
+
+
+def test_parses_paused_with_null_output():
+    raw = {"type": "execution.paused", "output": None}
+    events = list(parse_event(raw))
+    assert events == []
