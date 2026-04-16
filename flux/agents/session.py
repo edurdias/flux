@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from flux.agents.events import AgentEvent, parse_event
 from flux.agents.flux_client import FluxClient
@@ -28,17 +29,21 @@ class AgentSession:
         self.workflow_name = workflow_name
 
     async def start(self) -> AsyncIterator[AgentEvent]:
+        """Begin a new Flux execution and yield parsed events. Raises if already started."""
+        if self.session_id is not None:
+            raise RuntimeError("Session already started; use send() to continue")
         async for execution_id, raw in self.client.start_agent(
             self.agent_name,
             namespace=self.namespace,
             workflow_name=self.workflow_name,
         ):
-            if execution_id is not None and self.session_id is None:
+            if execution_id is not None:
                 self.session_id = execution_id
             for event in parse_event(raw):
                 yield event
 
     async def send(self, message: str) -> AsyncIterator[AgentEvent]:
+        """Resume the paused session with a user message. Requires start() first."""
         if self.session_id is None:
             raise RuntimeError("Session not started; call start() first")
         async for raw in self.client.resume(
@@ -52,8 +57,9 @@ class AgentSession:
 
     async def respond_to_elicitation(
         self,
-        payload: dict,
+        payload: dict[str, Any],
     ) -> AsyncIterator[AgentEvent]:
+        """Resume the paused session with an elicitation response. Requires start() first."""
         if self.session_id is None:
             raise RuntimeError("Session not started; call start() first")
         async for raw in self.client.resume(

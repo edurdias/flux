@@ -9,11 +9,6 @@ import pytest
 from flux.agents.session import AgentSession
 
 
-async def _async_iter(items):
-    for item in items:
-        yield item
-
-
 @pytest.mark.asyncio
 async def test_start_captures_session_id_and_yields_events():
     client = MagicMock()
@@ -109,3 +104,19 @@ async def test_respond_to_elicitation_uses_payload():
         payload=payload,
     )
     assert [e.kind for e in events] == ["token"]
+
+
+@pytest.mark.asyncio
+async def test_start_raises_when_session_already_started():
+    client = MagicMock()
+
+    async def fake_start(*args, **kwargs):  # noqa: ARG001
+        yield "exec-x", {"execution_id": "exec-x"}
+
+    client.start_agent = fake_start
+
+    session = AgentSession(client=client, agent_name="coder", session_id="exec-1")
+
+    with pytest.raises(RuntimeError, match="already started"):
+        async for _ in session.start():
+            pass
