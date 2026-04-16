@@ -2164,7 +2164,7 @@ class Server:
         async def admin_update_agent(
             name: str,
             agent_data: dict = Body(...),
-            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+            identity: FluxIdentity = Depends(require_permission("agent:*:update")),
         ):
             from flux.agents.manager import AgentManager
             from flux.agents.types import AgentDefinition
@@ -2186,7 +2186,7 @@ class Server:
         @api.delete("/admin/agents/{name}")
         async def admin_delete_agent(
             name: str,
-            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+            identity: FluxIdentity = Depends(require_permission("agent:*:delete")),
         ):
             from flux.agents.manager import AgentManager
 
