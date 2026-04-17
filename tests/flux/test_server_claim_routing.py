@@ -177,13 +177,13 @@ class TestWorkersClaimRouting:
         assert resp.status_code == 404
 
     @patch("flux.server.ContextManager.create")
-    def test_claim_tracks_execution_on_worker(
+    def test_claim_delegates_to_context_manager(
         self,
         mock_cm_create,
         test_client,
         server_instance,
     ):
-        """Successful claim should register execution on _worker_executions."""
+        """Successful claim should delegate to context_manager.claim()."""
         mock_cm = MagicMock()
         current = _make_ctx("exec-track", ExecutionState.CREATED)
         claimed = _make_ctx("exec-track", ExecutionState.CLAIMED)
@@ -194,16 +194,16 @@ class TestWorkersClaimRouting:
         resp = test_client.post("/workers/test-worker/claim/exec-track")
 
         assert resp.status_code == 200
-        assert "exec-track" in server_instance._worker_executions.get("test-worker", set())
+        mock_cm.claim.assert_called_once()
 
     @patch("flux.server.ContextManager.create")
-    def test_claim_resume_tracks_execution_on_worker(
+    def test_claim_resume_delegates_to_context_manager(
         self,
         mock_cm_create,
         test_client,
         server_instance,
     ):
-        """Successful claim_resume should also register execution on _worker_executions."""
+        """Successful claim_resume should delegate to context_manager.claim_resume()."""
         mock_cm = MagicMock()
         current = _make_ctx("exec-rs-track", ExecutionState.RESUME_SCHEDULED)
         claimed = _make_ctx("exec-rs-track", ExecutionState.RESUME_CLAIMED)
@@ -214,4 +214,4 @@ class TestWorkersClaimRouting:
         resp = test_client.post("/workers/test-worker/claim/exec-rs-track")
 
         assert resp.status_code == 200
-        assert "exec-rs-track" in server_instance._worker_executions.get("test-worker", set())
+        mock_cm.claim_resume.assert_called_once()

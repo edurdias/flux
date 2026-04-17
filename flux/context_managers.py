@@ -78,6 +78,10 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def find_by_worker(self, worker_name: str) -> list[ExecutionContext]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def list(
         self,
         workflow_name: str | None = None,
@@ -399,6 +403,25 @@ class DatabaseContextManager(ContextManager):
             model.worker_name = None
             session.commit()
             return model.to_plain()
+
+    def find_by_worker(self, worker_name: str) -> list[ExecutionContext]:
+        active_states = [
+            ExecutionState.SCHEDULED,
+            ExecutionState.CLAIMED,
+            ExecutionState.RUNNING,
+            ExecutionState.RESUME_SCHEDULED,
+            ExecutionState.RESUME_CLAIMED,
+        ]
+        with self.session() as session:
+            models = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.worker_name == worker_name,
+                    ExecutionContextModel.state.in_(active_states),
+                )
+                .all()
+            )
+            return [m.to_plain() for m in models]
 
     def _get_additional_events(
         self,

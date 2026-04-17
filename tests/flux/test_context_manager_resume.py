@@ -228,3 +228,53 @@ def test_unclaim_from_running_clears_worker_name(manager):
         assert (
             model.worker_name is None
         ), f"worker_name should be cleared on initial-recovery; got {model.worker_name!r}"
+
+
+def test_find_by_worker_returns_active_executions_for_worker(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)
+
+    results = manager.find_by_worker("w-1")
+
+    assert len(results) == 1
+    assert results[0].execution_id == "exec-1"
+    assert results[0].state == ExecutionState.RESUME_SCHEDULED
+
+
+def test_find_by_worker_excludes_other_workers(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)
+
+    results = manager.find_by_worker("w-2")
+    assert results == []
+
+
+def test_find_by_worker_excludes_terminal_states(manager):
+    with manager.session() as session:
+        session.add(
+            WorkflowModel(
+                id="wf-terminal",
+                namespace="default",
+                name="terminal_wf",
+                version=1,
+                source=b"",
+                imports=[],
+            ),
+        )
+        session.commit()
+
+    ctx = ExecutionContext(
+        workflow_id="wf-terminal",
+        workflow_name="terminal_wf",
+        workflow_namespace="default",
+        input=None,
+        execution_id="exec-terminal",
+    )
+    ctx._state = ExecutionState.COMPLETED
+    ctx._current_worker = "w-1"
+    manager.save(ctx)
+
+    results = manager.find_by_worker("w-1")
+    assert len(results) == 0

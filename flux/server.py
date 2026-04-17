@@ -294,7 +294,6 @@ class Server:
         self._worker_offline_since: dict[str, float] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
-        self._worker_executions: dict[str, set[str]] = {}
         self._worker_connection_gen: dict[str, int] = {}
 
         config = Configuration.get().settings.scheduling
@@ -664,39 +663,36 @@ class Server:
             m.record_worker_disconnected(name, reason)
 
     def _unclaim_worker_executions(self, worker_name: str) -> None:
-        """Release all executions assigned to an evicted worker.
+        """Recover all executions assigned to an evicted worker.
 
-        Active executions (SCHEDULED, CLAIMED, RUNNING) are reset to CREATED
-        for rescheduling.  Suspended executions (PAUSED, RESUMING) have their
-        worker assignment cleared so another worker can pick them up via
-        affinity matching.
+        Queries the DB directly instead of relying on in-memory tracking,
+        so dispatched-but-not-yet-claimed executions are also recovered.
         """
-        execution_ids = self._worker_executions.pop(worker_name, set())
-        if not execution_ids:
+        context_manager = ContextManager.create()
+        executions = context_manager.find_by_worker(worker_name)
+        if not executions:
             return
 
+        from flux.domain import ExecutionState
         from flux.observability import get_metrics
 
-        context_manager = ContextManager.create()
-        for execution_id in execution_ids:
+        for ctx in executions:
             try:
-                from flux.domain import ExecutionState
-
-                ctx = context_manager.unclaim(execution_id)
-                if ctx.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
-                    context_manager.release_worker(execution_id)
-                self._execution_queue_times[execution_id] = time.monotonic()
+                unclaimed = context_manager.unclaim(ctx.execution_id)
+                if unclaimed.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
+                    context_manager.release_worker(ctx.execution_id)
+                self._execution_queue_times[ctx.execution_id] = time.monotonic()
                 m = get_metrics()
                 if m:
                     m.record_execution_queued()
                 logger.info(
-                    f"Unclaimed execution {execution_id} from evicted worker {worker_name}",
+                    f"Unclaimed execution {ctx.execution_id} from evicted worker {worker_name}",
                 )
-                event = self._execution_events.get(execution_id)
+                event = self._execution_events.get(ctx.execution_id)
                 if event:
                     event.set()
             except Exception as e:
-                logger.error(f"Failed to unclaim execution {execution_id}: {e}")
+                logger.error(f"Failed to unclaim execution {ctx.execution_id}: {e}")
 
         self._work_available.set()
 
@@ -1873,7 +1869,6 @@ class Server:
                         ),
                     )
 
-                self._worker_executions.setdefault(name, set()).add(execution_id)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
                 from flux.observability import get_metrics
@@ -1924,9 +1919,6 @@ class Server:
 
                 if ctx.has_finished:
                     self._execution_queue_times.pop(execution_id, None)
-                    worker_execs = self._worker_executions.get(name)
-                    if worker_execs:
-                        worker_execs.discard(execution_id)
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)
