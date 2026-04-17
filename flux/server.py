@@ -1845,11 +1845,34 @@ class Server:
 
         @api.post("/workers/{name}/claim/{execution_id}")
         async def workers_claim(name: str, execution_id: str, authorization: str = Header(None)):
+            from flux.domain import ExecutionState
+
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
                 worker = self._get_worker(name, authorization)
                 context_manager = ContextManager.create()
-                ctx = context_manager.claim(execution_id, worker)
+
+                try:
+                    current = context_manager.get(execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution {execution_id} not found.",
+                    )
+
+                if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
+                    ctx = context_manager.claim(execution_id, worker)
+                elif current.state == ExecutionState.RESUME_SCHEDULED:
+                    ctx = context_manager.claim_resume(execution_id, worker)
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Cannot claim execution {execution_id}: "
+                            f"current state is {current.state.value}"
+                        ),
+                    )
+
                 self._worker_executions.setdefault(name, set()).add(execution_id)
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
@@ -1867,9 +1890,11 @@ class Server:
                     event.set()
 
                 return ctx.summary()
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error claiming execution {execution_id} by worker {name}: {str(e)}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
 
         @api.post("/workers/{name}/checkpoint/{execution_id}")
         async def workers_checkpoint(
