@@ -1547,13 +1547,15 @@ def config():
     default="simple",
     help="Output format",
 )
-def list_configs(format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_configs(format: str, server_url: str | None):
     """List all configuration keys."""
     try:
-        from flux.config_manager import ConfigManager
-
-        manager = ConfigManager.current()
-        config_list = manager.all()
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/configs")
+            response.raise_for_status()
+            config_list = response.json()
         if format == "json":
             click.echo(json.dumps({"configs": config_list}, indent=2))
         else:
@@ -1563,6 +1565,8 @@ def list_configs(format: str):
             click.echo("Available configs:")
             for name in config_list:
                 click.echo(f"  - {name}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error listing configs: {str(ex)}", err=True)
 
@@ -1577,17 +1581,20 @@ def list_configs(format: str):
     default="simple",
     help="Output format",
 )
-def set_config(name: str, value: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def set_config(name: str, value: str, format: str, server_url: str | None):
     """Set a configuration value."""
     try:
-        from flux.config_manager import ConfigManager
-
-        manager = ConfigManager.current()
-        manager.save(name, value)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/configs", json={"name": name, "value": value})
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Config '{name}' has been set successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error setting config: {str(ex)}", err=True)
 
@@ -1601,19 +1608,25 @@ def set_config(name: str, value: str, format: str):
     default="simple",
     help="Output format",
 )
-def get_config_cmd(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def get_config_cmd(name: str, format: str, server_url: str | None):
     """Get a configuration value by name."""
     try:
-        from flux.config_manager import ConfigManager
-
-        manager = ConfigManager.current()
-        result = manager.get([name])
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/configs/{name}")
+            if response.status_code == 404:
+                click.echo(f"Config not found: {name}", err=True)
+                return
+            response.raise_for_status()
+            data = response.json()
+        value = data.get("value", data)
         if format == "json":
-            click.echo(json.dumps({"name": name, "value": result[name]}, indent=2))
+            click.echo(json.dumps({"name": name, "value": value}, indent=2))
         else:
-            click.echo(f"Config '{name}': {result[name]}")
-    except ValueError as ex:
-        click.echo(f"Config not found: {str(ex)}", err=True)
+            click.echo(f"Config '{name}': {value}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error getting config: {str(ex)}", err=True)
 
@@ -1627,17 +1640,20 @@ def get_config_cmd(name: str, format: str):
     default="simple",
     help="Output format",
 )
-def remove_config(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def remove_config(name: str, format: str, server_url: str | None):
     """Remove a configuration by name."""
     try:
-        from flux.config_manager import ConfigManager
-
-        manager = ConfigManager.current()
-        manager.remove(name)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/configs/{name}")
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Config '{name}' has been removed successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error removing config: {str(ex)}", err=True)
 
