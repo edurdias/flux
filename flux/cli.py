@@ -1722,6 +1722,7 @@ def agent():
     type=click.Choice(["simple", "json"]),
     default="simple",
 )
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
 def create_agent(
     name,
     model,
@@ -1739,11 +1740,11 @@ def create_agent(
     max_tokens,
     reasoning_effort,
     output_format,
+    server_url,
 ):
     """Create an agent definition."""
     import yaml
 
-    from flux.agents.manager import AgentManager
     from flux.agents.types import AgentDefinition
 
     try:
@@ -1782,36 +1783,53 @@ def create_agent(
             data["reasoning_effort"] = reasoning_effort
 
         definition = AgentDefinition(**data)
-        manager = AgentManager.current()
-        manager.create(definition)
+
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/agents", json=definition.model_dump())
+            response.raise_for_status()
 
         if output_format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Agent '{name}' created successfully.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 409:
+            click.echo(f"Agent '{name}' already exists.", err=True)
+        else:
+            click.echo(f"Error creating agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error creating agent: {str(ex)}", err=True)
 
 
 @agent.command("list")
 @click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
-def list_agents(format):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_agents(format, server_url):
     """List all agents."""
-    from flux.agents.manager import AgentManager
-
     try:
-        manager = AgentManager.current()
-        agents = manager.list()
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/agents")
+            response.raise_for_status()
+            agents = response.json()
+
         if format == "json":
-            click.echo(json.dumps({"agents": [a.model_dump() for a in agents]}, indent=2))
+            click.echo(json.dumps({"agents": agents}, indent=2))
         else:
             if not agents:
                 click.echo("No agents found.")
                 return
             click.echo("Agents:")
             for a in agents:
-                desc = f" — {a.description}" if a.description else ""
-                click.echo(f"  {a.name} ({a.model}){desc}")
+                desc = f" — {a['description']}" if a.get("description") else ""
+                click.echo(f"  {a['name']} ({a['model']}){desc}")
+
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error listing agents: {str(ex)}", err=True)
 
@@ -1819,16 +1837,18 @@ def list_agents(format):
 @agent.command("show")
 @click.argument("name")
 @click.option("--format", "-f", type=click.Choice(["simple", "json", "yaml"]), default="yaml")
-def show_agent(name, format):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def show_agent(name, format, server_url):
     """Show agent definition."""
     import yaml
 
-    from flux.agents.manager import AgentManager
-
     try:
-        manager = AgentManager.current()
-        agent_def = manager.get(name)
-        data = agent_def.model_dump()
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/agents/{name}")
+            response.raise_for_status()
+            data = response.json()
+
         if format == "json":
             click.echo(json.dumps(data, indent=2))
         elif format == "yaml":
@@ -1836,8 +1856,14 @@ def show_agent(name, format):
         else:
             for key, value in data.items():
                 click.echo(f"  {key}: {value}")
-    except ValueError as ex:
-        click.echo(f"Agent not found: {str(ex)}", err=True)
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error showing agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error showing agent: {str(ex)}", err=True)
 
@@ -1873,6 +1899,7 @@ def show_agent(name, format):
     type=click.Choice(["simple", "json"]),
     default="simple",
 )
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
 def update_agent(
     name,
     model,
@@ -1884,17 +1911,17 @@ def update_agent(
     max_tool_calls,
     reasoning_effort,
     output_format,
+    server_url,
 ):
     """Update an agent definition."""
     import yaml
 
-    from flux.agents.manager import AgentManager
-    from flux.agents.types import AgentDefinition
-
     try:
-        manager = AgentManager.current()
-        existing = manager.get(name)
-        data = existing.model_dump()
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            get_resp = client.get(f"{base_url}/admin/agents/{name}")
+            get_resp.raise_for_status()
+            data = get_resp.json()
 
         if definition_file:
             with open(definition_file) as f:
@@ -1918,13 +1945,23 @@ def update_agent(
             data["reasoning_effort"] = reasoning_effort
 
         data["name"] = name
-        definition = AgentDefinition(**data)
-        manager.update(definition)
+
+        with get_http_client() as client:
+            put_resp = client.put(f"{base_url}/admin/agents/{name}", json=data)
+            put_resp.raise_for_status()
 
         if output_format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Agent '{name}' updated successfully.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error updating agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error updating agent: {str(ex)}", err=True)
 
@@ -1932,19 +1969,27 @@ def update_agent(
 @agent.command("delete")
 @click.argument("name")
 @click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
-def delete_agent(name, format):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def delete_agent(name, format, server_url):
     """Delete an agent definition."""
-    from flux.agents.manager import AgentManager
-
     try:
-        manager = AgentManager.current()
-        manager.delete(name)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/agents/{name}")
+            response.raise_for_status()
+
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Agent '{name}' deleted successfully.")
-    except ValueError as ex:
-        click.echo(f"Agent not found: {str(ex)}", err=True)
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error deleting agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error deleting agent: {str(ex)}", err=True)
 
