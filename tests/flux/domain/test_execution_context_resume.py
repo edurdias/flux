@@ -55,3 +55,21 @@ def test_resume_schedule_from_wrong_state_raises():
     worker = _make_worker("w-1")
     with pytest.raises(Exception):
         ctx.resume_schedule(worker)
+
+
+def test_resume_claim_transitions_state_and_appends_event():
+    ctx = _make_ctx(ExecutionState.RESUME_SCHEDULED)
+    ctx._current_worker = "w-1"
+    worker = _make_worker("w-1")
+    ctx.resume_claim(worker)
+    assert ctx.state == ExecutionState.RESUME_CLAIMED
+    assert ctx.current_worker == "w-1"
+    assert ctx.events[-1].type == ExecutionEventType.WORKFLOW_RESUME_CLAIMED
+    assert ctx.events[-1].source_id == "w-1"
+
+
+def test_resume_claim_from_wrong_state_raises():
+    ctx = _make_ctx(ExecutionState.RESUMING)
+    worker = _make_worker("w-1")
+    with pytest.raises(Exception):
+        ctx.resume_claim(worker)

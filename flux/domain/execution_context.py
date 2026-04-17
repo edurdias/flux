@@ -251,6 +251,26 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
+    def resume_claim(self, worker: WorkerInfo) -> Self:
+        if self._state != ExecutionState.RESUME_SCHEDULED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot claim resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUME_SCHEDULED.value}"
+                ),
+            )
+        self._current_worker = worker.name
+        self._state = ExecutionState.RESUME_CLAIMED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUME_CLAIMED,
+                source_id=worker.name,
+                name=worker.name,
+                subject=None,
+            ),
+        )
+        return self
+
     def start(self, id: str) -> Self:
         self._state = ExecutionState.RUNNING
         self.events.append(
