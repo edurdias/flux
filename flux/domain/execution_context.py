@@ -134,12 +134,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
     @property
     def is_resuming(self) -> bool:
         """
-        Check if the execution is currently resuming.
-
-        Returns:
-            bool: True if the last event is a workflow resuming event, False otherwise.
+        Check if the execution is in the RESUME_CLAIMED state — i.e. the
+        worker has claimed the resume and is about to invoke `ctx.resume()`
+        inside the paused task's body.
         """
-        return self._is_last_event(ExecutionEventType.WORKFLOW_RESUMING)
+        return self._state == ExecutionState.RESUME_CLAIMED
 
     @property
     def is_cancelled(self) -> bool:
@@ -299,8 +298,13 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def resume(self) -> Any:
-        if self.is_paused:
-            self.start_resuming()
+        if self._state != ExecutionState.RESUME_CLAIMED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUME_CLAIMED.value}"
+                ),
+            )
 
         resuming_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMING]
         event = next(reversed(resuming_events), None)

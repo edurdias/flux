@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from flux.domain.events import ExecutionEventType, ExecutionState
+from flux.domain.events import ExecutionEvent, ExecutionEventType, ExecutionState
 from flux.domain.execution_context import ExecutionContext
 from flux.worker_registry import WorkerInfo
 
@@ -73,3 +73,81 @@ def test_resume_claim_from_wrong_state_raises():
     worker = _make_worker("w-1")
     with pytest.raises(Exception):
         ctx.resume_claim(worker)
+
+
+def test_resume_from_resume_claimed_succeeds():
+    ctx = _make_ctx(ExecutionState.RESUME_CLAIMED)
+    ctx.events.append(
+        ExecutionEvent(
+            type=ExecutionEventType.WORKFLOW_RESUMING,
+            source_id="server",
+            name="test_wf",
+            value={"message": "hello"},
+        ),
+    )
+    result = ctx.resume()
+    assert ctx.state == ExecutionState.RUNNING
+    assert ctx.events[-1].type == ExecutionEventType.WORKFLOW_RESUMED
+    assert result == {"message": "hello"}
+
+
+def test_resume_from_non_resume_claimed_raises():
+    ctx = _make_ctx(ExecutionState.RESUMING)
+    with pytest.raises(Exception):
+        ctx.resume()
+
+
+def test_resume_from_paused_no_longer_auto_starts_resuming():
+    ctx = _make_ctx(ExecutionState.PAUSED)
+    with pytest.raises(Exception):
+        ctx.resume()
+
+
+def test_is_resuming_true_only_on_resume_claimed():
+    for state, expected in [
+        (ExecutionState.CREATED, False),
+        (ExecutionState.SCHEDULED, False),
+        (ExecutionState.CLAIMED, False),
+        (ExecutionState.RUNNING, False),
+        (ExecutionState.PAUSED, False),
+        (ExecutionState.RESUMING, False),
+        (ExecutionState.RESUME_SCHEDULED, False),
+        (ExecutionState.RESUME_CLAIMED, True),
+        (ExecutionState.COMPLETED, False),
+        (ExecutionState.FAILED, False),
+    ]:
+        ctx = _make_ctx(state)
+        assert ctx.is_resuming is expected, f"state={state.value}"
+
+
+def test_resume_uses_latest_resuming_event_for_multi_turn():
+    ctx = _make_ctx(ExecutionState.RESUME_CLAIMED)
+    ctx.events.append(
+        ExecutionEvent(
+            type=ExecutionEventType.WORKFLOW_RESUMING,
+            source_id="server",
+            name="test_wf",
+            value={"message": "first"},
+        ),
+    )
+    ctx.events.append(
+        ExecutionEvent(
+            type=ExecutionEventType.WORKFLOW_RESUMED,
+            source_id="w-1",
+            name="test_wf",
+            value={"message": "first"},
+        ),
+    )
+    # Simulate second turn: user posts a second resume
+    ctx.events.append(
+        ExecutionEvent(
+            type=ExecutionEventType.WORKFLOW_RESUMING,
+            source_id="server",
+            name="test_wf",
+            value={"message": "second"},
+        ),
+    )
+    # Put back into RESUME_CLAIMED as if the server dispatched + worker claimed
+    ctx._state = ExecutionState.RESUME_CLAIMED
+    result = ctx.resume()
+    assert result == {"message": "second"}
