@@ -16,7 +16,6 @@ from flux.server import Server
 from flux.worker import Worker
 from flux.utils import parse_value
 from flux.utils import to_json
-from flux.secret_managers import SecretManager
 
 
 @click.group()
@@ -1429,22 +1428,26 @@ def secrets():
     default="simple",
     help="Output format",
 )
-def list_secrets(format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_secrets(format: str, server_url: str | None):
     """List all available secrets (shows only secret names, not values)."""
     try:
-        secret_manager = SecretManager.current()
-        secrets_list = secret_manager.all()
-
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/secrets")
+            response.raise_for_status()
+            secrets_list = response.json()
         if format == "json":
             click.echo(json.dumps({"secrets": secrets_list}, indent=2))
         else:
             if not secrets_list:
                 click.echo("No secrets found.")
                 return
-
             click.echo("Available secrets:")
             for secret_name in secrets_list:
                 click.echo(f"  - {secret_name}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error listing secrets: {str(ex)}", err=True)
 
@@ -1459,18 +1462,23 @@ def list_secrets(format: str):
     default="simple",
     help="Output format",
 )
-def set_secret(name: str, value: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def set_secret(name: str, value: str, format: str, server_url: str | None):
     """Set a secret value with given name and value.
 
     This command will create a new secret or update an existing one.
     """
     try:
-        secret_manager = SecretManager.current()
-        secret_manager.save(name, value)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/secrets", json={"name": name, "value": value})
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Secret '{name}' has been set successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error setting secret: {str(ex)}", err=True)
 
@@ -1484,7 +1492,8 @@ def set_secret(name: str, value: str, format: str):
     default="simple",
     help="Output format",
 )
-def get_secret(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def get_secret(name: str, format: str, server_url: str | None):
     """Get a secret value by name.
 
     Warning: This will display the secret value in the terminal.
@@ -1496,14 +1505,21 @@ def get_secret(name: str, format: str):
                 click.echo("Operation cancelled.")
                 return
 
-        secret_manager = SecretManager.current()
-        result = secret_manager.get([name])
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/secrets/{name}")
+            if response.status_code == 404:
+                click.echo(f"Secret not found: {name}", err=True)
+                return
+            response.raise_for_status()
+            data = response.json()
+        value = data.get("value", data)
         if format == "json":
-            click.echo(json.dumps({"name": name, "value": result[name]}, indent=2))
+            click.echo(json.dumps({"name": name, "value": value}, indent=2))
         else:
-            click.echo(f"Secret '{name}': {result[name]}")
-    except ValueError as ex:
-        click.echo(f"Secret not found: {str(ex)}", err=True)
+            click.echo(f"Secret '{name}': {value}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error getting secret: {str(ex)}", err=True)
 
@@ -1517,18 +1533,23 @@ def get_secret(name: str, format: str):
     default="simple",
     help="Output format",
 )
-def remove_secret(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def remove_secret(name: str, format: str, server_url: str | None):
     """Remove a secret by name.
 
     This permanently deletes the secret from the database.
     """
     try:
-        secret_manager = SecretManager.current()
-        secret_manager.remove(name)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/secrets/{name}")
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Secret '{name}' has been removed successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error removing secret: {str(ex)}", err=True)
 
