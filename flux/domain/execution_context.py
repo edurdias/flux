@@ -231,6 +231,26 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
+    def resume_schedule(self, worker: WorkerInfo) -> Self:
+        if self._state != ExecutionState.RESUMING:
+            raise ExecutionError(
+                message=(
+                    f"Cannot schedule resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUMING.value}"
+                ),
+            )
+        self._current_worker = worker.name
+        self._state = ExecutionState.RESUME_SCHEDULED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUME_SCHEDULED,
+                source_id=worker.name,
+                name=worker.name,
+                subject=None,
+            ),
+        )
+        return self
+
     def start(self, id: str) -> Self:
         self._state = ExecutionState.RUNNING
         self.events.append(
