@@ -62,6 +62,14 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def claim_resume(
+        self,
+        execution_id: str,
+        worker: WorkerInfo,
+    ) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def unclaim(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -325,6 +333,19 @@ class DatabaseContextManager(ContextManager):
                 session.commit()
                 return ctx
             raise ExecutionContextNotFoundError(execution_id)
+
+    def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
+        with self.session() as session:
+            model = session.get(ExecutionContextModel, execution_id)
+            if not model:
+                raise ExecutionContextNotFoundError(execution_id)
+            ctx = model.to_plain()
+            ctx.resume_claim(worker)
+            model.state = ctx.state
+            model.worker_name = ctx.current_worker
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+            return ctx
 
     def unclaim(self, execution_id: str) -> ExecutionContext:
         """Reset an active execution back to CREATED for rescheduling."""

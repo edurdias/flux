@@ -9,6 +9,7 @@ import pytest
 from flux.context_managers import DatabaseContextManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType, ExecutionState
 from flux.domain.execution_context import ExecutionContext
+from flux.errors import ExecutionError
 from flux.models import ExecutionContextModel, WorkflowModel
 from flux.worker_registry import WorkerInfo
 
@@ -110,3 +111,33 @@ def test_next_resume_fallback_picks_up_null_worker(manager):
     result = manager.next_resume(worker)
     assert result is not None
     assert result.current_worker == "w-7"
+
+
+def test_claim_resume_transitions_resume_scheduled_to_resume_claimed(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)  # moves row into RESUME_SCHEDULED
+
+    ctx = manager.claim_resume("exec-1", worker)
+
+    assert ctx.state == ExecutionState.RESUME_CLAIMED
+    assert ctx.current_worker == "w-1"
+    assert any(e.type == ExecutionEventType.WORKFLOW_RESUME_CLAIMED for e in ctx.events)
+
+
+def test_claim_resume_on_already_claimed_raises(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)
+    manager.claim_resume("exec-1", worker)
+
+    with pytest.raises(ExecutionError):
+        manager.claim_resume("exec-1", worker)
+
+
+def test_claim_resume_on_resuming_row_raises(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    # Skip next_resume — row is still RESUMING
+    with pytest.raises(ExecutionError):
+        manager.claim_resume("exec-1", worker)
