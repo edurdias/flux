@@ -1325,6 +1325,13 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
+
+                from flux.observability import get_metrics as _get_resume_metrics
+
+                _rm = _get_resume_metrics()
+                if _rm:
+                    _rm.record_resume_queued(ctx.workflow_namespace, ctx.workflow_name)
+
                 logger.debug(
                     f"Resuming execution context: {ctx.execution_id} for workflow: {namespace}/{workflow_name}",
                 )
@@ -3759,6 +3766,12 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
+
+                from flux.observability import get_metrics as _get_resume_metrics
+
+                _rm = _get_resume_metrics()
+                if _rm:
+                    _rm.record_resume_queued(ctx.workflow_namespace, ctx.workflow_name)
 
                 if mode in ("sync", "stream"):
                     self._execution_events.setdefault(ctx.execution_id, asyncio.Event())

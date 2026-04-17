@@ -323,6 +323,28 @@ class DatabaseContextManager(ContextManager):
             model.worker_name = ctx.current_worker
             model.events.extend(self._get_additional_events(ctx, model))
             session.commit()
+
+            from flux.domain.events import ExecutionEventType
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                resuming_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUMING
+                ]
+                scheduled_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_SCHEDULED
+                ]
+                if resuming_events and scheduled_events:
+                    duration = (
+                        scheduled_events[-1].time - resuming_events[-1].time
+                    ).total_seconds()
+                    m.record_resume_scheduled(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                        max(duration, 0.0),
+                    )
+
             return ctx
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
@@ -349,6 +371,26 @@ class DatabaseContextManager(ContextManager):
             model.worker_name = ctx.current_worker
             model.events.extend(self._get_additional_events(ctx, model))
             session.commit()
+
+            from flux.domain.events import ExecutionEventType
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                scheduled_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_SCHEDULED
+                ]
+                claimed_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_CLAIMED
+                ]
+                if scheduled_events and claimed_events:
+                    duration = (claimed_events[-1].time - scheduled_events[-1].time).total_seconds()
+                    m.record_resume_claimed(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                        max(duration, 0.0),
+                    )
+
             return ctx
 
     def unclaim(self, execution_id: str) -> ExecutionContext:
