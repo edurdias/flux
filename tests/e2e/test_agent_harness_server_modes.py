@@ -80,6 +80,11 @@ def agent_harness_env(cli, tmp_path_factory):
     The stub pauses on each turn with a ``chat_response`` output so the test
     can verify SSE event flow through ``AgentProcess`` without needing any
     LLM provider. It does not consume an agent config entry.
+
+    **Ordering note:** This file (``test_agent_harness_server_modes``) runs
+    before ``test_agent_harness_ollama`` alphabetically. The teardown below
+    deletes the stub workflow so the Ollama tests can re-register the real
+    ``agent_chat`` template without version conflicts.
     """
     tmp = tmp_path_factory.mktemp("agent_harness")
     wf_file = tmp / "agent_chat_ns_agents.py"
