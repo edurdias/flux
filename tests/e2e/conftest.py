@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -13,7 +14,15 @@ import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-E2E_PORT = int(os.environ.get("FLUX_E2E_PORT", "19000"))
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+E2E_PORT = int(os.environ.get("FLUX_E2E_PORT", "0")) or _free_port()
 E2E_SERVER_URL = f"http://localhost:{E2E_PORT}"
 
 # ---------------------------------------------------------------------------
