@@ -285,25 +285,33 @@ class DatabaseContextManager(ContextManager):
                 .limit(1)
             )
             result = sticky_query.first()
-            if result:
-                model, workflow = result
-                return model.to_plain()
 
-            fallback_query = (
-                session.query(ExecutionContextModel, WorkflowModel)
-                .join(WorkflowModel)
-                .filter(
-                    ExecutionContextModel.state == ExecutionState.RESUMING,
-                    ExecutionContextModel.worker_name.is_(None),
+            if result is None:
+                fallback_query = (
+                    session.query(ExecutionContextModel, WorkflowModel)
+                    .join(WorkflowModel)
+                    .filter(
+                        ExecutionContextModel.state == ExecutionState.RESUMING,
+                        ExecutionContextModel.worker_name.is_(None),
+                    )
+                    .with_for_update(skip_locked=True)
                 )
-                .with_for_update(skip_locked=True)
-            )
-            for model, workflow in fallback_query:
-                if not self._worker_matches_workflow(worker, workflow):
-                    continue
-                return model.to_plain()
+                for model, workflow in fallback_query:
+                    if self._worker_matches_workflow(worker, workflow):
+                        result = (model, workflow)
+                        break
 
-            return None
+            if result is None:
+                return None
+
+            model, workflow = result
+            ctx = model.to_plain()
+            ctx.resume_schedule(worker)
+            model.state = ctx.state
+            model.worker_name = ctx.current_worker
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+            return ctx
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
