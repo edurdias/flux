@@ -326,6 +326,29 @@ class Worker:
                     f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
 
+                base_url = f"{self.base_url}/{self.name}"
+                headers = {"Authorization": f"Bearer {self.session_token}"}
+
+                logger.debug(f"Claiming resumed execution: {request.context.execution_id}")
+                try:
+                    response = await self.client.post(
+                        f"{base_url}/claim/{request.context.execution_id}",
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as claim_err:
+                    if claim_err.response.status_code == 409:
+                        logger.info(
+                            f"Resume claim for {request.context.execution_id} returned 409 "
+                            f"(already claimed); dropping duplicate dispatch.",
+                        )
+                        return
+                    raise
+
+                logger.info(
+                    f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+
                 if m:
                     m.record_worker_execution_started(self.name)
 
