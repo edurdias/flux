@@ -141,3 +141,53 @@ def test_claim_resume_on_resuming_row_raises(manager):
     # Skip next_resume — row is still RESUMING
     with pytest.raises(ExecutionError):
         manager.claim_resume("exec-1", worker)
+
+
+def test_unclaim_from_resume_scheduled_recovers_to_resuming(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)  # → RESUME_SCHEDULED
+
+    ctx = manager.unclaim("exec-1")
+
+    assert ctx.state == ExecutionState.RESUMING
+
+
+def test_unclaim_from_resume_claimed_recovers_to_resuming(manager):
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)
+    manager.claim_resume("exec-1", worker)
+
+    ctx = manager.unclaim("exec-1")
+
+    assert ctx.state == ExecutionState.RESUMING
+
+
+def test_unclaim_from_running_still_recovers_to_created(manager):
+    """Regression-pin: initial-execution RUNNING crashes still go to CREATED."""
+    with manager.session() as session:
+        session.add(
+            WorkflowModel(
+                id="wf-2",
+                namespace="default",
+                name="test_wf_run",
+                version=1,
+                source=b"",
+                imports=[],
+            ),
+        )
+        session.commit()
+
+    ctx = ExecutionContext(
+        workflow_id="wf-2",
+        workflow_name="test_wf_run",
+        workflow_namespace="default",
+        input=None,
+        execution_id="exec-run",
+    )
+    ctx._state = ExecutionState.RUNNING
+    manager.save(ctx)
+
+    result = manager.unclaim("exec-run")
+    assert result.state == ExecutionState.CREATED

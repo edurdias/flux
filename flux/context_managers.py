@@ -348,8 +348,18 @@ class DatabaseContextManager(ContextManager):
             return ctx
 
     def unclaim(self, execution_id: str) -> ExecutionContext:
-        """Reset an active execution back to CREATED for rescheduling."""
-        reclaimable = {
+        """Reset an active execution for rescheduling.
+
+        Recovery rules:
+        - RESUME_SCHEDULED or RESUME_CLAIMED → RESUMING (preserves resume input)
+        - SCHEDULED, CLAIMED, or RUNNING → CREATED (existing behaviour)
+        - Any other state → no-op (returns the current context)
+        """
+        resume_recovery = {
+            ExecutionState.RESUME_SCHEDULED,
+            ExecutionState.RESUME_CLAIMED,
+        }
+        initial_recovery = {
             ExecutionState.SCHEDULED,
             ExecutionState.CLAIMED,
             ExecutionState.RUNNING,
@@ -358,11 +368,14 @@ class DatabaseContextManager(ContextManager):
             model = session.get(ExecutionContextModel, execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(execution_id)
-            if model.state not in reclaimable:
+            if model.state in resume_recovery:
+                model.state = ExecutionState.RESUMING
+                session.commit()
                 return model.to_plain()
-            model.state = ExecutionState.CREATED
-            model.worker_name = None
-            session.commit()
+            if model.state in initial_recovery:
+                model.state = ExecutionState.CREATED
+                session.commit()
+                return model.to_plain()
             return model.to_plain()
 
     def release_worker(self, execution_id: str) -> ExecutionContext:
