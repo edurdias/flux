@@ -349,6 +349,11 @@ class Worker:
                     f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
 
+                claim_data = response.json()
+                request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
+                if request.exec_token:
+                    request.context.set_exec_token(request.exec_token)
+
                 if m:
                     m.record_worker_execution_started(self.name)
 
@@ -421,6 +426,9 @@ class Worker:
                 )
                 response.raise_for_status()
                 claim_data = response.json()
+                request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
+                if request.exec_token:
+                    request.context.set_exec_token(request.exec_token)
                 logger.debug(f"Claim response: {claim_data}")
 
                 logger.info(
@@ -469,6 +477,24 @@ class Worker:
         Returns:
             ExecutionContext: The execution context after workflow execution
         """
+        from flux.remote_managers import (
+            RemoteConfigManager,
+            RemoteSecretManager,
+            reset_remote_managers,
+            set_remote_managers,
+        )
+
+        server_url = self.base_url.rsplit("/workers", 1)[0]
+        remote_tokens = set_remote_managers(
+            config=RemoteConfigManager(server_url, self.session_token),
+            secret=RemoteSecretManager(server_url, self.session_token),
+        )
+        try:
+            return await self._run_workflow(request)
+        finally:
+            reset_remote_managers(remote_tokens)
+
+    async def _run_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         logger.debug(
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )

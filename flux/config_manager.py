@@ -28,6 +28,11 @@ class ConfigManager(ABC):
 
     @staticmethod
     def current() -> ConfigManager:
+        from flux.remote_managers import get_remote_config
+
+        remote = get_remote_config()
+        if remote is not None:
+            return remote
         return DatabaseConfigManager()
 
 

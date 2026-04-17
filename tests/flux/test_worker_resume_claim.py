@@ -29,7 +29,17 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
 
     claim_response = MagicMock()
     claim_response.raise_for_status = MagicMock()
-    claim_response.json = MagicMock(return_value={"state": "RESUME_CLAIMED"})
+    claim_response.json = MagicMock(
+        return_value={
+            "workflow_id": "wf-1",
+            "workflow_namespace": "default",
+            "workflow_name": "test_wf",
+            "execution_id": "exec-resume-1",
+            "input": None,
+            "state": "RESUME_CLAIMED",
+            "events": [],
+        },
+    )
     claim_response.status_code = 200
 
     async def mock_post(url, **kwargs):

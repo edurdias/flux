@@ -31,6 +31,11 @@ class SecretManager(ABC):
 
     @staticmethod
     def current() -> SecretManager:
+        from flux.remote_managers import get_remote_secret
+
+        remote = get_remote_secret()
+        if remote is not None:
+            return remote
         return DatabaseSecretManager()
 
 

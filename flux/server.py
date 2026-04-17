@@ -1891,7 +1891,7 @@ class Server:
                 if event:
                     event.set()
 
-                return ctx.summary()
+                return ctx.to_dict()
             except HTTPException:
                 raise
             except Exception as e:

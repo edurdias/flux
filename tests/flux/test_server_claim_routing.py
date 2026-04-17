@@ -55,14 +55,18 @@ def _make_ctx(execution_id: str, state: ExecutionState) -> MagicMock:
     ctx = MagicMock(spec=ExecutionContext)
     ctx.execution_id = execution_id
     ctx.state = state
+    ctx_dict: dict[str, object] = {
+        "execution_id": execution_id,
+        "state": state.value,
+        "workflow_id": "wf-1",
+        "workflow_name": "claim_test_wf",
+        "workflow_namespace": "default",
+        "input": None,
+        "events": [],
+    }
+    ctx.to_dict = MagicMock(return_value=ctx_dict)
     ctx.summary = MagicMock(
-        return_value={
-            "execution_id": execution_id,
-            "state": state.value,
-            "workflow_id": "wf-1",
-            "workflow_name": "claim_test_wf",
-            "workflow_namespace": "default",
-        },
+        return_value={k: v for k, v in ctx_dict.items() if k != "events"},
     )
     return ctx
 
