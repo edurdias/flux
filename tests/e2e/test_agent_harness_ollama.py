@@ -4,20 +4,6 @@ These tests boot an :class:`AgentProcess` in a background asyncio task, drive
 ``/chat`` over HTTP/SSE, and rely on a live Ollama instance to exercise the
 full agent-chat workflow end-to-end. They are intentionally **local-only**: the
 ``ollama`` marker causes them to skip automatically when Ollama isn't running.
-
-**Run scenarios individually.** Running all five in one pytest invocation can
-hit WSL/uvicorn connection-reuse issues where a later test's SSE read raises
-``RemoteProtocolError`` even though the server is fine. Each scenario passes
-reliably in isolation::
-
-    poetry run pytest tests/e2e/test_agent_harness_ollama.py::test_api_mode_basic_chat_ollama -v -s
-    poetry run pytest tests/e2e/test_agent_harness_ollama.py::test_api_mode_multi_turn_conversation_ollama -v -s
-    poetry run pytest tests/e2e/test_agent_harness_ollama.py::test_api_mode_tool_calling_files_ollama -v -s
-    poetry run pytest tests/e2e/test_agent_harness_ollama.py::test_web_mode_serves_chat_page_and_streams_response_ollama -v -s
-    poetry run pytest tests/e2e/test_agent_harness_ollama.py::test_api_mode_session_resume_after_process_restart_ollama -v -s
-
-Tool-calling (qwen3:latest on WSL) can take 10+ minutes; the scenario uses a
-15-minute timeout.
 """
 
 from __future__ import annotations
@@ -307,6 +293,21 @@ async def test_api_mode_multi_turn_conversation_ollama(cli, agent_workflow):
             )
         text = _extract_response_text(events2).lower()
         assert "xyzzy" in text, f"Expected 'xyzzy' in response, got: {text!r}"
+
+        exec_detail = cli.execution_show(session_id, detailed=True)
+        event_types = [e.get("type") for e in exec_detail.get("events", [])]
+        assert (
+            event_types.count("WORKFLOW_RESUMING") == 1
+        ), f"Expected 1 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
+        assert (
+            event_types.count("WORKFLOW_RESUME_SCHEDULED") == 1
+        ), f"Expected 1 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
+        assert (
+            event_types.count("WORKFLOW_RESUME_CLAIMED") == 1
+        ), f"Expected 1 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
+        assert (
+            event_types.count("WORKFLOW_RESUMED") == 1
+        ), f"Expected 1 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
     finally:
         _teardown_agent(cli, agent_name)
 
@@ -355,7 +356,7 @@ async def test_api_mode_tool_calling_files_ollama(cli, agent_workflow, tmp_path)
                     "List every file in your workspace using your tools. "
                     "Then tell me each filename you found."
                 ),
-                timeout=900,
+                timeout=120,
             )
         kinds = [k for k, _ in events]
         assert _has_tool_calls(events), f"Expected at least one tool_start event; kinds={kinds}"
@@ -471,15 +472,23 @@ async def test_api_mode_session_resume_after_process_restart_ollama(
             )
         kinds2 = [k for k, _ in events2]
         text = _extract_response_text(events2).strip()
-        # Session plumbing: the SECOND AgentProcess resumed the SAME execution
-        # across a process boundary — this is the architecturally important
-        # bit, and success means we got any SSE events back on the resume POST.
         assert text or "chat_response" in kinds2, f"Resume produced no events; kinds={kinds2}"
-        # Memory recall: best-effort. Small local models (qwen3:latest) are
-        # flaky at precise recall; a stronger model would reliably say
-        # "purple". We log it for visibility but do not fail the test on
-        # wording alone.
         if "purple" not in text.lower():
             print(f"\n[note] model did not recall 'purple' exactly; said: {text!r}")
+
+        exec_detail = cli.execution_show(session_id, detailed=True)
+        event_types = [e.get("type") for e in exec_detail.get("events", [])]
+        assert (
+            event_types.count("WORKFLOW_RESUMING") == 1
+        ), f"Expected 1 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
+        assert (
+            event_types.count("WORKFLOW_RESUME_SCHEDULED") == 1
+        ), f"Expected 1 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
+        assert (
+            event_types.count("WORKFLOW_RESUME_CLAIMED") == 1
+        ), f"Expected 1 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
+        assert (
+            event_types.count("WORKFLOW_RESUMED") == 1
+        ), f"Expected 1 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
     finally:
         _teardown_agent(cli, agent_name)

@@ -191,8 +191,11 @@ class FluxCLI:
             args.extend(["--namespace", namespace])
         return self._server_json(args)
 
-    def execution_show(self, exec_id: str) -> dict:
-        return self._server_json(["execution", "show", exec_id])
+    def execution_show(self, exec_id: str, detailed: bool = False) -> dict:
+        args = ["execution", "show", exec_id]
+        if detailed:
+            args.append("--detailed")
+        return self._server_json(args)
 
     # -- schedule commands -------------------------------------------------
 
