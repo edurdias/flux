@@ -374,6 +374,7 @@ class DatabaseContextManager(ContextManager):
                 return model.to_plain()
             if model.state in initial_recovery:
                 model.state = ExecutionState.CREATED
+                model.worker_name = None
                 session.commit()
                 return model.to_plain()
             return model.to_plain()

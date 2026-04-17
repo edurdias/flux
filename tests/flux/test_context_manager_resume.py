@@ -191,3 +191,40 @@ def test_unclaim_from_running_still_recovers_to_created(manager):
 
     result = manager.unclaim("exec-run")
     assert result.state == ExecutionState.CREATED
+
+
+def test_unclaim_from_running_clears_worker_name(manager):
+    """Regression-pin: initial-recovery path clears worker_name so the row
+    falls back to affinity-based dispatch on next_execution."""
+    with manager.session() as session:
+        session.add(
+            WorkflowModel(
+                id="wf-running",
+                namespace="default",
+                name="running_wf",
+                version=1,
+                source=b"",
+                imports=[],
+            ),
+        )
+        session.commit()
+
+    ctx = ExecutionContext(
+        workflow_id="wf-running",
+        workflow_name="running_wf",
+        workflow_namespace="default",
+        input=None,
+        execution_id="exec-run-clear",
+    )
+    ctx._state = ExecutionState.RUNNING
+    ctx._current_worker = "w-1"
+    manager.save(ctx)
+
+    manager.unclaim("exec-run-clear")
+
+    # Re-fetch from DB to verify worker_name was cleared
+    with manager.session() as session:
+        model = session.get(ExecutionContextModel, "exec-run-clear")
+        assert (
+            model.worker_name is None
+        ), f"worker_name should be cleared on initial-recovery; got {model.worker_name!r}"
