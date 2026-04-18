@@ -19,6 +19,7 @@ class AgentProcess:
         session_id: str | None = None,
         token: str | None = None,
         port: int | None = None,
+        workflow_name: str = "agent_chat",
     ):
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode: '{mode}'. Must be one of: {VALID_MODES}")
@@ -29,6 +30,7 @@ class AgentProcess:
         self.session_id = session_id
         self.token = token
         self.port = port
+        self.workflow_name = workflow_name
         self.client = FluxClient(server_url=server_url, token=token)
         self.ui: UI | None = TerminalUI() if mode == "terminal" else None
 
@@ -44,6 +46,7 @@ class AgentProcess:
             client=self.client,
             agent_name=self.agent_name,
             session_id=self.session_id,
+            workflow_name=self.workflow_name,
         )
 
         if self.session_id is None:
@@ -115,5 +118,6 @@ class AgentProcess:
             agent_name=self.agent_name,
             operator_token=self.token,
             port=self.port or 8080,
+            workflow_name=self.workflow_name,
         )
         await server.serve()

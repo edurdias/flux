@@ -35,11 +35,13 @@ class ApiUI:
         agent_name: str,
         operator_token: str | None = None,
         port: int = 8080,
+        workflow_name: str = "agent_chat",
     ) -> None:
         self.server_url = server_url
         self.agent_name = agent_name
         self.operator_token = operator_token
         self.port = port
+        self.workflow_name = workflow_name
         self.app = FastAPI(title="Flux Agent API")
         self._setup_routes()
 
@@ -85,6 +87,7 @@ class ApiUI:
                 client=client,
                 agent_name=self.agent_name,
                 session_id=session,
+                workflow_name=self.workflow_name,
             )
 
             async def event_stream() -> AsyncIterator[dict]:
@@ -115,6 +118,7 @@ class ApiUI:
                 client=client,
                 agent_name=self.agent_name,
                 session_id=session,
+                workflow_name=self.workflow_name,
             )
             payload = {
                 "elicitation_response": {
