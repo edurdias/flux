@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from flux.tasks.ai.agent_loop import run_agent_loop
-from flux.tasks.ai.models import LLMResponse, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
 
 
 @pytest.fixture
@@ -184,3 +184,66 @@ async def test_progress_events_order(mock_formatter, progress_events):
 
     types = [e["type"] for e in events if e.get("type") in ("tool_start", "tool_done")]
     assert types == ["tool_start", "tool_done"]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_progress_event_emitted(mock_formatter, progress_events):
+    """When LLM returns reasoning content, a reasoning progress event is emitted."""
+    events, mock_progress = progress_events
+
+    reasoning = ReasoningContent(text="Let me think about this step by step.")
+    response_with_reasoning = LLMResponse(
+        text="The answer is 42.",
+        reasoning=reasoning,
+    )
+
+    llm_task = _make_llm_task([response_with_reasoning])
+
+    mock_tool = AsyncMock(return_value="ok")
+    mock_tool.name = "dummy"
+    mock_tool.func = MagicMock(__name__="dummy")
+    mock_tool.requires_approval = False
+
+    with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
+        result = await run_agent_loop(
+            llm_task=llm_task,
+            formatter=mock_formatter,
+            system_prompt="You are helpful.",
+            instruction="What is the meaning of life?",
+            tools=[mock_tool],
+            tool_schemas=[{"name": "dummy", "parameters": {}}],
+            stream=True,
+        )
+
+    reasoning_events = [e for e in events if e.get("type") == "reasoning"]
+    assert len(reasoning_events) == 1
+    assert reasoning_events[0]["text"] == "Let me think about this step by step."
+
+
+@pytest.mark.asyncio
+async def test_no_reasoning_event_when_reasoning_is_none(mock_formatter, progress_events):
+    """No reasoning event when the LLM response has no reasoning."""
+    events, mock_progress = progress_events
+
+    response_no_reasoning = LLMResponse(text="Simple answer.")
+
+    llm_task = _make_llm_task([response_no_reasoning])
+
+    mock_tool = AsyncMock(return_value="ok")
+    mock_tool.name = "dummy"
+    mock_tool.func = MagicMock(__name__="dummy")
+    mock_tool.requires_approval = False
+
+    with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
+        result = await run_agent_loop(
+            llm_task=llm_task,
+            formatter=mock_formatter,
+            system_prompt="You are helpful.",
+            instruction="Hello",
+            tools=[mock_tool],
+            tool_schemas=[{"name": "dummy", "parameters": {}}],
+            stream=True,
+        )
+
+    reasoning_events = [e for e in events if e.get("type") == "reasoning"]
+    assert len(reasoning_events) == 0

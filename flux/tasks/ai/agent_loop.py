@@ -115,6 +115,8 @@ async def run_agent_loop(
     call_counter += 1
     response = _ensure_llm_response(result)
     await _store_reasoning(working_memory, response)
+    if stream and response.reasoning and response.reasoning.text:
+        await progress({"type": "reasoning", "text": response.reasoning.text})
 
     always_approved: set[str] = set()
 
@@ -210,6 +212,8 @@ async def run_agent_loop(
         call_counter += 1
         response = _ensure_llm_response(result)
         await _store_reasoning(working_memory, response)
+        if stream and response.reasoning and response.reasoning.text:
+            await progress({"type": "reasoning", "text": response.reasoning.text})
 
         if (
             not response.tool_calls
@@ -230,6 +234,8 @@ async def run_agent_loop(
             call_counter += 1
             response = _ensure_llm_response(result)
             await _store_reasoning(working_memory, response)
+            if stream and response.reasoning and response.reasoning.text:
+                await progress({"type": "reasoning", "text": response.reasoning.text})
 
     if response.tool_calls and tool_call_count >= max_tool_calls:
         messages.append(formatter.format_assistant_message(response))
@@ -243,6 +249,8 @@ async def run_agent_loop(
         call_counter += 1
         response = _ensure_llm_response(result)
         await _store_reasoning(working_memory, response)
+        if stream and response.reasoning and response.reasoning.text:
+            await progress({"type": "reasoning", "text": response.reasoning.text})
 
     content = response.text
 
