@@ -23,7 +23,8 @@ class UI(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    async def display_reasoning(self, text: str) -> None: ...
+    async def display_reasoning(self, text: str) -> None:
+        ...
 
     @abstractmethod
     async def display_elicitation(self, request: dict) -> dict:
