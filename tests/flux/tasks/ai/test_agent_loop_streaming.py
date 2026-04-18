@@ -205,7 +205,7 @@ async def test_reasoning_progress_event_emitted(mock_formatter, progress_events)
     mock_tool.requires_approval = False
 
     with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
-        result = await run_agent_loop(
+        await run_agent_loop(
             llm_task=llm_task,
             formatter=mock_formatter,
             system_prompt="You are helpful.",
@@ -235,7 +235,7 @@ async def test_no_reasoning_event_when_reasoning_is_none(mock_formatter, progres
     mock_tool.requires_approval = False
 
     with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
-        result = await run_agent_loop(
+        await run_agent_loop(
             llm_task=llm_task,
             formatter=mock_formatter,
             system_prompt="You are helpful.",

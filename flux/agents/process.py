@@ -89,6 +89,8 @@ class AgentProcess:
             await self.ui.display_tool_start(event.data["name"], event.data["args"])
         elif event.kind == "tool_done":
             await self.ui.display_tool_done(event.data["name"], event.data["status"])
+        elif event.kind == "reasoning":
+            await self.ui.display_reasoning(event.data["text"])
         elif event.kind == "chat_response":
             await self.ui.display_response(event.data["content"])
         elif event.kind == "session_end":

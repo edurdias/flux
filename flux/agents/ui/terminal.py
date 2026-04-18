@@ -25,6 +25,9 @@ class TerminalUI(UI):
     async def display_token(self, text: str) -> None:
         print(text, end="", flush=True)
 
+    async def display_reasoning(self, text: str) -> None:
+        print(f"\n[thinking] {text}\n", flush=True)
+
     async def display_elicitation(self, request: dict) -> dict:
         server_name = request.get("server_name", "unknown")
         message = request.get("message", "Authorization required")

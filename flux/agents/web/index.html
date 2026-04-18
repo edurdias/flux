@@ -145,6 +145,9 @@
                 case 'tool_done':
                     addToolInfo(event.status === 'success' ? 'Done.' : 'Error.');
                     break;
+                case 'reasoning':
+                    addToolInfo(`[thinking] ${event.text}`);
+                    break;
                 case 'response':
                     if (event.content) {
                         addMessage(event.content, 'agent');
