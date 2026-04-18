@@ -26,6 +26,7 @@ KIND_TOOL_DONE = "tool_done"
 KIND_CHAT_RESPONSE = "chat_response"
 KIND_ELICITATION = "elicitation"
 KIND_SESSION_END = "session_end"
+KIND_REASONING = "reasoning"
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,11 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
             yield AgentEvent(
                 kind=KIND_TOOL_DONE,
                 data={"name": value.get("name", ""), "status": value.get("status", "")},
+            )
+        elif value.get("type") == KIND_REASONING:
+            yield AgentEvent(
+                kind=KIND_REASONING,
+                data={"text": value.get("text", "")},
             )
         return
 

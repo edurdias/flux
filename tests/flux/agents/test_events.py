@@ -161,3 +161,21 @@ def test_is_terminal_state_no_state():
 
 def test_is_terminal_state_lowercase():
     assert is_terminal_state({"state": "paused"}) is True
+
+
+def test_parses_reasoning_progress():
+    raw = {
+        "type": "TASK_PROGRESS",
+        "value": {"type": "reasoning", "text": "I think the answer is 42."},
+    }
+    events = list(parse_event(raw))
+    assert events == [AgentEvent(kind="reasoning", data={"text": "I think the answer is 42."})]
+
+
+def test_parses_reasoning_with_empty_text():
+    raw = {
+        "type": "TASK_PROGRESS",
+        "value": {"type": "reasoning", "text": ""},
+    }
+    events = list(parse_event(raw))
+    assert events == [AgentEvent(kind="reasoning", data={"text": ""})]
