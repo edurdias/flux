@@ -1782,6 +1782,30 @@ def create_agent(
         if reasoning_effort:
             data["reasoning_effort"] = reasoning_effort
 
+        if data.get("tools_file"):
+            tools_path = Path(data["tools_file"])
+            if tools_path.exists() and tools_path.is_file():
+                data["tools_file"] = tools_path.read_text()
+
+        if data.get("workflow_file"):
+            wf_path = Path(data["workflow_file"])
+            if wf_path.exists() and wf_path.is_file():
+                data["workflow_file"] = wf_path.read_text()
+
+        if data.get("skills_dir"):
+            skills_path = Path(data["skills_dir"])
+            if skills_path.is_dir():
+                skills_data = {}
+                for skill_dir in skills_path.iterdir():
+                    if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                        skill_files = {}
+                        for f in skill_dir.rglob("*"):
+                            if f.is_file():
+                                rel = str(f.relative_to(skills_path))
+                                skill_files[rel] = f.read_text()
+                        skills_data[skill_dir.name] = skill_files
+                data["skills_dir"] = json.dumps(skills_data)
+
         definition = AgentDefinition(**data)
 
         base_url = server_url or get_server_url()
@@ -2020,6 +2044,33 @@ def start_agent(name, mode, session_id, port, server):
 
         token = _get_auth_token()
 
+        workflow_name = "agent_chat"
+        try:
+            with get_http_client() as client:
+                resp = client.get(f"{server}/admin/agents/{name}")
+                if resp.status_code == 200:
+                    agent_def = resp.json()
+                    if agent_def.get("workflow_file"):
+                        click.echo("Custom workflow detected. Registering...")
+                        custom_name = f"agent_custom_{name}"
+                        source = agent_def["workflow_file"]
+                        if isinstance(source, str):
+                            source = source.encode("utf-8")
+                        reg_resp = client.post(
+                            f"{server}/workflows",
+                            files={"file": (f"{custom_name}.py", source)},
+                        )
+                        if reg_resp.status_code == 200:
+                            workflow_name = custom_name
+                            click.echo(f"Custom workflow registered as '{custom_name}'.")
+                        else:
+                            click.echo(
+                                f"Warning: failed to register custom workflow: {reg_resp.text}",
+                                err=True,
+                            )
+        except Exception:
+            pass
+
         process = AgentProcess(
             agent_name=name,
             server_url=server,
@@ -2027,6 +2078,7 @@ def start_agent(name, mode, session_id, port, server):
             session_id=session_id,
             token=token,
             port=port,
+            workflow_name=workflow_name,
         )
         asyncio.run(process.run())
     except KeyboardInterrupt:
@@ -2073,17 +2125,83 @@ def agent_session():
 @agent_session.command("list")
 @click.argument("agent_name", required=False)
 @click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
-def list_sessions(agent_name, format):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_sessions(agent_name, format, server_url):
     """List agent sessions."""
-    click.echo("Session listing requires server integration (not yet implemented).")
+    try:
+        url = server_url or get_server_url()
+        with get_http_client() as client:
+            resp = client.get(
+                f"{url}/executions",
+                params={"namespace": "agents", "workflow": "agent_chat", "limit": "50"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        executions = data.get("executions", data) if isinstance(data, dict) else data
+
+        if agent_name:
+            executions = [
+                e
+                for e in executions
+                if isinstance(e.get("input"), dict) and e["input"].get("agent") == agent_name
+            ]
+
+        if format == "json":
+            click.echo(json.dumps({"sessions": executions}, indent=2))
+        else:
+            if not executions:
+                click.echo("No sessions found.")
+                return
+            click.echo("Sessions:")
+            for e in executions:
+                agent = (
+                    e.get("input", {}).get("agent", "?")
+                    if isinstance(e.get("input"), dict)
+                    else "?"
+                )
+                eid = e.get("execution_id", "?")
+                click.echo(f"  {eid[:12]}...  state={e.get('state', '?'):10s}  agent={agent}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing sessions: {str(ex)}", err=True)
 
 
 @agent_session.command("show")
 @click.argument("session_id")
 @click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
-def show_session(session_id, format):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def show_session(session_id, format, server_url):
     """Show session details."""
-    click.echo(f"Session details for {session_id} (not yet implemented).")
+    try:
+        url = server_url or get_server_url()
+        with get_http_client() as client:
+            resp = client.get(f"{url}/executions/{session_id}")
+            if resp.status_code == 404:
+                click.echo(f"Session not found: {session_id}", err=True)
+                return
+            resp.raise_for_status()
+            data = resp.json()
+
+        if format == "json":
+            click.echo(json.dumps(data, indent=2))
+        else:
+            click.echo(f"Session: {data.get('execution_id', session_id)}")
+            click.echo(f"  State:    {data.get('state', '?')}")
+            click.echo(
+                f"  Workflow: {data.get('workflow_namespace', '?')}/{data.get('workflow_name', '?')}",
+            )
+            click.echo(f"  Worker:   {data.get('current_worker') or 'none'}")
+            inp = data.get("input")
+            agent = inp.get("agent", "?") if isinstance(inp, dict) else "?"
+            click.echo(f"  Agent:    {agent}")
+            if data.get("output"):
+                click.echo(f"  Output:   {json.dumps(data['output'])[:200]}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing session: {str(ex)}", err=True)
 
 
 @agent_session.command("resume")
