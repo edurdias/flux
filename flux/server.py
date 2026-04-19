@@ -668,7 +668,7 @@ class Server:
 
                 async def _revoke_worker_key():
                     try:
-                        registry = PrincipalRegistry.create()
+                        registry = PrincipalRegistry(session_factory=self._get_db_session)
                         principal = registry.find(subject=name, external_issuer="flux")
                         if principal:
                             await _auth_svc.revoke_all_api_keys(principal.id)
