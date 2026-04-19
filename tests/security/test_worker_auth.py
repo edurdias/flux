@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -182,3 +183,52 @@ class TestWorkerNameBinding:
         finally:
             settings.security.auth.oidc.enabled = original_oidc
             settings.security.auth.api_keys.enabled = original_keys
+
+
+@pytest.mark.asyncio
+async def test_eviction_revokes_api_key():
+    """When a worker is evicted, _disconnect_worker schedules key revocation."""
+    server = Server(host="localhost", port=8000)
+
+    mock_principal = MagicMock()
+    mock_principal.id = "principal-123"
+
+    mock_registry = MagicMock()
+    mock_registry.find.return_value = mock_principal
+
+    mock_auth = MagicMock()
+    mock_auth.revoke_all_api_keys = AsyncMock(return_value=1)
+
+    with (
+        patch(
+            "flux.security.dependencies._get_auth_service",
+            return_value=mock_auth,
+        ),
+        patch(
+            "flux.security.principals.PrincipalRegistry.create",
+            return_value=mock_registry,
+        ),
+    ):
+        server._disconnect_worker("test-worker", reason="evicted")
+        await asyncio.sleep(0.1)
+
+    mock_registry.find.assert_called_once_with(subject="test-worker", external_issuer="flux")
+    mock_auth.revoke_all_api_keys.assert_called_once_with("principal-123")
+
+
+@pytest.mark.asyncio
+async def test_disconnect_without_eviction_does_not_revoke():
+    """Normal disconnect (not eviction) should NOT revoke the API key."""
+    server = Server(host="localhost", port=8000)
+
+    mock_auth = MagicMock()
+    mock_auth.revoke_all_api_keys = AsyncMock()
+
+    with patch(
+        "flux.security.dependencies._get_auth_service",
+        return_value=mock_auth,
+    ):
+        server._disconnect_worker("test-worker", reason="disconnect")
+        await asyncio.sleep(0.1)
+
+    mock_auth.revoke_all_api_keys.assert_not_called()
