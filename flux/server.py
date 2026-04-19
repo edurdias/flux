@@ -1578,41 +1578,36 @@ class Server:
                     labels=registration.labels,
                 )
 
-                if auth_service is not None and auth_config.enabled:
-                    try:
-                        principal = principal_registry.find(
+                if auth_service is not None and auth_config.api_keys.enabled:
+                    principal = principal_registry.find(
+                        subject=registration.name,
+                        external_issuer="flux",
+                    )
+                    if not principal:
+                        principal = principal_registry.create(
+                            type="service_account",
                             subject=registration.name,
                             external_issuer="flux",
                         )
-                        if not principal:
-                            principal = principal_registry.create(
-                                type="service_account",
-                                subject=registration.name,
-                                external_issuer="flux",
-                            )
-                        existing_roles = principal_registry.get_roles(principal.id)
-                        if "worker" not in existing_roles:
-                            principal_registry.assign_role(principal.id, "worker")
-                        await auth_service.revoke_all_api_keys(principal.id)
-                        api_key = await auth_service.create_api_key(
-                            principal.id,
-                            key_name=f"worker-{registration.name}",
-                        )
-                        result.session_token = api_key
+                    if not principal.enabled:
+                        principal_registry.set_enabled(principal.id, True)
+                    existing_roles = principal_registry.get_roles(principal.id)
+                    if "worker" not in existing_roles:
+                        principal_registry.assign_role(principal.id, "worker")
+                    await auth_service.revoke_all_api_keys(principal.id)
+                    api_key = await auth_service.create_api_key(
+                        principal.id,
+                        key_name=f"worker-{registration.name}",
+                    )
+                    result.session_token = api_key
 
-                        from flux.observability import get_metrics as _gm_prov
+                    from flux.observability import get_metrics as _gm_prov
 
-                        _m_prov = _gm_prov()
-                        if _m_prov:
-                            _m_prov.record_worker_auth_event(
-                                registration.name,
-                                "principal_provisioned",
-                            )
-                    except Exception as provision_err:
-                        logger.warning(
-                            f"Failed to provision service principal for worker "
-                            f"{registration.name}: {provision_err}. "
-                            f"Worker will use legacy session token.",
+                    _m_prov = _gm_prov()
+                    if _m_prov:
+                        _m_prov.record_worker_auth_event(
+                            registration.name,
+                            "principal_provisioned",
                         )
 
                 self._worker_cache[registration.name] = WorkerResponse(
