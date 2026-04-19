@@ -659,6 +659,28 @@ class Server:
         if m:
             m.record_worker_disconnected(name, reason)
 
+        if reason == "evicted":
+            from flux.security.dependencies import _get_auth_service
+            from flux.security.principals import PrincipalRegistry
+
+            _auth_svc = _get_auth_service()
+            if _auth_svc is not None:
+
+                async def _revoke_worker_key():
+                    try:
+                        registry = PrincipalRegistry.create()
+                        principal = registry.find(subject=name, external_issuer="flux")
+                        if principal:
+                            await _auth_svc.revoke_all_api_keys(principal.id)
+                            logger.info(f"Revoked API key for evicted worker {name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to revoke API key for worker {name}: {e}")
+
+                try:
+                    asyncio.create_task(_revoke_worker_key())
+                except RuntimeError:
+                    logger.warning(f"Cannot revoke API key for {name}: no event loop")
+
     def _unclaim_worker_executions(self, worker_name: str) -> None:
         """Release all executions assigned to an evicted worker.
 
