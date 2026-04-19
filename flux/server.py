@@ -380,13 +380,16 @@ class Server:
             raise HTTPException(status_code=401, detail="Invalid authorization format")
         return authorization.split(" ")[1]
 
-    def _get_worker(self, name: str, authorization: str | None) -> WorkerInfo:
-        token = self._extract_token(authorization)
-        registry = WorkerRegistry.create()
-        worker = registry.get(name)
-        if worker.session_token != token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-        return worker
+    def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
+        from flux.config import Configuration
+
+        auth_config = Configuration.get().settings.security.auth
+        if auth_config.enabled and identity.subject != name:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Worker identity mismatch: authenticated as '{identity.subject}', "
+                f"but accessing endpoint for '{name}'",
+            )
 
     def _get_version(self) -> str:
         import importlib.metadata
@@ -1635,10 +1638,13 @@ class Server:
                 )
 
         @api.post("/workers/{name}/pong")
-        async def workers_pong(name: str, authorization: str = Header(None)):
+        async def workers_pong(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             """Receive heartbeat pong from a worker."""
             try:
-                self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
                 self._worker_stale_since.pop(name, None)
                 logger.debug(f"Pong received from worker {name}")
@@ -1649,10 +1655,15 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @api.get("/workers/{name}/connect")
-        async def workers_connect(name: str, authorization: str = Header(None)):
+        async def workers_connect(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             try:
                 logger.debug(f"Worker connection request: {name}")
-                worker = self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
+                registry = WorkerRegistry.create()
+                worker = registry.get(name)
                 logger.info(f"Worker connected: {name}")
 
                 worker_event = asyncio.Event()
@@ -1867,10 +1878,16 @@ class Server:
                 raise HTTPException(status_code=404, detail=str(e))
 
         @api.post("/workers/{name}/claim/{execution_id}")
-        async def workers_claim(name: str, execution_id: str, authorization: str = Header(None)):
+        async def workers_claim(
+            name: str,
+            execution_id: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
-                worker = self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
+                registry = WorkerRegistry.create()
+                worker = registry.get(name)
                 context_manager = ContextManager.create()
                 ctx = context_manager.claim(execution_id, worker)
                 self._worker_executions.setdefault(name, set()).add(execution_id)
@@ -1899,7 +1916,7 @@ class Server:
             name: str,
             execution_id: str,
             context: ExecutionContextDTO = Body(...),
-            authorization: str = Header(None),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             try:
                 logger.debug(
@@ -1907,7 +1924,7 @@ class Server:
                 )
                 logger.debug(f"Execution state: {context.state}")
 
-                self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
 
                 context_manager = ContextManager.create()
@@ -1943,9 +1960,9 @@ class Server:
             name: str,
             execution_id: str,
             events: list = Body(...),
-            authorization: str = Header(None),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
-            self._get_worker(name, authorization)
+            self._verify_worker_identity(identity, name)
             self._worker_last_pong[name] = time.monotonic()
 
             buffer = self._progress_buffers.get(execution_id)
