@@ -205,12 +205,12 @@ async def test_eviction_revokes_api_key():
             return_value=mock_auth,
         ),
         patch(
-            "flux.security.principals.PrincipalRegistry.create",
+            "flux.security.principals.PrincipalRegistry",
             return_value=mock_registry,
         ),
     ):
         server._disconnect_worker("test-worker", reason="evicted")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
     mock_registry.find.assert_called_once_with(subject="test-worker", external_issuer="flux")
     mock_auth.revoke_all_api_keys.assert_called_once_with("principal-123")
@@ -229,6 +229,6 @@ async def test_disconnect_without_eviction_does_not_revoke():
         return_value=mock_auth,
     ):
         server._disconnect_worker("test-worker", reason="disconnect")
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0)
 
     mock_auth.revoke_all_api_keys.assert_not_called()
