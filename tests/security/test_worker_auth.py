@@ -165,7 +165,7 @@ class TestWorkerNameBinding:
                     "/workers/worker-A/pong",
                     headers={"Authorization": "Bearer fake-token"},
                 )
-                assert resp.status_code != 403
+                assert resp.status_code == 200
         finally:
             settings.security.auth.api_keys.enabled = original
 
