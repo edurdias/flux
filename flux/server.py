@@ -1541,7 +1541,7 @@ class Server:
                     labels=registration.labels,
                 )
 
-                if auth_config.enabled:
+                if auth_service is not None and auth_config.enabled:
                     try:
                         principal = principal_registry.find(
                             subject=registration.name,
