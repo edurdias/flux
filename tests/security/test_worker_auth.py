@@ -117,12 +117,8 @@ def _mock_auth(identity: FluxIdentity):
     async def mock_is_authorized(ident, permission):
         return True
 
-    async def mock_resolve_permissions(ident):
-        return {"worker:*:*", "config:*:read", "admin:secrets:read", "execution:*:read"}
-
     mock_service.authenticate = mock_authenticate
     mock_service.is_authorized = mock_is_authorized
-    mock_service.resolve_permissions = mock_resolve_permissions
 
     return patch(
         "flux.security.dependencies._get_auth_service",
