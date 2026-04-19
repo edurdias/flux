@@ -218,6 +218,7 @@ class ExecutionSummaryResponse(BaseModel):
     workflow_name: str
     state: str
     worker_name: str | None = None
+    input: Any = None
 
 
 class ExecutionListResponse(BaseModel):
@@ -2813,6 +2814,7 @@ class Server:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
+                            input=ex.input,
                         )
                         for ex in executions
                     ],
@@ -2933,6 +2935,7 @@ class Server:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
+                            input=ex.input,
                         )
                         for ex in executions
                     ],
