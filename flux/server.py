@@ -383,6 +383,11 @@ class Server:
     def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
         auth_config = Configuration.get().settings.security.auth
         if auth_config.enabled and identity.subject != name:
+            from flux.observability import get_metrics as _gm_bind
+
+            _m_bind = _gm_bind()
+            if _m_bind:
+                _m_bind.record_worker_auth_event(name, "identity_mismatch")
             raise HTTPException(
                 status_code=403,
                 detail=f"Worker identity mismatch: authenticated as '{identity.subject}', "
@@ -673,6 +678,15 @@ class Server:
                         if principal:
                             await _auth_svc.revoke_all_api_keys(principal.id)
                             logger.info(f"Revoked API key for evicted worker {name}")
+
+                            from flux.observability import get_metrics as _gm_evict
+
+                            _m_evict = _gm_evict()
+                            if _m_evict:
+                                _m_evict.record_worker_auth_event(
+                                    name,
+                                    "key_revoked",
+                                )
                     except Exception as e:
                         logger.warning(f"Failed to revoke API key for worker {name}: {e}")
 
@@ -1585,6 +1599,15 @@ class Server:
                             key_name=f"worker-{registration.name}",
                         )
                         result.session_token = api_key
+
+                        from flux.observability import get_metrics as _gm_prov
+
+                        _m_prov = _gm_prov()
+                        if _m_prov:
+                            _m_prov.record_worker_auth_event(
+                                registration.name,
+                                "principal_provisioned",
+                            )
                     except Exception as provision_err:
                         logger.warning(
                             f"Failed to provision service principal for worker "
