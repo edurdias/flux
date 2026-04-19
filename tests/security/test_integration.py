@@ -141,7 +141,7 @@ class TestFullAuthorizationFlow:
         auth_service.seed_built_in_roles()
         auth_service.seed_built_in_roles()
         roles = await auth_service.list_roles()
-        assert sum(1 for r in roles if r.built_in) == 3
+        assert sum(1 for r in roles if r.built_in) == 4
 
     @pytest.mark.asyncio
     async def test_authorize_nested_workflows(self, auth_service):
