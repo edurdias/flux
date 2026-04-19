@@ -1,5 +1,12 @@
-from unittest.mock import AsyncMock
+from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from flux.server import Server
+from flux.security.identity import FluxIdentity
 from flux.worker import WorkflowExecutionRequest
 
 
@@ -88,3 +95,94 @@ class TestWorkerSetsExecTokenOnContext:
         }
         request = WorkflowExecutionRequest.from_json(data, checkpoint=AsyncMock())
         assert request.context.exec_token is None
+
+
+@pytest.fixture
+def server_app():
+    server = Server(host="localhost", port=8000)
+    return server._create_api()
+
+
+@pytest.fixture
+def client(server_app):
+    return TestClient(server_app)
+
+
+def _mock_auth(identity: FluxIdentity):
+    mock_service = MagicMock()
+
+    async def mock_authenticate(token):
+        return identity
+
+    async def mock_is_authorized(ident, permission):
+        return True
+
+    async def mock_resolve_permissions(ident):
+        return {"worker:*:*", "config:*:read", "admin:secrets:read", "execution:*:read"}
+
+    mock_service.authenticate = mock_authenticate
+    mock_service.is_authorized = mock_is_authorized
+    mock_service.resolve_permissions = mock_resolve_permissions
+
+    return patch(
+        "flux.security.dependencies._get_auth_service",
+        return_value=mock_service,
+    )
+
+
+class TestWorkerNameBinding:
+    def test_pong_rejects_identity_mismatch(self, client):
+        identity = FluxIdentity(
+            subject="worker-A",
+            roles=frozenset({"worker"}),
+        )
+        from flux.config import Configuration
+
+        settings = Configuration.get().settings
+        original = settings.security.auth.api_keys.enabled
+        settings.security.auth.api_keys.enabled = True
+        try:
+            with _mock_auth(identity):
+                resp = client.post(
+                    "/workers/worker-B/pong",
+                    headers={"Authorization": "Bearer fake-token"},
+                )
+                assert resp.status_code == 403
+                assert "mismatch" in resp.json()["detail"].lower()
+        finally:
+            settings.security.auth.api_keys.enabled = original
+
+    def test_pong_allows_identity_match(self, client):
+        identity = FluxIdentity(
+            subject="worker-A",
+            roles=frozenset({"worker"}),
+        )
+        from flux.config import Configuration
+
+        settings = Configuration.get().settings
+        original = settings.security.auth.api_keys.enabled
+        settings.security.auth.api_keys.enabled = True
+        try:
+            with _mock_auth(identity):
+                resp = client.post(
+                    "/workers/worker-A/pong",
+                    headers={"Authorization": "Bearer fake-token"},
+                )
+                assert resp.status_code != 403
+        finally:
+            settings.security.auth.api_keys.enabled = original
+
+    def test_pong_skips_name_check_when_auth_disabled(self, client):
+        from flux.config import Configuration
+
+        settings = Configuration.get().settings
+        original_oidc = settings.security.auth.oidc.enabled
+        original_keys = settings.security.auth.api_keys.enabled
+        settings.security.auth.oidc.enabled = False
+        settings.security.auth.api_keys.enabled = False
+        try:
+            resp = client.post("/workers/any-name/pong")
+            assert resp.status_code != 403
+        finally:
+            settings.security.auth.oidc.enabled = original_oidc
+            settings.security.auth.api_keys.enabled = original_keys
