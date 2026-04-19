@@ -2,10 +2,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from flux.security.auth_service import AuthService
+from flux.security.auth_service import AuthService, BUILT_IN_ROLES
 from flux.security.identity import FluxIdentity
 from flux.security.config import AuthConfig, OIDCConfig, APIKeyAuthConfig
-from flux.security.models import RoleModel
+from flux.security.models import RoleModel, APIKeyModel
 from flux.security.errors import AuthenticationError
 
 
@@ -230,3 +230,61 @@ def test_collect_required_permissions_visited_set_uses_tuple_key():
     # Both should appear — they're separate entities despite sharing a short name
     assert "workflow:billing:process:run" in perms
     assert "workflow:analytics:process:run" in perms
+
+
+class TestBuiltInWorkerRole:
+    def test_worker_role_exists(self):
+        assert "worker" in BUILT_IN_ROLES
+
+    def test_worker_role_permissions(self):
+        perms = BUILT_IN_ROLES["worker"]
+        assert "worker:*:*" in perms
+        assert "config:*:read" in perms
+        assert "admin:secrets:read" in perms
+        assert "execution:*:read" in perms
+        assert len(perms) == 4
+
+
+class TestRevokeAllApiKeys:
+    @pytest.mark.asyncio
+    async def test_revoke_all_api_keys_deletes_all(self):
+        config = AuthConfig()
+        session = MagicMock()
+        key1 = MagicMock(spec=APIKeyModel)
+        key2 = MagicMock(spec=APIKeyModel)
+        session.query.return_value.filter_by.return_value.all.return_value = [key1, key2]
+        service = AuthService(config=config, session_factory=lambda: session)
+
+        count = await service.revoke_all_api_keys("principal-1")
+
+        assert count == 2
+        session.delete.assert_any_call(key1)
+        session.delete.assert_any_call(key2)
+        session.commit.assert_called_once()
+        session.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_revoke_all_api_keys_returns_zero_when_none(self):
+        config = AuthConfig()
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.all.return_value = []
+        service = AuthService(config=config, session_factory=lambda: session)
+
+        count = await service.revoke_all_api_keys("principal-1")
+
+        assert count == 0
+        session.delete.assert_not_called()
+        session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_revoke_all_api_keys_rolls_back_on_error(self):
+        config = AuthConfig()
+        session = MagicMock()
+        session.query.return_value.filter_by.return_value.all.side_effect = RuntimeError("db error")
+        service = AuthService(config=config, session_factory=lambda: session)
+
+        with pytest.raises(RuntimeError, match="db error"):
+            await service.revoke_all_api_keys("principal-1")
+
+        session.rollback.assert_called_once()
+        session.close.assert_called_once()
