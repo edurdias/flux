@@ -1541,6 +1541,34 @@ class Server:
                     labels=registration.labels,
                 )
 
+                if auth_config.enabled:
+                    try:
+                        principal = principal_registry.find(
+                            subject=registration.name,
+                            external_issuer="flux",
+                        )
+                        if not principal:
+                            principal = principal_registry.create(
+                                type="service_account",
+                                subject=registration.name,
+                                external_issuer="flux",
+                            )
+                        existing_roles = principal_registry.get_roles(principal.id)
+                        if "worker" not in existing_roles:
+                            principal_registry.assign_role(principal.id, "worker")
+                        await auth_service.revoke_all_api_keys(principal.id)
+                        api_key = await auth_service.create_api_key(
+                            principal.id,
+                            key_name=f"worker-{registration.name}",
+                        )
+                        result.session_token = api_key
+                    except Exception as provision_err:
+                        logger.warning(
+                            f"Failed to provision service principal for worker "
+                            f"{registration.name}: {provision_err}. "
+                            f"Worker will use legacy session token.",
+                        )
+
                 self._worker_cache[registration.name] = WorkerResponse(
                     name=registration.name,
                     status="online" if registration.name in self._worker_names else "offline",
