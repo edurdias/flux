@@ -381,8 +381,6 @@ class Server:
         return authorization.split(" ")[1]
 
     def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
-        from flux.config import Configuration
-
         auth_config = Configuration.get().settings.security.auth
         if auth_config.enabled and identity.subject != name:
             raise HTTPException(
@@ -1907,6 +1905,8 @@ class Server:
                     event.set()
 
                 return ctx.summary()
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error claiming execution {execution_id} by worker {name}: {str(e)}")
                 raise HTTPException(status_code=404, detail=str(e))
