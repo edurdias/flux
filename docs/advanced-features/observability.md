@@ -55,7 +55,7 @@ FLUX_OBSERVABILITY__METRIC_EXPORT_INTERVAL=60
 
 ## Metrics
 
-Flux exposes 19 metric instruments accessible via the Prometheus `/metrics` endpoint at `http://localhost:8000/metrics`.
+Flux exposes 18 metric instruments accessible via the Prometheus `/metrics` endpoint at `http://localhost:8000/metrics`.
 
 ### Workflow Metrics
 

@@ -1912,6 +1912,8 @@ class Server:
                         "Connection": "keep-alive",
                     },
                 )
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
