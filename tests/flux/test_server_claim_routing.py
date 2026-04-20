@@ -19,7 +19,6 @@ from flux import ExecutionContext
 from flux.domain.events import ExecutionState
 from flux.errors import ExecutionContextNotFoundError
 from flux.server import Server
-from flux.worker_registry import WorkerInfo
 
 
 @pytest.fixture
@@ -36,17 +35,35 @@ def server_app(server_instance):
 
 @pytest.fixture
 def test_client(server_app, server_instance):
-    """Create a test client with _get_worker patched to bypass auth.
+    """Create a test client with auth bypassed.
 
-    The handler calls self._get_worker(name, authorization), which enforces a
-    session_token match. To keep these tests focused on state-based routing,
-    we stub the method to return a WorkerInfo directly.
+    The handler uses require_permission("worker:*:*") + _verify_worker_identity.
+    We stub both to keep tests focused on state-based routing.
     """
+    from flux.security.identity import FluxIdentity
 
-    def fake_get_worker(name, authorization):
-        return WorkerInfo(name=name)
+    worker_identity = FluxIdentity(subject="test-worker", roles=frozenset({"worker"}))
+    mock_auth = MagicMock()
 
-    with patch.object(server_instance, "_get_worker", side_effect=fake_get_worker):
+    async def mock_authenticate(token):
+        return worker_identity
+
+    async def mock_is_authorized(identity, permission):
+        return True
+
+    mock_auth.authenticate = mock_authenticate
+    mock_auth.is_authorized = mock_is_authorized
+
+    from flux.worker_registry import WorkerInfo
+
+    mock_registry = MagicMock()
+    mock_registry.get.return_value = WorkerInfo(name="test-worker")
+
+    with (
+        patch.object(server_instance, "_verify_worker_identity"),
+        patch("flux.security.dependencies._get_auth_service", return_value=mock_auth),
+        patch("flux.server.WorkerRegistry.create", return_value=mock_registry),
+    ):
         yield TestClient(server_app)
 
 
