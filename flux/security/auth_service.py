@@ -32,7 +32,6 @@ BUILT_IN_ROLES = {
         "execution:*",
         "agent:*:*",
         "config:*:read",
-        "config:*:manage",
     ],
     "viewer": [
         "workflow:*:*:read",

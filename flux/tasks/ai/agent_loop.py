@@ -171,7 +171,7 @@ async def run_agent_loop(
 
         if stream:
             for tc_dict, result in zip(tool_call_dicts, results):
-                status = "error" if result.get("error") else "success"
+                status = "error" if "error" in result else "success"
                 await progress(
                     {
                         "type": "tool_done",
