@@ -629,6 +629,66 @@ Pair that with `workflow_file: ./custom_chat.py` in the agent definition.
 
 Agent processes are stateless and can be horizontally scaled behind a load balancer when running in `api` mode. Sessions are addressed by execution ID, which is globally unique, so two processes can serve different sessions of the same agent concurrently without any shared state.
 
+## Examples
+
+Ready-to-use agent definitions and supporting code are in `examples/agents/`. Each YAML file is a complete agent definition you can create and run immediately.
+
+| Example | What it shows |
+|---------|---------------|
+| `assistant.yaml` | Minimal agent — model + system prompt, no tools |
+| `coder.yaml` | System tools, MCP integration, planning, reasoning |
+| `ollama_local.yaml` | Fully offline agent using a local Ollama model |
+| `researcher.yaml` | Long-term memory, skills, plan approval |
+| `delegation.yaml` | Lead agent delegating to specialist sub-agents |
+| `custom_tools.py` | `@task` functions used as agent tools via `--tools-file` |
+| `custom_workflow.py` | Custom chat loop with welcome message and turn limit |
+| `api_client.py` | Python client for headless API mode interaction |
+
+### Custom tools
+
+Define `@task` functions in a Python file and reference them at creation time:
+
+```bash
+flux agent create support-bot \
+  --model anthropic/claude-sonnet-4-20250514 \
+  --system-prompt "You are a support agent." \
+  --tools-file examples/agents/custom_tools.py
+```
+
+Each `@task` function becomes a callable tool. The function name is the tool name and the docstring is the tool description sent to the LLM. At creation time, the file is read and stored inline in the agent definition — workers load it from the database, not the filesystem.
+
+### Custom workflows
+
+Override the built-in `agent_chat` template with a workflow file:
+
+```bash
+flux agent create my-agent \
+  --model anthropic/claude-sonnet-4-20250514 \
+  --system-prompt "You are a helpful assistant." \
+  --workflow-file examples/agents/custom_workflow.py
+```
+
+Custom workflows must follow the [agent workflow contract](#agent-workflow-contract): accept `{"agent": "<name>"}` as input, pause with typed output, accept `{"message": "..."}` on resume.
+
+### API mode integration
+
+Start an agent in headless API mode and interact from any HTTP client:
+
+```bash
+flux agent start assistant --mode api --port 9100
+```
+
+Endpoints:
+
+```
+POST /chat                  Start a new session (SSE response)
+POST /chat?session=<id>     Resume a session (SSE response)
+POST /elicitation/<id>      Respond to an MCP elicitation
+GET  /health                Health check
+```
+
+Every request except `/health` requires `Authorization: Bearer <token>`. See `examples/agents/api_client.py` for a Python client example.
+
 ## Example: A Coding Assistant
 
 This walks through a realistic end-to-end flow: define an agent, start a session, have a conversation, resume it later.

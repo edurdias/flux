@@ -1,0 +1,34 @@
+# Research agent with long-term memory and skills.
+#
+# This agent remembers findings across sessions via SQLite-backed
+# long-term memory and uses skills for structured research workflows.
+#
+# Usage:
+#   flux agent create researcher --file examples/agents/researcher.yaml
+#   flux agent start researcher --mode terminal
+
+name: researcher
+model: anthropic/claude-sonnet-4-20250514
+description: Research agent with persistent memory and skills
+system_prompt: |
+  You are a research assistant. Gather information from available
+  tools, synthesize findings, and store key insights in long-term
+  memory for future reference. Use skills when they match the task.
+  Cite sources when possible.
+
+tools:
+  - system_tools:
+      workspace: .
+      timeout: 30
+
+skills_dir: examples/ai/skills
+
+long_term_memory:
+  provider: sqlite
+  scope: "research:default"
+
+planning: true
+approve_plan: true
+max_tool_calls: 20
+max_tokens: 4096
+stream: true

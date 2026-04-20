@@ -71,6 +71,13 @@
    - [MCP Client](advanced-features/task-patterns.md#mcp-client)
    - [Performance Considerations](advanced-features/task-patterns.md#performance-considerations)
 
+### [Agent Harness](advanced-features/agent-harness.md)
+   - [Quick Start](advanced-features/agent-harness.md#quick-start)
+   - [CLI Reference](advanced-features/agent-harness.md#cli-reference)
+   - [Agent YAML Specification](advanced-features/agent-harness.md#agent-yaml-specification)
+   - [Serving Modes](advanced-features/agent-harness.md#serving-modes)
+   - [Examples](advanced-features/agent-harness.md#examples)
+
 ### [AI Agents](advanced-features/ai-agents.md)
    - [Supported Providers](advanced-features/ai-agents.md#supported-providers)
    - [Tool Calling](advanced-features/ai-agents.md#tool-calling)

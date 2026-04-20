@@ -1,0 +1,25 @@
+# Agent using a local Ollama model — fully offline, no API keys needed.
+#
+# Prerequisites:
+#   ollama pull qwen3:8b
+#
+# Usage:
+#   flux agent create local-agent --file examples/agents/ollama_local.yaml
+#   flux agent start local-agent --mode terminal
+
+name: local-agent
+model: ollama/qwen3:8b
+description: Local agent using Ollama (no API keys required)
+system_prompt: |
+  You are a helpful assistant running on a local Ollama model.
+  Answer questions clearly and concisely.
+
+tools:
+  - files:
+      workspace: .
+  - search:
+      workspace: .
+
+max_tool_calls: 10
+max_tokens: 4096
+stream: true
