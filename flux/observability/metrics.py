@@ -115,6 +115,11 @@ class FluxMetrics:
             description="Concurrent executions per worker",
         )
 
+        self.worker_auth_events = meter.create_counter(
+            "flux_worker_auth_events_total",
+            description="Worker authentication lifecycle events",
+        )
+
         self.schedule_triggers = meter.create_counter(
             "flux_schedule_triggers_total",
             description="Schedule trigger events",
@@ -250,6 +255,12 @@ class FluxMetrics:
 
     def record_worker_execution_ended(self, worker_name: str):
         self.worker_executions_active.add(-1, {"worker_name": worker_name})
+
+    def record_worker_auth_event(self, worker_name: str, event: str):
+        self.worker_auth_events.add(
+            1,
+            {"worker_name": worker_name, "event": event},
+        )
 
     def record_schedule_trigger(self, schedule_name: str, outcome: str):
         self.schedule_triggers.add(1, {"schedule_name": schedule_name, "outcome": outcome})

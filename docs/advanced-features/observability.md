@@ -89,6 +89,7 @@ Flux exposes 18 metric instruments accessible via the Prometheus `/metrics` endp
 | `flux_worker_registrations_total` | Counter | `worker_name` | Registration events |
 | `flux_worker_disconnections_total` | Counter | `worker_name`, `reason` | Disconnection events |
 | `flux_worker_executions_active` | UpDownCounter | `worker_name` | Concurrent executions per worker |
+| `flux_worker_auth_events_total` | Counter | `worker_name`, `event` | Worker auth lifecycle (`principal_provisioned`, `key_revoked`, `identity_mismatch`) |
 | `flux_module_cache_total` | Counter | `result` | Module cache lookups (`hit`, `miss`) |
 
 ### Schedule Metrics
@@ -171,6 +172,9 @@ histogram_quantile(0.95, rate(flux_http_request_duration_seconds_bucket[5m]))
 
 # Connected workers
 flux_workers_active
+
+# Worker identity mismatch attempts (potential impersonation)
+rate(flux_worker_auth_events_total{event="identity_mismatch"}[5m])
 
 # Execution queue depth
 flux_execution_queue_depth

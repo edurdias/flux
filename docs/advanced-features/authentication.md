@@ -72,6 +72,31 @@ default_user_roles = ["viewer"]
 
 Subsequent logins update `last_seen_at` and refresh `metadata` (display name, locale, etc.) but do not change roles. Roles are managed exclusively via the principals registry.
 
+### Worker service principals
+
+Workers are auto-provisioned as service account principals when they register. The registration flow:
+
+1. Worker sends `POST /workers/register` with the bootstrap token
+2. Server validates the bootstrap token and registers the worker
+3. Server creates (or finds) a service account principal with `subject=<worker-name>` and `external_issuer="flux"`
+4. Server assigns the `worker` role and generates an API key
+5. Worker receives the API key as its `session_token` and uses it for all subsequent calls
+
+The `worker` role grants:
+
+| Permission | Purpose |
+|-----------|---------|
+| `worker:*:*` | All worker-specific endpoints (pong, connect, claim, checkpoint, progress) |
+| `config:*:read` | Read agent configs at runtime |
+| `admin:secrets:read` | Read secrets for MCP auth |
+| `execution:*:read` | Read execution state |
+
+**Name binding:** Each worker endpoint verifies that the authenticated principal's subject matches the worker name in the URL path. Worker A cannot access `/workers/worker-B/pong`.
+
+**Eviction:** When the heartbeat reaper evicts a worker, its API key is revoked. When the worker reconnects and gets a 401, it re-registers with the bootstrap token, which provisions a fresh API key.
+
+**Auth-disabled mode:** When auth is disabled, worker endpoints are unprotected (consistent with all other endpoints). The name-binding check is skipped.
+
 ## RBAC
 
 Flux enforces RBAC at API and task level. Roles are collections of permissions.
@@ -83,6 +108,7 @@ Flux enforces RBAC at API and task level. Roles are collections of permissions.
 | `admin` | `*` — full access |
 | `operator` | Run and manage workflows, schedules, executions |
 | `viewer` | Read-only access |
+| `worker` | Worker endpoints, read configs/secrets/executions |
 
 ### Permission format
 
@@ -353,6 +379,12 @@ flux principals revoke-key <subject> --key-name <name>
 | `DELETE` | `/admin/principals/{id}` | `admin:principals:manage` |
 | `POST` | `/admin/principals/{id}/keys` | `admin:principals:manage` |
 | `DELETE` | `/admin/principals/{id}/keys/{name}` | `admin:principals:manage` |
+| `POST` | `/workers/register` | bootstrap_token |
+| `POST` | `/workers/{name}/pong` | `worker:*:*` |
+| `GET` | `/workers/{name}/connect` | `worker:*:*` |
+| `POST` | `/workers/{name}/claim/{id}` | `worker:*:*` |
+| `POST` | `/workers/{name}/checkpoint/{id}` | `worker:*:*` |
+| `POST` | `/workers/{name}/progress/{id}` | `worker:*:*` |
 
 ## Dev Environment
 

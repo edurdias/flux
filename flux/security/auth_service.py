@@ -36,6 +36,12 @@ BUILT_IN_ROLES = {
         "execution:*:read",
         "schedule:*:read",
     ],
+    "worker": [
+        "worker:*:*",
+        "config:*:read",
+        "admin:secrets:read",
+        "execution:*:read",
+    ],
 }
 
 
@@ -413,6 +419,21 @@ class AuthService:
                 raise ValueError(f"API key '{key_name}' not found")
             session.delete(key)
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    async def revoke_all_api_keys(self, principal_id: str) -> int:
+        session = self._session_factory()
+        try:
+            keys = session.query(APIKeyModel).filter_by(principal_id=principal_id).all()
+            count = len(keys)
+            for key in keys:
+                session.delete(key)
+            session.commit()
+            return count
         except Exception:
             session.rollback()
             raise
