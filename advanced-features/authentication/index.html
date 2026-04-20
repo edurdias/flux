@@ -1125,6 +1125,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Auto-provisioning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#worker-service-principals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker service principals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1463,6 +1480,45 @@
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
 </code></pre></div>
 <p>Subsequent logins update <code>last_seen_at</code> and refresh <code>metadata</code> (display name, locale, etc.) but do not change roles. Roles are managed exclusively via the principals registry.</p>
+<h3 id="worker-service-principals">Worker service principals<a class="headerlink" href="#worker-service-principals" title="Permanent link">&para;</a></h3>
+<p>Workers are auto-provisioned as service account principals when they register. The registration flow:</p>
+<ol>
+<li>Worker sends <code>POST /workers/register</code> with the bootstrap token</li>
+<li>Server validates the bootstrap token and registers the worker</li>
+<li>Server creates (or finds) a service account principal with <code>subject=&lt;worker-name&gt;</code> and <code>external_issuer="flux"</code></li>
+<li>Server assigns the <code>worker</code> role and generates an API key</li>
+<li>Worker receives the API key as its <code>session_token</code> and uses it for all subsequent calls</li>
+</ol>
+<p>The <code>worker</code> role grants:</p>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>worker:*:*</code></td>
+<td>All worker-specific endpoints (pong, connect, claim, checkpoint, progress)</td>
+</tr>
+<tr>
+<td><code>config:*:read</code></td>
+<td>Read agent configs at runtime</td>
+</tr>
+<tr>
+<td><code>admin:secrets:read</code></td>
+<td>Read secrets for MCP auth</td>
+</tr>
+<tr>
+<td><code>execution:*:read</code></td>
+<td>Read execution state</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Name binding:</strong> Each worker endpoint verifies that the authenticated principal's subject matches the worker name in the URL path. Worker A cannot access <code>/workers/worker-B/pong</code>.</p>
+<p><strong>Eviction:</strong> When the heartbeat reaper evicts a worker, its API key is revoked. When the worker reconnects and gets a 401, it re-registers with the bootstrap token, which provisions a fresh API key.</p>
+<p><strong>Auth-disabled mode:</strong> When auth is disabled, worker endpoints are unprotected (consistent with all other endpoints). The name-binding check is skipped.</p>
 <h2 id="rbac">RBAC<a class="headerlink" href="#rbac" title="Permanent link">&para;</a></h2>
 <p>Flux enforces RBAC at API and task level. Roles are collections of permissions.</p>
 <h3 id="built-in-roles">Built-in roles<a class="headerlink" href="#built-in-roles" title="Permanent link">&para;</a></h3>
@@ -1485,6 +1541,10 @@
 <tr>
 <td><code>viewer</code></td>
 <td>Read-only access</td>
+</tr>
+<tr>
+<td><code>worker</code></td>
+<td>Worker endpoints, read configs/secrets/executions</td>
 </tr>
 </tbody>
 </table>
@@ -1861,6 +1921,36 @@
 <td><code>DELETE</code></td>
 <td><code>/admin/principals/{id}/keys/{name}</code></td>
 <td><code>admin:principals:manage</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/workers/register</code></td>
+<td>bootstrap_token</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/workers/{name}/pong</code></td>
+<td><code>worker:*:*</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/workers/{name}/connect</code></td>
+<td><code>worker:*:*</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/workers/{name}/claim/{id}</code></td>
+<td><code>worker:*:*</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/workers/{name}/checkpoint/{id}</code></td>
+<td><code>worker:*:*</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/workers/{name}/progress/{id}</code></td>
+<td><code>worker:*:*</code></td>
 </tr>
 </tbody>
 </table>
