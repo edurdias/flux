@@ -141,6 +141,17 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_worker_executions_active")
         assert metric is not None
 
+    def test_record_worker_auth_event(self):
+        m, reader = self._create_metrics()
+        m.record_worker_auth_event("worker-1", "principal_provisioned")
+
+        metric = self._get_metric(reader, "flux_worker_auth_events_total")
+        assert metric is not None
+        dp = metric.data.data_points[0]
+        assert dp.attributes["worker_name"] == "worker-1"
+        assert dp.attributes["event"] == "principal_provisioned"
+        assert dp.value == 1
+
     def test_record_schedule_trigger(self):
         m, reader = self._create_metrics()
         m.record_schedule_trigger("nightly", "success")

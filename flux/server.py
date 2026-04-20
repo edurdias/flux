@@ -385,13 +385,19 @@ class Server:
             raise HTTPException(status_code=401, detail="Invalid authorization format")
         return authorization.split(" ")[1]
 
-    def _get_worker(self, name: str, authorization: str | None) -> WorkerInfo:
-        token = self._extract_token(authorization)
-        registry = WorkerRegistry.create()
-        worker = registry.get(name)
-        if worker.session_token != token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-        return worker
+    def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
+        auth_config = Configuration.get().settings.security.auth
+        if auth_config.enabled and identity.subject != name:
+            from flux.observability import get_metrics as _gm_bind
+
+            _m_bind = _gm_bind()
+            if _m_bind:
+                _m_bind.record_worker_auth_event(name, "identity_mismatch")
+            raise HTTPException(
+                status_code=403,
+                detail=f"Worker identity mismatch: authenticated as '{identity.subject}', "
+                f"but accessing endpoint for '{name}'",
+            )
 
     def _get_version(self) -> str:
         import importlib.metadata
@@ -662,6 +668,37 @@ class Server:
         m = get_metrics()
         if m:
             m.record_worker_disconnected(name, reason)
+
+        if reason == "evicted":
+            from flux.security.dependencies import _get_auth_service
+            from flux.security.principals import PrincipalRegistry
+
+            _auth_svc = _get_auth_service()
+            if _auth_svc is not None:
+
+                async def _revoke_worker_key():
+                    try:
+                        registry = PrincipalRegistry(session_factory=self._get_db_session)
+                        principal = registry.find(subject=name, external_issuer="flux")
+                        if principal:
+                            await _auth_svc.revoke_all_api_keys(principal.id)
+                            logger.info(f"Revoked API key for evicted worker {name}")
+
+                            from flux.observability import get_metrics as _gm_evict
+
+                            _m_evict = _gm_evict()
+                            if _m_evict:
+                                _m_evict.record_worker_auth_event(
+                                    name,
+                                    "key_revoked",
+                                )
+                    except Exception as e:
+                        logger.warning(f"Failed to revoke API key for worker {name}: {e}")
+
+                try:
+                    asyncio.create_task(_revoke_worker_key())
+                except RuntimeError:
+                    logger.warning(f"Cannot revoke API key for {name}: no event loop")
 
     def _unclaim_worker_executions(self, worker_name: str) -> None:
         """Recover all executions assigned to an evicted worker.
@@ -1550,6 +1587,38 @@ class Server:
                     labels=registration.labels,
                 )
 
+                if auth_service is not None and auth_config.api_keys.enabled:
+                    principal = principal_registry.find(
+                        subject=registration.name,
+                        external_issuer="flux",
+                    )
+                    if not principal:
+                        principal = principal_registry.create(
+                            type="service_account",
+                            subject=registration.name,
+                            external_issuer="flux",
+                        )
+                    if not principal.enabled:
+                        principal_registry.set_enabled(principal.id, True)
+                    existing_roles = principal_registry.get_roles(principal.id)
+                    if "worker" not in existing_roles:
+                        principal_registry.assign_role(principal.id, "worker")
+                    await auth_service.revoke_all_api_keys(principal.id)
+                    api_key = await auth_service.create_api_key(
+                        principal.id,
+                        key_name=f"worker-{registration.name}",
+                    )
+                    result.session_token = api_key
+
+                    from flux.observability import get_metrics as _gm_prov
+
+                    _m_prov = _gm_prov()
+                    if _m_prov:
+                        _m_prov.record_worker_auth_event(
+                            registration.name,
+                            "principal_provisioned",
+                        )
+
                 self._worker_cache[registration.name] = WorkerResponse(
                     name=registration.name,
                     status="online" if registration.name in self._worker_names else "offline",
@@ -1616,10 +1685,13 @@ class Server:
                 )
 
         @api.post("/workers/{name}/pong")
-        async def workers_pong(name: str, authorization: str = Header(None)):
+        async def workers_pong(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             """Receive heartbeat pong from a worker."""
             try:
-                self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
                 self._worker_stale_since.pop(name, None)
                 logger.debug(f"Pong received from worker {name}")
@@ -1630,10 +1702,15 @@ class Server:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @api.get("/workers/{name}/connect")
-        async def workers_connect(name: str, authorization: str = Header(None)):
+        async def workers_connect(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             try:
                 logger.debug(f"Worker connection request: {name}")
-                worker = self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
+                registry = WorkerRegistry.create()
+                worker = registry.get(name)
                 logger.info(f"Worker connected: {name}")
 
                 worker_event = asyncio.Event()
@@ -1844,16 +1921,24 @@ class Server:
                         "Connection": "keep-alive",
                     },
                 )
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=404, detail=str(e))
 
         @api.post("/workers/{name}/claim/{execution_id}")
-        async def workers_claim(name: str, execution_id: str, authorization: str = Header(None)):
+        async def workers_claim(
+            name: str,
+            execution_id: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
             from flux.domain import ExecutionState
 
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
-                worker = self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
+                registry = WorkerRegistry.create()
+                worker = registry.get(name)
                 context_manager = ContextManager.create()
 
                 try:
@@ -1904,7 +1989,7 @@ class Server:
             name: str,
             execution_id: str,
             context: ExecutionContextDTO = Body(...),
-            authorization: str = Header(None),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             try:
                 logger.debug(
@@ -1912,7 +1997,7 @@ class Server:
                 )
                 logger.debug(f"Execution state: {context.state}")
 
-                self._get_worker(name, authorization)
+                self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
 
                 context_manager = ContextManager.create()
@@ -1945,9 +2030,9 @@ class Server:
             name: str,
             execution_id: str,
             events: list = Body(...),
-            authorization: str = Header(None),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
-            self._get_worker(name, authorization)
+            self._verify_worker_identity(identity, name)
             self._worker_last_pong[name] = time.monotonic()
 
             buffer = self._progress_buffers.get(execution_id)
