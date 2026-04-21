@@ -92,7 +92,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
         for srv in agent_def["mcp_servers"]:
             auth = None
             if srv.get("secret"):
-                secrets = SecretManager.current().get([srv["secret"]])
+                secrets = await SecretManager.current().get([srv["secret"]])
                 auth = bearer(token=secrets[srv["secret"]])
 
             client = mcp(

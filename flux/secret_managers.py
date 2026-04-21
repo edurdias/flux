@@ -21,7 +21,7 @@ class SecretManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get(self, secret_requests: list[str]) -> dict[str, Any]:  # pragma: no cover
+    async def get(self, secret_requests: list[str]) -> dict[str, Any]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -75,7 +75,7 @@ class DatabaseSecretManager(SecretManager):
                 session.rollback()
                 raise
 
-    def get(self, secret_requests: list[str]) -> dict[str, Any]:
+    async def get(self, secret_requests: list[str]) -> dict[str, Any]:
         with self.session() as session:
             stmt = select(SecretModel.name, SecretModel.value).where(
                 SecretModel.name.in_(secret_requests),

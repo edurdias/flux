@@ -19,7 +19,7 @@ class ConfigManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get(self, config_requests: list[str]) -> dict[str, Any]:
+    async def get(self, config_requests: list[str]) -> dict[str, Any]:
         raise NotImplementedError()
 
     @abstractmethod
@@ -64,7 +64,7 @@ class DatabaseConfigManager(ConfigManager):
                 session.delete(config)
                 session.commit()
 
-    def get(self, config_requests: list[str]) -> dict[str, Any]:
+    async def get(self, config_requests: list[str]) -> dict[str, Any]:
         with self.session() as session:
             stmt = select(ConfigModel.name, ConfigModel.value).where(
                 ConfigModel.name.in_(config_requests),

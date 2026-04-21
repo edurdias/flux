@@ -2093,7 +2093,7 @@ class Server:
                 # Get secret value
                 secret_manager = SecretManager.current()
                 try:
-                    result = secret_manager.get([name])
+                    result = await secret_manager.get([name])
                     logger.info(f"Admin API: Successfully retrieved secret '{name}'")
                     return SecretResponse(name=name, value=result[name])
                 except ValueError:
@@ -2185,7 +2185,7 @@ class Server:
 
             try:
                 manager = ConfigManager.current()
-                result = manager.get([name])
+                result = await manager.get([name])
                 return {"name": name, "value": result[name]}
             except ValueError:
                 raise HTTPException(status_code=404, detail=f"Config not found: {name}")
@@ -2235,7 +2235,7 @@ class Server:
 
             try:
                 manager = ConfigManager.current()
-                result = manager.get(keys)
+                result = await manager.get(keys)
                 return result
             except ValueError as ex:
                 raise HTTPException(status_code=404, detail=str(ex))
@@ -2249,7 +2249,7 @@ class Server:
         ):
             try:
                 secret_manager = SecretManager.current()
-                result = secret_manager.get(keys)
+                result = await secret_manager.get(keys)
                 return result
             except ValueError as ex:
                 raise HTTPException(status_code=404, detail=str(ex))

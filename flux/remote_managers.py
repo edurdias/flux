@@ -25,7 +25,7 @@ class RemoteConfigManager(ConfigManager):
     def __init__(self, server_url: str, auth_token: str | None = None) -> None:
         self._server_url = server_url.rstrip("/")
         self._auth_token = auth_token
-        self._client = httpx.Client(timeout=30)
+        self._client = httpx.AsyncClient(timeout=30)
 
     def _headers(self) -> dict[str, str]:
         h: dict[str, str] = {}
@@ -33,8 +33,8 @@ class RemoteConfigManager(ConfigManager):
             h["Authorization"] = f"Bearer {self._auth_token}"
         return h
 
-    def get(self, config_requests: list[str]) -> dict[str, Any]:
-        resp = self._client.post(
+    async def get(self, config_requests: list[str]) -> dict[str, Any]:
+        resp = await self._client.post(
             f"{self._server_url}/admin/configs/batch",
             json=config_requests,
             headers=self._headers(),
@@ -51,12 +51,7 @@ class RemoteConfigManager(ConfigManager):
         raise NotImplementedError("RemoteConfigManager is read-only on the worker")
 
     def all(self) -> list[str]:
-        resp = self._client.get(
-            f"{self._server_url}/admin/configs",
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        raise NotImplementedError("RemoteConfigManager requires async context")
 
 
 class RemoteSecretManager(SecretManager):
@@ -65,7 +60,7 @@ class RemoteSecretManager(SecretManager):
     def __init__(self, server_url: str, auth_token: str | None = None) -> None:
         self._server_url = server_url.rstrip("/")
         self._auth_token = auth_token
-        self._client = httpx.Client(timeout=30)
+        self._client = httpx.AsyncClient(timeout=30)
 
     def _headers(self) -> dict[str, str]:
         h: dict[str, str] = {}
@@ -73,8 +68,8 @@ class RemoteSecretManager(SecretManager):
             h["Authorization"] = f"Bearer {self._auth_token}"
         return h
 
-    def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        resp = self._client.post(
+    async def get(self, secret_requests: list[str]) -> dict[str, Any]:
+        resp = await self._client.post(
             f"{self._server_url}/admin/secrets/batch",
             json=secret_requests,
             headers=self._headers(),
@@ -91,12 +86,7 @@ class RemoteSecretManager(SecretManager):
         raise NotImplementedError("RemoteSecretManager is read-only on the worker")
 
     def all(self) -> list[str]:
-        resp = self._client.get(
-            f"{self._server_url}/admin/secrets",
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        raise NotImplementedError("RemoteSecretManager requires async context")
 
 
 def set_remote_managers(

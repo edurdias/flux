@@ -279,14 +279,14 @@ class task:
 
                     if not output:
                         if self.secret_requests:
-                            secrets = SecretManager.current().get(self.secret_requests)
+                            secrets = await SecretManager.current().get(self.secret_requests)
                             kwargs = {**kwargs, "secrets": secrets}
 
                         if self.config_requests:
                             resolved_keys = [k.format(**task_args) for k in self.config_requests]
                             from flux.config_manager import ConfigManager
 
-                            configs = ConfigManager.current().get(resolved_keys)
+                            configs = await ConfigManager.current().get(resolved_keys)
                             kwargs = {**kwargs, "config": configs}
 
                         if self.metadata:

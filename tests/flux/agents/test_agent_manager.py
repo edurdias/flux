@@ -146,7 +146,7 @@ def test_create_with_full_config(manager):
 # ---------------------------------------------------------------------------
 
 
-def test_create_publishes_config_entry(manager):
+async def test_create_publishes_config_entry(manager):
     from flux.config_manager import ConfigManager
 
     definition = AgentDefinition(
@@ -156,14 +156,14 @@ def test_create_publishes_config_entry(manager):
     )
     manager.create(definition)
 
-    config = ConfigManager.current().get(["agent:test_agent"])
+    config = await ConfigManager.current().get(["agent:test_agent"])
     assert "agent:test_agent" in config
     assert config["agent:test_agent"]["name"] == "test_agent"
     assert config["agent:test_agent"]["model"] == "ollama/qwen3:latest"
     assert config["agent:test_agent"]["system_prompt"] == "You are terse."
 
 
-def test_update_republishes_config_entry(manager):
+async def test_update_republishes_config_entry(manager):
     from flux.config_manager import ConfigManager
 
     definition = AgentDefinition(
@@ -176,11 +176,11 @@ def test_update_republishes_config_entry(manager):
     definition.system_prompt = "Updated."
     manager.update(definition)
 
-    config = ConfigManager.current().get(["agent:update_agent"])
+    config = await ConfigManager.current().get(["agent:update_agent"])
     assert config["agent:update_agent"]["system_prompt"] == "Updated."
 
 
-def test_delete_removes_config_entry(manager):
+async def test_delete_removes_config_entry(manager):
     from flux.config_manager import ConfigManager
 
     definition = AgentDefinition(
@@ -192,4 +192,4 @@ def test_delete_removes_config_entry(manager):
     manager.delete("delete_agent")
 
     with pytest.raises(ValueError, match="not found"):
-        ConfigManager.current().get(["agent:delete_agent"])
+        await ConfigManager.current().get(["agent:delete_agent"])
