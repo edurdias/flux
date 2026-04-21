@@ -22,6 +22,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     tools = resolve_builtin_tools(agent_def.get("tools", []))
 
     skills = None
+    _skills_tmp_dir = None
     if agent_def.get("skills_dir"):
         import tempfile
         from pathlib import Path
@@ -35,7 +36,8 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
                 pass
 
         if isinstance(skills_data, dict):
-            tmp = Path(tempfile.mkdtemp(prefix="flux_skills_"))
+            _skills_tmp_dir = tempfile.TemporaryDirectory(prefix="flux_skills_")
+            tmp = Path(_skills_tmp_dir.name)
             for skill_name, files in skills_data.items():
                 for file_path, content in files.items():
                     full_path = tmp / file_path
@@ -147,8 +149,12 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     turn = 0
     response = None
 
-    while True:
-        output = ChatResponseOutput(content=response, turn=turn).model_dump()
-        next_input = await pause(f"turn_{turn}", output=output)
-        response = await chatbot(next_input["message"])
-        turn += 1
+    try:
+        while True:
+            output = ChatResponseOutput(content=response, turn=turn).model_dump()
+            next_input = await pause(f"turn_{turn}", output=output)
+            response = await chatbot(next_input["message"])
+            turn += 1
+    finally:
+        if _skills_tmp_dir is not None:
+            _skills_tmp_dir.cleanup()

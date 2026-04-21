@@ -68,7 +68,11 @@ class TestAgentDefinition:
             stream=True,
             approval_mode="always",
             reasoning_effort="high",
-            long_term_memory={"provider": "sqlite", "scope": "user:default"},
+            long_term_memory={
+                "provider": "sqlite",
+                "connection": "memory.db",
+                "scope": "user:default",
+            },
         )
         assert agent.name == "coder"
         assert agent.planning is True
@@ -90,6 +94,34 @@ class TestAgentDefinition:
                 system_prompt="Help.",
                 reasoning_effort="invalid",
             )
+
+    def test_long_term_memory_requires_connection(self):
+        with pytest.raises(ValidationError, match="long_term_memory.connection"):
+            AgentDefinition(
+                name="bad",
+                model="openai/gpt-4o",
+                system_prompt="Help.",
+                long_term_memory={"provider": "sqlite"},
+            )
+
+    def test_long_term_memory_with_connection_accepted(self):
+        agent = AgentDefinition(
+            name="ok",
+            model="openai/gpt-4o",
+            system_prompt="Help.",
+            long_term_memory={"provider": "sqlite", "connection": "memory.db"},
+        )
+        assert agent.long_term_memory["connection"] == "memory.db"
+
+    def test_mutable_defaults_are_independent(self):
+        a = AgentDefinition(name="a", model="openai/gpt-4o", system_prompt="A")
+        b = AgentDefinition(name="b", model="openai/gpt-4o", system_prompt="B")
+        a.tools.append("shell")
+        assert b.tools == []
+        a.mcp_servers.append({"url": "http://x"})
+        assert b.mcp_servers == []
+        a.agents.append("sub")
+        assert b.agents == []
 
     def test_serialization_roundtrip(self):
         agent = AgentDefinition(

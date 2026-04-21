@@ -2218,6 +2218,36 @@ class Server:
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
+        @api.post("/admin/configs/batch")
+        async def admin_batch_configs(
+            keys: list[str] = Body(...),
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                result = manager.get(keys)
+                return result
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/secrets/batch")
+        async def admin_batch_secrets(
+            keys: list[str] = Body(...),
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:read")),
+        ):
+            try:
+                secret_manager = SecretManager.current()
+                result = secret_manager.get(keys)
+                return result
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
         # Agent API
 
         @api.get("/admin/agents")
@@ -2259,12 +2289,25 @@ class Server:
 
             try:
                 definition = AgentDefinition(**agent_data)
+                if definition.tools_file or definition.workflow_file:
+                    if auth_service is not None:
+                        has_perm = await auth_service.is_authorized(
+                            identity,
+                            "workflow:*:*:register",
+                        )
+                        if not has_perm:
+                            raise HTTPException(
+                                status_code=403,
+                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                            )
                 manager = AgentManager.current()
                 manager.create(definition)
                 return {
                     "status": "success",
                     "message": f"Agent '{definition.name}' created successfully",
                 }
+            except HTTPException:
+                raise
             except ValueError as ex:
                 raise HTTPException(status_code=409, detail=str(ex))
             except Exception as ex:
@@ -2282,12 +2325,25 @@ class Server:
             try:
                 agent_data["name"] = name
                 definition = AgentDefinition(**agent_data)
+                if definition.tools_file or definition.workflow_file:
+                    if auth_service is not None:
+                        has_perm = await auth_service.is_authorized(
+                            identity,
+                            "workflow:*:*:register",
+                        )
+                        if not has_perm:
+                            raise HTTPException(
+                                status_code=403,
+                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                            )
                 manager = AgentManager.current()
                 manager.update(definition)
                 return {
                     "status": "success",
                     "message": f"Agent '{name}' updated successfully",
                 }
+            except HTTPException:
+                raise
             except ValueError as ex:
                 raise HTTPException(status_code=404, detail=str(ex))
             except Exception as ex:

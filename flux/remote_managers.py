@@ -20,7 +20,7 @@ _REMOTE_SECRET: ContextVar[SecretManager | None] = ContextVar("_remote_secret", 
 
 
 class RemoteConfigManager(ConfigManager):
-    """Resolves configs via the Flux server's /admin/configs/{name} endpoint."""
+    """Resolves configs via the Flux server's batch endpoint."""
 
     def __init__(self, server_url: str, auth_token: str | None = None) -> None:
         self._server_url = server_url.rstrip("/")
@@ -33,22 +33,32 @@ class RemoteConfigManager(ConfigManager):
         return h
 
     def get(self, config_requests: list[str]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key in config_requests:
-            resp = httpx.get(
-                f"{self._server_url}/admin/configs/{key}",
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self.aget(config_requests))
+                return future.result()
+        return asyncio.run(self.aget(config_requests))
+
+    async def aget(self, config_requests: list[str]) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self._server_url}/admin/configs/batch",
+                json=config_requests,
                 headers=self._headers(),
-                timeout=30,
             )
             if resp.status_code == 404:
-                continue
+                raise ValueError(resp.json().get("detail", "Configs not found"))
             resp.raise_for_status()
-            data = resp.json()
-            result[key] = data.get("value", data)
-        missing = set(config_requests) - set(result)
-        if missing:
-            raise ValueError(f"The following configs were not found: {sorted(missing)}")
-        return result
+            return resp.json()
 
     def save(self, name: str, value: Any) -> None:
         raise NotImplementedError("RemoteConfigManager is read-only on the worker")
@@ -57,17 +67,33 @@ class RemoteConfigManager(ConfigManager):
         raise NotImplementedError("RemoteConfigManager is read-only on the worker")
 
     def all(self) -> list[str]:
-        resp = httpx.get(
-            f"{self._server_url}/admin/configs",
-            headers=self._headers(),
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self._aget_all())
+                return future.result()
+        return asyncio.run(self._aget_all())
+
+    async def _aget_all(self) -> list[str]:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{self._server_url}/admin/configs",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
 
 
 class RemoteSecretManager(SecretManager):
-    """Resolves secrets via the Flux server's /admin/secrets/{name} endpoint."""
+    """Resolves secrets via the Flux server's batch endpoint."""
 
     def __init__(self, server_url: str, auth_token: str | None = None) -> None:
         self._server_url = server_url.rstrip("/")
@@ -80,22 +106,32 @@ class RemoteSecretManager(SecretManager):
         return h
 
     def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key in secret_requests:
-            resp = httpx.get(
-                f"{self._server_url}/admin/secrets/{key}",
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self.aget(secret_requests))
+                return future.result()
+        return asyncio.run(self.aget(secret_requests))
+
+    async def aget(self, secret_requests: list[str]) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self._server_url}/admin/secrets/batch",
+                json=secret_requests,
                 headers=self._headers(),
-                timeout=30,
             )
             if resp.status_code == 404:
-                continue
+                raise ValueError(resp.json().get("detail", "Secrets not found"))
             resp.raise_for_status()
-            data = resp.json()
-            result[key] = data.get("value", data)
-        missing = set(secret_requests) - set(result)
-        if missing:
-            raise ValueError(f"The following secrets were not found: {sorted(missing)}")
-        return result
+            return resp.json()
 
     def save(self, name: str, value: Any) -> None:
         raise NotImplementedError("RemoteSecretManager is read-only on the worker")
@@ -104,13 +140,29 @@ class RemoteSecretManager(SecretManager):
         raise NotImplementedError("RemoteSecretManager is read-only on the worker")
 
     def all(self) -> list[str]:
-        resp = httpx.get(
-            f"{self._server_url}/admin/secrets",
-            headers=self._headers(),
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self._aget_all())
+                return future.result()
+        return asyncio.run(self._aget_all())
+
+    async def _aget_all(self) -> list[str]:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{self._server_url}/admin/secrets",
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()
 
 
 def set_remote_managers(

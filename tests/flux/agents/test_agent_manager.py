@@ -121,7 +121,7 @@ def test_create_with_full_config(manager):
         planning=True,
         max_tool_calls=20,
         reasoning_effort="high",
-        long_term_memory={"provider": "sqlite", "scope": "default"},
+        long_term_memory={"provider": "sqlite", "connection": "memory.db", "scope": "default"},
     )
     manager.create(definition)
     result = manager.get("test_agent")
@@ -129,7 +129,11 @@ def test_create_with_full_config(manager):
     assert result.planning is True
     assert result.max_tool_calls == 20
     assert result.reasoning_effort == "high"
-    assert result.long_term_memory == {"provider": "sqlite", "scope": "default"}
+    assert result.long_term_memory == {
+        "provider": "sqlite",
+        "connection": "memory.db",
+        "scope": "default",
+    }
     assert result.tools == [{"system_tools": {"workspace": "/tmp", "timeout": 30}}]
 
 

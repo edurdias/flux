@@ -842,6 +842,10 @@ class TestAgentAdminEndpointsRBAC:
             finally:
                 settings.security.auth.api_keys.enabled = orig_keys
 
+        assert expected_permission in permissions_checked, (
+            f"Expected permission '{expected_permission}' was never checked; "
+            f"permissions actually checked: {permissions_checked}"
+        )
         return resp, permissions_checked
 
     def test_update_agent_requires_update_permission_not_create(self, client):

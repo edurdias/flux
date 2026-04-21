@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AgentDefinition(BaseModel):
@@ -10,12 +10,12 @@ class AgentDefinition(BaseModel):
     model: str
     system_prompt: str
     description: str | None = None
-    tools: list[Any] = []
+    tools: list[Any] = Field(default_factory=list)
     tools_file: str | None = None
     workflow_file: str | None = None
-    mcp_servers: list[dict[str, Any]] = []
+    mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
     skills_dir: str | None = None
-    agents: list[str] = []
+    agents: list[str] = Field(default_factory=list)
     planning: bool = False
     max_plan_steps: int = 20
     approve_plan: bool = False
@@ -42,6 +42,15 @@ class AgentDefinition(BaseModel):
                 f"reasoning_effort must be 'low', 'medium', 'high', or None, got: '{v}'",
             )
         return v
+
+    @model_validator(mode="after")
+    def validate_long_term_memory(self) -> AgentDefinition:
+        if self.long_term_memory is not None:
+            if not self.long_term_memory.get("connection"):
+                raise ValueError(
+                    "long_term_memory.connection is required when long_term_memory is set",
+                )
+        return self
 
 
 class AgentPauseOutput(BaseModel):
