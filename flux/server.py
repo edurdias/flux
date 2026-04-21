@@ -218,7 +218,6 @@ class ExecutionSummaryResponse(BaseModel):
     workflow_name: str
     state: str
     worker_name: str | None = None
-    input: Any = None
 
 
 class ExecutionListResponse(BaseModel):
@@ -723,6 +722,15 @@ class Server:
                 m = get_metrics()
                 if m:
                     m.record_execution_queued()
+                    if ctx.state in (
+                        ExecutionState.RESUMING,
+                        ExecutionState.RESUME_SCHEDULED,
+                        ExecutionState.RESUME_CLAIMED,
+                    ):
+                        m.record_resume_queued(
+                            ctx.workflow_namespace,
+                            ctx.workflow_name,
+                        )
                 logger.info(
                     f"Unclaimed execution {ctx.execution_id} from evicted worker {worker_name}",
                 )
@@ -2955,7 +2963,6 @@ class Server:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
-                            input=ex.input,
                         )
                         for ex in executions
                     ],
@@ -3076,7 +3083,6 @@ class Server:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
-                            input=ex.input,
                         )
                         for ex in executions
                     ],

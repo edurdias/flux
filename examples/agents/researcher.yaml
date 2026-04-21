@@ -25,6 +25,7 @@ skills_dir: examples/ai/skills
 
 long_term_memory:
   provider: sqlite
+  connection: researcher_memory.db
   scope: "research:default"
 
 planning: true

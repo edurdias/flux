@@ -120,10 +120,17 @@ class ApiUI:
                 session_id=session,
                 workflow_name=self.workflow_name,
             )
+            action = body.get("action", "decline")
+            allowed_actions = {"accept", "decline"}
+            if action not in allowed_actions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid elicitation action: '{action}'. Must be one of: {allowed_actions}",
+                )
             payload = {
                 "elicitation_response": {
                     "elicitation_id": body.get("elicitation_id", elicitation_id),
-                    "action": body.get("action", "accept"),
+                    "action": action,
                 },
             }
 

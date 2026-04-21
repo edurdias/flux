@@ -53,7 +53,7 @@ def chat(message: str | None = None, session_id: str | None = None):
                     print(f"\n[Tool] {data['name']}({data.get('args', {})})")
                 elif event_type == "tool_done":
                     print(f"[Tool] {data['name']} -> {data['status']}")
-                elif event_type == "chat_response":
+                elif event_type in ("response", "chat_response"):
                     if data.get("content") and not full_response:
                         print(data["content"])
                     print()

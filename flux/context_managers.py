@@ -451,6 +451,8 @@ class DatabaseContextManager(ContextManager):
             ExecutionState.SCHEDULED,
             ExecutionState.CLAIMED,
             ExecutionState.RUNNING,
+            ExecutionState.PAUSED,
+            ExecutionState.RESUMING,
             ExecutionState.RESUME_SCHEDULED,
             ExecutionState.RESUME_CLAIMED,
         ]
