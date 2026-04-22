@@ -38,14 +38,16 @@ async def test_display_tool_start(capsys, ui):
 async def test_display_tool_done_success(capsys, ui):
     await ui.display_tool_done("shell", "success")
     captured = capsys.readouterr()
-    assert "Done" in captured.out
+    assert "✓" in captured.out
+    assert "shell" in captured.out
 
 
 @pytest.mark.asyncio
 async def test_display_tool_done_error(capsys, ui):
     await ui.display_tool_done("shell", "error")
     captured = capsys.readouterr()
-    assert "Error" in captured.out
+    assert "✗" in captured.out
+    assert "shell" in captured.out
 
 
 @pytest.mark.asyncio

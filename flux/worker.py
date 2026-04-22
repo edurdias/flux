@@ -782,7 +782,11 @@ class Worker:
 
     async def _get_gpu_info(self):
         logger.debug("Collecting GPU information")
-        import GPUtil
+        try:
+            import GPUtil
+        except (ImportError, ModuleNotFoundError):
+            logger.debug("GPUtil not available, skipping GPU info")
+            return []
 
         gpus = []
         gpu_devices = GPUtil.getGPUs()

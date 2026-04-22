@@ -50,11 +50,12 @@ def test_index_served_at_root():
     assert "</html>" in response.text
 
 
-def test_chat_without_operator_token_fails():
+def test_chat_without_operator_token_passes_through():
+    """When no operator token is set, auth is disabled and requests pass through."""
     ui = _make_ui(token=None)
     client = TestClient(ui.app)
     response = client.post("/chat", json={"message": "hi"})
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 def test_chat_uses_operator_token_automatically():
