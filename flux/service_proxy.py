@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, Query, Request
@@ -100,7 +101,8 @@ def create_standalone_app(
     server_url: str,
     cache_ttl: int = 60,
     enable_mcp: bool = False,
-) -> FastAPI:
+    mcp_auth: Any | None = None,
+) -> FastAPI | Any:
     app = FastAPI(title=f"Flux Service: {service_name}")
     proxy = StandaloneServiceProxy(service_name, server_url, cache_ttl)
 
@@ -111,7 +113,7 @@ def create_standalone_app(
     if enable_mcp:
         from flux.service_mcp import create_service_mcp_server
 
-        mcp_server = create_service_mcp_server(service_name, proxy._client)
+        mcp_server = create_service_mcp_server(service_name, proxy._client, auth=mcp_auth)
 
         @app.on_event("startup")
         async def _init_mcp_tools():
@@ -139,7 +141,7 @@ def create_standalone_app(
         async def _start_mcp_refresh():
             asyncio.create_task(_mcp_refresh_loop())
 
-        app.mount("/mcp", mcp_server.mcp.http_app())
+        mcp_asgi_app = mcp_server.mcp.http_app(path="/mcp")
 
     @app.get("/health")
     async def health():
@@ -269,4 +271,68 @@ def create_standalone_app(
 
         return JSONResponse(status_code=response.status_code, content=response.json())
 
+    if enable_mcp:
+        return _MCPDispatcher(app, mcp_asgi_app)
+
     return app
+
+
+class _MCPDispatcher:
+    """ASGI wrapper that routes /mcp requests to the FastMCP app before
+    FastAPI's catch-all ``/{workflow_name}`` can intercept them.
+
+    Manages both apps' lifespans so the MCP session manager is properly
+    initialised.
+    """
+
+    def __init__(self, main_app: Any, mcp_app: Any):
+        self.main_app = main_app
+        self.mcp_app = mcp_app
+        self._mcp_started = False
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] == "lifespan":
+            await self._handle_lifespan(scope, receive, send)
+        elif scope["type"] == "http" and self._is_mcp_route(scope.get("path", "")):
+            await self.mcp_app(scope, receive, send)
+        else:
+            await self.main_app(scope, receive, send)
+
+    @staticmethod
+    def _is_mcp_route(path: str) -> bool:
+        return path.startswith("/mcp") or path.startswith("/.well-known/")
+
+    async def _handle_lifespan(self, scope: dict, receive: Any, send: Any) -> None:
+        """Coordinate lifespan for both the FastAPI app and the MCP app."""
+        message = await receive()
+        if message["type"] != "lifespan.startup":
+            return
+
+        try:
+            self._mcp_lifespan_cm = self.mcp_app.router.lifespan_context(self.mcp_app)
+            await self._mcp_lifespan_cm.__aenter__()
+            self._mcp_started = True
+        except Exception:
+            pass
+
+        await self.main_app(scope, self._wrap_receive(message), send)
+
+        if self._mcp_started:
+            try:
+                await self._mcp_lifespan_cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _wrap_receive(first_message: dict) -> Any:
+        sent = False
+
+        async def _receive() -> dict:
+            nonlocal sent
+            if not sent:
+                sent = True
+                return first_message
+            while True:
+                await asyncio.sleep(3600)
+
+        return _receive

@@ -359,6 +359,54 @@ flux service start billing --port 9000 --server-url http://flux:8000
 
 The `--mcp` / `--no-mcp` flags on `service start` override the stored setting. Without an explicit flag, the stored `mcp_enabled` value is used.
 
+### MCP Authentication
+
+Standalone MCP endpoints can validate bearer tokens from an external Identity Provider (IdP) and advertise the IdP via OAuth 2.0 Protected Resource Metadata ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)). This enables MCP clients to discover the authorization server and obtain tokens through standard flows including Dynamic Client Registration (DCR) and PKCE.
+
+**CLI flags:**
+
+```bash
+flux service start billing --port 9000 \
+  --mcp-issuer https://idp.example.com/realms/my-realm \
+  --mcp-audience billing-api \
+  --mcp-jwks-uri https://idp.example.com/realms/my-realm/protocol/openid-connect/certs
+```
+
+| Flag | Description |
+|---|---|
+| `--mcp-issuer` | IdP issuer URL. Enables token validation and serves `/.well-known/oauth-protected-resource` pointing to this authorization server. |
+| `--mcp-audience` | Expected `aud` claim in JWT tokens. Optional. |
+| `--mcp-jwks-uri` | JWKS endpoint for token signature validation. Defaults to `{issuer}/.well-known/jwks.json` if omitted. |
+
+**Fallback to Flux OIDC config:**
+
+When no `--mcp-issuer` is provided, the service checks Flux's OIDC settings (`flux.security.auth.oidc`). If OIDC is enabled in the Flux config, the same issuer and audience are used for MCP auth automatically.
+
+```toml
+# flux.toml — MCP services inherit these settings when no --mcp-issuer is given
+[flux.security.auth.oidc]
+enabled = true
+issuer = "https://idp.example.com/realms/my-realm"
+audience = "flux-api"
+```
+
+**How it works:**
+
+1. MCP client connects to `/mcp` without a token and receives a `401`.
+2. Client fetches `/.well-known/oauth-protected-resource` from the service, which returns the `authorization_servers` list.
+3. Client follows the IdP's `/.well-known/oauth-authorization-server` metadata to discover endpoints (including DCR if supported).
+4. Client obtains an access token from the IdP and retries with `Authorization: Bearer <token>`.
+5. The service validates the token via the IdP's JWKS and grants access.
+
+**Supported IdPs** (any OAuth 2.0 / OIDC compliant provider):
+
+| Provider | Example issuer |
+|---|---|
+| Keycloak | `https://keycloak.example.com/realms/my-realm` |
+| Auth0 | `https://your-tenant.auth0.com/` |
+| Okta | `https://your-org.okta.com/oauth2/default` |
+| Entra ID | `https://login.microsoftonline.com/{tenant}/v2.0` |
+
 ### Tool generation
 
 Each workflow in the service produces **5 MCP tools**:

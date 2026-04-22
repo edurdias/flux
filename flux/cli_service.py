@@ -293,7 +293,18 @@ def include_in_service(name, workflow_refs, format, server_url):
 @click.option("--mcp/--no-mcp", default=None, help="Enable or disable MCP endpoint.")
 @click.option("--server-url", "-cp-url", default=None, help="Flux server URL to connect to.")
 @click.option("--cache-ttl", default=60, type=int, help="Endpoint cache TTL in seconds.")
-def start_service(name, port, host, mcp, server_url, cache_ttl):
+@click.option(
+    "--mcp-issuer",
+    default=None,
+    help="IdP issuer URL for MCP auth (enables token validation and OAuth discovery).",
+)
+@click.option("--mcp-audience", default=None, help="Expected JWT audience for MCP auth.")
+@click.option(
+    "--mcp-jwks-uri",
+    default=None,
+    help="JWKS URI for MCP token validation (auto-discovered from issuer if omitted).",
+)
+def start_service(name, port, host, mcp, server_url, cache_ttl, mcp_issuer, mcp_audience, mcp_jwks_uri):
     """Start a standalone service proxy."""
     from flux.service_proxy import create_standalone_app
 
@@ -312,11 +323,67 @@ def start_service(name, port, host, mcp, server_url, cache_ttl):
         except Exception:
             enable_mcp = False
 
+    mcp_auth = _build_mcp_auth(
+        host=host,
+        port=port,
+        issuer=mcp_issuer,
+        audience=mcp_audience,
+        jwks_uri=mcp_jwks_uri,
+    )
+
     click.echo(f"Starting service '{name}' on {host}:{port}")
     click.echo(f"Flux server: {flux_url}")
     click.echo(f"MCP: {'enabled' if enable_mcp else 'disabled'}")
-    app = create_standalone_app(name, flux_url, cache_ttl, enable_mcp=enable_mcp)
+    if mcp_auth:
+        click.echo(f"MCP auth: {mcp_issuer}")
+    app = create_standalone_app(
+        name, flux_url, cache_ttl, enable_mcp=enable_mcp, mcp_auth=mcp_auth,
+    )
     uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+def _build_mcp_auth(
+    host: str,
+    port: int,
+    issuer: str | None = None,
+    audience: str | None = None,
+    jwks_uri: str | None = None,
+):
+    """Build a FastMCP auth provider from explicit flags or Flux OIDC config.
+
+    Returns ``None`` when no auth is configured.
+    """
+    if not issuer:
+        try:
+            from flux.config import FluxConfig
+
+            cfg = FluxConfig()
+            oidc = cfg.security.auth.oidc
+            if oidc.enabled and oidc.issuer:
+                issuer = oidc.issuer
+                audience = audience or oidc.audience or None
+            else:
+                return None
+        except Exception:
+            return None
+
+    if not jwks_uri:
+        jwks_uri = f"{issuer.rstrip('/')}/.well-known/jwks.json"
+
+    from fastmcp.server.auth import JWTVerifier, RemoteAuthProvider
+
+    base_url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+
+    verifier = JWTVerifier(
+        jwks_uri=jwks_uri,
+        issuer=issuer,
+        audience=audience,
+    )
+    return RemoteAuthProvider(
+        token_verifier=verifier,
+        authorization_servers=[issuer],
+        base_url=base_url,
+    )
 
 
 @service.command("delete")
