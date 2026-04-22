@@ -18,6 +18,7 @@ def mock_formatter():
     formatter.format_tool_results.return_value = [{"role": "tool", "content": "result"}]
     formatter.format_user_message.return_value = {"role": "user", "content": ""}
     formatter.remove_tools_from_kwargs.return_value = {}
+    formatter.supports_reasoning_stream = False
     return formatter
 
 

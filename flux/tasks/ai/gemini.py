@@ -53,6 +53,8 @@ def build_gemini_provider(
 
 
 class GeminiFormatter(LLMFormatter):
+    supports_reasoning_stream = True
+
     def __init__(
         self,
         model_name: str,
@@ -212,6 +214,53 @@ class GeminiFormatter(LLMFormatter):
         ):
             if chunk.text:
                 yield chunk.text
+
+    async def call_with_reasoning_stream(
+        self,
+        messages: list,
+        call_kwargs: dict,
+        on_reasoning_token: Any,
+    ) -> LLMResponse:
+        client = genai.Client()
+        model = call_kwargs.get("model", self._model_name)
+        config = call_kwargs.get("config")
+
+        reasoning_parts: list[str] = []
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+
+        async for chunk in await client.aio.models.generate_content_stream(
+            model=model,
+            contents=messages,
+            config=config,
+        ):
+            candidates = getattr(chunk, "candidates", None)
+            if not candidates:
+                continue
+            parts = getattr(candidates[0].content, "parts", None) or []
+            for part in parts:
+                if getattr(part, "thought", False) and part.text:
+                    reasoning_parts.append(part.text)
+                    await on_reasoning_token(part.text)
+                elif getattr(part, "function_call", None):
+                    fc = part.function_call
+                    tool_calls.append(
+                        ToolCall(id=fc.name, name=fc.name, arguments=dict(fc.args)),
+                    )
+                elif getattr(part, "text", None):
+                    text_parts.append(part.text)
+
+        text = "".join(text_parts)
+        reasoning_text = "".join(reasoning_parts) or None
+
+        reasoning = None
+        if reasoning_text:
+            reasoning = ReasoningContent(
+                text=reasoning_text,
+                opaque={"text": reasoning_text, "thought": True},
+            )
+
+        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _config_with_tools(config: Any, tools: list) -> Any:
