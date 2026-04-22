@@ -57,6 +57,33 @@ async def _store_reasoning(working_memory: Any, response: Any) -> None:
         )
 
 
+async def _call_llm(
+    llm_task: TaskType,
+    formatter: LLMFormatter,
+    messages: list[Any],
+    call_kwargs: dict,
+    working_memory: Any,
+    stream: bool,
+    call_counter: int,
+) -> LLMResponse:
+    if stream and formatter.supports_reasoning_stream:
+        response = await formatter.call_with_reasoning_stream(
+            messages,
+            call_kwargs,
+            on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
+        )
+    else:
+        result = await llm_task.with_options(name=f"llm_{call_counter}")(
+            messages,
+            **call_kwargs,
+        )
+        response = _ensure_llm_response(result)
+        if stream and response.reasoning and response.reasoning.text:
+            await progress({"type": "reasoning", "text": response.reasoning.text})
+    await _store_reasoning(working_memory, response)
+    return response
+
+
 async def run_agent_loop(
     *,
     llm_task: TaskType,
@@ -111,12 +138,16 @@ async def run_agent_loop(
         await _fire_hooks(on_complete, agent_name, content)
         return content
 
-    result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
+    response = await _call_llm(
+        llm_task,
+        formatter,
+        messages,
+        call_kwargs,
+        working_memory,
+        stream,
+        call_counter,
+    )
     call_counter += 1
-    response = _ensure_llm_response(result)
-    await _store_reasoning(working_memory, response)
-    if stream and response.reasoning and response.reasoning.text:
-        await progress({"type": "reasoning", "text": response.reasoning.text})
 
     always_approved: set[str] = set()
 
@@ -208,12 +239,16 @@ async def run_agent_loop(
 
         messages.extend(tool_result_messages)
 
-        result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
+        response = await _call_llm(
+            llm_task,
+            formatter,
+            messages,
+            call_kwargs,
+            working_memory,
+            stream,
+            call_counter,
+        )
         call_counter += 1
-        response = _ensure_llm_response(result)
-        await _store_reasoning(working_memory, response)
-        if stream and response.reasoning and response.reasoning.text:
-            await progress({"type": "reasoning", "text": response.reasoning.text})
 
         if (
             not response.tool_calls
@@ -227,15 +262,16 @@ async def run_agent_loop(
             messages.append(
                 formatter.format_user_message(f"Continue working on your plan. {summary}"),
             )
-            result = await llm_task.with_options(name=f"llm_{call_counter}")(
+            response = await _call_llm(
+                llm_task,
+                formatter,
                 messages,
-                **call_kwargs,
+                call_kwargs,
+                working_memory,
+                stream,
+                call_counter,
             )
             call_counter += 1
-            response = _ensure_llm_response(result)
-            await _store_reasoning(working_memory, response)
-            if stream and response.reasoning and response.reasoning.text:
-                await progress({"type": "reasoning", "text": response.reasoning.text})
 
     if response.tool_calls and tool_call_count >= max_tool_calls:
         messages.append(formatter.format_assistant_message(response))
@@ -245,12 +281,16 @@ async def run_agent_loop(
             ),
         )
         no_tool_kwargs = formatter.remove_tools_from_kwargs(call_kwargs)
-        result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **no_tool_kwargs)
+        response = await _call_llm(
+            llm_task,
+            formatter,
+            messages,
+            no_tool_kwargs,
+            working_memory,
+            stream,
+            call_counter,
+        )
         call_counter += 1
-        response = _ensure_llm_response(result)
-        await _store_reasoning(working_memory, response)
-        if stream and response.reasoning and response.reasoning.text:
-            await progress({"type": "reasoning", "text": response.reasoning.text})
 
     content = response.text
 
@@ -261,6 +301,8 @@ async def run_agent_loop(
         async for token in formatter.stream(messages, no_tool_kwargs):
             content += token
             await progress({"token": token})
+    elif stream and content:
+        await progress({"token": content})
 
     if working_memory and not entered_tool_loop:
         await working_memory.memorize("user", user_content)

@@ -248,3 +248,65 @@ async def test_no_reasoning_event_when_reasoning_is_none(mock_formatter, progres
 
     reasoning_events = [e for e in events if e.get("type") == "reasoning"]
     assert len(reasoning_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_reasoning_streamed_via_formatter_in_tool_loop(mock_formatter, progress_events):
+    """When formatter supports reasoning stream, reasoning in tool loop is also streamed."""
+    events, mock_progress = progress_events
+
+    mock_formatter.supports_reasoning_stream = True
+
+    call_count = 0
+
+    async def fake_call_with_reasoning_stream(messages, call_kwargs, on_reasoning_token):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            for token in ["Thinking ", "about ", "tools."]:
+                await on_reasoning_token(token)
+            return LLMResponse(
+                text="",
+                tool_calls=[ToolCall(id="tc_1", name="search", arguments={"q": "test"})],
+                reasoning=ReasoningContent(text="Thinking about tools."),
+            )
+        for token in ["Final ", "thoughts."]:
+            await on_reasoning_token(token)
+        return LLMResponse(
+            text="Done.",
+            reasoning=ReasoningContent(text="Final thoughts."),
+        )
+
+    mock_formatter.call_with_reasoning_stream = fake_call_with_reasoning_stream
+
+    llm_task = MagicMock()
+    llm_task.with_options.return_value = MagicMock()
+
+    mock_tool = AsyncMock(return_value="ok")
+    mock_tool.name = "search"
+    mock_tool.func = MagicMock(__name__="search")
+    mock_tool.requires_approval = False
+
+    with patch("flux.tasks.ai.agent_loop.progress", mock_progress):
+        with patch("flux.tasks.ai.agent_loop.execute_tools", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = [{"tool_call_id": "tc_1", "output": "result"}]
+
+            await run_agent_loop(
+                llm_task=llm_task,
+                formatter=mock_formatter,
+                system_prompt="Help.",
+                instruction="Search.",
+                tools=[mock_tool],
+                tool_schemas=[{"name": "search", "parameters": {}}],
+                stream=True,
+            )
+
+    reasoning_events = [e for e in events if e.get("type") == "reasoning"]
+    assert len(reasoning_events) == 5
+    assert [e["text"] for e in reasoning_events] == [
+        "Thinking ",
+        "about ",
+        "tools.",
+        "Final ",
+        "thoughts.",
+    ]
