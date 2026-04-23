@@ -121,7 +121,7 @@ class MCPRouteMiddleware:
 
     @staticmethod
     def _is_mcp_route(path: str) -> bool:
-        return path.startswith("/mcp") or path.startswith("/.well-known/")
+        return path == "/mcp" or path.startswith("/mcp/") or path.startswith("/.well-known/")
 
 
 def create_standalone_app(

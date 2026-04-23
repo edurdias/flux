@@ -207,6 +207,11 @@ class TestMCPRouteMiddleware:
         assert MCPRouteMiddleware._is_mcp_route("/invoice") is False
         assert MCPRouteMiddleware._is_mcp_route("/invoice/status/abc") is False
 
+    def test_mcp_prefixed_workflow_is_not_mcp_route(self):
+        assert MCPRouteMiddleware._is_mcp_route("/mcp_billing") is False
+        assert MCPRouteMiddleware._is_mcp_route("/mcptest") is False
+        assert MCPRouteMiddleware._is_mcp_route("/mcp-workflow") is False
+
     @pytest.mark.asyncio
     async def test_http_mcp_routed_to_mcp_app(self):
         calls = {"main": [], "mcp": []}

@@ -122,6 +122,20 @@ class TestMCPRouting:
             body_text = json.dumps(r.json()) if _is_json(r) else r.text
             assert "Workflow" not in body_text
 
+    @pytest.mark.parametrize(
+        "path",
+        ["/mcp_billing", "/mcptest", "/mcp-workflow"],
+        ids=["mcp_underscore", "mcptest", "mcp-hyphen"],
+    )
+    def test_mcp_prefixed_workflow_not_hijacked(self, path):
+        """Workflows whose names start with 'mcp' must NOT be intercepted."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post(path)
+            # Should reach the workflow handler, not the MCP app.
+            # The workflow handler fails to connect (500/502) or can't resolve (404).
+            assert r.status_code in (404, 500, 502)
+
 
 def _is_json(response) -> bool:
     return "application/json" in response.headers.get("content-type", "")

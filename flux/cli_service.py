@@ -333,7 +333,7 @@ def start_service(
         except Exception:
             enable_mcp = False
 
-    mcp_auth = _build_mcp_auth(
+    mcp_auth, resolved_issuer = _build_mcp_auth(
         host=host,
         port=port,
         issuer=mcp_issuer,
@@ -345,7 +345,7 @@ def start_service(
     click.echo(f"Flux server: {flux_url}")
     click.echo(f"MCP: {'enabled' if enable_mcp else 'disabled'}")
     if mcp_auth:
-        click.echo(f"MCP auth: {mcp_issuer}")
+        click.echo(f"MCP auth: {resolved_issuer}")
     app = create_standalone_app(
         name,
         flux_url,
@@ -362,10 +362,10 @@ def _build_mcp_auth(
     issuer: str | None = None,
     audience: str | None = None,
     jwks_uri: str | None = None,
-):
+) -> tuple:
     """Build a FastMCP auth provider from explicit flags or Flux OIDC config.
 
-    Returns ``None`` when no auth is configured.
+    Returns ``(provider, resolved_issuer)`` or ``(None, None)``.
     """
     if not issuer:
         try:
@@ -377,9 +377,9 @@ def _build_mcp_auth(
                 issuer = oidc.issuer
                 audience = audience or oidc.audience or None
             else:
-                return None
+                return None, None
         except Exception:
-            return None
+            return None, None
 
     if not jwks_uri:
         jwks_uri = f"{issuer.rstrip('/')}/.well-known/jwks.json"
@@ -393,11 +393,12 @@ def _build_mcp_auth(
         issuer=issuer,
         audience=audience,
     )
-    return RemoteAuthProvider(
+    provider = RemoteAuthProvider(
         token_verifier=verifier,
         authorization_servers=[issuer],
         base_url=base_url,
     )
+    return provider, issuer
 
 
 @service.command("delete")
