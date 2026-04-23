@@ -304,7 +304,9 @@ def include_in_service(name, workflow_refs, format, server_url):
     default=None,
     help="JWKS URI for MCP token validation (auto-discovered from issuer if omitted).",
 )
-def start_service(name, port, host, mcp, server_url, cache_ttl, mcp_issuer, mcp_audience, mcp_jwks_uri):
+def start_service(
+    name, port, host, mcp, server_url, cache_ttl, mcp_issuer, mcp_audience, mcp_jwks_uri,
+):
     """Start a standalone service proxy."""
     from flux.service_proxy import create_standalone_app
 
@@ -337,7 +339,11 @@ def start_service(name, port, host, mcp, server_url, cache_ttl, mcp_issuer, mcp_
     if mcp_auth:
         click.echo(f"MCP auth: {mcp_issuer}")
     app = create_standalone_app(
-        name, flux_url, cache_ttl, enable_mcp=enable_mcp, mcp_auth=mcp_auth,
+        name,
+        flux_url,
+        cache_ttl,
+        enable_mcp=enable_mcp,
+        mcp_auth=mcp_auth,
     )
     uvicorn.run(app, host=host, port=port, log_level="info")
 

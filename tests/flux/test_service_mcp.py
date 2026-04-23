@@ -234,7 +234,9 @@ class TestMCPRouteMiddleware:
 
         middleware = MCPRouteMiddleware(main_app, mcp_app=mcp_app)
         await middleware(
-            {"type": "http", "path": "/.well-known/oauth-protected-resource"}, None, None,
+            {"type": "http", "path": "/.well-known/oauth-protected-resource"},
+            None,
+            None,
         )
         assert calls["mcp"] == ["/.well-known/oauth-protected-resource"]
         assert calls["main"] == []

@@ -143,7 +143,7 @@ def create_standalone_app(
         mcp_http_app = mcp_server.mcp.http_app(path="/mcp")
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         try:
             if mcp_server is not None and mcp_http_app is not None:
                 async with mcp_http_app.router.lifespan_context(mcp_http_app):
