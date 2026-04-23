@@ -138,9 +138,12 @@ class AgentApp(App):
         input_widget.focus()
 
     def on_unmount(self) -> None:
+        if self._elicitation_future and not self._elicitation_future.done():
+            self._elicitation_future.cancel()
         self._input_queue.put_nowait(QUIT_SENTINEL)
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        self._history_index = -1
         text = event.text_area.text
         completions = self.query_one("#slash-completions", OptionList)
         if text.startswith("/") and not text.endswith("\n"):
@@ -324,6 +327,7 @@ class AgentApp(App):
             self._current_stream = None
         elif message.content:
             chat = self.query_one("#chat-view", VerticalScroll)
+            self._ensure_agent_label(chat)
             chat.mount(Markdown(message.content))
         self._auto_scroll()
 

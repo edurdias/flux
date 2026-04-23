@@ -79,4 +79,5 @@ def test_elicitation_requested():
     msg = ElicitationRequested(req, future)
     assert msg.request == req
     assert msg.future is future
+    future.cancel()
     loop.close()

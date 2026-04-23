@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from flux.agents.events import AgentEvent
 from flux.agents.flux_client import FluxClient
 from flux.agents.session import AgentSession
 from flux.agents.ui import UI
 from flux.agents.ui.terminal import TerminalUI
 
+logger = logging.getLogger("flux.agents")
 
 VALID_MODES = ("terminal", "web", "api")
 
@@ -21,6 +24,10 @@ def _make_terminal_ui():
 
         return TextualUI()
     except Exception:
+        logger.debug(
+            "Failed to initialize TextualUI, falling back to plain terminal",
+            exc_info=True,
+        )
         return TerminalUI()
 
 

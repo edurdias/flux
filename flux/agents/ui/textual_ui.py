@@ -44,9 +44,12 @@ class TextualUI(UI):
         self.app.post_message(ReasoningReceived(text))
 
     async def display_elicitation(self, request: dict) -> dict:
-        future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
         self.app.post_message(ElicitationRequested(request, future))
-        action = await future
+        try:
+            action = await future
+        except asyncio.CancelledError:
+            action = "decline"
         elicitation_id = request.get("elicitation_id", "")
         return {
             "elicitation_response": {

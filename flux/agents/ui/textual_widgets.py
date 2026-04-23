@@ -42,7 +42,8 @@ class StreamBlock(Vertical):
         final = content if content is not None else self.buffer
         if not final:
             return
-        self._text_widget.remove()
+        if self._text_widget.is_mounted:
+            self._text_widget.remove()
         self.mount(Markdown(final))
 
 
@@ -94,20 +95,21 @@ class ThinkingBlock(Collapsible):
 
     def __init__(self, **kwargs) -> None:
         self._content = Static("", classes="thinking-content")
-        self._lines: list[str] = []
+        self._buffer = ""
         super().__init__(self._content, title="Thinking...", collapsed=True, **kwargs)
 
     @property
     def line_count(self) -> int:
-        return len(self._lines)
+        if not self._buffer:
+            return 0
+        return self._buffer.rstrip("\n").count("\n") + 1
 
     def append_text(self, text: str) -> None:
-        new_lines = text.split("\n")
-        self._lines.extend(new_lines)
-        self._content.update("\n".join(self._lines))
+        self._buffer += text
+        self._content.update(self._buffer)
 
     def finalize(self) -> None:
-        count = len(self._lines)
+        count = self.line_count
         self.title = f"Thinking ({count} line{'s' if count != 1 else ''})"
 
 

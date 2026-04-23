@@ -41,6 +41,19 @@ async def test_stream_block_handles_blob():
         assert "entire response" in block.buffer
 
 
+@pytest.mark.asyncio
+async def test_stream_block_double_finalize():
+    async with StreamBlockApp().run_test() as pilot:
+        block = pilot.app.query_one(StreamBlock)
+        block.append_token("Hello")
+        block.finalize("# Hello")
+        await pilot.pause()
+        block.finalize("# Should be ignored")
+        await pilot.pause()
+        md_widgets = block.query("Markdown")
+        assert len(md_widgets) == 1
+
+
 class ToolBlockApp(App):
     def compose(self) -> ComposeResult:
         yield ToolBlock("read_file", {"path": "/tmp/x.py"})
