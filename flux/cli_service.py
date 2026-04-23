@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 import click
+import httpx
 
 from flux.cli import cli, get_http_client, get_server_url
 
@@ -396,7 +397,8 @@ def _build_mcp_auth(
                 audience = audience or oidc.audience or None
             else:
                 return None, None
-        except Exception:
+        except Exception as ex:
+            click.echo(f"Warning: could not read Flux OIDC config: {ex}", err=True)
             return None, None
 
     if not jwks_uri:
@@ -430,7 +432,7 @@ def _discover_jwks_uri(issuer: str) -> str:
     """
     discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
     try:
-        with get_http_client() as client:
+        with httpx.Client(timeout=10.0) as client:
             response = client.get(discovery_url)
             response.raise_for_status()
             metadata = response.json()

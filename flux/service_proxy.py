@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -13,10 +12,14 @@ import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
+from flux.utils import get_logger
+
 if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
+
     from flux.service_mcp import ServiceMCPServer
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -135,7 +138,7 @@ def create_standalone_app(
     server_url: str,
     cache_ttl: int = 60,
     enable_mcp: bool = False,
-    mcp_auth: Any | None = None,
+    mcp_auth: AuthProvider | None = None,
 ) -> FastAPI:
     proxy = StandaloneServiceProxy(service_name, server_url, cache_ttl)
 
@@ -320,4 +323,4 @@ async def _mcp_refresh_loop(mcp_server: ServiceMCPServer, interval: int) -> None
         try:
             await mcp_server.refresh()
         except Exception:
-            pass
+            logger.debug("MCP refresh failed, will retry in %ds", interval, exc_info=True)
