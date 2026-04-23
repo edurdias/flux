@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import inspect
 import json
 from dataclasses import dataclass
@@ -46,7 +44,7 @@ class ServiceMCPServer:
         self,
         service_name: str,
         provider: EndpointProvider,
-        auth: AuthProvider | None = None,
+        auth: "AuthProvider | None" = None,
     ):
         self.service_name = service_name
         self.provider = provider
@@ -263,7 +261,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         service_name: str,
         provider: EndpointProvider,
         client: httpx.AsyncClient,
-        auth: AuthProvider | None = None,
+        auth: "AuthProvider | None" = None,
     ):
         super().__init__(service_name, provider, auth=auth)
         self._client = client
@@ -379,7 +377,7 @@ class ProxyEndpointProvider:
 def create_service_mcp_server(
     service_name: str,
     client: httpx.AsyncClient,
-    auth: AuthProvider | None = None,
+    auth: "AuthProvider | None" = None,
 ) -> ProxyBackedMCPServer:
     provider = ProxyEndpointProvider(service_name, client)
     return ProxyBackedMCPServer(service_name, provider, client, auth=auth)
