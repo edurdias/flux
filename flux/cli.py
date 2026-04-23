@@ -2030,7 +2030,8 @@ def delete_agent(name, format, server_url):
 @click.option("--session", "-s", "session_id", help="Attach to existing session")
 @click.option("--port", "-p", type=int, help="Port for web/api mode")
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
-def start_agent(name, mode, session_id, port, server):
+@click.option("--plain", is_flag=True, help="Use plain ANSI terminal (no TUI)")
+def start_agent(name, mode, session_id, port, server, plain):
     """Start an agent in the specified mode."""
     import asyncio
 
@@ -2070,6 +2071,11 @@ def start_agent(name, mode, session_id, port, server):
                             )
         except Exception:
             pass
+
+        if plain:
+            import os
+
+            os.environ["FLUX_PLAIN_TERMINAL"] = "1"
 
         process = AgentProcess(
             agent_name=name,
