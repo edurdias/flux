@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import click
 
@@ -302,7 +303,12 @@ def include_in_service(name, workflow_refs, format, server_url):
 @click.option(
     "--mcp-jwks-uri",
     default=None,
-    help="JWKS URI for MCP token validation (auto-discovered from issuer if omitted).",
+    help="JWKS URI for MCP token validation (discovered from issuer OIDC metadata if omitted).",
+)
+@click.option(
+    "--mcp-base-url",
+    default=None,
+    help="Public base URL for OAuth discovery metadata (overrides auto-constructed URL, useful behind TLS termination).",
 )
 def start_service(
     name,
@@ -314,6 +320,7 @@ def start_service(
     mcp_issuer,
     mcp_audience,
     mcp_jwks_uri,
+    mcp_base_url,
 ):
     """Start a standalone service proxy."""
     from flux.service_proxy import create_standalone_app
@@ -333,13 +340,23 @@ def start_service(
         except Exception:
             enable_mcp = False
 
-    mcp_auth, resolved_issuer = _build_mcp_auth(
-        host=host,
-        port=port,
-        issuer=mcp_issuer,
-        audience=mcp_audience,
-        jwks_uri=mcp_jwks_uri,
-    )
+    mcp_auth = None
+    resolved_issuer = None
+    has_auth_flags = any([mcp_issuer, mcp_audience, mcp_jwks_uri])
+    if enable_mcp:
+        mcp_auth, resolved_issuer = _build_mcp_auth(
+            host=host,
+            port=port,
+            issuer=mcp_issuer,
+            audience=mcp_audience,
+            jwks_uri=mcp_jwks_uri,
+            base_url=mcp_base_url,
+        )
+    elif has_auth_flags:
+        click.echo(
+            "Warning: --mcp-issuer/--mcp-audience/--mcp-jwks-uri ignored because MCP is disabled.",
+            err=True,
+        )
 
     click.echo(f"Starting service '{name}' on {host}:{port}")
     click.echo(f"Flux server: {flux_url}")
@@ -362,7 +379,8 @@ def _build_mcp_auth(
     issuer: str | None = None,
     audience: str | None = None,
     jwks_uri: str | None = None,
-) -> tuple:
+    base_url: str | None = None,
+) -> tuple[Any, str | None]:
     """Build a FastMCP auth provider from explicit flags or Flux OIDC config.
 
     Returns ``(provider, resolved_issuer)`` or ``(None, None)``.
@@ -382,11 +400,15 @@ def _build_mcp_auth(
             return None, None
 
     if not jwks_uri:
-        jwks_uri = f"{issuer.rstrip('/')}/.well-known/jwks.json"
+        jwks_uri = _discover_jwks_uri(issuer)
 
     from fastmcp.server.auth import JWTVerifier, RemoteAuthProvider
 
-    base_url = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://localhost:{port}"
+    if not base_url:
+        if host in ("0.0.0.0", "::"):
+            base_url = f"http://localhost:{port}"
+        else:
+            base_url = f"http://{host}:{port}"
 
     verifier = JWTVerifier(
         jwks_uri=jwks_uri,
@@ -399,6 +421,34 @@ def _build_mcp_auth(
         base_url=base_url,
     )
     return provider, issuer
+
+
+def _discover_jwks_uri(issuer: str) -> str:
+    """Discover the JWKS URI from the issuer's OpenID Connect metadata.
+
+    Falls back to ``{issuer}/.well-known/jwks.json`` if discovery fails.
+    """
+    discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+    try:
+        with get_http_client() as client:
+            response = client.get(discovery_url)
+            response.raise_for_status()
+            metadata = response.json()
+        discovered = metadata.get("jwks_uri")
+        if isinstance(discovered, str) and discovered:
+            return discovered
+        click.echo(
+            f"Warning: OIDC discovery at '{discovery_url}' did not return a valid 'jwks_uri'. "
+            f"Falling back to legacy JWKS URL.",
+            err=True,
+        )
+    except Exception as ex:
+        click.echo(
+            f"Warning: OIDC discovery failed for '{discovery_url}': {ex}. "
+            f"Falling back to legacy JWKS URL.",
+            err=True,
+        )
+    return f"{issuer.rstrip('/')}/.well-known/jwks.json"
 
 
 @service.command("delete")

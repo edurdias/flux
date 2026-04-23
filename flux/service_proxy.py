@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    from flux.service_mcp import ServiceMCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +118,8 @@ class MCPRouteMiddleware:
         self.mcp_app = mcp_app
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        # Only intercept HTTP requests; WebSocket scopes intentionally fall
+        # through to FastAPI because MCP uses streamable HTTP transport.
         if scope["type"] == "http" and self._is_mcp_route(scope.get("path", "")):
             await self.mcp_app(scope, receive, send)
         else:
@@ -153,6 +159,8 @@ def create_standalone_app(
                     )
                     yield
                     refresh_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await refresh_task
             else:
                 yield
         finally:
@@ -294,20 +302,19 @@ def create_standalone_app(
     return app
 
 
-async def _init_mcp(mcp_server: Any) -> None:
+async def _init_mcp(mcp_server: ServiceMCPServer) -> None:
     try:
         endpoints = await mcp_server.provider.get_endpoints()
         mcp_server._generate_tools(endpoints)
     except Exception as e:
         logger.warning(
-            "Failed to initialize MCP tools on startup: %s. "
-            "MCP endpoint mounted but has no tools. "
-            "Restart the service once the Flux server is available.",
-            e,
+            f"Failed to initialize MCP tools on startup: {e}. "
+            f"MCP endpoint mounted but has no tools. "
+            f"Restart the service once the Flux server is available.",
         )
 
 
-async def _mcp_refresh_loop(mcp_server: Any, interval: int) -> None:
+async def _mcp_refresh_loop(mcp_server: ServiceMCPServer, interval: int) -> None:
     while True:
         await asyncio.sleep(interval)
         try:

@@ -376,7 +376,8 @@ flux service start billing --port 9000 --mcp \
 |---|---|
 | `--mcp-issuer` | IdP issuer URL. Enables token validation and serves `/.well-known/oauth-protected-resource` pointing to this authorization server. |
 | `--mcp-audience` | Expected `aud` claim in JWT tokens. Optional. |
-| `--mcp-jwks-uri` | JWKS endpoint for token signature validation. Defaults to `{issuer}/.well-known/jwks.json` if omitted. |
+| `--mcp-jwks-uri` | JWKS endpoint for token signature validation. If omitted, discovered from the issuer's `/.well-known/openid-configuration` metadata; falls back to `{issuer}/.well-known/jwks.json` if discovery is unavailable. |
+| `--mcp-base-url` | Public base URL for OAuth discovery metadata. Overrides the auto-constructed URL — use when the service sits behind TLS termination or a reverse proxy. |
 
 **Fallback to Flux OIDC config:**
 
