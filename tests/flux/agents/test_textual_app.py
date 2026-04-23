@@ -26,7 +26,7 @@ from flux.agents.ui.textual_widgets import StreamBlock, ThinkingBlock, ToolBlock
 async def test_app_composes_widgets():
     input_queue: asyncio.Queue[str] = asyncio.Queue()
     app = AgentApp(input_queue=input_queue)
-    async with app.run_test() as pilot:
+    async with app.run_test():
         assert app.query_one("#agent-header") is not None
         assert app.query_one("#chat-view") is not None
         assert app.query_one("#agent-input") is not None

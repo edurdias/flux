@@ -222,9 +222,7 @@ class AgentApp(App):
         self._session_id = message.session_id
         self._agent_name = message.agent_name
         header = self.query_one("#agent-header", Static)
-        header.update(
-            f"  {message.agent_name}  │  session {message.session_id[:12]}…"
-        )
+        header.update(f"  {message.agent_name}  │  session {message.session_id[:12]}…")
 
     def on_reply_started(self, message: ReplyStarted) -> None:
         input_widget = self.query_one("#agent-input", TextArea)
@@ -239,9 +237,7 @@ class AgentApp(App):
         input_widget.disabled = False
         input_widget.focus()
         status = self.query_one("#status-bar", Static)
-        status.update(
-            "/help commands  │  Enter send  │  Shift+Enter newline  │  Ctrl+D exit"
-        )
+        status.update("/help commands  │  Enter send  │  Shift+Enter newline  │  Ctrl+D exit")
 
     def on_token_received(self, message: TokenReceived) -> None:
         self._finalize_current_thinking()
@@ -302,7 +298,7 @@ class AgentApp(App):
             Static(
                 f"  Session ended: {message.reason} ({message.turns} turns)",
                 classes="user-message",
-            )
+            ),
         )
         self._auto_scroll()
 
