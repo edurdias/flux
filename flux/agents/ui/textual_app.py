@@ -31,6 +31,8 @@ from flux.agents.ui.textual_widgets import (
 
 QUIT_SENTINEL = "\x04"
 
+_DEFAULT_STATUS = "/help commands  │  Enter send  │  Shift+Enter newline  │  Ctrl+D exit"
+
 _SLASH_COMMANDS = {
     "/help": "Show available commands",
     "/session": "Show session ID",
@@ -108,7 +110,8 @@ class AgentApp(App):
         self._agent_name: str = ""
         self._current_stream: StreamBlock | None = None
         self._current_thinking: ThinkingBlock | None = None
-        self._pending_tools: dict[str, ToolBlock] = {}
+        self._pending_tools: list[ToolBlock] = []
+        self._agent_label_shown: bool = False
         self._history: list[str] = []
         self._history_index: int = -1
         self._elicitation_future: asyncio.Future | None = None
@@ -117,15 +120,15 @@ class AgentApp(App):
     def compose(self) -> ComposeResult:
         yield Static("Connecting...", id="agent-header")
         yield VerticalScroll(id="chat-view")
-        yield Static(
-            "/help commands  │  Enter send  │  Shift+Enter newline  │  Ctrl+D exit",
-            id="status-bar",
-        )
+        yield Static(_DEFAULT_STATUS, id="status-bar")
         yield TextArea(id="agent-input")
 
     def on_mount(self) -> None:
         input_widget = self.query_one("#agent-input", TextArea)
         input_widget.focus()
+
+    def on_unmount(self) -> None:
+        self._input_queue.put_nowait(QUIT_SENTINEL)
 
     def _submit_input(self) -> None:
         input_widget = self.query_one("#agent-input", TextArea)
@@ -158,6 +161,10 @@ class AgentApp(App):
             self._auto_scroll()
         elif command == "/clear":
             chat.remove_children()
+            self._current_stream = None
+            self._current_thinking = None
+            self._pending_tools.clear()
+            self._agent_label_shown = False
 
     def _append_user_message(self, text: str) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)
@@ -174,19 +181,20 @@ class AgentApp(App):
                     webbrowser.open(self._elicitation_url)
                 self._elicitation_future.set_result("accept")
                 self._elicitation_future = None
+                self._reset_status_bar()
                 event.prevent_default()
                 return
             if event.key in ("n", "N"):
                 self._elicitation_future.set_result("decline")
                 self._elicitation_future = None
+                self._reset_status_bar()
                 event.prevent_default()
                 return
 
         if event.key == "enter" and input_widget.has_focus:
-            if not event.is_printable:
-                event.prevent_default()
-                self._submit_input()
-                return
+            event.prevent_default()
+            self._submit_input()
+            return
 
         if event.key == "escape" and input_widget.has_focus:
             input_widget.clear()
@@ -233,15 +241,16 @@ class AgentApp(App):
     def on_reply_ended(self, message: ReplyEnded) -> None:
         self._finalize_current_thinking()
         self._current_stream = None
+        self._agent_label_shown = False
         input_widget = self.query_one("#agent-input", TextArea)
         input_widget.disabled = False
         input_widget.focus()
-        status = self.query_one("#status-bar", Static)
-        status.update("/help commands  │  Enter send  │  Shift+Enter newline  │  Ctrl+D exit")
+        self._reset_status_bar()
 
     def on_token_received(self, message: TokenReceived) -> None:
         self._finalize_current_thinking()
         chat = self.query_one("#chat-view", VerticalScroll)
+        self._ensure_agent_label(chat)
         if self._current_stream is None:
             self._current_stream = StreamBlock()
             chat.mount(self._current_stream)
@@ -250,9 +259,9 @@ class AgentApp(App):
 
     def on_reasoning_received(self, message: ReasoningReceived) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)
+        self._ensure_agent_label(chat)
         if self._current_thinking is None:
             self._current_thinking = ThinkingBlock()
-            chat.mount(Static("Agent", classes="agent-label"))
             chat.mount(self._current_thinking)
         self._current_thinking.append_text(message.text)
         self._auto_scroll()
@@ -260,15 +269,18 @@ class AgentApp(App):
     def on_tool_started(self, message: ToolStarted) -> None:
         self._finalize_current_thinking()
         chat = self.query_one("#chat-view", VerticalScroll)
+        self._ensure_agent_label(chat)
         block = ToolBlock(message.name, message.args)
-        self._pending_tools[message.name] = block
+        self._pending_tools.append(block)
         chat.mount(block)
         self._auto_scroll()
 
     def on_tool_completed(self, message: ToolCompleted) -> None:
-        block = self._pending_tools.pop(message.name, None)
-        if block:
-            block.mark_done(message.status)
+        for i, block in enumerate(self._pending_tools):
+            if block.tool_name == message.name:
+                block.mark_done(message.status)
+                self._pending_tools.pop(i)
+                break
 
     def on_response_received(self, message: ResponseReceived) -> None:
         if self._current_stream is not None:
@@ -306,6 +318,15 @@ class AgentApp(App):
         if self._current_thinking is not None:
             self._current_thinking.finalize()
             self._current_thinking = None
+
+    def _ensure_agent_label(self, chat: VerticalScroll) -> None:
+        if not self._agent_label_shown:
+            self._agent_label_shown = True
+            chat.mount(Static("Agent", classes="agent-label"))
+
+    def _reset_status_bar(self) -> None:
+        status = self.query_one("#status-bar", Static)
+        status.update(_DEFAULT_STATUS)
 
     def _auto_scroll(self) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)

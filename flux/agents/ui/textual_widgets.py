@@ -102,7 +102,7 @@ class ThinkingBlock(Collapsible):
         return len(self._lines)
 
     def append_text(self, text: str) -> None:
-        new_lines = text.strip().split("\n")
+        new_lines = text.split("\n")
         self._lines.extend(new_lines)
         self._content.update("\n".join(self._lines))
 
