@@ -305,7 +305,15 @@ def include_in_service(name, workflow_refs, format, server_url):
     help="JWKS URI for MCP token validation (auto-discovered from issuer if omitted).",
 )
 def start_service(
-    name, port, host, mcp, server_url, cache_ttl, mcp_issuer, mcp_audience, mcp_jwks_uri,
+    name,
+    port,
+    host,
+    mcp,
+    server_url,
+    cache_ttl,
+    mcp_issuer,
+    mcp_audience,
+    mcp_jwks_uri,
 ):
     """Start a standalone service proxy."""
     from flux.service_proxy import create_standalone_app
