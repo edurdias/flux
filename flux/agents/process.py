@@ -10,6 +10,20 @@ from flux.agents.ui.terminal import TerminalUI
 VALID_MODES = ("terminal", "web", "api")
 
 
+def _make_terminal_ui():
+    import os
+    import sys
+
+    if os.environ.get("FLUX_PLAIN_TERMINAL") or not sys.stdout.isatty():
+        return TerminalUI()
+    try:
+        from flux.agents.ui.textual_ui import TextualUI
+
+        return TextualUI()
+    except Exception:
+        return TerminalUI()
+
+
 class AgentProcess:
     def __init__(
         self,
@@ -32,15 +46,28 @@ class AgentProcess:
         self.port = port
         self.workflow_name = workflow_name
         self.client = FluxClient(server_url=server_url, token=token)
-        self.ui: UI | None = TerminalUI() if mode == "terminal" else None
+        self.ui: UI | None = _make_terminal_ui() if mode == "terminal" else None
 
     async def run(self) -> None:
+        await self.client.ensure_workflow_registered(
+            workflow_name=self.workflow_name,
+        )
         if self.mode == "terminal":
             await self._run_terminal()
         else:
             await self._run_server()
 
     async def _run_terminal(self) -> None:
+        assert self.ui is not None
+
+        from flux.agents.ui.textual_ui import TextualUI
+
+        if isinstance(self.ui, TextualUI):
+            await self._run_textual_terminal()
+        else:
+            await self._run_plain_terminal()
+
+    async def _run_plain_terminal(self) -> None:
         assert self.ui is not None
         session = AgentSession(
             client=self.client,
@@ -50,8 +77,10 @@ class AgentProcess:
         )
 
         if self.session_id is None:
+            await self.ui.begin_reply()
             async for event in session.start():
                 await self._dispatch(event, session)
+            await self.ui.end_reply()
 
         self.session_id = session.session_id
         assert self.session_id is not None
@@ -69,20 +98,78 @@ class AgentProcess:
                 if stripped == "/quit":
                     break
                 if stripped == "/session":
-                    print(f"Session: {self.session_id}")
+                    print(f"\033[2m  session {self.session_id}\033[0m")
                     continue
                 if stripped == "/help":
-                    print("Commands: /help, /session, /quit")
+                    print(
+                        "\033[2m  /help     — show this message\n"
+                        "  /session  — show session id\n"
+                        "  /quit     — end session\033[0m",
+                    )
                     continue
                 if not stripped:
                     continue
 
+                await self.ui.begin_reply()
                 async for event in session.send(user_input):
                     await self._dispatch(event, session)
+                await self.ui.end_reply()
         except KeyboardInterrupt:
             pass
 
-        print(f"\nSession: {self.session_id}")
+        print(f"\n\033[2m  session {self.session_id}\033[0m")
+
+    async def _run_textual_terminal(self) -> None:
+        import asyncio
+
+        from flux.agents.ui.textual_ui import TextualUI
+
+        assert isinstance(self.ui, TextualUI)
+        ui: TextualUI = self.ui
+
+        async def session_loop() -> None:
+            session = AgentSession(
+                client=self.client,
+                agent_name=self.agent_name,
+                session_id=self.session_id,
+                workflow_name=self.workflow_name,
+            )
+
+            if self.session_id is None:
+                await ui.begin_reply()
+                async for event in session.start():
+                    await self._dispatch(event, session)
+                await ui.end_reply()
+
+            self.session_id = session.session_id
+            assert self.session_id is not None
+
+            await ui.display_session_info(self.session_id, self.agent_name)
+
+            try:
+                while True:
+                    try:
+                        user_input = await ui.prompt_user()
+                    except EOFError:
+                        break
+
+                    if user_input == "\x04":
+                        break
+                    if not user_input.strip():
+                        continue
+
+                    await ui.begin_reply()
+                    async for event in session.send(user_input):
+                        await self._dispatch(event, session)
+                    await ui.end_reply()
+            except KeyboardInterrupt:
+                pass
+
+            ui.app.exit()
+
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(ui.app.run_async())
+            tg.create_task(session_loop())
 
     async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
         assert self.ui is not None
