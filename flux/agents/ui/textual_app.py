@@ -8,7 +8,7 @@ import webbrowser
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import Markdown, Static, TextArea
+from textual.widgets import Markdown, OptionList, Static, TextArea
 
 from flux.agents.ui.textual_messages import (
     ElicitationRequested,
@@ -101,6 +101,15 @@ class AgentApp(App):
         color: $text-muted;
         padding: 0 1;
     }
+
+    #slash-completions {
+        dock: bottom;
+        height: auto;
+        max-height: 6;
+        display: none;
+        background: $surface;
+        border: tall $accent;
+    }
     """
 
     def __init__(self, input_queue: asyncio.Queue[str], **kwargs) -> None:
@@ -121,6 +130,7 @@ class AgentApp(App):
         yield Static("Connecting...", id="agent-header")
         yield VerticalScroll(id="chat-view")
         yield Static(_DEFAULT_STATUS, id="status-bar")
+        yield OptionList(id="slash-completions")
         yield TextArea(id="agent-input")
 
     def on_mount(self) -> None:
@@ -130,12 +140,37 @@ class AgentApp(App):
     def on_unmount(self) -> None:
         self._input_queue.put_nowait(QUIT_SENTINEL)
 
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        text = event.text_area.text
+        completions = self.query_one("#slash-completions", OptionList)
+        if text.startswith("/") and not text.endswith("\n"):
+            prefix = text.strip()
+            matches = [
+                (cmd, desc) for cmd, desc in _SLASH_COMMANDS.items() if cmd.startswith(prefix)
+            ]
+            completions.clear_options()
+            for cmd, desc in matches:
+                completions.add_option(f"{cmd}  — {desc}")
+            completions.display = bool(matches)
+        else:
+            completions.display = False
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        label = str(event.option.prompt)
+        command = label.split("  —")[0].strip()
+        input_widget = self.query_one("#agent-input", TextArea)
+        input_widget.clear()
+        completions = self.query_one("#slash-completions", OptionList)
+        completions.display = False
+        self._handle_slash_command(command)
+
     def _submit_input(self) -> None:
         input_widget = self.query_one("#agent-input", TextArea)
         text = input_widget.text.strip()
         if not text:
             return
         input_widget.clear()
+        self.query_one("#slash-completions", OptionList).display = False
         self._history.append(text)
         self._history_index = -1
 
@@ -198,6 +233,7 @@ class AgentApp(App):
 
         if event.key == "escape" and input_widget.has_focus:
             input_widget.clear()
+            self.query_one("#slash-completions", OptionList).display = False
             event.prevent_default()
             return
 
