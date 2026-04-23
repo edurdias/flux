@@ -75,12 +75,12 @@ async def test_tool_start_and_done():
     async with app.run_test() as pilot:
         app.post_message(ReplyStarted())
         await pilot.pause()
-        app.post_message(ToolStarted("read_file", {"path": "/x"}))
+        app.post_message(ToolStarted("call_1", "read_file", {"path": "/x"}))
         await pilot.pause()
         tools = app.query(ToolBlock)
         assert len(tools) == 1
         assert tools[0]._status is None
-        app.post_message(ToolCompleted("read_file", "success"))
+        app.post_message(ToolCompleted("call_1", "read_file", "success"))
         await pilot.pause()
         assert tools[0]._status == "success"
 

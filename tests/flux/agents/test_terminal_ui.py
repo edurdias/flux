@@ -28,7 +28,7 @@ async def test_display_response_none(capsys, ui):
 
 @pytest.mark.asyncio
 async def test_display_tool_start(capsys, ui):
-    await ui.display_tool_start("shell", {"cmd": "ls"})
+    await ui.display_tool_start("call_1", "shell", {"cmd": "ls"})
     captured = capsys.readouterr()
     assert "shell" in captured.out
     assert "ls" in captured.out
@@ -36,7 +36,7 @@ async def test_display_tool_start(capsys, ui):
 
 @pytest.mark.asyncio
 async def test_display_tool_done_success(capsys, ui):
-    await ui.display_tool_done("shell", "success")
+    await ui.display_tool_done("call_1", "shell", "success")
     captured = capsys.readouterr()
     assert "✓" in captured.out
     assert "shell" in captured.out
@@ -44,7 +44,7 @@ async def test_display_tool_done_success(capsys, ui):
 
 @pytest.mark.asyncio
 async def test_display_tool_done_error(capsys, ui):
-    await ui.display_tool_done("shell", "error")
+    await ui.display_tool_done("call_1", "shell", "error")
     captured = capsys.readouterr()
     assert "✗" in captured.out
     assert "shell" in captured.out

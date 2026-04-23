@@ -67,12 +67,20 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
         elif value.get("type") == KIND_TOOL_START:
             yield AgentEvent(
                 kind=KIND_TOOL_START,
-                data={"name": value.get("name", ""), "args": value.get("args", {})},
+                data={
+                    "id": value.get("id", ""),
+                    "name": value.get("name", ""),
+                    "args": value.get("args", {}),
+                },
             )
         elif value.get("type") == KIND_TOOL_DONE:
             yield AgentEvent(
                 kind=KIND_TOOL_DONE,
-                data={"name": value.get("name", ""), "status": value.get("status", "")},
+                data={
+                    "id": value.get("id", ""),
+                    "name": value.get("name", ""),
+                    "status": value.get("status", ""),
+                },
             )
         elif value.get("type") == KIND_REASONING:
             yield AgentEvent(

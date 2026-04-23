@@ -22,13 +22,15 @@ def test_token_received():
 
 
 def test_tool_started():
-    msg = ToolStarted("read_file", {"path": "/tmp"})
+    msg = ToolStarted("call_1", "read_file", {"path": "/tmp"})
+    assert msg.tool_id == "call_1"
     assert msg.name == "read_file"
     assert msg.args == {"path": "/tmp"}
 
 
 def test_tool_completed():
-    msg = ToolCompleted("read_file", "success")
+    msg = ToolCompleted("call_1", "read_file", "success")
+    assert msg.tool_id == "call_1"
     assert msg.name == "read_file"
     assert msg.status == "success"
 

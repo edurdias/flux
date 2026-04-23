@@ -31,11 +31,11 @@ class TextualUI(UI):
     async def display_response(self, content: str | None) -> None:
         self.app.post_message(ResponseReceived(content))
 
-    async def display_tool_start(self, name: str, args: dict) -> None:
-        self.app.post_message(ToolStarted(name, args))
+    async def display_tool_start(self, tool_id: str, name: str, args: dict) -> None:
+        self.app.post_message(ToolStarted(tool_id, name, args))
 
-    async def display_tool_done(self, name: str, status: str) -> None:
-        self.app.post_message(ToolCompleted(name, status))
+    async def display_tool_done(self, tool_id: str, name: str, status: str) -> None:
+        self.app.post_message(ToolCompleted(tool_id, name, status))
 
     async def display_token(self, text: str) -> None:
         self.app.post_message(TokenReceived(text))

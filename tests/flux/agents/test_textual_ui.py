@@ -37,8 +37,9 @@ async def test_display_tool_start_posts_message():
     ui = TextualUI()
     messages = []
     ui.app.post_message = lambda msg: messages.append(msg) or True
-    await ui.display_tool_start("read_file", {"path": "/x"})
+    await ui.display_tool_start("call_1", "read_file", {"path": "/x"})
     assert len(messages) == 1
+    assert messages[0].tool_id == "call_1"
     assert messages[0].name == "read_file"
 
 
@@ -47,8 +48,9 @@ async def test_display_tool_done_posts_message():
     ui = TextualUI()
     messages = []
     ui.app.post_message = lambda msg: messages.append(msg) or True
-    await ui.display_tool_done("read_file", "success")
+    await ui.display_tool_done("call_1", "read_file", "success")
     assert len(messages) == 1
+    assert messages[0].tool_id == "call_1"
     assert messages[0].name == "read_file"
     assert messages[0].status == "success"
 

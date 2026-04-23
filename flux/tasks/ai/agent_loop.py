@@ -181,6 +181,7 @@ async def run_agent_loop(
                 await progress(
                     {
                         "type": "tool_start",
+                        "id": tc.id,
                         "name": tc.name,
                         "args": tc.arguments,
                     },
@@ -206,6 +207,7 @@ async def run_agent_loop(
                 await progress(
                     {
                         "type": "tool_done",
+                        "id": tc_dict.get("id", ""),
                         "name": tc_dict.get("name", ""),
                         "status": status,
                     },

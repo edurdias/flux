@@ -11,11 +11,11 @@ class UI(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    async def display_tool_start(self, name: str, args: dict) -> None:
+    async def display_tool_start(self, tool_id: str, name: str, args: dict) -> None:
         raise NotImplementedError()
 
     @abstractmethod
-    async def display_tool_done(self, name: str, status: str) -> None:
+    async def display_tool_done(self, tool_id: str, name: str, status: str) -> None:
         raise NotImplementedError()
 
     @abstractmethod
@@ -33,6 +33,12 @@ class UI(ABC):
     @abstractmethod
     async def prompt_user(self) -> str:
         raise NotImplementedError()
+
+    async def begin_reply(self) -> None:
+        pass
+
+    async def end_reply(self) -> None:
+        pass
 
     @abstractmethod
     async def display_session_info(self, session_id: str, agent_name: str) -> None:

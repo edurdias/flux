@@ -15,15 +15,17 @@ class TokenReceived(Message):
 
 
 class ToolStarted(Message):
-    def __init__(self, name: str, args: dict[str, Any]) -> None:
+    def __init__(self, tool_id: str, name: str, args: dict[str, Any]) -> None:
         super().__init__()
+        self.tool_id = tool_id
         self.name = name
         self.args = args
 
 
 class ToolCompleted(Message):
-    def __init__(self, name: str, status: str) -> None:
+    def __init__(self, tool_id: str, name: str, status: str) -> None:
         super().__init__()
+        self.tool_id = tool_id
         self.name = name
         self.status = status
 

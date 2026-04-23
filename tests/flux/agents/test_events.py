@@ -20,22 +20,47 @@ def test_parses_token_progress():
 def test_parses_tool_start():
     raw = {
         "type": "TASK_PROGRESS",
+        "value": {"type": "tool_start", "id": "call_1", "name": "shell", "args": {"cmd": "ls"}},
+    }
+    events = list(parse_event(raw))
+    assert events == [
+        AgentEvent(
+            kind="tool_start",
+            data={"id": "call_1", "name": "shell", "args": {"cmd": "ls"}},
+        ),
+    ]
+
+
+def test_parses_tool_start_without_id():
+    raw = {
+        "type": "TASK_PROGRESS",
         "value": {"type": "tool_start", "name": "shell", "args": {"cmd": "ls"}},
     }
     events = list(parse_event(raw))
     assert events == [
-        AgentEvent(kind="tool_start", data={"name": "shell", "args": {"cmd": "ls"}}),
+        AgentEvent(kind="tool_start", data={"id": "", "name": "shell", "args": {"cmd": "ls"}}),
     ]
 
 
 def test_parses_tool_done():
     raw = {
         "type": "TASK_PROGRESS",
+        "value": {"type": "tool_done", "id": "call_1", "name": "shell", "status": "success"},
+    }
+    events = list(parse_event(raw))
+    assert events == [
+        AgentEvent(kind="tool_done", data={"id": "call_1", "name": "shell", "status": "success"}),
+    ]
+
+
+def test_parses_tool_done_without_id():
+    raw = {
+        "type": "TASK_PROGRESS",
         "value": {"type": "tool_done", "name": "shell", "status": "success"},
     }
     events = list(parse_event(raw))
     assert events == [
-        AgentEvent(kind="tool_done", data={"name": "shell", "status": "success"}),
+        AgentEvent(kind="tool_done", data={"id": "", "name": "shell", "status": "success"}),
     ]
 
 

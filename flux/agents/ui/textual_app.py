@@ -119,7 +119,7 @@ class AgentApp(App):
         self._agent_name: str = ""
         self._current_stream: StreamBlock | None = None
         self._current_thinking: ThinkingBlock | None = None
-        self._pending_tools: list[ToolBlock] = []
+        self._pending_tools: dict[str, ToolBlock] = {}
         self._agent_label_shown: bool = False
         self._history: list[str] = []
         self._history_index: int = -1
@@ -310,16 +310,14 @@ class AgentApp(App):
         chat = self.query_one("#chat-view", VerticalScroll)
         self._ensure_agent_label(chat)
         block = ToolBlock(message.name, message.args)
-        self._pending_tools.append(block)
+        self._pending_tools[message.tool_id] = block
         chat.mount(block)
         self._auto_scroll()
 
     def on_tool_completed(self, message: ToolCompleted) -> None:
-        for i, block in enumerate(self._pending_tools):
-            if block.tool_name == message.name:
-                block.mark_done(message.status)
-                self._pending_tools.pop(i)
-                break
+        block = self._pending_tools.pop(message.tool_id, None)
+        if block:
+            block.mark_done(message.status)
 
     def on_response_received(self, message: ResponseReceived) -> None:
         if self._current_stream is not None:

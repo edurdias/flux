@@ -183,9 +183,17 @@ class AgentProcess:
         if event.kind == "token":
             await self.ui.display_token(event.data["text"])
         elif event.kind == "tool_start":
-            await self.ui.display_tool_start(event.data["name"], event.data["args"])
+            await self.ui.display_tool_start(
+                event.data.get("id", ""),
+                event.data["name"],
+                event.data["args"],
+            )
         elif event.kind == "tool_done":
-            await self.ui.display_tool_done(event.data["name"], event.data["status"])
+            await self.ui.display_tool_done(
+                event.data.get("id", ""),
+                event.data["name"],
+                event.data["status"],
+            )
         elif event.kind == "reasoning":
             await self.ui.display_reasoning(event.data["text"])
         elif event.kind == "chat_response":
