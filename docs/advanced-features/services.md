@@ -366,7 +366,7 @@ Standalone MCP endpoints can validate bearer tokens from an external Identity Pr
 **CLI flags:**
 
 ```bash
-flux service start billing --port 9000 \
+flux service start billing --port 9000 --mcp \
   --mcp-issuer https://idp.example.com/realms/my-realm \
   --mcp-audience billing-api \
   --mcp-jwks-uri https://idp.example.com/realms/my-realm/protocol/openid-connect/certs
