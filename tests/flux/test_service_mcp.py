@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from flux.service_mcp import EndpointInfo, ServiceMCPServer, create_service_mcp_server
-from flux.service_proxy import _MCPDispatcher
+from flux.service_proxy import MCPRouteMiddleware
 
 
 class FakeProvider:
@@ -190,22 +190,22 @@ class TestAuthProvider:
         assert server.mcp.auth is None
 
 
-class TestMCPDispatcherRouting:
+class TestMCPRouteMiddleware:
     def test_mcp_path_is_mcp_route(self):
-        assert _MCPDispatcher._is_mcp_route("/mcp") is True
-        assert _MCPDispatcher._is_mcp_route("/mcp/") is True
-        assert _MCPDispatcher._is_mcp_route("/mcp/something") is True
+        assert MCPRouteMiddleware._is_mcp_route("/mcp") is True
+        assert MCPRouteMiddleware._is_mcp_route("/mcp/") is True
+        assert MCPRouteMiddleware._is_mcp_route("/mcp/something") is True
 
     def test_well_known_is_mcp_route(self):
-        assert _MCPDispatcher._is_mcp_route("/.well-known/oauth-protected-resource") is True
-        assert _MCPDispatcher._is_mcp_route("/.well-known/oauth-authorization-server") is True
+        assert MCPRouteMiddleware._is_mcp_route("/.well-known/oauth-protected-resource") is True
+        assert MCPRouteMiddleware._is_mcp_route("/.well-known/oauth-authorization-server") is True
 
     def test_health_is_not_mcp_route(self):
-        assert _MCPDispatcher._is_mcp_route("/health") is False
+        assert MCPRouteMiddleware._is_mcp_route("/health") is False
 
     def test_workflow_is_not_mcp_route(self):
-        assert _MCPDispatcher._is_mcp_route("/invoice") is False
-        assert _MCPDispatcher._is_mcp_route("/invoice/status/abc") is False
+        assert MCPRouteMiddleware._is_mcp_route("/invoice") is False
+        assert MCPRouteMiddleware._is_mcp_route("/invoice/status/abc") is False
 
     @pytest.mark.asyncio
     async def test_http_mcp_routed_to_mcp_app(self):
@@ -217,8 +217,8 @@ class TestMCPDispatcherRouting:
         async def mcp_app(scope, receive, send):
             calls["mcp"].append(scope["path"])
 
-        dispatcher = _MCPDispatcher(main_app, mcp_app)
-        await dispatcher({"type": "http", "path": "/mcp"}, None, None)
+        middleware = MCPRouteMiddleware(main_app, mcp_app=mcp_app)
+        await middleware({"type": "http", "path": "/mcp"}, None, None)
         assert calls["mcp"] == ["/mcp"]
         assert calls["main"] == []
 
@@ -232,8 +232,8 @@ class TestMCPDispatcherRouting:
         async def mcp_app(scope, receive, send):
             calls["mcp"].append(scope["path"])
 
-        dispatcher = _MCPDispatcher(main_app, mcp_app)
-        await dispatcher(
+        middleware = MCPRouteMiddleware(main_app, mcp_app=mcp_app)
+        await middleware(
             {"type": "http", "path": "/.well-known/oauth-protected-resource"}, None, None,
         )
         assert calls["mcp"] == ["/.well-known/oauth-protected-resource"]
@@ -249,7 +249,22 @@ class TestMCPDispatcherRouting:
         async def mcp_app(scope, receive, send):
             calls["mcp"].append(scope["path"])
 
-        dispatcher = _MCPDispatcher(main_app, mcp_app)
-        await dispatcher({"type": "http", "path": "/invoice"}, None, None)
+        middleware = MCPRouteMiddleware(main_app, mcp_app=mcp_app)
+        await middleware({"type": "http", "path": "/invoice"}, None, None)
         assert calls["main"] == ["/invoice"]
+        assert calls["mcp"] == []
+
+    @pytest.mark.asyncio
+    async def test_non_http_scope_passed_to_main_app(self):
+        calls = {"main": [], "mcp": []}
+
+        async def main_app(scope, receive, send):
+            calls["main"].append(scope["type"])
+
+        async def mcp_app(scope, receive, send):
+            calls["mcp"].append(scope["type"])
+
+        middleware = MCPRouteMiddleware(main_app, mcp_app=mcp_app)
+        await middleware({"type": "websocket", "path": "/mcp"}, None, None)
+        assert calls["main"] == ["websocket"]
         assert calls["mcp"] == []
