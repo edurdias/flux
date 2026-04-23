@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -168,26 +168,31 @@ class TestToolGeneration:
 
 class TestAuthProvider:
     def test_no_auth_by_default(self):
-        ep = _make_endpoint("greet")
-        server = _build_server({"greet": ep})
-        assert server.mcp.auth is None
+        with patch("flux.service_mcp.FastMCP") as mock_cls:
+            ep = _make_endpoint("greet")
+            provider = FakeProvider({"greet": ep})
+            ServiceMCPServer("test-service", provider)
+            mock_cls.assert_called_once_with("flux-service-test-service", auth=None)
 
     def test_auth_provider_passed_to_fastmcp(self):
         fake_auth = MagicMock()
-        provider = FakeProvider({"greet": _make_endpoint("greet")})
-        server = ServiceMCPServer("test-service", provider, auth=fake_auth)
-        assert server.mcp.auth is fake_auth
+        with patch("flux.service_mcp.FastMCP") as mock_cls:
+            provider = FakeProvider({"greet": _make_endpoint("greet")})
+            ServiceMCPServer("test-service", provider, auth=fake_auth)
+            mock_cls.assert_called_once_with("flux-service-test-service", auth=fake_auth)
 
     def test_create_service_mcp_server_with_auth(self):
         fake_auth = MagicMock()
         fake_client = MagicMock()
-        server = create_service_mcp_server("svc", fake_client, auth=fake_auth)
-        assert server.mcp.auth is fake_auth
+        with patch("flux.service_mcp.FastMCP") as mock_cls:
+            create_service_mcp_server("svc", fake_client, auth=fake_auth)
+            mock_cls.assert_called_once_with("flux-service-svc", auth=fake_auth)
 
     def test_create_service_mcp_server_without_auth(self):
         fake_client = MagicMock()
-        server = create_service_mcp_server("svc", fake_client)
-        assert server.mcp.auth is None
+        with patch("flux.service_mcp.FastMCP") as mock_cls:
+            create_service_mcp_server("svc", fake_client)
+            mock_cls.assert_called_once_with("flux-service-svc", auth=None)
 
 
 class TestMCPRouteMiddleware:
