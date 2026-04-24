@@ -542,14 +542,16 @@ class Server:
     ) -> AsyncIterator[dict]:
         event = self._execution_events[ctx.execution_id]
         progress_buffer = self._progress_buffers.get(ctx.execution_id)
+        active_tasks: set[asyncio.Task] = set()
         try:
             while not ctx.has_finished:
                 if progress_buffer:
                     progress_task = asyncio.create_task(progress_buffer.get())
                     checkpoint_task = asyncio.create_task(event.wait())
+                    active_tasks = {progress_task, checkpoint_task}
 
                     done, pending = await asyncio.wait(
-                        {progress_task, checkpoint_task},
+                        active_tasks,
                         timeout=30.0,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
@@ -557,6 +559,7 @@ class Server:
                         t.cancel()
                     if pending:
                         await asyncio.gather(*pending, return_exceptions=True)
+                    active_tasks.clear()
 
                     if not done:
                         continue
@@ -609,6 +612,11 @@ class Server:
                             "data": to_json(dto if detailed else dto.summary()),
                         }
         finally:
+            for t in active_tasks:
+                if not t.done():
+                    t.cancel()
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
             self._execution_events.pop(ctx.execution_id, None)
             self._progress_buffers.pop(ctx.execution_id, None)
 
