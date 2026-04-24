@@ -9,6 +9,7 @@ from textual.app import App, ComposeResult
 
 from flux.agents.ui.textual_widgets import (
     ElicitationPrompt,
+    SpinnerBlock,
     StreamBlock,
     ThinkingBlock,
     ToolBlock,
@@ -27,7 +28,7 @@ async def test_stream_block_append_and_finalize():
         block.append_token("Hello")
         block.append_token(" world")
         assert block.buffer == "Hello world"
-        block.finalize("# Hello world\n\nFinal content.")
+        await block.finalize("# Hello world\n\nFinal content.")
         await pilot.pause()
         md = block.query_one("Markdown")
         assert md is not None
@@ -46,9 +47,9 @@ async def test_stream_block_double_finalize():
     async with StreamBlockApp().run_test() as pilot:
         block = pilot.app.query_one(StreamBlock)
         block.append_token("Hello")
-        block.finalize("# Hello")
+        await block.finalize("# Hello")
         await pilot.pause()
-        block.finalize("# Should be ignored")
+        await block.finalize("# Should be ignored")
         await pilot.pause()
         md_widgets = block.query("Markdown")
         assert len(md_widgets) == 1
@@ -75,6 +76,7 @@ async def test_tool_block_success():
         block.mark_done("success")
         content = block.render_text()
         assert "\u2713" in content
+        assert "s" in content  # elapsed time shown
 
 
 @pytest.mark.asyncio
@@ -107,6 +109,7 @@ async def test_thinking_block_finalize():
         block.append_text("line 1\nline 2\nline 3")
         block.finalize()
         assert "3 lines" in block.title
+        assert "s)" in block.title  # elapsed time shown
 
 
 class ElicitationApp(App):
@@ -129,3 +132,33 @@ async def test_elicitation_prompt_renders():
         assert "mcp-github" in text
         assert "Authorization required" in text
         assert "[Y]" in text or "[N]" in text
+
+
+class SpinnerApp(App):
+    def compose(self) -> ComposeResult:
+        yield SpinnerBlock("Thinking")
+
+
+@pytest.mark.asyncio
+async def test_spinner_block_animates():
+    async with SpinnerApp().run_test() as pilot:
+        block = pilot.app.query_one(SpinnerBlock)
+        assert block.label == "Thinking"
+        assert block._timer is not None
+
+
+@pytest.mark.asyncio
+async def test_spinner_block_label_update():
+    async with SpinnerApp().run_test() as pilot:
+        block = pilot.app.query_one(SpinnerBlock)
+        block.set_label("Streaming")
+        assert block.label == "Streaming"
+
+
+@pytest.mark.asyncio
+async def test_spinner_block_stop():
+    async with SpinnerApp().run_test() as pilot:
+        block = pilot.app.query_one(SpinnerBlock)
+        assert block._timer is not None
+        block.stop()
+        assert block._timer is None

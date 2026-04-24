@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from flux.agents.events import AgentEvent
 from flux.agents.flux_client import FluxClient
@@ -9,6 +10,7 @@ from flux.agents.ui import UI
 from flux.agents.ui.terminal import TerminalUI
 
 logger = logging.getLogger("flux.agents")
+
 
 VALID_MODES = ("terminal", "web", "api")
 
@@ -134,49 +136,68 @@ class AgentProcess:
         assert isinstance(self.ui, TextualUI)
         ui: TextualUI = self.ui
 
+        # Suppress Textual's internal logging so it doesn't bleed to stderr.
+        logging.getLogger("textual").setLevel(logging.CRITICAL)
+        logging.getLogger("textual.css").setLevel(logging.CRITICAL)
+
         async def session_loop() -> None:
-            session = AgentSession(
-                client=self.client,
-                agent_name=self.agent_name,
-                session_id=self.session_id,
-                workflow_name=self.workflow_name,
-            )
-
-            if self.session_id is None:
-                await ui.begin_reply()
-                async for event in session.start():
-                    await self._dispatch(event, session)
-                await ui.end_reply()
-
-            self.session_id = session.session_id
-            assert self.session_id is not None
-
-            await ui.display_session_info(self.session_id, self.agent_name)
-
             try:
-                while True:
-                    try:
-                        user_input = await ui.prompt_user()
-                    except EOFError:
-                        break
+                session = AgentSession(
+                    client=self.client,
+                    agent_name=self.agent_name,
+                    session_id=self.session_id,
+                    workflow_name=self.workflow_name,
+                )
 
-                    if user_input == "\x04":
-                        break
-                    if not user_input.strip():
-                        continue
-
+                if self.session_id is None:
                     await ui.begin_reply()
-                    async for event in session.send(user_input):
+                    async for event in session.start():
                         await self._dispatch(event, session)
                     await ui.end_reply()
-            except KeyboardInterrupt:
-                pass
+
+                self.session_id = session.session_id
+                assert self.session_id is not None
+
+                await ui.display_session_info(self.session_id, self.agent_name)
+
+                try:
+                    while True:
+                        try:
+                            user_input = await ui.prompt_user()
+                        except EOFError:
+                            break
+
+                        if user_input == "\x04":
+                            break
+                        if not user_input.strip():
+                            continue
+
+                        await ui.begin_reply()
+                        async for event in session.send(user_input):
+                            await self._dispatch(event, session)
+                        await ui.end_reply()
+                except KeyboardInterrupt:
+                    pass
+
+            # Redirect stderr before exit() so Textual's teardown messages
+            # ("Unmount()", "focus was removed") are suppressed.
+            finally:
+                self._saved_stderr_fd = os.dup(2)
+                _devnull = os.open(os.devnull, os.O_WRONLY)
+                os.dup2(_devnull, 2)
+                os.close(_devnull)
 
             ui.app.exit()
 
         async with asyncio.TaskGroup() as tg:
             tg.create_task(ui.app.run_async())
             tg.create_task(session_loop())
+
+        # Restore stderr after Textual's teardown is complete.
+        saved = getattr(self, "_saved_stderr_fd", None)
+        if saved is not None:
+            os.dup2(saved, 2)
+            os.close(saved)
 
     async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
         assert self.ui is not None

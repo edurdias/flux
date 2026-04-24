@@ -27,7 +27,6 @@ async def test_app_composes_widgets():
     input_queue: asyncio.Queue[str] = asyncio.Queue()
     app = AgentApp(input_queue=input_queue)
     async with app.run_test():
-        assert app.query_one("#agent-header") is not None
         assert app.query_one("#chat-view") is not None
         assert app.query_one("#agent-input") is not None
         assert app.query_one("#status-bar") is not None
@@ -100,13 +99,53 @@ async def test_reasoning_creates_thinking_block():
 
 
 @pytest.mark.asyncio
-async def test_session_info_updates_header():
+async def test_session_info_updates_status_bar():
     input_queue: asyncio.Queue[str] = asyncio.Queue()
     app = AgentApp(input_queue=input_queue)
     async with app.run_test() as pilot:
         app.post_message(SessionInfoReceived("exec-abc123def456", "my-agent"))
         await pilot.pause()
-        header = app.query_one("#agent-header", Static)
-        rendered = str(header.renderable)
+        status = app.query_one("#status-bar", Static)
+        rendered = str(status.renderable)
         assert "my-agent" in rendered
-        assert "exec-abc123d" in rendered
+        assert "exec-abc123def456" in rendered
+
+
+@pytest.mark.asyncio
+async def test_spinner_starts_on_reply():
+    input_queue: asyncio.Queue[str] = asyncio.Queue()
+    app = AgentApp(input_queue=input_queue)
+    async with app.run_test() as pilot:
+        app.post_message(ReplyStarted())
+        await pilot.pause()
+        assert app._is_processing is True
+        assert app._spinner is not None
+
+
+@pytest.mark.asyncio
+async def test_spinner_stops_on_reply_end():
+    input_queue: asyncio.Queue[str] = asyncio.Queue()
+    app = AgentApp(input_queue=input_queue)
+    async with app.run_test() as pilot:
+        app.post_message(ReplyStarted())
+        await pilot.pause()
+        app.post_message(ReplyEnded())
+        await pilot.pause()
+        assert app._is_processing is False
+        assert app._spinner is None
+
+
+@pytest.mark.asyncio
+async def test_input_never_disabled_during_processing():
+    from textual.widgets import Input
+
+    input_queue: asyncio.Queue[str] = asyncio.Queue()
+    app = AgentApp(input_queue=input_queue)
+    async with app.run_test() as pilot:
+        app.post_message(ReplyStarted())
+        await pilot.pause()
+        input_widget = app.query_one("#agent-input", Input)
+        assert input_widget.disabled is False
+        app.post_message(TokenReceived("Hello"))
+        await pilot.pause()
+        assert input_widget.disabled is False

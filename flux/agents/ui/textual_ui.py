@@ -26,7 +26,27 @@ class TextualUI(UI):
 
     def __init__(self) -> None:
         self._input_queue: asyncio.Queue[str] = asyncio.Queue()
-        self.app = AgentApp(input_queue=self._input_queue)
+        self.app = AgentApp(
+            input_queue=self._input_queue,
+            user_id=self._resolve_user_id(),
+        )
+
+    @staticmethod
+    def _resolve_user_id() -> str | None:
+        import os
+
+        user = os.environ.get("FLUX_USER")
+        if user:
+            return user
+        try:
+            from flux.cli_auth import load_credentials
+
+            creds = load_credentials()
+            if creds:
+                return creds.get("email") or creds.get("preferred_username")
+        except Exception:
+            pass
+        return None
 
     async def display_response(self, content: str | None) -> None:
         self.app.post_message(ResponseReceived(content))
