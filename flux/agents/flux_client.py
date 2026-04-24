@@ -123,6 +123,29 @@ class FluxClient:
                     if is_terminal_state(data):
                         break
 
+    async def ensure_workflow_registered(
+        self,
+        namespace: str = "agents",
+        workflow_name: str = "agent_chat",
+    ) -> None:
+        url = f"{self.server_url}/workflows/{namespace}/{workflow_name}"
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=self._build_headers())
+            if resp.status_code != 404:
+                return
+
+        import importlib.resources
+
+        template_source = (importlib.resources.files("flux.agents") / "template.py").read_bytes()
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.server_url}/workflows",
+                files={"file": ("template.py", template_source, "text/x-python")},
+                headers={k: v for k, v in self._build_headers().items() if k != "Content-Type"},
+            )
+            resp.raise_for_status()
+
     async def get_agent(self, name: str) -> dict:
         url = f"{self.server_url}/admin/agents/{name}"
         async with httpx.AsyncClient() as client:

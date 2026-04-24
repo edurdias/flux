@@ -57,7 +57,7 @@ class ApiUI:
             raise HTTPException(status_code=401, detail="Empty Bearer token")
         return token
 
-    def _make_client(self, token: str) -> FluxClient:
+    def _make_client(self, token: str | None) -> FluxClient:
         return FluxClient(server_url=self.server_url, token=token)
 
     def _get_token_dependency(self):

@@ -50,7 +50,11 @@ class TestRoutingWithoutMCP:
 class TestRoutingWithMCP:
     @pytest.fixture
     def app_with_mcp(self, _patch_proxy):
-        with patch("flux.service_mcp.ProxyEndpointProvider.get_endpoints", new_callable=AsyncMock, return_value={}):
+        with patch(
+            "flux.service_mcp.ProxyEndpointProvider.get_endpoints",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
             app = create_standalone_app("test-svc", "http://fake:9999", enable_mcp=True)
             yield app
 
@@ -139,7 +143,9 @@ class TestMCPAndWorkflowCoexistence:
         """Paths like /mcp, /health should never be treated as workflow names."""
         for path in ["/mcp", "/health"]:
             r = client.post(path)
-            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            body = (
+                r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            )
             assert "not found in service" not in body.get("detail", "")
 
     def test_multiple_workflow_paths_work(self, client):

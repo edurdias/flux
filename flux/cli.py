@@ -2,20 +2,33 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 
-import click
-import httpx
+import importlib
+import types
 
-from flux.catalogs import resolve_workflow_ref
-from flux.cli_auth import auth, roles, principals
-from flux.config import Configuration
-from flux.server import Server
-from flux.worker import Worker
-from flux.utils import parse_value
-from flux.utils import to_json
+import click
+
+if TYPE_CHECKING:
+    import httpx
+else:
+
+    class _LazyModule(types.ModuleType):
+        """Proxy that defers the actual import until first attribute access.
+
+        Resolved attributes are cached on the instance so that
+        ``unittest.mock.patch`` (which uses setattr/delattr) can override them.
+        """
+
+        def __getattr__(self, name: str):
+            real = importlib.import_module(self.__name__)
+            val = getattr(real, name)
+            object.__setattr__(self, name, val)
+            return val
+
+    httpx = _LazyModule("httpx")
 
 
 @click.group()
@@ -30,6 +43,8 @@ def workflow():
 
 def get_server_url():
     """Get the server URL from configuration."""
+    from flux.config import Configuration
+
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
 
@@ -192,6 +207,9 @@ def register_workflows(filename: str, format: str, server_url: str | None):
 )
 def show_workflow(workflow_name: str, version: int | None, format: str, server_url: str | None):
     """Show the details of a registered workflow."""
+    from flux.catalogs import resolve_workflow_ref
+    from flux.utils import to_json
+
     try:
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
@@ -262,6 +280,8 @@ def delete_workflow(
 ):
     """Delete a workflow (all versions or a specific version)."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -318,6 +338,8 @@ def list_workflow_versions(
 ):
     """List all versions of a workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -386,6 +408,9 @@ def run_workflow(
 ):
     """Run the specified workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value, to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
@@ -460,6 +485,9 @@ def resume_workflow(
 ):
     """Run the specified workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value, to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
@@ -520,6 +548,9 @@ def workflow_status(
 ):
     """Check the status of a workflow execution."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -553,6 +584,7 @@ def cancel_workflow(workflow_name: str, execution_id: str, server_url: str | Non
     """Cancel a running workflow execution."""
     try:
         from flux.catalogs import resolve_workflow_ref
+        from flux.utils import to_json
 
         namespace, name = resolve_workflow_ref(workflow_name)
         base_url = server_url or get_server_url()
@@ -643,6 +675,8 @@ def list_executions(
 ):
     """List workflow executions."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
 
         if workflow and namespace:
@@ -708,6 +742,8 @@ def list_executions(
 def show_execution(execution_id: str, detailed: bool, server_url: str | None):
     """Show details of a specific execution."""
     try:
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
 
         with get_http_client() as client:
@@ -797,6 +833,8 @@ def list_workers(format: str, server_url: str | None):
 def show_worker(name: str, server_url: str | None):
     """Show details of a specific worker."""
     try:
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
 
         with get_http_client() as client:
@@ -886,6 +924,9 @@ def start():
 )
 def server(host: str | None = None, port: int | None = None):
     """Start the Flux server."""
+    from flux.config import Configuration
+    from flux.server import Server
+
     settings = Configuration.get().settings
     host = host or settings.server_host
     port = port or settings.server_port
@@ -907,6 +948,9 @@ def server(host: str | None = None, port: int | None = None):
     help="Worker label in key=value format (repeatable).",
 )
 def start_worker(name: str | None, server_url: str | None = None, label: tuple[str, ...] = ()):
+    from flux.config import Configuration
+    from flux.worker import Worker
+
     name = name or f"worker-{uuid4().hex[-6:]}"
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
@@ -1044,6 +1088,9 @@ def create_schedule(
 ):
     """Create a new schedule for a workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value
+
         namespace, wf_name = resolve_workflow_ref(workflow_name)
 
         # Validate schedule parameters
@@ -2267,6 +2314,8 @@ def _get_auth_token() -> str | None:
 
     return None
 
+
+from flux.cli_auth import auth, principals, roles  # noqa: E402
 
 cli.add_command(auth)
 cli.add_command(roles)
