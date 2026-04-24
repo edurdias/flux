@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 
 from flux.utils import make_hashable
+
+
+class PausedEventValue(TypedDict):
+    name: str
+    output: Any
 
 
 class ExecutionState(str, Enum):

@@ -14,6 +14,7 @@ from uuid import uuid4
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
+from flux.domain.events import PausedEventValue
 from flux.errors import ExecutionError
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
@@ -333,7 +334,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_PAUSED,
                 source_id=id,
                 name=self.workflow_name,
-                value={"name": name, "output": output},
+                value=PausedEventValue(name=name, output=output),
                 subject=None,
             ),
         )

@@ -95,13 +95,23 @@ class ExecutionContext(BaseModel):
         )
 
     def summary(self) -> dict[str, Any]:
+        output = self.output
+        if output is None and self.state == "PAUSED":
+            for evt in reversed(self.events):
+                if evt.type == "WORKFLOW_PAUSED" and evt.value is not None:
+                    v = evt.value
+                    if isinstance(v, dict):
+                        output = v.get("output")
+                    else:
+                        output = v
+                    break
         return {
             "workflow_id": self.workflow_id,
             "workflow_namespace": self.workflow_namespace,
             "workflow_name": self.workflow_name,
             "execution_id": self.execution_id,
             "input": self.input,
-            "output": self.output,
+            "output": output,
             "state": self.state,
             "current_worker": self.current_worker,
         }
