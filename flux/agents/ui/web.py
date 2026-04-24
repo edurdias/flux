@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Header
+from fastapi.responses import HTMLResponse
 
 from flux.agents.ui.api import ApiUI
 
@@ -35,23 +35,24 @@ class WebUI(ApiUI):
         self._setup_web_routes()
 
     def _get_token_dependency(self):
-        """Override: use operator_token instead of requiring a request Bearer."""
+        """Override: use operator_token instead of requiring a request Bearer.
+
+        When no token was provided (auth disabled), requests pass through
+        without authentication — the Flux server treats them as anonymous.
+        """
         token = self.operator_token
 
-        def _dep(authorization: str | None = Header(default=None)) -> str:  # noqa: ARG001
-            if not token:
-                raise HTTPException(
-                    status_code=401,
-                    detail="Agent process started without a token; "
-                    "set FLUX_AUTH_TOKEN or run 'flux auth login'",
-                )
+        def _dep(authorization: str | None = Header(default=None)) -> str | None:  # noqa: ARG001
             return token
 
         return _dep
 
     def _setup_web_routes(self) -> None:
         web_dir = Path(__file__).parent.parent / "web"
+        agent_name = self.agent_name
 
         @self.app.get("/")
-        async def index() -> FileResponse:
-            return FileResponse(web_dir / "index.html")
+        async def index() -> HTMLResponse:
+            html = (web_dir / "index.html").read_text()
+            html = html.replace("{{AGENT_NAME}}", agent_name)
+            return HTMLResponse(html)

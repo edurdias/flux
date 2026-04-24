@@ -4,179 +4,537 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flux Agent</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/marked-highlight/styles/github-dark.min.css">
     <style>
         :root {
-            --bg: #ffffff; --fg: #1a1a1a; --border: #e0e0e0;
-            --msg-user: #f0f0f0; --msg-agent: #ffffff;
-            --accent: #2563eb; --input-bg: #ffffff;
+            --bg: #1a1a1a; --fg: #e0e0e0; --border: #333;
+            --surface: #242424; --accent: #60a5fa;
+            --muted: #777; --thinking-bg: #222;
+            --tool-fg: #888; --success: #4ade80; --error: #f87171;
         }
-        @media (prefers-color-scheme: dark) {
+        @media (prefers-color-scheme: light) {
             :root {
-                --bg: #1a1a1a; --fg: #e0e0e0; --border: #333;
-                --msg-user: #2a2a2a; --msg-agent: #1a1a1a;
-                --accent: #60a5fa; --input-bg: #2a2a2a;
+                --bg: #ffffff; --fg: #1a1a1a; --border: #e0e0e0;
+                --surface: #f5f5f5; --accent: #2563eb;
+                --muted: #888; --thinking-bg: #f8f8f8;
+                --tool-fg: #999; --success: #16a34a; --error: #dc2626;
             }
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: system-ui, -apple-system, sans-serif;
+            font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
             background: var(--bg); color: var(--fg);
             height: 100vh; display: flex; flex-direction: column;
         }
-        #header {
-            padding: 12px 16px; border-bottom: 1px solid var(--border);
-            font-weight: 600; font-size: 14px;
-        }
-        #session-info { font-weight: 400; color: #888; font-size: 12px; }
+
+        /* Messages */
         #messages {
-            flex: 1; overflow-y: auto; padding: 16px;
-            display: flex; flex-direction: column; gap: 12px;
+            flex: 1; overflow-y: auto; padding: 12px 16px;
+            display: flex; flex-direction: column; gap: 8px;
         }
-        .message {
-            max-width: 80%; padding: 10px 14px;
-            border-radius: 8px; font-size: 14px; line-height: 1.5;
-            white-space: pre-wrap;
+        #messages::-webkit-scrollbar { width: 4px; }
+        #messages::-webkit-scrollbar-track { background: transparent; }
+        #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        #messages::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+        .user-message {
+            padding: 4px 8px; font-size: 13px; line-height: 1.5;
+            color: var(--fg);
         }
-        .user { align-self: flex-end; background: var(--msg-user); }
-        .agent { align-self: flex-start; background: var(--msg-agent); border: 1px solid var(--border); }
-        .tool-info { font-size: 12px; color: #888; font-style: italic; }
+        .user-message::before { content: '❯ '; }
+
+        /* Agent response (markdown) */
+        .agent-response {
+            padding: 4px 8px; font-size: 13px; line-height: 1.6;
+        }
+        .agent-response p { margin: 0 0 8px 0; }
+        .agent-response p:last-child { margin-bottom: 0; }
+        .agent-response code {
+            background: var(--surface); padding: 1px 5px;
+            border-radius: 3px; font-size: 12px;
+        }
+        .agent-response pre {
+            background: var(--surface); padding: 10px 12px;
+            border-radius: 6px; overflow-x: auto; margin: 8px 0;
+            font-size: 12px; line-height: 1.5;
+        }
+        .agent-response pre code {
+            background: none; padding: 0; font-size: 12px;
+        }
+        .agent-response ul, .agent-response ol {
+            padding-left: 20px; margin: 4px 0;
+        }
+        .agent-response a { color: var(--accent); text-decoration: none; }
+        .agent-response a:hover { text-decoration: underline; }
+        .agent-response blockquote {
+            border-left: 3px solid var(--border); padding-left: 12px;
+            color: var(--muted); margin: 8px 0;
+        }
+        .agent-response table {
+            border-collapse: collapse; margin: 8px 0; font-size: 12px;
+        }
+        .agent-response th, .agent-response td {
+            border: 1px solid var(--border); padding: 4px 8px;
+        }
+        .agent-response th { background: var(--surface); }
+
+        /* Streaming text (pre-markdown) */
+        .stream-text {
+            padding: 4px 8px; font-size: 13px; line-height: 1.6;
+            white-space: pre-wrap; word-wrap: break-word;
+        }
+
+        /* Tool blocks */
+        .tool-block {
+            padding: 2px 8px; font-size: 12px; color: var(--tool-fg);
+            line-height: 1.6;
+        }
+        .tool-icon { margin-right: 4px; }
+        .tool-elapsed { margin-left: 4px; opacity: 0.7; }
+
+        /* Thinking block */
+        .thinking-block {
+            font-size: 12px; margin: 2px 0;
+        }
+        .thinking-toggle {
+            display: flex; align-items: center; gap: 4px;
+            padding: 2px 8px; cursor: pointer;
+            color: var(--muted); user-select: none;
+        }
+        .thinking-toggle:hover { opacity: 0.8; }
+        .thinking-chevron {
+            transition: transform 0.15s; font-size: 9px; display: inline-block;
+        }
+        .thinking-block.collapsed .thinking-chevron { transform: rotate(-90deg); }
+        .thinking-block:not(.collapsed) .thinking-chevron { transform: rotate(0deg); }
+        .thinking-content {
+            padding: 4px 8px 4px 24px; color: var(--muted);
+            white-space: pre-wrap; word-wrap: break-word;
+            max-height: 200px; overflow-y: auto;
+            line-height: 1.4; font-size: 12px;
+        }
+        .thinking-block.collapsed .thinking-content { display: none; }
+
+        /* Spinner */
+        .spinner {
+            padding: 4px 8px; font-size: 13px; color: var(--muted);
+        }
+
+        /* Elicitation */
+        .elicitation {
+            padding: 6px 8px; font-size: 13px; color: var(--accent);
+        }
+        .elicitation a { color: var(--accent); text-decoration: underline; }
+
+        /* System message */
+        .system-message {
+            padding: 2px 8px; font-size: 12px; color: var(--muted);
+        }
+
+        /* Input area */
         #input-area {
-            padding: 12px 16px; border-top: 1px solid var(--border);
-            display: flex; gap: 8px;
+            padding: 8px 16px; border-top: 1px solid var(--border);
         }
         #input {
-            flex: 1; padding: 10px 14px; border: 1px solid var(--border);
-            border-radius: 6px; background: var(--input-bg); color: var(--fg);
-            font-size: 14px; outline: none;
+            width: 100%; padding: 8px 12px;
+            border: 1px solid var(--border); border-radius: 4px;
+            background: var(--bg); color: var(--fg);
+            font-family: inherit; font-size: 13px; outline: none;
         }
         #input:focus { border-color: var(--accent); }
-        #send {
-            padding: 10px 20px; background: var(--accent); color: white;
-            border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+        #input::placeholder { color: var(--muted); }
+
+        /* Status bar */
+        #status-bar {
+            padding: 4px 16px; font-size: 11px; color: var(--muted);
+            background: transparent; user-select: none;
         }
-        #send:hover { opacity: 0.9; }
     </style>
 </head>
 <body>
-    <div id="header">
-        Flux Agent
-        <span id="session-info"></span>
-    </div>
     <div id="messages"></div>
     <div id="input-area">
-        <input id="input" type="text" placeholder="Type a message..." autofocus />
-        <button id="send">Send</button>
+        <input id="input" type="text" placeholder="Send a message…" autofocus />
     </div>
+    <div id="status-bar"></div>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-        const messages = document.getElementById('messages');
-        const input = document.getElementById('input');
-        const sendBtn = document.getElementById('send');
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('input');
+        const statusBar = document.getElementById('status-bar');
+
+        const agentName = '{{AGENT_NAME}}';
         let sessionId = null;
-        let currentAgentMsg = null;
+        let turnCount = 0;
+        const sessionStart = Date.now();
+        let busy = false;
 
-        function addMessage(text, type) {
-            const div = document.createElement('div');
-            div.className = `message ${type}`;
-            div.textContent = text;
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-            return div;
+        // Streaming state
+        let currentStream = null;
+        let currentThinking = null;
+        let spinnerEl = null;
+        let spinnerTimer = null;
+
+        // Tool tracking
+        const pendingTools = {};
+
+        // Input history
+        const history = [];
+        let historyIndex = -1;
+
+        const SPINNER_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+        let spinnerFrame = 0;
+
+        // ── Helpers ──────────────────────────────────────────────────
+
+        function scrollToBottom() {
+            const el = messagesEl;
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
+                el.scrollTop = el.scrollHeight;
+            }
         }
 
-        function addToolInfo(text) {
-            const div = document.createElement('div');
-            div.className = 'tool-info';
-            div.textContent = text;
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
+        function updateStatus() {
+            const elapsed = Math.floor((Date.now() - sessionStart) / 60000);
+            const duration = elapsed > 0 ? `${elapsed}m` : '<1m';
+            const turns = `${turnCount} turn${turnCount !== 1 ? 's' : ''}`;
+            const sid = sessionId ? ` │ ${sessionId}` : '';
+            statusBar.textContent = `  ${agentName}${sid} │ ${turns} │ ${duration}`;
         }
 
-        async function sendMessage() {
-            const text = input.value.trim();
-            if (!text) return;
-            input.value = '';
+        function renderMarkdown(text) {
+            if (!text) return '';
+            return marked.parse(text, { breaks: false, gfm: true });
+        }
 
-            addMessage(text, 'user');
-            currentAgentMsg = null;
+        // ── Spinner ──────────────────────────────────────────────────
 
-            const url = sessionId ? `/chat?session=${sessionId}` : '/chat';
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({message: text}),
-            });
+        function showSpinner(label) {
+            if (spinnerEl) {
+                spinnerEl._label = label;
+                return;
+            }
+            spinnerEl = document.createElement('div');
+            spinnerEl.className = 'spinner';
+            spinnerEl._label = label;
+            messagesEl.appendChild(spinnerEl);
+            spinnerFrame = 0;
+            spinnerTimer = setInterval(() => {
+                const frame = SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length];
+                spinnerFrame++;
+                spinnerEl.textContent = `  ${frame} ${spinnerEl._label}`;
+            }, 100);
+            scrollToBottom();
+        }
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
+        function hideSpinner() {
+            if (spinnerTimer) { clearInterval(spinnerTimer); spinnerTimer = null; }
+            if (spinnerEl) { spinnerEl.remove(); spinnerEl = null; }
+        }
 
-            while (true) {
-                const {done, value} = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, {stream: true});
+        // ── Thinking ─────────────────────────────────────────────────
 
-                const lines = buffer.split('\n');
-                buffer = lines.pop();
+        function getOrCreateThinking() {
+            if (currentThinking) return currentThinking;
+            hideSpinner();
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const event = JSON.parse(line.slice(6));
-                            handleEvent(event);
-                        } catch (e) {}
+            const block = document.createElement('div');
+            block.className = 'thinking-block collapsed';
+
+            const toggle = document.createElement('div');
+            toggle.className = 'thinking-toggle';
+            toggle.innerHTML = '<span class="thinking-chevron">▼</span> <span class="thinking-label">Thinking</span>';
+            toggle.addEventListener('click', () => block.classList.toggle('collapsed'));
+
+            const content = document.createElement('div');
+            content.className = 'thinking-content';
+
+            block.appendChild(toggle);
+            block.appendChild(content);
+            messagesEl.appendChild(block);
+            scrollToBottom();
+
+            // Animate the label while receiving
+            let frame = 0;
+            const label = toggle.querySelector('.thinking-label');
+            const timer = setInterval(() => {
+                const f = SPINNER_FRAMES[frame % SPINNER_FRAMES.length];
+                frame++;
+                label.textContent = `${f} Thinking`;
+            }, 100);
+
+            currentThinking = { block, content, timer, lineCount: 0 };
+            return currentThinking;
+        }
+
+        function finalizeThinking() {
+            if (!currentThinking) return;
+            clearInterval(currentThinking.timer);
+            const label = currentThinking.block.querySelector('.thinking-label');
+            const lines = currentThinking.lineCount;
+            label.textContent = `Thinking (${lines} line${lines !== 1 ? 's' : ''})`;
+            currentThinking = null;
+        }
+
+        function finalizeStream() {
+            if (!currentStream) return;
+            const md = currentStream._buffer;
+            if (md) {
+                const rendered = document.createElement('div');
+                rendered.className = 'agent-response';
+                rendered.innerHTML = renderMarkdown(md);
+                currentStream.replaceWith(rendered);
+            }
+            currentStream = null;
+        }
+
+        // ── Event handlers ───────────────────────────────────────────
+
+        function handleEvent(event) {
+            switch (event.type) {
+                case 'token': {
+                    finalizeThinking();
+                    hideSpinner();
+                    if (!currentStream) {
+                        currentStream = document.createElement('div');
+                        currentStream.className = 'stream-text';
+                        currentStream._buffer = '';
+                        messagesEl.appendChild(currentStream);
                     }
+                    currentStream._buffer += event.text;
+                    currentStream.textContent = currentStream._buffer;
+                    scrollToBottom();
+                    break;
+                }
+                case 'tool_start': {
+                    finalizeThinking();
+                    hideSpinner();
+                    finalizeStream();
+                    const args = Object.entries(event.args || {})
+                        .map(([k, v]) => {
+                            let s = JSON.stringify(v);
+                            if (s.length > 40) s = s.slice(0, 37) + '...';
+                            return `${k}=${s}`;
+                        }).join(', ');
+                    const name = event.name;
+                    const label = args ? `${name}(${args})` : name;
+
+                    const div = document.createElement('div');
+                    div.className = 'tool-block';
+                    div.innerHTML = `<span class="tool-icon">○</span>${escapeHtml(label)}`;
+                    div._startTime = Date.now();
+                    messagesEl.appendChild(div);
+                    if (event.id) pendingTools[event.id] = div;
+                    scrollToBottom();
+                    break;
+                }
+                case 'tool_done': {
+                    const div = pendingTools[event.id];
+                    if (div) {
+                        const elapsed = ((Date.now() - div._startTime) / 1000).toFixed(1);
+                        const icon = event.status === 'success' ? '✓' : '✗';
+                        const iconColor = event.status === 'success' ? 'var(--success)' : 'var(--error)';
+                        const iconSpan = div.querySelector('.tool-icon');
+                        iconSpan.textContent = icon;
+                        iconSpan.style.color = iconColor;
+                        const elSpan = document.createElement('span');
+                        elSpan.className = 'tool-elapsed';
+                        elSpan.textContent = ` ${elapsed}s`;
+                        div.appendChild(elSpan);
+                        delete pendingTools[event.id];
+                    }
+                    break;
+                }
+                case 'reasoning': {
+                    hideSpinner();
+                    const thinking = getOrCreateThinking();
+                    if (thinking.content.textContent) {
+                        thinking.content.textContent += event.text;
+                    } else {
+                        thinking.content.textContent = event.text;
+                    }
+                    thinking.lineCount = thinking.content.textContent.split('\n').length;
+                    scrollToBottom();
+                    break;
+                }
+                case 'response': {
+                    hideSpinner();
+                    finalizeThinking();
+                    if (currentStream) {
+                        const md = event.content || currentStream._buffer;
+                        if (md) {
+                            const rendered = document.createElement('div');
+                            rendered.className = 'agent-response';
+                            rendered.innerHTML = renderMarkdown(md);
+                            currentStream.replaceWith(rendered);
+                        }
+                        currentStream = null;
+                    } else if (event.content) {
+                        const div = document.createElement('div');
+                        div.className = 'agent-response';
+                        div.innerHTML = renderMarkdown(event.content);
+                        messagesEl.appendChild(div);
+                        scrollToBottom();
+                    }
+                    break;
+                }
+                case 'session_id':
+                    sessionId = event.id;
+                    updateStatus();
+                    break;
+                case 'elicitation': {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'elicitation';
+                    div.innerHTML = `⚡ <strong>${escapeHtml(event.server_name)}</strong>: ${escapeHtml(event.message)} — <a href="${escapeHtml(event.url)}" target="_blank">Authorize</a>`;
+                    messagesEl.appendChild(div);
+                    scrollToBottom();
+                    break;
+                }
+                case 'session_end': {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'system-message';
+                    div.textContent = `Session ended: ${event.reason} (${event.turns} turns)`;
+                    messagesEl.appendChild(div);
+                    scrollToBottom();
+                    break;
+                }
+                case 'error': {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'system-message';
+                    div.textContent = `Error: ${event.message}`;
+                    div.style.color = 'var(--error)';
+                    messagesEl.appendChild(div);
+                    scrollToBottom();
+                    break;
                 }
             }
         }
 
-        function handleEvent(event) {
-            switch (event.type) {
-                case 'token':
-                    if (!currentAgentMsg) {
-                        currentAgentMsg = addMessage('', 'agent');
-                    }
-                    currentAgentMsg.textContent += event.text;
-                    break;
-                case 'tool_start':
-                    const args = Object.entries(event.args || {})
-                        .map(([k,v]) => `${k}="${v}"`).join(', ');
-                    addToolInfo(`Calling ${event.name}(${args})...`);
-                    break;
-                case 'tool_done':
-                    addToolInfo(event.status === 'success' ? 'Done.' : 'Error.');
-                    break;
-                case 'reasoning':
-                    addToolInfo(`[thinking] ${event.text}`);
-                    break;
-                case 'response':
-                    if (event.content) {
-                        addMessage(event.content, 'agent');
-                        currentAgentMsg = null;
-                    }
-                    break;
-                case 'session_id':
-                    sessionId = event.id;
-                    document.getElementById('session-info').textContent =
-                        `Session: ${sessionId}`;
-                    break;
-                case 'elicitation':
-                    const link = document.createElement('a');
-                    link.href = event.url;
-                    link.target = '_blank';
-                    link.textContent = `[${event.server_name}] ${event.message} — Click to authorize`;
-                    const div = document.createElement('div');
-                    div.className = 'message agent';
-                    div.appendChild(link);
-                    messages.appendChild(div);
-                    break;
-            }
-            messages.scrollTop = messages.scrollHeight;
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
         }
 
-        sendBtn.addEventListener('click', sendMessage);
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
+        // ── Send ─────────────────────────────────────────────────────
+
+        async function sendMessage() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+            inputEl.value = '';
+            historyIndex = -1;
+
+            history.push(text);
+            turnCount++;
+
+            const userDiv = document.createElement('div');
+            userDiv.className = 'user-message';
+            userDiv.textContent = text;
+            messagesEl.appendChild(userDiv);
+            scrollToBottom();
+
+            currentStream = null;
+            currentThinking = null;
+            busy = true;
+            showSpinner('Thinking');
+            updateStatus();
+
+            try {
+                const url = sessionId ? `/chat?session=${sessionId}` : '/chat';
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text }),
+                });
+
+                if (!response.ok) {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'system-message';
+                    div.textContent = `Error: ${response.status} ${response.statusText}`;
+                    div.style.color = 'var(--error)';
+                    messagesEl.appendChild(div);
+                    busy = false;
+                    updateStatus();
+                    return;
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                handleEvent(JSON.parse(line.slice(6)));
+                            } catch (e) {}
+                        }
+                    }
+                }
+            } catch (e) {
+                hideSpinner();
+                const div = document.createElement('div');
+                div.className = 'system-message';
+                div.textContent = `Connection error: ${e.message}`;
+                div.style.color = 'var(--error)';
+                messagesEl.appendChild(div);
+            }
+
+            hideSpinner();
+            finalizeThinking();
+            finalizeStream();
+            busy = false;
+            updateStatus();
+            inputEl.focus();
+        }
+
+        // ── Input handling ───────────────────────────────────────────
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+            if (e.key === 'ArrowUp' && inputEl.value === '') {
+                e.preventDefault();
+                if (history.length) {
+                    if (historyIndex === -1) historyIndex = history.length - 1;
+                    else if (historyIndex > 0) historyIndex--;
+                    inputEl.value = history[historyIndex];
+                }
+            }
+            if (e.key === 'ArrowDown' && historyIndex !== -1) {
+                e.preventDefault();
+                if (historyIndex < history.length - 1) {
+                    historyIndex++;
+                    inputEl.value = history[historyIndex];
+                } else {
+                    historyIndex = -1;
+                    inputEl.value = '';
+                }
+            }
+            if (e.key === 'Escape') {
+                inputEl.value = '';
+                historyIndex = -1;
+            }
         });
+
+        // Keep input focused
+        document.addEventListener('click', () => inputEl.focus());
+
+        // Init
+        updateStatus();
     </script>
 </body>
 </html>
