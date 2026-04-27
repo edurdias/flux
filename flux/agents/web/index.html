@@ -151,7 +151,7 @@
         }
     </style>
 </head>
-<body>
+<body data-agent-name="{{AGENT_NAME_ATTR}}">
     <div id="messages"></div>
     <div id="input-area">
         <input id="input" type="text" placeholder="Send a message…" autofocus />
@@ -163,7 +163,7 @@
         const inputEl = document.getElementById('input');
         const statusBar = document.getElementById('status-bar');
 
-        const agentName = '{{AGENT_NAME}}';
+        const agentName = document.body.dataset.agentName;
         let sessionId = null;
         let turnCount = 0;
         const sessionStart = Date.now();

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 from fastapi import Header
@@ -53,6 +54,9 @@ class WebUI(ApiUI):
 
         @self.app.get("/")
         async def index() -> HTMLResponse:
-            html = (web_dir / "index.html").read_text()
-            html = html.replace("{{AGENT_NAME}}", agent_name)
-            return HTMLResponse(html)
+            page = (web_dir / "index.html").read_text()
+            page = page.replace(
+                "{{AGENT_NAME_ATTR}}",
+                html.escape(agent_name, quote=True),
+            )
+            return HTMLResponse(page)

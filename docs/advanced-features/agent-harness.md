@@ -328,6 +328,7 @@ reasoning_effort: high
 # Optional long-term memory
 long_term_memory:
   provider: sqlite
+  connection: "memory.db"
   scope: "user:default"
 ```
 

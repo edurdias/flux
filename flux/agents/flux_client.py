@@ -39,6 +39,9 @@ async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict
             pass
 
 
+_STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+
+
 class FluxClient:
     def __init__(
         self,
@@ -72,7 +75,7 @@ class FluxClient:
         url = self._start_url(namespace, workflow_name)
         body: dict[str, Any] = {"agent": agent_name}
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
             async with client.stream(
                 "POST",
                 url,
@@ -109,7 +112,7 @@ class FluxClient:
         else:
             resume_input = {}
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
             async with client.stream(
                 "POST",
                 url,

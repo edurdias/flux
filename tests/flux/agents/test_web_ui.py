@@ -48,6 +48,23 @@ def test_index_served_at_root():
     assert response.status_code == 200
     assert "Flux Agent" in response.text
     assert "</html>" in response.text
+    assert '<body data-agent-name="coder">' in response.text
+
+
+def test_index_escapes_agent_name_to_prevent_xss():
+    ui = WebUI(
+        server_url="http://flux.test",
+        agent_name='"><script>alert(1)</script>',
+        operator_token="op-token",
+        port=8080,
+    )
+    client = TestClient(ui.app)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "<script>alert(1)</script>" not in response.text
+    assert (
+        '<body data-agent-name="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">' in response.text
+    )
 
 
 def test_chat_without_operator_token_passes_through():

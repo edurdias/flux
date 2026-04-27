@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Any
@@ -65,14 +66,17 @@ class DatabaseConfigManager(ConfigManager):
                 session.commit()
 
     async def get(self, config_requests: list[str]) -> dict[str, Any]:
-        with self.session() as session:
-            stmt = select(ConfigModel.name, ConfigModel.value).where(
-                ConfigModel.name.in_(config_requests),
-            )
-            result = {row[0]: json.loads(row[1]) for row in session.execute(stmt)}
-            if missing := set(config_requests) - set(result):
-                raise ValueError(f"The following configs were not found: {list(missing)}")
-            return result
+        def _query() -> dict[str, Any]:
+            with self.session() as session:
+                stmt = select(ConfigModel.name, ConfigModel.value).where(
+                    ConfigModel.name.in_(config_requests),
+                )
+                return {row[0]: json.loads(row[1]) for row in session.execute(stmt)}
+
+        result = await asyncio.to_thread(_query)
+        if missing := set(config_requests) - set(result):
+            raise ValueError(f"The following configs were not found: {list(missing)}")
+        return result
 
     def all(self) -> list[str]:
         with self.session() as session:

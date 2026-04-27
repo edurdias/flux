@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC
 from abc import abstractmethod
 from typing import Any
@@ -76,14 +77,17 @@ class DatabaseSecretManager(SecretManager):
                 raise
 
     async def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        with self.session() as session:
-            stmt = select(SecretModel.name, SecretModel.value).where(
-                SecretModel.name.in_(secret_requests),
-            )
-            result = {row[0]: row[1] for row in session.execute(stmt)}
-            if missing := set(secret_requests) - set(result):
-                raise ValueError(f"The following secrets were not found: {list(missing)}")
-            return result
+        def _query() -> dict[str, Any]:
+            with self.session() as session:
+                stmt = select(SecretModel.name, SecretModel.value).where(
+                    SecretModel.name.in_(secret_requests),
+                )
+                return {row[0]: row[1] for row in session.execute(stmt)}
+
+        result = await asyncio.to_thread(_query)
+        if missing := set(secret_requests) - set(result):
+            raise ValueError(f"The following secrets were not found: {list(missing)}")
+        return result
 
     def all(self) -> list[str]:
         """Return a list of all secret names in the database."""
