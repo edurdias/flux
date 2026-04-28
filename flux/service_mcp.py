@@ -1,12 +1,15 @@
 import inspect
 import json
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import httpx
 from fastmcp import FastMCP
 
 from flux.utils import get_logger
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
 
 logger = get_logger(__name__)
 
@@ -37,10 +40,15 @@ class EndpointProvider(Protocol):
 
 
 class ServiceMCPServer:
-    def __init__(self, service_name: str, provider: EndpointProvider):
+    def __init__(
+        self,
+        service_name: str,
+        provider: EndpointProvider,
+        auth: "AuthProvider | None" = None,
+    ):
         self.service_name = service_name
         self.provider = provider
-        self.mcp = FastMCP(f"flux-service-{service_name}")
+        self.mcp = FastMCP(f"flux-service-{service_name}", auth=auth)
         self._registered_tools: set[str] = set()
         self._tool_names: set[str] = set()
 
@@ -253,8 +261,9 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         service_name: str,
         provider: EndpointProvider,
         client: httpx.AsyncClient,
+        auth: "AuthProvider | None" = None,
     ):
-        super().__init__(service_name, provider)
+        super().__init__(service_name, provider, auth=auth)
         self._client = client
 
     async def _execute_run(
@@ -365,9 +374,13 @@ class ProxyEndpointProvider:
         return endpoints
 
 
-def create_service_mcp_server(service_name: str, client: httpx.AsyncClient) -> ProxyBackedMCPServer:
+def create_service_mcp_server(
+    service_name: str,
+    client: httpx.AsyncClient,
+    auth: "AuthProvider | None" = None,
+) -> ProxyBackedMCPServer:
     provider = ProxyEndpointProvider(service_name, client)
-    return ProxyBackedMCPServer(service_name, provider, client)
+    return ProxyBackedMCPServer(service_name, provider, client, auth=auth)
 
 
 def _parse_json_input(raw: str) -> Any:
