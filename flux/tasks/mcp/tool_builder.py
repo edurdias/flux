@@ -145,7 +145,23 @@ def build_tool_task(
                 )
                 action = _extract_elicitation_action(resume_payload)
                 if action == "accept":
-                    result = await connection.call_tool(tool_name, call_kwargs)
+                    try:
+                        result = await connection.call_tool(tool_name, call_kwargs)
+                    except ToolExecutionError:
+                        raise
+                    except (ConnectionError, OSError, TimeoutError) as retry_e:
+                        await client._discard_connection()
+                        raise ToolExecutionError(
+                            tool_name,
+                            str(retry_e),
+                            inner_exception=retry_e,
+                        )
+                    except Exception as retry_e:
+                        raise ToolExecutionError(
+                            tool_name,
+                            str(retry_e),
+                            inner_exception=retry_e,
+                        )
                 else:
                     raise ToolExecutionError(
                         tool_name,

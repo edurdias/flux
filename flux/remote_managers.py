@@ -44,6 +44,9 @@ class RemoteConfigManager(ConfigManager):
         resp.raise_for_status()
         return resp.json()
 
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
     def save(self, name: str, value: Any) -> None:
         raise NotImplementedError("RemoteConfigManager is read-only on the worker")
 
@@ -78,6 +81,9 @@ class RemoteSecretManager(SecretManager):
             raise ValueError(resp.json().get("detail", "Secrets not found"))
         resp.raise_for_status()
         return resp.json()
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     def save(self, name: str, value: Any) -> None:
         raise NotImplementedError("RemoteSecretManager is read-only on the worker")

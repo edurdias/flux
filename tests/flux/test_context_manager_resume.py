@@ -153,6 +153,21 @@ def test_unclaim_from_resume_scheduled_recovers_to_resuming(manager):
     assert ctx.state == ExecutionState.RESUMING
 
 
+def test_unclaim_from_resume_scheduled_clears_worker_name(manager):
+    """Regression-pin: RESUME-recovery path must null worker_name so
+    next_resume()'s fallback queue can pick up the execution on another
+    worker after eviction/unclaim."""
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)  # → RESUME_SCHEDULED, worker_name = "w-1"
+
+    manager.unclaim("exec-1")
+
+    with manager.session() as session:
+        model = session.get(ExecutionContextModel, "exec-1")
+        assert model.worker_name is None
+
+
 def test_unclaim_from_resume_claimed_recovers_to_resuming(manager):
     _seed_paused_then_resuming(manager, "exec-1")
     worker = _make_worker("w-1")
@@ -162,6 +177,20 @@ def test_unclaim_from_resume_claimed_recovers_to_resuming(manager):
     ctx = manager.unclaim("exec-1")
 
     assert ctx.state == ExecutionState.RESUMING
+
+
+def test_unclaim_from_resume_claimed_clears_worker_name(manager):
+    """Regression-pin: RESUME_CLAIMED → RESUMING must also null worker_name."""
+    _seed_paused_then_resuming(manager, "exec-1")
+    worker = _make_worker("w-1")
+    manager.next_resume(worker)
+    manager.claim_resume("exec-1", worker)
+
+    manager.unclaim("exec-1")
+
+    with manager.session() as session:
+        model = session.get(ExecutionContextModel, "exec-1")
+        assert model.worker_name is None
 
 
 def test_unclaim_from_running_still_recovers_to_created(manager):

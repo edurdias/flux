@@ -416,6 +416,7 @@ class DatabaseContextManager(ContextManager):
                 raise ExecutionContextNotFoundError(execution_id)
             if model.state in resume_recovery:
                 model.state = ExecutionState.RESUMING
+                model.worker_name = None
                 session.commit()
                 return model.to_plain()
             if model.state in initial_recovery:

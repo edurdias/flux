@@ -485,14 +485,18 @@ class Worker:
         )
 
         server_url = self.base_url.rsplit("/workers", 1)[0]
+        config_manager = RemoteConfigManager(server_url, self.session_token)
+        secret_manager = RemoteSecretManager(server_url, self.session_token)
         remote_tokens = set_remote_managers(
-            config=RemoteConfigManager(server_url, self.session_token),
-            secret=RemoteSecretManager(server_url, self.session_token),
+            config=config_manager,
+            secret=secret_manager,
         )
         try:
             return await self._run_workflow(request)
         finally:
             reset_remote_managers(remote_tokens)
+            await config_manager.aclose()
+            await secret_manager.aclose()
 
     async def _run_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         logger.debug(

@@ -129,6 +129,39 @@ def test_elicitation_response_streams_sse():
     assert "resumed" in response.text
 
 
+@pytest.mark.parametrize("action", ["accept", "decline", "cancel"])
+def test_elicitation_accepts_supported_actions(action):
+    ui = _make_ui()
+    captured: dict = {}
+
+    async def _respond(self, payload):
+        captured["payload"] = payload
+        yield AgentEvent(kind="token", data={"text": "ok"})
+
+    with patch("flux.agents.session.AgentSession.respond_to_elicitation", _respond):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/elicitation/el-1?session=exec-1",
+            json={"elicitation_id": "el-1", "action": action},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    assert captured["payload"]["elicitation_response"]["action"] == action
+
+
+def test_elicitation_rejects_unknown_action():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.post(
+        "/elicitation/el-1?session=exec-1",
+        json={"elicitation_id": "el-1", "action": "whatever"},
+        headers={"Authorization": "Bearer t"},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "accept" in detail and "decline" in detail and "cancel" in detail
+
+
 def test_get_session_returns_execution_state():
     ui = _make_ui()
     mock_client = AsyncMock()
