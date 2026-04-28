@@ -1378,6 +1378,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#mcp-authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tool-generation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1859,6 +1870,83 @@
 <a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="c1"># MCP available at http://localhost:9000/mcp</span>
 </code></pre></div>
 <p>The <code>--mcp</code> / <code>--no-mcp</code> flags on <code>service start</code> override the stored setting. Without an explicit flag, the stored <code>mcp_enabled</code> value is used.</p>
+<h3 id="mcp-authentication">MCP Authentication<a class="headerlink" href="#mcp-authentication" title="Permanent link">&para;</a></h3>
+<p>Standalone MCP endpoints can validate bearer tokens from an external Identity Provider (IdP) and advertise the IdP via OAuth 2.0 Protected Resource Metadata (<a href="https://www.rfc-editor.org/rfc/rfc9728">RFC 9728</a>). This enables MCP clients to discover the authorization server and obtain tokens through standard flows including Dynamic Client Registration (DCR) and PKCE.</p>
+<p><strong>CLI flags:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>flux<span class="w"> </span>service<span class="w"> </span>start<span class="w"> </span>billing<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w"> </span>--mcp<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">  </span>--mcp-issuer<span class="w"> </span>https://idp.example.com/realms/my-realm<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">  </span>--mcp-audience<span class="w"> </span>billing-api<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="w">  </span>--mcp-jwks-uri<span class="w"> </span>https://idp.example.com/realms/my-realm/protocol/openid-connect/certs
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--mcp-issuer</code></td>
+<td>IdP issuer URL. Enables token validation and serves <code>/.well-known/oauth-protected-resource</code> pointing to this authorization server.</td>
+</tr>
+<tr>
+<td><code>--mcp-audience</code></td>
+<td>Expected <code>aud</code> claim in JWT tokens. Optional.</td>
+</tr>
+<tr>
+<td><code>--mcp-jwks-uri</code></td>
+<td>JWKS endpoint for token signature validation. If omitted, discovered from the issuer's <code>/.well-known/openid-configuration</code> metadata; falls back to <code>{issuer}/.well-known/jwks.json</code> if discovery is unavailable.</td>
+</tr>
+<tr>
+<td><code>--mcp-base-url</code></td>
+<td>Public base URL for OAuth discovery metadata. Overrides the auto-constructed URL — use when the service sits behind TLS termination or a reverse proxy.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fallback to Flux OIDC config:</strong></p>
+<p>When no <code>--mcp-issuer</code> is provided, the service checks Flux's OIDC settings (<code>flux.security.auth.oidc</code>). If OIDC is enabled in the Flux config, the same issuer and audience are used for MCP auth automatically.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># flux.toml — MCP services inherit these settings when no --mcp-issuer is given</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="k">[flux.security.auth.oidc]</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;https://idp.example.com/realms/my-realm&quot;</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
+</code></pre></div>
+<p><strong>How it works:</strong></p>
+<ol>
+<li>MCP client connects to <code>/mcp</code> without a token and receives a <code>401</code>.</li>
+<li>Client fetches <code>/.well-known/oauth-protected-resource</code> from the service, which returns the <code>authorization_servers</code> list.</li>
+<li>Client follows the IdP's <code>/.well-known/oauth-authorization-server</code> metadata to discover endpoints (including DCR if supported).</li>
+<li>Client obtains an access token from the IdP and retries with <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+<li>The service validates the token via the IdP's JWKS and grants access.</li>
+</ol>
+<p><strong>Supported IdPs</strong> (any OAuth 2.0 / OIDC compliant provider):</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Example issuer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Keycloak</td>
+<td><code>https://keycloak.example.com/realms/my-realm</code></td>
+</tr>
+<tr>
+<td>Auth0</td>
+<td><code>https://your-tenant.auth0.com/</code></td>
+</tr>
+<tr>
+<td>Okta</td>
+<td><code>https://your-org.okta.com/oauth2/default</code></td>
+</tr>
+<tr>
+<td>Entra ID</td>
+<td><code>https://login.microsoftonline.com/{tenant}/v2.0</code></td>
+</tr>
+</tbody>
+</table>
 <h3 id="tool-generation">Tool generation<a class="headerlink" href="#tool-generation" title="Permanent link">&para;</a></h3>
 <p>Each workflow in the service produces <strong>5 MCP tools</strong>:</p>
 <table>
@@ -1893,13 +1981,13 @@
 </table>
 <h3 id="typed-parameters">Typed parameters<a class="headerlink" href="#typed-parameters" title="Permanent link">&para;</a></h3>
 <p>If a workflow uses a Pydantic model as its input type, the generated MCP tool exposes individual parameters matching the model's fields. Workflows with untyped or <code>dict</code> inputs receive a single generic <code>input</code> parameter (JSON string).</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">InvoiceInput</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>    <span class="n">customer_id</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>    <span class="n">amount</span><span class="p">:</span> <span class="nb">float</span>
-<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a>
-<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;billing&quot;</span><span class="p">)</span>
-<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">invoice</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="n">InvoiceInput</span><span class="p">]):</span>
-<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a>    <span class="o">...</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">InvoiceInput</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>    <span class="n">customer_id</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>    <span class="n">amount</span><span class="p">:</span> <span class="nb">float</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;billing&quot;</span><span class="p">)</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">invoice</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="n">InvoiceInput</span><span class="p">]):</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a>    <span class="o">...</span>
 </code></pre></div>
 <p>The <code>invoice</code> tool will have <code>customer_id: str</code> and <code>amount: float</code> as explicit parameters, making it easier for AI agents to call correctly.</p>
 <h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
@@ -1913,55 +2001,55 @@
 <p>Service CRUD operations (<code>create</code>, <code>delete</code>, etc.) use the same permissions as other admin operations.</p>
 <h2 id="management-api">Management API<a class="headerlink" href="#management-api" title="Permanent link">&para;</a></h2>
 <p>The Flux server exposes REST endpoints for service management:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>POST   /services                    Create a service
-<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>GET    /services                    List all services
-<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>GET    /services/{name}             Show service + resolved endpoints
-<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>PUT    /services/{name}             Update selectors
-<a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>DELETE /services/{name}             Delete a service
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>POST   /services                    Create a service
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>GET    /services                    List all services
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a>GET    /services/{name}             Show service + resolved endpoints
+<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a>PUT    /services/{name}             Update selectors
+<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>DELETE /services/{name}             Delete a service
 </code></pre></div>
 <h3 id="create">Create<a class="headerlink" href="#create" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/services<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="s1">    &quot;name&quot;: &quot;billing&quot;,</span>
-<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="s1">    &quot;namespaces&quot;: [&quot;billing&quot;],</span>
-<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="s1">    &quot;workflows&quot;: [],</span>
-<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="s1">    &quot;exclusions&quot;: [&quot;billing/internal&quot;]</span>
-<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="s1">  }&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/services<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="s1">    &quot;name&quot;: &quot;billing&quot;,</span>
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="s1">    &quot;namespaces&quot;: [&quot;billing&quot;],</span>
+<a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="s1">    &quot;workflows&quot;: [],</span>
+<a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="s1">    &quot;exclusions&quot;: [&quot;billing/internal&quot;]</span>
+<a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a><span class="s1">  }&#39;</span>
 </code></pre></div>
 <h3 id="update">Update<a class="headerlink" href="#update" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span>http://localhost:8000/services/billing<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
-<a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="s1">    &quot;add_namespaces&quot;: [&quot;payments&quot;],</span>
-<a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a><span class="s1">    &quot;remove_exclusions&quot;: [&quot;billing/internal&quot;]</span>
-<a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a><span class="s1">  }&#39;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span>http://localhost:8000/services/billing<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="s1">    &quot;add_namespaces&quot;: [&quot;payments&quot;],</span>
+<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a><span class="s1">    &quot;remove_exclusions&quot;: [&quot;billing/internal&quot;]</span>
+<a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a><span class="s1">  }&#39;</span>
 </code></pre></div>
 <p>Update fields: <code>add_namespaces</code>, <code>add_workflows</code>, <code>add_exclusions</code>, <code>remove_namespaces</code>, <code>remove_workflows</code>, <code>remove_exclusions</code>.</p>
 <h2 id="use-cases">Use Cases<a class="headerlink" href="#use-cases" title="Permanent link">&para;</a></h2>
 <h3 id="microservice-facade">Microservice facade<a class="headerlink" href="#microservice-facade" title="Permanent link">&para;</a></h3>
 <p>Expose a namespace as a REST API for external consumers:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>billing-api<span class="w"> </span>--namespace<span class="w"> </span>billing
-<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="c1"># External clients call /services/billing-api/invoice instead of learning Flux internals</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>billing-api<span class="w"> </span>--namespace<span class="w"> </span>billing
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="c1"># External clients call /services/billing-api/invoice instead of learning Flux internals</span>
 </code></pre></div>
 <h3 id="cross-namespace-composition">Cross-namespace composition<a class="headerlink" href="#cross-namespace-composition" title="Permanent link">&para;</a></h3>
 <p>Cherry-pick workflows from multiple namespaces into one service:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>reporting<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">  </span>--workflow<span class="w"> </span>billing/monthly_report<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">  </span>--workflow<span class="w"> </span>analytics/dashboard<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="w">  </span>--workflow<span class="w"> </span>data/export
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>reporting<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="w">  </span>--workflow<span class="w"> </span>billing/monthly_report<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a><span class="w">  </span>--workflow<span class="w"> </span>analytics/dashboard<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="w">  </span>--workflow<span class="w"> </span>data/export
 </code></pre></div>
 <h3 id="independent-deployment">Independent deployment<a class="headerlink" href="#independent-deployment" title="Permanent link">&para;</a></h3>
 <p>Run a dedicated service process for isolation and independent scaling:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="c1"># On a dedicated host or container:</span>
-<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>flux<span class="w"> </span>service<span class="w"> </span>start<span class="w"> </span>billing-api<span class="w"> </span>--port<span class="w"> </span><span class="m">80</span><span class="w"> </span>--server-url<span class="w"> </span>http://flux-internal:8000
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># On a dedicated host or container:</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>flux<span class="w"> </span>service<span class="w"> </span>start<span class="w"> </span>billing-api<span class="w"> </span>--port<span class="w"> </span><span class="m">80</span><span class="w"> </span>--server-url<span class="w"> </span>http://flux-internal:8000
 </code></pre></div>
 <h3 id="gradual-rollout">Gradual rollout<a class="headerlink" href="#gradual-rollout" title="Permanent link">&para;</a></h3>
 <p>Start with a subset of workflows, expand the service over time:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/invoice
-<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="c1"># Later:</span>
-<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>flux<span class="w"> </span>service<span class="w"> </span>add<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/refund
-<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a>flux<span class="w"> </span>service<span class="w"> </span>add<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/receipt
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>flux<span class="w"> </span>service<span class="w"> </span>create<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/invoice
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="c1"># Later:</span>
+<a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a>flux<span class="w"> </span>service<span class="w"> </span>add<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/refund
+<a id="__codelineno-35-4" name="__codelineno-35-4" href="#__codelineno-35-4"></a>flux<span class="w"> </span>service<span class="w"> </span>add<span class="w"> </span>billing-api<span class="w"> </span>--workflow<span class="w"> </span>billing/receipt
 </code></pre></div>
 <h2 id="upgrade-notes">Upgrade Notes<a class="headerlink" href="#upgrade-notes" title="Permanent link">&para;</a></h2>
 <ul>
