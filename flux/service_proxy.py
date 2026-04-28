@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+
+from flux.utils import get_logger
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
+
+    from flux.service_mcp import ServiceMCPServer
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -95,51 +108,71 @@ class StandaloneServiceProxy:
         await self._client.aclose()
 
 
+class MCPRouteMiddleware:
+    """ASGI middleware that intercepts ``/mcp`` and ``/.well-known/`` requests,
+    forwarding them to the FastMCP ASGI app before FastAPI's catch-all
+    ``/{workflow_name}`` route can match them.
+
+    Registered via ``app.add_middleware(MCPRouteMiddleware, mcp_app=...)``.
+    """
+
+    def __init__(self, app: Any, *, mcp_app: Any):
+        self.app = app
+        self.mcp_app = mcp_app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        # Only intercept HTTP requests; WebSocket scopes intentionally fall
+        # through to FastAPI because MCP uses streamable HTTP transport.
+        if scope["type"] == "http" and self._is_mcp_route(scope.get("path", "")):
+            await self.mcp_app(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+    @staticmethod
+    def _is_mcp_route(path: str) -> bool:
+        return path == "/mcp" or path.startswith("/mcp/") or path.startswith("/.well-known/")
+
+
 def create_standalone_app(
     service_name: str,
     server_url: str,
     cache_ttl: int = 60,
     enable_mcp: bool = False,
+    mcp_auth: AuthProvider | None = None,
 ) -> FastAPI:
-    app = FastAPI(title=f"Flux Service: {service_name}")
     proxy = StandaloneServiceProxy(service_name, server_url, cache_ttl)
 
-    @app.on_event("shutdown")
-    async def shutdown():
-        await proxy.close()
+    mcp_server = None
+    mcp_http_app = None
 
     if enable_mcp:
         from flux.service_mcp import create_service_mcp_server
 
-        mcp_server = create_service_mcp_server(service_name, proxy._client)
+        mcp_server = create_service_mcp_server(service_name, proxy._client, auth=mcp_auth)
+        mcp_http_app = mcp_server.mcp.http_app(path="/mcp")
 
-        @app.on_event("startup")
-        async def _init_mcp_tools():
-            try:
-                endpoints = await mcp_server.provider.get_endpoints()
-                mcp_server._generate_tools(endpoints)
-            except Exception as e:
-                import logging
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        try:
+            if mcp_server is not None and mcp_http_app is not None:
+                async with mcp_http_app.router.lifespan_context(mcp_http_app):
+                    await _init_mcp(mcp_server)
+                    refresh_task = asyncio.create_task(
+                        _mcp_refresh_loop(mcp_server, cache_ttl),
+                    )
+                    yield
+                    refresh_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await refresh_task
+            else:
+                yield
+        finally:
+            await proxy.close()
 
-                logging.getLogger(__name__).warning(
-                    f"Failed to initialize MCP tools on startup: {e}. "
-                    f"MCP endpoint mounted but has no tools. "
-                    f"Restart the service once the Flux server is available.",
-                )
+    app = FastAPI(title=f"Flux Service: {service_name}", lifespan=lifespan)
 
-        async def _mcp_refresh_loop():
-            while True:
-                await asyncio.sleep(cache_ttl)
-                try:
-                    await mcp_server.refresh()
-                except Exception:
-                    pass
-
-        @app.on_event("startup")
-        async def _start_mcp_refresh():
-            asyncio.create_task(_mcp_refresh_loop())
-
-        app.mount("/mcp", mcp_server.mcp.http_app(path="/"))
+    if enable_mcp and mcp_http_app is not None:
+        app.add_middleware(MCPRouteMiddleware, mcp_app=mcp_http_app)
 
     @app.get("/health")
     async def health():
@@ -270,3 +303,24 @@ def create_standalone_app(
         return JSONResponse(status_code=response.status_code, content=response.json())
 
     return app
+
+
+async def _init_mcp(mcp_server: ServiceMCPServer) -> None:
+    try:
+        endpoints = await mcp_server.provider.get_endpoints()
+        mcp_server._generate_tools(endpoints)
+    except Exception as e:
+        logger.warning(
+            f"Failed to initialize MCP tools on startup: {e}. "
+            f"MCP endpoint mounted but has no tools. "
+            f"Restart the service once the Flux server is available.",
+        )
+
+
+async def _mcp_refresh_loop(mcp_server: ServiceMCPServer, interval: int) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await mcp_server.refresh()
+        except Exception:
+            logger.debug("MCP refresh failed, will retry in %ds", interval, exc_info=True)

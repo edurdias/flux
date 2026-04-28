@@ -1,154 +1,148 @@
-"""Unit tests for the standalone service proxy app routing."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import json
 
 import pytest
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from flux.service_proxy import create_standalone_app
 
+UNREACHABLE_SERVER = "http://127.0.0.1:1"
 
-@pytest.fixture
-def _patch_proxy():
-    """Patch the HTTP client so no real server is needed."""
-    with patch("flux.service_proxy.StandaloneServiceProxy._refresh_cache", new_callable=AsyncMock):
-        yield
+MCP_ACCEPT = "application/json, text/event-stream"
 
 
-@pytest.fixture
-def app_no_mcp(_patch_proxy):
-    return create_standalone_app("test-svc", "http://fake:9999", enable_mcp=False)
+class TestHealthRoute:
+    def test_health_without_mcp(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/health")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["service"] == "test-svc"
+            assert body["mcp_enabled"] is False
+
+    def test_health_with_mcp(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/health")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["mcp_enabled"] is True
 
 
-@pytest.fixture
-def client_no_mcp(app_no_mcp):
-    return TestClient(app_no_mcp, raise_server_exceptions=False)
+class TestWorkflowRoute:
+    """Workflow routes hit the proxy handler (which fails to connect to the
+    unreachable backend, producing 500/502).  The key assertion is that these
+    paths do NOT return an MCP-style response."""
+
+    def test_post_workflow_reaches_handler(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice")
+            assert r.status_code in (404, 500, 502)
+
+    def test_resume_workflow_reaches_handler(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice/resume/exec-123")
+            assert r.status_code in (404, 500, 502)
+
+    def test_status_workflow_reaches_handler(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/run/invoice/status/exec-123")
+            assert r.status_code in (404, 500, 502)
 
 
-class TestRoutingWithoutMCP:
-    def test_health(self, client_no_mcp):
-        r = client_no_mcp.get("/health")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["service"] == "test-svc"
-        assert body["mcp_enabled"] is False
+class TestMCPRouting:
+    """Verify /mcp and /.well-known/ are routed to the FastMCP app,
+    not swallowed by FastAPI's routing.
 
-    def test_workflow_run_under_run_prefix(self, client_no_mcp):
-        r = client_no_mcp.post("/run/greet")
-        assert r.status_code in (404, 502)
+    This is the bug that the MCPRouteMiddleware prevents.
+    """
 
-    def test_root_post_no_catch_all(self, client_no_mcp):
-        r = client_no_mcp.post("/mcp")
-        assert r.status_code in (404, 405)
+    def test_mcp_not_treated_as_workflow(self):
+        """POST /mcp must NOT return a 'Workflow mcp not found' error."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/mcp")
+            body_text = json.dumps(r.json()) if _is_json(r) else r.text
+            assert "Workflow 'mcp' not found" not in body_text
 
-    def test_post_without_run_prefix_is_404(self, client_no_mcp):
-        r = client_no_mcp.post("/greet")
-        assert r.status_code in (404, 405)
-
-
-class TestRoutingWithMCP:
-    @pytest.fixture
-    def app_with_mcp(self, _patch_proxy):
-        with patch(
-            "flux.service_mcp.ProxyEndpointProvider.get_endpoints",
-            new_callable=AsyncMock,
-            return_value={},
-        ):
-            app = create_standalone_app("test-svc", "http://fake:9999", enable_mcp=True)
-            yield app
-
-    @pytest.fixture
-    def client_with_mcp(self, app_with_mcp):
-        return TestClient(app_with_mcp, raise_server_exceptions=False)
-
-    def test_health_shows_mcp_enabled(self, client_with_mcp):
-        r = client_with_mcp.get("/health")
-        assert r.status_code == 200
-        assert r.json()["mcp_enabled"] is True
-
-    def test_post_mcp_not_intercepted_by_catch_all(self, client_with_mcp):
-        r = client_with_mcp.post("/mcp", content=b"", headers={"content-type": "application/json"})
-        assert r.status_code != 200 or r.json().get("handler") != "catch_all"
-
-    def test_workflow_run_still_works(self, client_with_mcp):
-        r = client_with_mcp.post("/run/greet")
-        assert r.status_code in (404, 502)
-
-    def test_workflow_resume_still_works(self, client_with_mcp):
-        r = client_with_mcp.post("/run/greet/resume/exec-1")
-        assert r.status_code in (404, 502)
-
-    def test_workflow_status_still_works(self, client_with_mcp):
-        r = client_with_mcp.get("/run/greet/status/exec-1")
-        assert r.status_code in (404, 502)
-
-    def test_bare_workflow_name_not_routed(self, client_with_mcp):
-        r = client_with_mcp.post("/greet")
-        assert r.status_code in (404, 405)
-
-
-class TestMCPAndWorkflowCoexistence:
-    """Regression tests: MCP mount and workflow routes must coexist without
-    interfering with each other. These reproduce the original bug where
-    ``POST /mcp`` was intercepted by a ``/{workflow_name}`` catch-all."""
-
-    @pytest.fixture
-    def app(self, _patch_proxy):
-        with patch(
-            "flux.service_mcp.ProxyEndpointProvider.get_endpoints",
-            new_callable=AsyncMock,
-            return_value={},
-        ):
-            yield create_standalone_app("test-svc", "http://fake:9999", enable_mcp=True)
-
-    @pytest.fixture
-    def client(self, app):
-        return TestClient(app, raise_server_exceptions=False)
-
-    def test_post_mcp_does_not_hit_workflow_handler(self, client):
-        """POST /mcp must reach the MCP sub-app, not the workflow catch-all."""
-        r = client.post("/mcp")
-        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        assert body.get("detail") != "Workflow 'mcp' not found in service 'test-svc'"
-
-    def test_post_mcp_trailing_slash(self, client):
-        r = client.post("/mcp/")
-        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        assert body.get("detail") != "Workflow 'mcp' not found in service 'test-svc'"
-
-    def test_get_mcp_does_not_hit_workflow_handler(self, client):
-        r = client.get("/mcp")
-        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
-        assert "workflow" not in str(body).lower() or "mcp" not in body.get("detail", "")
-
-    def test_health_unaffected_by_mcp_mount(self, client):
-        r = client.get("/health")
-        assert r.status_code == 200
-        assert r.json()["mcp_enabled"] is True
-
-    def test_workflow_run_unaffected_by_mcp_mount(self, client):
-        r = client.post("/run/my_workflow")
-        assert r.status_code in (404, 502)
-
-    def test_workflow_resume_unaffected_by_mcp_mount(self, client):
-        r = client.post("/run/my_workflow/resume/exec-42")
-        assert r.status_code in (404, 502)
-
-    def test_workflow_status_unaffected_by_mcp_mount(self, client):
-        r = client.get("/run/my_workflow/status/exec-42")
-        assert r.status_code in (404, 502)
-
-    def test_reserved_paths_not_routable_as_workflows(self, client):
-        """Paths like /mcp, /health should never be treated as workflow names."""
-        for path in ["/mcp", "/health"]:
-            r = client.post(path)
-            body = (
-                r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    def test_mcp_initialize(self):
+        """A valid MCP initialize request should get a JSON-RPC response."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post(
+                "/mcp",
+                headers={"Accept": MCP_ACCEPT},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1"},
+                    },
+                },
             )
-            assert "not found in service" not in body.get("detail", "")
+            assert r.status_code == 200
+            body = _parse_sse_json(r.text)
+            assert body.get("jsonrpc") == "2.0"
+            assert "result" in body
 
-    def test_multiple_workflow_paths_work(self, client):
-        for name in ["deploy", "build", "test_suite"]:
-            r = client.post(f"/run/{name}")
-            assert r.status_code in (404, 502), f"/run/{name} returned {r.status_code}"
+    def test_well_known_not_treated_as_workflow(self):
+        """GET /.well-known/... must NOT return a workflow-not-found error."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/.well-known/oauth-protected-resource")
+            body_text = json.dumps(r.json()) if _is_json(r) else r.text
+            assert "Workflow" not in body_text
+
+    def test_mcp_disabled_returns_404(self):
+        """Without MCP, /mcp is not a registered route on this branch
+        (workflows live under /run/{name}), so it should 404."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=False)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/mcp")
+            assert r.status_code in (404, 405)
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/mcp", "/mcp/", "/mcp/sse"],
+        ids=["mcp-root", "mcp-trailing-slash", "mcp-sse"],
+    )
+    def test_mcp_subpaths_routed_correctly(self, path):
+        """All /mcp/* subpaths should reach the FastMCP app."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get(path)
+            body_text = json.dumps(r.json()) if _is_json(r) else r.text
+            assert "Workflow" not in body_text
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/run/mcp_billing", "/run/mcptest", "/run/mcp-workflow"],
+        ids=["mcp_underscore", "mcptest", "mcp-hyphen"],
+    )
+    def test_mcp_prefixed_workflow_not_hijacked(self, path):
+        """Workflows whose names start with 'mcp' must NOT be intercepted."""
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post(path)
+            # Reaches the workflow handler, not the MCP app.
+            assert r.status_code in (404, 500, 502)
+
+
+def _is_json(response) -> bool:
+    return "application/json" in response.headers.get("content-type", "")
+
+
+def _parse_sse_json(text: str) -> dict:
+    """Extract the first JSON object from an SSE stream."""
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            return json.loads(line[len("data: ") :])
+    raise ValueError(f"No SSE data line found in: {text!r}")
