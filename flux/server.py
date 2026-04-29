@@ -2129,7 +2129,7 @@ class Server:
                 wf = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
             except Exception:
                 raise HTTPException(status_code=404, detail="Workflow not found")
-            declared = set(getattr(wf, "metadata", {}).get("secret_requests", []) or [])
+            declared = set((getattr(wf, "metadata", None) or {}).get("secret_requests", []) or [])
 
             requested = set(keys)
             disallowed = requested - declared
