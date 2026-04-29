@@ -134,8 +134,10 @@ class FluxClient:
         url = f"{self.server_url}/workflows/{namespace}/{workflow_name}"
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, headers=self._build_headers())
-            if resp.status_code != 404:
+            if resp.status_code == 200:
                 return
+            if resp.status_code != 404:
+                resp.raise_for_status()
 
         import importlib.resources
 

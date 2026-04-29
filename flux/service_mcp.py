@@ -264,6 +264,21 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         super().__init__(service_name, provider, auth=auth)
         self._client = client
 
+    @staticmethod
+    def _forward_auth_headers() -> dict[str, str]:
+        try:
+            from fastmcp.server.dependencies import get_http_headers
+
+            headers = get_http_headers()
+        except Exception:
+            return {}
+        forwarded: dict[str, str] = {}
+        for key in ("authorization", "x-api-key"):
+            value = headers.get(key)
+            if value:
+                forwarded[key] = value
+        return forwarded
+
     async def _execute_run(
         self,
         namespace: str,
@@ -275,6 +290,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             response = await self._client.post(
                 f"/workflows/{namespace}/{name}/run/{mode}",
                 json=input_data,
+                headers=self._forward_auth_headers(),
                 timeout=300.0 if mode == "sync" else 30.0,
             )
             response.raise_for_status()
@@ -297,6 +313,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             response = await self._client.post(
                 f"/workflows/{namespace}/{name}/resume/{execution_id}/{mode}",
                 json=input_data,
+                headers=self._forward_auth_headers(),
                 timeout=300.0 if mode == "sync" else 30.0,
             )
             response.raise_for_status()
@@ -311,6 +328,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         try:
             response = await self._client.get(
                 f"/workflows/{namespace}/{name}/status/{execution_id}",
+                headers=self._forward_auth_headers(),
             )
             response.raise_for_status()
             result = response.json()

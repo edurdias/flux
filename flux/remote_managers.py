@@ -60,9 +60,17 @@ class RemoteConfigManager(ConfigManager):
 class RemoteSecretManager(SecretManager):
     """Resolves secrets via the Flux server's batch endpoint."""
 
-    def __init__(self, server_url: str, auth_token: str | None = None) -> None:
+    def __init__(
+        self,
+        server_url: str,
+        auth_token: str | None = None,
+        worker_name: str | None = None,
+        execution_id: str | None = None,
+    ) -> None:
         self._server_url = server_url.rstrip("/")
         self._auth_token = auth_token
+        self._worker_name = worker_name
+        self._execution_id = execution_id
         self._client = httpx.AsyncClient(timeout=30)
 
     def _headers(self) -> dict[str, str]:
@@ -72,13 +80,22 @@ class RemoteSecretManager(SecretManager):
         return h
 
     async def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        resp = await self._client.post(
-            f"{self._server_url}/admin/secrets/batch",
-            json=secret_requests,
-            headers=self._headers(),
-        )
+        if self._worker_name and self._execution_id:
+            resp = await self._client.post(
+                f"{self._server_url}/workers/{self._worker_name}/secrets/batch",
+                json={"execution_id": self._execution_id, "names": secret_requests},
+                headers=self._headers(),
+            )
+        else:
+            resp = await self._client.post(
+                f"{self._server_url}/admin/secrets/batch",
+                json=secret_requests,
+                headers=self._headers(),
+            )
         if resp.status_code == 404:
             raise ValueError(resp.json().get("detail", "Secrets not found"))
+        if resp.status_code == 403:
+            raise ValueError(resp.json().get("detail", "Secret access denied"))
         resp.raise_for_status()
         return resp.json()
 

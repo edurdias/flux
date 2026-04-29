@@ -67,11 +67,36 @@ async def _call_llm(
     call_counter: int,
 ) -> LLMResponse:
     if stream and formatter.supports_reasoning_stream:
-        response = await formatter.call_with_reasoning_stream(
-            messages,
-            call_kwargs,
-            on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
-        )
+        from flux.domain.execution_context import CURRENT_CONTEXT
+
+        async def _direct_stream() -> LLMResponse:
+            return await formatter.call_with_reasoning_stream(
+                messages,
+                call_kwargs,
+                on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
+            )
+
+        if CURRENT_CONTEXT.get() is None:
+            response = _ensure_llm_response(await _direct_stream())
+        else:
+            # Wrap the streaming call in a Flux task so the LLM response is
+            # checkpointed under a stable task_id. Without this, a tool pause
+            # would re-run the LLM on resume and could produce different
+            # tool_calls than the pre-pause invocation.
+            from flux.task import task as task_dec
+
+            @task_dec.with_options(name=f"llm_{call_counter}")
+            async def _streaming_llm(
+                stream_messages: list[Any],
+                stream_kwargs: dict,
+            ) -> LLMResponse:
+                return await formatter.call_with_reasoning_stream(
+                    stream_messages,
+                    stream_kwargs,
+                    on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
+                )
+
+            response = _ensure_llm_response(await _streaming_llm(messages, call_kwargs))
     else:
         result = await llm_task.with_options(name=f"llm_{call_counter}")(
             messages,

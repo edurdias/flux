@@ -619,6 +619,21 @@ class Server:
                 await asyncio.gather(*active_tasks, return_exceptions=True)
             self._execution_events.pop(ctx.execution_id, None)
             self._progress_buffers.pop(ctx.execution_id, None)
+            try:
+                from flux.domain import ExecutionState as _ExecutionState
+
+                latest = manager.get(ctx.execution_id)
+                if latest and latest.state == _ExecutionState.RESUME_SCHEDULED:
+                    manager.unclaim(ctx.execution_id)
+                    logger.info(
+                        f"SSE disconnect: reverted {ctx.execution_id} from "
+                        f"RESUME_SCHEDULED back to RESUMING",
+                    )
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to revert RESUME_SCHEDULED on SSE disconnect for "
+                    f"{ctx.execution_id}: {exc}",
+                )
 
     # ===========================================
     # Integrated Scheduler Methods
@@ -1321,12 +1336,34 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
+                manager = ContextManager.create()
+
+                ctx = manager.get(execution_id)
+
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                if ctx.workflow_namespace != namespace or ctx.workflow_name != workflow_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Execution {execution_id} does not belong to "
+                            f"workflow {namespace}/{workflow_name}."
+                        ),
+                    )
+
                 if auth_service is not None and auth_config.enabled:
-                    workflow_info = WorkflowCatalog.create().get(namespace, workflow_name)
+                    workflow_info = WorkflowCatalog.create().get(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                    )
                     result = await auth_service.authorize(
                         identity,
-                        namespace,
-                        workflow_name,
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
                         workflow_info.metadata or {},
                     )
                     if not result.ok:
@@ -1337,16 +1374,6 @@ class Server:
                                 "missing_permissions": result.missing_permissions,
                             },
                         )
-
-                manager = ContextManager.create()
-
-                ctx = manager.get(execution_id)
-
-                if ctx is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Execution context with ID {execution_id} not found.",
-                    )
 
                 if identity and identity != ANONYMOUS and auth_config.enabled:
                     from flux.security.execution_token import mint_execution_token
@@ -1965,10 +1992,17 @@ class Server:
                         detail=f"Execution {execution_id} not found.",
                     )
 
+                from flux.errors import ExecutionError
+
                 if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
                     ctx = context_manager.claim(execution_id, worker)
+                    is_resume_claim = False
                 elif current.state == ExecutionState.RESUME_SCHEDULED:
-                    ctx = context_manager.claim_resume(execution_id, worker)
+                    try:
+                        ctx = context_manager.claim_resume(execution_id, worker)
+                    except ExecutionError as e:
+                        raise HTTPException(status_code=409, detail=str(e))
+                    is_resume_claim = True
                 else:
                     raise HTTPException(
                         status_code=409,
@@ -1983,7 +2017,7 @@ class Server:
                 from flux.observability import get_metrics
 
                 m = get_metrics()
-                if m:
+                if m and not is_resume_claim:
                     queued_at = self._execution_queue_times.pop(execution_id, None)
                     schedule_to_start = time.monotonic() - queued_at if queued_at else None
                     m.record_execution_claimed(schedule_to_start)
@@ -2067,6 +2101,50 @@ class Server:
                 except asyncio.QueueFull:
                     pass
             return {"status": "ok"}
+
+        @api.post("/workers/{name}/secrets/batch")
+        async def workers_secrets_batch(
+            name: str,
+            payload: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            self._verify_worker_identity(identity, name)
+            execution_id = payload.get("execution_id")
+            keys = payload.get("names") or []
+            if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+                raise HTTPException(status_code=400, detail="'names' must be a list of strings")
+            if not execution_id:
+                raise HTTPException(status_code=400, detail="'execution_id' is required")
+
+            ctx = ContextManager.create().get(execution_id)
+            if ctx is None:
+                raise HTTPException(status_code=404, detail="Execution not found")
+            if ctx.current_worker != name:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Worker does not own this execution",
+                )
+
+            try:
+                wf = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
+            except Exception:
+                raise HTTPException(status_code=404, detail="Workflow not found")
+            declared = set(getattr(wf, "metadata", {}).get("secret_requests", []) or [])
+
+            requested = set(keys)
+            disallowed = requested - declared
+            if disallowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Secrets not declared by workflow: {sorted(disallowed)}",
+                )
+
+            try:
+                return await SecretManager.current().get(list(requested))
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
 
         @api.get("/admin/secrets")
         async def admin_list_secrets(

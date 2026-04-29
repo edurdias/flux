@@ -189,15 +189,19 @@ class AgentProcess:
 
             ui.app.exit()
 
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(ui.app.run_async())
-            tg.create_task(session_loop())
-
-        # Restore stderr after Textual's teardown is complete.
-        saved = getattr(self, "_saved_stderr_fd", None)
-        if saved is not None:
-            os.dup2(saved, 2)
-            os.close(saved)
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(ui.app.run_async())
+                tg.create_task(session_loop())
+        finally:
+            # Restore stderr after Textual's teardown is complete, even if
+            # the TaskGroup propagated an exception.
+            saved = getattr(self, "_saved_stderr_fd", None)
+            if saved is not None:
+                os.dup2(saved, 2)
+                os.close(saved)
+                if hasattr(self, "_saved_stderr_fd"):
+                    delattr(self, "_saved_stderr_fd")
 
     async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
         assert self.ui is not None

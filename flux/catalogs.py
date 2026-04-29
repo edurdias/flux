@@ -401,6 +401,7 @@ class WorkflowCatalog(ABC):
         task_func_to_name: dict[str, str] = {}
         exempt_func_to_name: dict[str, str] = {}
         workflow_func_to_ref: dict[str, tuple[str, str]] = {}
+        secret_requests: set[str] = set()
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -417,6 +418,9 @@ class WorkflowCatalog(ABC):
                                     exempt_func_to_name[node.name] = task_name
                                 else:
                                     task_func_to_name[node.name] = task_name
+                                secret_requests.update(
+                                    self._extract_secret_requests_from_decorator(dec),
+                                )
                             elif (
                                 dec.func.value.id == "workflow" and dec.func.attr == "with_options"
                             ):
@@ -425,6 +429,9 @@ class WorkflowCatalog(ABC):
                                     self._extract_namespace_from_decorator(dec) or DEFAULT_NAMESPACE
                                 )
                                 workflow_func_to_ref[node.name] = (wf_namespace, wf_name)
+                                secret_requests.update(
+                                    self._extract_secret_requests_from_decorator(dec),
+                                )
 
         called_tasks = set()
         called_exempt = set()
@@ -450,7 +457,19 @@ class WorkflowCatalog(ABC):
             "task_names": sorted(called_tasks),
             "nested_workflows": sorted([list(ref) for ref in called_workflows]),
             "auth_exempt_tasks": sorted(called_exempt),
+            "secret_requests": sorted(secret_requests),
         }
+
+    @staticmethod
+    def _extract_secret_requests_from_decorator(decorator: ast.Call) -> list[str]:
+        for kw in decorator.keywords:
+            if kw.arg == "secret_requests" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                names: list[str] = []
+                for elt in kw.value.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        names.append(elt.value)
+                return names
+        return []
 
     @staticmethod
     def _extract_task_name_from_decorator(decorator: ast.Call) -> str | None:

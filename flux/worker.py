@@ -486,7 +486,12 @@ class Worker:
 
         server_url = self.base_url.rsplit("/workers", 1)[0]
         config_manager = RemoteConfigManager(server_url, self.session_token)
-        secret_manager = RemoteSecretManager(server_url, self.session_token)
+        secret_manager = RemoteSecretManager(
+            server_url,
+            self.session_token,
+            worker_name=self.name,
+            execution_id=request.context.execution_id,
+        )
         remote_tokens = set_remote_managers(
             config=config_manager,
             secret=secret_manager,

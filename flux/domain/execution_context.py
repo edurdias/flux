@@ -259,6 +259,13 @@ class ExecutionContext(Generic[WorkflowInputType]):
                     f"expected {ExecutionState.RESUME_SCHEDULED.value}"
                 ),
             )
+        if self._current_worker is not None and self._current_worker != worker.name:
+            raise ExecutionError(
+                message=(
+                    f"Cannot claim resume: scheduled for worker "
+                    f"'{self._current_worker}', not '{worker.name}'"
+                ),
+            )
         self._current_worker = worker.name
         self._state = ExecutionState.RESUME_CLAIMED
         self.events.append(

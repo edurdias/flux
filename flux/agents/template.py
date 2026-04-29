@@ -85,6 +85,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
                 ),
             )
 
+    _mcp_clients: list[Any] = []
     if agent_def.get("mcp_servers"):
         from flux.tasks.mcp import mcp, bearer
         from flux.secret_managers import SecretManager
@@ -100,6 +101,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
                 name=srv.get("name"),
                 auth=auth,
             )
+            _mcp_clients.append(client)
             toolset = await client.discover()
             tools.extend(list(toolset))
 
@@ -163,3 +165,8 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     finally:
         if _skills_tmp_dir is not None:
             _skills_tmp_dir.cleanup()
+        for _client in _mcp_clients:
+            try:
+                await _client.__aexit__(None, None, None)
+            except Exception:
+                pass

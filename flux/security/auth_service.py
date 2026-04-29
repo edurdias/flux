@@ -44,7 +44,6 @@ BUILT_IN_ROLES = {
     "worker": [
         "worker:*:*",
         "config:*:read",
-        "admin:secrets:read",
         "execution:*:read",
     ],
 }

@@ -27,6 +27,8 @@ KIND_CHAT_RESPONSE = "chat_response"
 KIND_ELICITATION = "elicitation"
 KIND_SESSION_END = "session_end"
 KIND_REASONING = "reasoning"
+KIND_ERROR = "error"
+KIND_END = "end"
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,24 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
                     "turns": output.get("turns", 0),
                 },
             )
+        return
+
+    if isinstance(state, str):
+        upper = state.upper()
+        if upper in (STATE_FAILED, STATE_CANCELLED):
+            output = raw.get("output") or {}
+            message = ""
+            if isinstance(output, dict):
+                message = str(output.get("message") or output.get("error") or "")
+            elif isinstance(output, str):
+                message = output
+            yield AgentEvent(
+                kind=KIND_ERROR,
+                data={"state": upper, "message": message},
+            )
+            yield AgentEvent(kind=KIND_END, data={"state": upper})
+        elif upper == STATE_COMPLETED:
+            yield AgentEvent(kind=KIND_END, data={"state": upper})
 
 
 def is_terminal_state(raw: dict[str, Any]) -> bool:

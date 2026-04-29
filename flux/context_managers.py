@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from flux import ExecutionContext
 from flux.domain import ExecutionState
 from flux.domain import ResourceRequest
-from flux.errors import ExecutionContextNotFoundError
+from flux.errors import ExecutionContextNotFoundError, ExecutionError
 from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
 from flux.models import RepositoryFactory
@@ -362,9 +362,27 @@ class DatabaseContextManager(ContextManager):
 
     def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(ExecutionContextModel, execution_id)
+            model = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.execution_id == execution_id,
+                    ExecutionContextModel.state == ExecutionState.RESUME_SCHEDULED,
+                    ExecutionContextModel.worker_name == worker.name,
+                )
+                .with_for_update(skip_locked=True)
+                .first()
+            )
             if not model:
-                raise ExecutionContextNotFoundError(execution_id)
+                # Either the execution doesn't exist, isn't RESUME_SCHEDULED,
+                # or was scheduled for a different worker. resume_claim() will
+                # produce the precise error after we re-fetch.
+                fallback = session.get(ExecutionContextModel, execution_id)
+                if not fallback:
+                    raise ExecutionContextNotFoundError(execution_id)
+                ctx = fallback.to_plain()
+                ctx.resume_claim(worker)
+                # Unreachable: resume_claim raises above. Kept for type safety.
+                raise ExecutionError(message="claim_resume failed without a specific reason")
             ctx = model.to_plain()
             ctx.resume_claim(worker)
             model.state = ctx.state
