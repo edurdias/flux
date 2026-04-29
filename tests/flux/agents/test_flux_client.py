@@ -86,7 +86,7 @@ async def test_start_agent_buffers_multiline_sse_frames():
     multi_line_sse = (
         b"data: {\n"
         b'data:     "execution_id": "exec-42",\n'
-        b'data:     "type": "task.progress",\n'
+        b'data:     "type": "TASK_PROGRESS",\n'
         b'data:     "value": {"token": "hi"}\n'
         b"data: }\n"
         b"\n"
@@ -106,7 +106,7 @@ async def test_start_agent_buffers_multiline_sse_frames():
     assert len(events) == 1
     execution_id, payload = events[0]
     assert execution_id == "exec-42"
-    assert payload["type"] == "task.progress"
+    assert payload["type"] == "TASK_PROGRESS"
     assert payload["value"]["token"] == "hi"
 
 
@@ -122,7 +122,7 @@ async def test_resume_posts_body_unwrapped_with_message():
         return httpx.Response(
             200,
             headers={"Content-Type": "text/event-stream"},
-            content=b'data: {"type":"task.progress","value":{"token":"ok"}}\n\n',
+            content=b'data: {"type":"TASK_PROGRESS","value":{"token":"ok"}}\n\n',
         )
 
     transport = httpx.MockTransport(fake_handler)
@@ -133,5 +133,5 @@ async def test_resume_posts_body_unwrapped_with_message():
     assert body == {"message": "hi"}
     assert captured["url"] == "http://test/workflows/agents/agent_chat/resume/exec-1/stream"
     assert len(events) == 1
-    assert events[0]["type"] == "task.progress"
+    assert events[0]["type"] == "TASK_PROGRESS"
     assert events[0]["value"]["token"] == "ok"

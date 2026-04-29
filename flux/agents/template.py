@@ -116,6 +116,11 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
             raise ValueError(f"Could not create module spec for {mod_name}")
         mod = importlib.util.module_from_spec(mod_spec)
         sys.modules[mod_name] = mod
+        # Source is trusted: it was uploaded at workflow registration time,
+        # gated behind the `workflow:*:*:register` permission, and stored
+        # inline in the database (see docs/advanced-features/agent-harness.md).
+        # Workers intentionally never read user code from the local filesystem,
+        # so importlib.import_module is not an option here.
         exec(source, mod.__dict__)  # noqa: S102
 
         for obj in mod.__dict__.values():

@@ -30,6 +30,7 @@ _logging.getLogger("flux").addHandler(_logging.NullHandler())
 
 __all__ = [
     "call",
+    "pause",
     "task",
     "workflow",
     "TaskMetadata",
