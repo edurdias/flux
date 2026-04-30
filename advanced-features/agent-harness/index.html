@@ -1,0 +1,3241 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Distributed workflow orchestration engine to build stateful and fault-tolerant workflows">
+      
+      
+      
+      
+        <link rel="prev" href="../agent-skills/">
+      
+      
+        <link rel="next" href="../mcp-client/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Agent Harness - Flux Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-harness" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Flux Documentation" class="md-header__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flux Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent Harness
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Light Mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light Mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Dark Mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark Mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Flux Documentation" class="md-nav__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Flux Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Introduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/basic_concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/workflow-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/execution-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflow-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../task-progress/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Progress Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agent-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-configs-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration (configs table)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event stream
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-show" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent show
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-stop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent stop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-yaml-specification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent YAML Specification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent YAML Specification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-resolution-at-creation-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File resolution at creation time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom workflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serving-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Serving Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-tool-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled tool set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#individual-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Individual groups
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-tools-from-a-python-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom tools from a Python file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cherry-pick-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cherry-pick by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#elicitation-url-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Elicitation (URL mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication-and-authorization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication and Authorization
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Authentication and Authorization">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#token-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#built-in-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pinning-agents-to-specific-workers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pinning agents to specific workers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#custom-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-workflows_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom workflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-mode-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API mode integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-a-coding-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: A Coding Assistant
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example: A Coding Assistant">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-define-the-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Define the agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-create-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-start-a-terminal-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Start a terminal session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-resume-later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Resume later
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-stop-a-runaway-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Stop a runaway session
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ai-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agent-definition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent definition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration-configs-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration (configs table)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-stream" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event stream
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CLI Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-show" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent show
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent start
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-stop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent stop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-agent-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux agent session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flux-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        flux config
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-yaml-specification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent YAML Specification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent YAML Specification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#field-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-resolution-at-creation-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File resolution at creation time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom workflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#serving-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Serving Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bundled-tool-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundled tool set
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#individual-groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Individual groups
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-tools-from-a-python-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom tools from a Python file
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cherry-pick-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cherry-pick by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MCP Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#elicitation-url-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Elicitation (URL mode)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authentication-and-authorization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication and Authorization
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Authentication and Authorization">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#token-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#built-in-roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in roles
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pinning-agents-to-specific-workers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pinning agents to specific workers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#custom-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#custom-workflows_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom workflows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-mode-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API mode integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-a-coding-assistant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: A Coding Assistant
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Example: A Coding Assistant">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-define-the-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Define the agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-create-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Create it
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-start-a-terminal-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Start a terminal session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-resume-later" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Resume later
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-stop-a-runaway-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Stop a runaway session
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-harness">Agent Harness<a class="headerlink" href="#agent-harness" title="Permanent link">&para;</a></h1>
+<p>The agent harness turns LLM agents into first-class Flux resources. An agent is a YAML-declarable entity stored in the database, serves as a chat interface over the terminal, a web UI, or a headless HTTP/SSE API, and reuses Flux's existing workflow engine, RBAC, streaming, and pause/resume mechanics under the hood.</p>
+<p>If you are familiar with the Python-level <code>agent()</code> task (see <a href="../ai-agents/">AI Agents</a>), the harness is the layer above it: it packages an agent definition, a chat loop, session management, and a user-facing process into something an operator can create and run without writing code.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>A Flux agent is a row in the <code>agents</code> table plus a process (<code>flux agent start</code>) that drives a chat session against the server. The chat loop itself runs as a normal Flux workflow (<code>agents/agent_chat</code>) on a worker. The agent process only handles the UX.</p>
+<p>Capabilities:</p>
+<ul>
+<li><strong>Declarative agents</strong> — define an agent in YAML, store it in Flux, reuse it anywhere.</li>
+<li><strong>Three serving modes</strong> — <code>terminal</code> for interactive CLI use, <code>web</code> for a local single-user chat page, <code>api</code> for headless integration.</li>
+<li><strong>Tool integration</strong> — bundled system tools (shell, files, search, directory), individual groups, cherry-picked names, or custom Python <code>@task</code> tools from a file.</li>
+<li><strong>MCP integration</strong> — connect to any MCP server; URL-based elicitation (auth) is handled across all three serving modes.</li>
+<li><strong>Elicitation</strong> — MCP <code>elicitation/create</code> requests pause the workflow; the process shows the URL and resumes on completion.</li>
+<li><strong>Working memory</strong> — turn-by-turn conversation memory, always on.</li>
+<li><strong>Planning</strong> — optional structured planning with approval; see <a href="../agent-plans/">Agent Plans</a>.</li>
+<li><strong>Delegation</strong> — agents can call other agents as sub-agents; see <a href="../sub-agents/">Sub-agents</a>.</li>
+<li><strong>Skills</strong> — reusable prompt capabilities loaded from a directory; see <a href="../agent-skills/">Agent Skills</a>.</li>
+<li><strong>Long-term memory</strong> — optional provider-backed memory across sessions; see <a href="../ai-memory/">AI Memory</a>.</li>
+<li><strong>Sessions are executions</strong> — a session ID is a Flux execution ID; any authorized user can resume any session.</li>
+</ul>
+<h3 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│                  flux agent start                   │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│                                                     │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  ┌─────────┐   ┌─────────┐   ┌─────────────────┐    │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  │Terminal │   │ Web UI  │   │   API (SSE)     │    │
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│  │         │   │ (chat   │   │                 │    │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>│  │         │   │  page)  │   │  POST /chat     │    │
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  └────┬────┘   └────┬────┘   └────────┬────────┘    │
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│       │             │                  │            │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│       └─────────────┼──────────────────┘            │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│                     │                               │
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│             ┌───────▼────────┐                      │
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│             │ Agent Process  │                      │
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│             │                │                      │
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>│             │ • AgentSession │                      │
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>│             │ • Event parser │                      │
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>│             │ • Elicitation  │                      │
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>│             └───────┬────────┘                      │
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>│                     │                               │
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>└─────────────────────┼───────────────────────────────┘
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>                      │  Flux HTTP API
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>                      │  run / resume / SSE stream
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>                      │
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>             ┌────────▼────────┐
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>             │   Flux Server   │
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>             │                 │
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>             │ • Auth / RBAC   │
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>             │ • Agent defs    │
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>             │ • Config store  │
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>             │ • Executions    │
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>             └────────┬────────┘
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>                      │ dispatch
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>                      │
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>             ┌────────▼────────┐
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>             │     Worker      │
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>             │                 │
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>             │ • agent_chat    │
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>             │   workflow      │
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>             │ • agent() loop  │
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>             │ • Tools / MCP   │
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>             │ • Memory        │
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>             └─────────────────┘
+</code></pre></div>
+<p>The agent process never runs the model itself. It is a stateless client: it starts or resumes an execution of the <code>agents/agent_chat</code> workflow on the server, streams the resulting SSE events, renders them for the user, prompts for the next message, and resumes. The worker does the model calls, tool execution, and memory work.</p>
+<h2 id="concepts">Concepts<a class="headerlink" href="#concepts" title="Permanent link">&para;</a></h2>
+<h3 id="agent-definition">Agent definition<a class="headerlink" href="#agent-definition" title="Permanent link">&para;</a></h3>
+<p>A row in the <code>agents</code> table, created via <code>flux agent create</code>. Holds everything needed to instantiate the chat loop: model, system prompt, tools, MCP servers, memory, planning flags, and so on. See the <a href="#agent-yaml-specification">YAML specification</a> for the full field list.</p>
+<p>Agents are global (not namespaced). The name is the primary key. Permissions use the format <code>agent:&lt;name&gt;:&lt;action&gt;</code>.</p>
+<h3 id="configuration-configs-table">Configuration (<code>configs</code> table)<a class="headerlink" href="#configuration-configs-table" title="Permanent link">&para;</a></h3>
+<p>Plaintext key-value entries stored in the database. Analogous to secrets but without encryption — suitable for non-sensitive runtime values that change independently of code.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flux<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>logging.level<span class="w"> </span>info
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>config<span class="w"> </span>get<span class="w"> </span>logging.level
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>flux<span class="w"> </span>config<span class="w"> </span>list
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>flux<span class="w"> </span>config<span class="w"> </span>remove<span class="w"> </span>logging.level
+</code></pre></div>
+<p>Agent definitions are themselves stored as configs under the key <code>agent:&lt;name&gt;</code>. The built-in <code>agent_chat</code> workflow reads its definition from this key at runtime via the generic <code>get_config</code> task.</p>
+<h3 id="session">Session<a class="headerlink" href="#session" title="Permanent link">&para;</a></h3>
+<p>A session is a running execution of the <code>agent_chat</code> workflow. The session ID and the Flux execution ID are the same value. There is no separate session store.</p>
+<ul>
+<li>Start a new session: <code>flux agent start &lt;name&gt;</code></li>
+<li>Resume a session: <code>flux agent start &lt;name&gt; --session &lt;id&gt;</code> or <code>flux agent session resume &lt;id&gt;</code></li>
+<li>Sessions are not owned by a user; any principal with <code>agent:&lt;name&gt;:start</code> and <code>workflow:agents:agent_chat:run</code> can resume.</li>
+</ul>
+<h3 id="event-stream">Event stream<a class="headerlink" href="#event-stream" title="Permanent link">&para;</a></h3>
+<p>Sessions stream SSE events. The agent process parses raw Flux SSE frames into <code>AgentEvent</code> kinds consumed by any UI:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Emitted when</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session_id</code></td>
+<td>Workflow starts</td>
+<td><code>{"id": "&lt;exec-id&gt;"}</code></td>
+</tr>
+<tr>
+<td><code>token</code></td>
+<td>LLM streams tokens (stream mode only, outside tool loop in v1)</td>
+<td><code>{"text": "..."}</code></td>
+</tr>
+<tr>
+<td><code>tool_start</code></td>
+<td>Before a tool call</td>
+<td><code>{"name": "...", "args": {...}}</code></td>
+</tr>
+<tr>
+<td><code>tool_done</code></td>
+<td>After a tool call</td>
+<td><code>{"name": "...", "status": "success" \| "error"}</code></td>
+</tr>
+<tr>
+<td><code>chat_response</code></td>
+<td>Workflow pauses waiting for user input</td>
+<td><code>{"content": "...", "turn": N}</code></td>
+</tr>
+<tr>
+<td><code>elicitation</code></td>
+<td>MCP server requests out-of-band authorization</td>
+<td><code>{"elicitation_id", "url", "message", "server_name", "mode"}</code></td>
+</tr>
+<tr>
+<td><code>session_end</code></td>
+<td>Workflow pauses with final session output</td>
+<td><code>{"reason": "max_turns"\|"user_exit"\|"error", "turns": N}</code></td>
+</tr>
+</tbody>
+</table>
+<p>Unknown raw frames are silently dropped — the parser is forward-compatible.</p>
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<p>Prereq: a running Flux server and worker. If auth is enabled, sign in first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>flux<span class="w"> </span>auth<span class="w"> </span>login
+</code></pre></div>
+<p>Define a minimal agent in YAML:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># assistant.yaml</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">assistant</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet-4-20250514</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nt">system_prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="no">You are a helpful coding assistant. Keep answers concise.</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">General-purpose coding helper</span>
+</code></pre></div>
+<p>Create it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>create<span class="w"> </span>assistant<span class="w"> </span>--file<span class="w"> </span>assistant.yaml
+</code></pre></div>
+<p>Start a terminal session:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>assistant<span class="w"> </span>--mode<span class="w"> </span>terminal
+</code></pre></div>
+<p>You see a prompt. Type a message, press Enter. When you are done, press <code>Ctrl+D</code> or type <code>/quit</code>. The session ID is printed on exit so you can resume later:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>session<span class="w"> </span>resume<span class="w"> </span>&lt;session-id&gt;
+</code></pre></div>
+<h2 id="cli-reference">CLI Reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h2>
+<h3 id="flux-agent-create"><code>flux agent create</code><a class="headerlink" href="#flux-agent-create" title="Permanent link">&para;</a></h3>
+<p>Create a new agent definition. Options can come from flags, a YAML <code>--file</code>, or a combination (flags win).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>create<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="o">[</span>--file<span class="w"> </span>agent.yaml<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="o">[</span>--model<span class="w"> </span>provider/name<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="o">[</span>--system-prompt<span class="w"> </span>TEXT<span class="w"> </span><span class="p">|</span><span class="w"> </span>--system-prompt-file<span class="w"> </span>PATH<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="o">[</span>--description<span class="w"> </span>TEXT<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="o">[</span>--tools<span class="w"> </span>NAME<span class="o">]</span>...<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="o">[</span>--tools-file<span class="w"> </span>PATH<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="o">[</span>--workflow-file<span class="w"> </span>PATH<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="o">[</span>--mcp-server<span class="w"> </span>URL<span class="o">]</span>...<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span><span class="o">[</span>--skills-dir<span class="w"> </span>PATH<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span><span class="o">[</span>--planning<span class="w"> </span><span class="p">|</span><span class="w"> </span>--no-planning<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span><span class="o">[</span>--max-tool-calls<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">  </span><span class="o">[</span>--max-tokens<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">  </span><span class="o">[</span>--reasoning-effort<span class="w"> </span>low<span class="p">|</span>medium<span class="p">|</span>high<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">  </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+</code></pre></div>
+<p><code>--tools</code> is a repeatable flag that takes a built-in tool group name (<code>system_tools</code>, <code>shell</code>, <code>files</code>, <code>search</code>, <code>directory</code>). Individual tool names from the resolver are also accepted. <code>--mcp-server</code> is repeatable and records only the URL; richer MCP configuration (auth, secret reference, name) must go through <code>--file</code>.</p>
+<h3 id="flux-agent-list"><code>flux agent list</code><a class="headerlink" href="#flux-agent-list" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+</code></pre></div>
+<h3 id="flux-agent-show"><code>flux agent show</code><a class="headerlink" href="#flux-agent-show" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>show<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="p">|</span>yaml<span class="o">]</span>
+</code></pre></div>
+<p>Default format is <code>yaml</code>.</p>
+<h3 id="flux-agent-update"><code>flux agent update</code><a class="headerlink" href="#flux-agent-update" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>update<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="o">[</span>--file<span class="w"> </span>agent.yaml<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="o">[</span>--model<span class="w"> </span>...<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="o">[</span>--system-prompt<span class="w"> </span>...<span class="w"> </span><span class="p">|</span><span class="w"> </span>--system-prompt-file<span class="w"> </span>...<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="o">[</span>--description<span class="w"> </span>...<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span><span class="o">[</span>--planning<span class="w"> </span><span class="p">|</span><span class="w"> </span>--no-planning<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span><span class="o">[</span>--max-tool-calls<span class="w"> </span>N<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">  </span><span class="o">[</span>--reasoning-effort<span class="w"> </span>low<span class="p">|</span>medium<span class="p">|</span>high<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+</code></pre></div>
+<p>Fields not supplied are preserved. When both <code>--file</code> and flags are given, flags override.</p>
+<h3 id="flux-agent-delete"><code>flux agent delete</code><a class="headerlink" href="#flux-agent-delete" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>delete<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+</code></pre></div>
+<h3 id="flux-agent-start"><code>flux agent start</code><a class="headerlink" href="#flux-agent-start" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="o">[</span>--mode<span class="w"> </span>terminal<span class="p">|</span>web<span class="p">|</span>api<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="o">[</span>--session<span class="w"> </span>SESSION_ID<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="o">[</span>--port<span class="w"> </span>PORT<span class="o">]</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="o">[</span>--server<span class="w"> </span>URL<span class="o">]</span>
+</code></pre></div>
+<ul>
+<li><code>--mode</code> defaults to <code>terminal</code>.</li>
+<li><code>--session</code> resumes an existing session instead of starting a new one.</li>
+<li><code>--port</code> applies only to <code>web</code> and <code>api</code>; defaults to <code>8080</code>.</li>
+<li><code>--server</code> overrides the Flux server URL; defaults to <code>http://&lt;server_host&gt;:&lt;server_port&gt;</code> from config.</li>
+<li>The auth token is resolved from <code>$FLUX_AUTH_TOKEN</code> first, then from the OIDC credentials stored by <code>flux auth login</code>.</li>
+</ul>
+<h3 id="flux-agent-stop"><code>flux agent stop</code><a class="headerlink" href="#flux-agent-stop" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>stop<span class="w"> </span>&lt;session-id&gt;
+</code></pre></div>
+<p>Cancels the underlying Flux execution via <code>POST /executions/&lt;id&gt;/cancel</code>.</p>
+<h3 id="flux-agent-session"><code>flux agent session</code><a class="headerlink" href="#flux-agent-session" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>session<span class="w"> </span>list<span class="w"> </span><span class="o">[</span>&lt;agent-name&gt;<span class="o">]</span><span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>flux<span class="w"> </span>agent<span class="w"> </span>session<span class="w"> </span>show<span class="w"> </span>&lt;session-id&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>flux<span class="w"> </span>agent<span class="w"> </span>session<span class="w"> </span>resume<span class="w"> </span>&lt;session-id&gt;
+</code></pre></div>
+<p><code>resume</code> is a shortcut for <code>flux agent start &lt;name&gt; --mode terminal --session &lt;id&gt;</code> that does not require the agent name — it attaches to the execution directly.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>session list</code> and <code>session show</code> currently print a placeholder message pending full server-side integration. Use <code>flux execution list</code> or the <code>/executions</code> API to inspect sessions by their execution ID in the meantime.</p>
+</div>
+<h3 id="flux-config"><code>flux config</code><a class="headerlink" href="#flux-config" title="Permanent link">&para;</a></h3>
+<p>Key-value config used by agents and any task that declares <code>config_requests</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>flux<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>&lt;name&gt;<span class="w"> </span>&lt;value&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>flux<span class="w"> </span>config<span class="w"> </span>get<span class="w"> </span>&lt;name&gt;<span class="w">          </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>flux<span class="w"> </span>config<span class="w"> </span>list<span class="w">                </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>flux<span class="w"> </span>config<span class="w"> </span>remove<span class="w"> </span>&lt;name&gt;<span class="w">       </span><span class="o">[</span>--format<span class="w"> </span>simple<span class="p">|</span>json<span class="o">]</span>
+</code></pre></div>
+<p>Values are stored in plaintext. Do not put secrets here — use <code>flux secrets</code> for that.</p>
+<h2 id="agent-yaml-specification">Agent YAML Specification<a class="headerlink" href="#agent-yaml-specification" title="Permanent link">&para;</a></h2>
+<p>Every field maps 1:1 to a column in the <code>agents</code> table and to the <code>AgentDefinition</code> Pydantic model in <code>flux.agents.types</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coder</span><span class="w">                                         </span><span class="c1"># required, primary key</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet-4-20250514</span><span class="w">           </span><span class="c1"># required, provider/model</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="nt">system_prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span><span class="w">                                    </span><span class="c1"># required</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">  </span><span class="no">You are a coding assistant. Be concise.</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">A coding assistant with full system access</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>
+<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="c1"># Tools — see Tool Configuration below for details.</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">system_tools</span><span class="p">:</span>
+<a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">      </span><span class="nt">max_output_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200000</span>
+<a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">shell</span><span class="p">:</span>
+<a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom_tools.py</span><span class="w">      </span><span class="c1"># Python file with @task functions</span>
+<a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read_file</span><span class="w">                    </span><span class="c1"># cherry-pick by name</span>
+<a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a>
+<a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="nt">tools_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom_tools.py</span><span class="w">    </span><span class="c1"># alternative to the inline file: entry</span>
+<a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="nt">workflow_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom_chat.py</span><span class="w">  </span><span class="c1"># escape hatch: custom workflow, see below</span>
+<a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a>
+<a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="c1"># MCP servers. Only `url` is required; the rest is optional and</span>
+<a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="c1"># depends on the MCP client&#39;s auth handling.</span>
+<a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+<a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:8080/mcp</span>
+<a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-16-26" name="__codelineno-16-26" href="#__codelineno-16-26"></a><span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bearer</span>
+<a id="__codelineno-16-27" name="__codelineno-16-27" href="#__codelineno-16-27"></a><span class="w">    </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GITHUB_TOKEN</span><span class="w">         </span><span class="c1"># resolved from Flux secrets at runtime</span>
+<a id="__codelineno-16-28" name="__codelineno-16-28" href="#__codelineno-16-28"></a>
+<a id="__codelineno-16-29" name="__codelineno-16-29" href="#__codelineno-16-29"></a><span class="c1"># Skills directory. Resolved at creation time; contents are stored inline.</span>
+<a id="__codelineno-16-30" name="__codelineno-16-30" href="#__codelineno-16-30"></a><span class="nt">skills_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./skills</span>
+<a id="__codelineno-16-31" name="__codelineno-16-31" href="#__codelineno-16-31"></a>
+<a id="__codelineno-16-32" name="__codelineno-16-32" href="#__codelineno-16-32"></a><span class="c1"># Sub-agents this agent can delegate to. Must exist in the agents table.</span>
+<a id="__codelineno-16-33" name="__codelineno-16-33" href="#__codelineno-16-33"></a><span class="nt">agents</span><span class="p">:</span>
+<a id="__codelineno-16-34" name="__codelineno-16-34" href="#__codelineno-16-34"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">researcher</span>
+<a id="__codelineno-16-35" name="__codelineno-16-35" href="#__codelineno-16-35"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">reviewer</span>
+<a id="__codelineno-16-36" name="__codelineno-16-36" href="#__codelineno-16-36"></a>
+<a id="__codelineno-16-37" name="__codelineno-16-37" href="#__codelineno-16-37"></a><span class="c1"># Planning (structured multi-step)</span>
+<a id="__codelineno-16-38" name="__codelineno-16-38" href="#__codelineno-16-38"></a><span class="nt">planning</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-16-39" name="__codelineno-16-39" href="#__codelineno-16-39"></a><span class="nt">max_plan_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+<a id="__codelineno-16-40" name="__codelineno-16-40" href="#__codelineno-16-40"></a><span class="nt">approve_plan</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-16-41" name="__codelineno-16-41" href="#__codelineno-16-41"></a>
+<a id="__codelineno-16-42" name="__codelineno-16-42" href="#__codelineno-16-42"></a><span class="c1"># Tool loop limits</span>
+<a id="__codelineno-16-43" name="__codelineno-16-43" href="#__codelineno-16-43"></a><span class="nt">max_tool_calls</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+<a id="__codelineno-16-44" name="__codelineno-16-44" href="#__codelineno-16-44"></a><span class="nt">max_concurrent_tools</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<a id="__codelineno-16-45" name="__codelineno-16-45" href="#__codelineno-16-45"></a>
+<a id="__codelineno-16-46" name="__codelineno-16-46" href="#__codelineno-16-46"></a><span class="c1"># LLM limits</span>
+<a id="__codelineno-16-47" name="__codelineno-16-47" href="#__codelineno-16-47"></a><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
+<a id="__codelineno-16-48" name="__codelineno-16-48" href="#__codelineno-16-48"></a><span class="nt">stream</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-16-49" name="__codelineno-16-49" href="#__codelineno-16-49"></a>
+<a id="__codelineno-16-50" name="__codelineno-16-50" href="#__codelineno-16-50"></a><span class="c1"># Approval mode for tool execution (default | always | never — see Human-in-the-loop)</span>
+<a id="__codelineno-16-51" name="__codelineno-16-51" href="#__codelineno-16-51"></a><span class="nt">approval_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<a id="__codelineno-16-52" name="__codelineno-16-52" href="#__codelineno-16-52"></a>
+<a id="__codelineno-16-53" name="__codelineno-16-53" href="#__codelineno-16-53"></a><span class="c1"># Reasoning depth for models that support it</span>
+<a id="__codelineno-16-54" name="__codelineno-16-54" href="#__codelineno-16-54"></a><span class="nt">reasoning_effort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">high</span>
+<a id="__codelineno-16-55" name="__codelineno-16-55" href="#__codelineno-16-55"></a>
+<a id="__codelineno-16-56" name="__codelineno-16-56" href="#__codelineno-16-56"></a><span class="c1"># Optional long-term memory</span>
+<a id="__codelineno-16-57" name="__codelineno-16-57" href="#__codelineno-16-57"></a><span class="nt">long_term_memory</span><span class="p">:</span>
+<a id="__codelineno-16-58" name="__codelineno-16-58" href="#__codelineno-16-58"></a><span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sqlite</span>
+<a id="__codelineno-16-59" name="__codelineno-16-59" href="#__codelineno-16-59"></a><span class="w">  </span><span class="nt">connection</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;memory.db&quot;</span>
+<a id="__codelineno-16-60" name="__codelineno-16-60" href="#__codelineno-16-60"></a><span class="w">  </span><span class="nt">scope</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user:default&quot;</span>
+</code></pre></div>
+<p>Working memory is always on; there is no flag to disable it.</p>
+<h3 id="field-validation">Field validation<a class="headerlink" href="#field-validation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>model</code> must be in <code>provider/model_name</code> format (the <code>/</code> is required).</li>
+<li><code>reasoning_effort</code> must be <code>low</code>, <code>medium</code>, <code>high</code>, or omitted.</li>
+<li><code>tools</code> is a free-form list of strings, dicts, or <code>file:</code> references; validation happens in the tools resolver at runtime.</li>
+</ul>
+<h3 id="file-resolution-at-creation-time">File resolution at creation time<a class="headerlink" href="#file-resolution-at-creation-time" title="Permanent link">&para;</a></h3>
+<p><code>skills_dir</code>, <code>tools_file</code>, and <code>workflow_file</code> are paths on the machine running <code>flux agent create</code>. Because the workflow runs on a worker — potentially a different machine — these files are read and stored inline in the database at creation (and again on <code>update</code> if paths are supplied). The worker never reads them from the local filesystem.</p>
+<h3 id="custom-workflows">Custom workflows<a class="headerlink" href="#custom-workflows" title="Permanent link">&para;</a></h3>
+<p>The built-in template is <code>agents/agent_chat</code>. Most agents do not need anything else. For advanced flows, supply <code>workflow_file</code> with a custom workflow that follows the same contract:</p>
+<ul>
+<li>Input on first run: <code>{"agent": "&lt;name&gt;"}</code>.</li>
+<li>Pause with <code>ChatResponseOutput</code>, <code>SessionEndOutput</code>, or an elicitation payload.</li>
+<li>Resume with <code>{"message": "..."}</code> for user turns or <code>{"elicitation_response": {...}}</code> for elicitation.</li>
+</ul>
+<h2 id="serving-modes">Serving Modes<a class="headerlink" href="#serving-modes" title="Permanent link">&para;</a></h2>
+<h3 id="terminal">Terminal<a class="headerlink" href="#terminal" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>coder<span class="w"> </span>--mode<span class="w"> </span>terminal
+</code></pre></div>
+<ul>
+<li>Direct readline interaction, no HTTP server.</li>
+<li>Tokens stream inline; tool calls print a <code>Calling name(args)... Done.</code> line.</li>
+<li>In-chat commands:</li>
+<li><code>/help</code> — list commands.</li>
+<li><code>/session</code> — print the current session ID.</li>
+<li><code>/quit</code> — exit cleanly.</li>
+<li><code>Ctrl+D</code> (EOF) exits. <code>Ctrl+C</code> cancels the current turn.</li>
+<li>On exit, the session ID is printed so you can resume later:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>Session: 7f3c2d1a-...-...
+</code></pre></div>
+<ul>
+<li>Elicitation is handled inline: the URL is printed, and you are prompted <code>Open browser to authorize? [Y/n]</code>. Answering yes calls <code>webbrowser.open(url)</code>.</li>
+</ul>
+<h3 id="web">Web<a class="headerlink" href="#web" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>coder<span class="w"> </span>--mode<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
+</code></pre></div>
+<ul>
+<li>Binds to <code>0.0.0.0:&lt;port&gt;</code> and serves a single-page chat UI at <code>GET /</code>.</li>
+<li>The SSE <code>/chat</code> endpoint uses the operator's Flux token, set at process start time (either <code>$FLUX_AUTH_TOKEN</code> or refreshed via <code>flux auth login</code>). No per-request Bearer is required.</li>
+<li>Intended for a single operator. If you expose web mode publicly, put it behind a reverse proxy that enforces your own access control — Flux does not authenticate the browser side of web mode.</li>
+<li>Elicitation renders as a banner message with a link that opens the authorization URL in a new tab; the UI resumes automatically when the user responds.</li>
+<li>The UI follows the system light/dark preference via CSS <code>prefers-color-scheme</code>.</li>
+</ul>
+<h3 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>coder<span class="w"> </span>--mode<span class="w"> </span>api<span class="w"> </span>--port<span class="w"> </span><span class="m">8080</span>
+</code></pre></div>
+<p>Headless SSE service. Every non-health endpoint requires a Bearer token that is passed through to the Flux server on a per-request basis — the operator token supplied at process start is not used.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Body</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/health</code></td>
+<td>—</td>
+<td>Public. Returns <code>{"status": "ok"}</code>.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/chat</code></td>
+<td><code>{"message": "..."}</code></td>
+<td>Starts a new session. SSE response. First frames include a <code>session_id</code> event.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/chat?session=&lt;id&gt;</code></td>
+<td><code>{"message": "..."}</code></td>
+<td>Resumes an existing session. SSE response.</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/elicitation/{elicitation_id}?session=&lt;id&gt;</code></td>
+<td><code>{"elicitation_id": "...", "action": "accept"\|"decline"\|"cancel"}</code></td>
+<td>Resume the session in response to an elicitation. SSE response.</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/session/{id}</code></td>
+<td>—</td>
+<td>Proxy to <code>GET /executions/{id}</code> on the Flux server.</td>
+</tr>
+</tbody>
+</table>
+<p>SSE frames are JSON objects with a <code>type</code> field matching the event kinds above (except <code>chat_response</code> is serialized as <code>type: response</code> on the wire, for backward compatibility with the bundled web UI):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;session_id&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;7f3c2d1a-...&quot;</span><span class="p">}</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;token&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hello&quot;</span><span class="p">}</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tool_start&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;args&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;cmd&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ls&quot;</span><span class="p">}}</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tool_done&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;shell&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;success&quot;</span><span class="p">}</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;response&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hi! What can I help with?&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;turn&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">}</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;elicitation&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;elicitation_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;el-1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://auth...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Authorize&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;server_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;github&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;url&quot;</span><span class="p">}</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;session_end&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;user_exit&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;turns&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">}</span>
+<a id="__codelineno-21-8" name="__codelineno-21-8" href="#__codelineno-21-8"></a><span class="p">{</span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">}</span>
+</code></pre></div>
+<p>Example curl (note <code>-N</code> to disable buffering):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>curl<span class="w"> </span>-N<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/chat<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$FLUX_AUTH_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;message&quot;: &quot;list the files in /tmp&quot;}&#39;</span>
+</code></pre></div>
+<p>Resume:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>curl<span class="w"> </span>-N<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://localhost:8080/chat?session=</span><span class="nv">$SESSION_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$FLUX_AUTH_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;message&quot;: &quot;now summarize what you found&quot;}&#39;</span>
+</code></pre></div>
+<p>Respond to an elicitation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>curl<span class="w"> </span>-N<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">&quot;http://localhost:8080/elicitation/el-1?session=</span><span class="nv">$SESSION_ID</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$FLUX_AUTH_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;elicitation_id&quot;: &quot;el-1&quot;, &quot;action&quot;: &quot;accept&quot;}&#39;</span>
+</code></pre></div>
+<h2 id="tool-configuration">Tool Configuration<a class="headerlink" href="#tool-configuration" title="Permanent link">&para;</a></h2>
+<p>Tool entries are resolved by <code>flux.agents.tools_resolver</code>. Four forms are supported.</p>
+<h3 id="bundled-tool-set">Bundled tool set<a class="headerlink" href="#bundled-tool-set" title="Permanent link">&para;</a></h3>
+<p><code>system_tools</code> includes shell, files, search, and directory tools against a single workspace:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">system_tools</span><span class="p">:</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">      </span><span class="nt">max_output_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200000</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="w">      </span><span class="nt">blocklist</span><span class="p">:</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rm -rf</span>
+<a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sudo</span>
+</code></pre></div>
+<p>Omitted fields use the defaults: <code>workspace="."</code>, <code>timeout=30</code>, <code>max_output_chars=100000</code>, and the built-in <code>DEFAULT_BLOCKLIST</code> from <code>flux.tasks.ai.tools.system_tools</code>. See <a href="../system-tools/">System Tools</a> for the full behavior.</p>
+<h3 id="individual-groups">Individual groups<a class="headerlink" href="#individual-groups" title="Permanent link">&para;</a></h3>
+<p>Select only the groups you need. Each takes the same config as <code>system_tools</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">shell</span><span class="p">:</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">files</span><span class="p">:</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">search</span><span class="p">:</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">directory</span><span class="p">:</span>
+<a id="__codelineno-26-9" name="__codelineno-26-9" href="#__codelineno-26-9"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+</code></pre></div>
+<h3 id="custom-tools-from-a-python-file">Custom tools from a Python file<a class="headerlink" href="#custom-tools-from-a-python-file" title="Permanent link">&para;</a></h3>
+<p>Point at a Python file whose top-level <code>@task</code> functions should be exposed as tools:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom_tools.py</span>
+</code></pre></div>
+<p>Or, equivalently, the top-level <code>tools_file</code> field:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nt">tools_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom_tools.py</span>
+</code></pre></div>
+<p>The file is read at <code>flux agent create</code> time and stored in the agent definition; the worker uses the stored copy.</p>
+<h3 id="cherry-pick-by-name">Cherry-pick by name<a class="headerlink" href="#cherry-pick-by-name" title="Permanent link">&para;</a></h3>
+<p>A plain string entry resolves via the tools resolver. In the current implementation the resolver accepts the bundled group names (<code>system_tools</code>, <code>shell</code>, <code>files</code>, <code>search</code>, <code>directory</code>); use <code>file:</code> for everything else.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shell</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">files</span>
+</code></pre></div>
+<h2 id="mcp-integration">MCP Integration<a class="headerlink" href="#mcp-integration" title="Permanent link">&para;</a></h2>
+<p>Add one or more MCP servers in the agent YAML:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:8080/mcp</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">flux</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.github.example.com</span>
+<a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bearer</span>
+<a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="w">    </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GITHUB_TOKEN</span>
+</code></pre></div>
+<p>At runtime the worker connects, discovers tools, and makes them available to the agent loop alongside local tools. See <a href="../mcp-client/">MCP Client</a> for details on the underlying <code>mcp()</code> task, authentication modes, and tool discovery.</p>
+<h3 id="elicitation-url-mode">Elicitation (URL mode)<a class="headerlink" href="#elicitation-url-mode" title="Permanent link">&para;</a></h3>
+<p>Some MCP servers require user authorization before exposing a tool. The MCP client advertises URL-mode elicitation during the handshake. When a tool call triggers an <code>elicitation/create</code> response (or a <code>-32042</code> <code>URLElicitationRequiredError</code>), the worker pauses the workflow with a payload of:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="p">{</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;elicitation&quot;</span><span class="p">,</span>
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="w">  </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;url&quot;</span><span class="p">,</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="w">  </span><span class="nt">&quot;elicitation_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;el-1&quot;</span><span class="p">,</span>
+<a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a><span class="w">  </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://auth.example.com/...&quot;</span><span class="p">,</span>
+<a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a><span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Authorize Flux to access GitHub&quot;</span><span class="p">,</span>
+<a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a><span class="w">  </span><span class="nt">&quot;server_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;github&quot;</span>
+<a id="__codelineno-31-8" name="__codelineno-31-8" href="#__codelineno-31-8"></a><span class="p">}</span>
+</code></pre></div>
+<p>The agent process observes the pause, handles the UX for the current mode, and resumes with an <code>ElicitationResponse</code>:</p>
+<ul>
+<li><strong>Terminal</strong>: prints <code>[github] Authorize Flux ...</code>, prompts <code>Open browser to authorize? [Y/n]</code>, and on yes calls <code>webbrowser.open(url)</code>. Resumes with <code>action: accept</code> or <code>decline</code>.</li>
+<li><strong>Web</strong>: renders a clickable link (<code>Click to authorize</code>) that opens in a new tab. The operator completes the flow on the provider's site; the page stays open and the agent process resumes when the user submits.</li>
+<li><strong>API</strong>: emits a <code>{"type": "elicitation", ...}</code> SSE event. The client is responsible for directing the end-user to the URL and then calling <code>POST /elicitation/{id}?session=&lt;id&gt;</code> with the chosen action.</li>
+</ul>
+<p>Elicitation is handled in a generic way in the MCP client — any workflow that uses MCP tools can pause with this payload, not just agents.</p>
+<h2 id="authentication-and-authorization">Authentication and Authorization<a class="headerlink" href="#authentication-and-authorization" title="Permanent link">&para;</a></h2>
+<p>The agent harness reuses Flux's existing RBAC. No separate auth system.</p>
+<h3 id="token-resolution">Token resolution<a class="headerlink" href="#token-resolution" title="Permanent link">&para;</a></h3>
+<p><code>flux agent start</code> resolves the operator token in this order:</p>
+<ol>
+<li><code>FLUX_AUTH_TOKEN</code> environment variable.</li>
+<li>Bearer token derived from OIDC credentials saved by <code>flux auth login</code> (refreshed on each invocation).</li>
+</ol>
+<p>If no token can be resolved, the process runs unauthenticated; this only works against servers with auth disabled.</p>
+<h3 id="permissions">Permissions<a class="headerlink" href="#permissions" title="Permanent link">&para;</a></h3>
+<p>The harness adds two new namespaces on top of the workflow/execution namespaces:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>agent:*:create
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>agent:*:read
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>agent:&lt;name&gt;:read
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>agent:&lt;name&gt;:update
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>agent:&lt;name&gt;:delete
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a>agent:&lt;name&gt;:start
+<a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a>agent:&lt;name&gt;:session:read
+<a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a>
+<a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a>config:*:read
+<a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a>config:*:manage
+</code></pre></div>
+<p>Because <code>agent_chat</code> is a real workflow, the workflow namespace still applies. Most agent actions require <strong>both</strong> an <code>agent:*</code> permission and the matching <code>workflow:agents:agent_chat:*</code> permission.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Required permissions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Create an agent definition</td>
+<td><code>agent:*:create</code></td>
+</tr>
+<tr>
+<td>List / show agents</td>
+<td><code>agent:*:read</code> or <code>agent:&lt;name&gt;:read</code></td>
+</tr>
+<tr>
+<td>Update / delete an agent</td>
+<td><code>agent:&lt;name&gt;:update</code> / <code>agent:&lt;name&gt;:delete</code></td>
+</tr>
+<tr>
+<td>Start or resume a session</td>
+<td><code>agent:&lt;name&gt;:start</code> + <code>workflow:agents:agent_chat:run</code></td>
+</tr>
+<tr>
+<td>Execute tasks inside the workflow</td>
+<td><code>workflow:agents:agent_chat:task:&lt;task&gt;:execute</code></td>
+</tr>
+<tr>
+<td>List sessions for an agent</td>
+<td><code>agent:&lt;name&gt;:session:read</code> + <code>execution:*:read</code></td>
+</tr>
+<tr>
+<td>Read config</td>
+<td><code>config:*:read</code></td>
+</tr>
+<tr>
+<td>Set / remove config</td>
+<td><code>config:*:manage</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="built-in-roles">Built-in roles<a class="headerlink" href="#built-in-roles" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Agent / config permissions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>admin</code></td>
+<td>All (inherited via <code>*</code>).</td>
+</tr>
+<tr>
+<td><code>operator</code></td>
+<td><code>agent:*:*</code>, <code>config:*:read</code>, <code>config:*:manage</code> (plus the standard workflow/execution/schedule perms).</td>
+</tr>
+<tr>
+<td><code>viewer</code></td>
+<td><code>agent:*:read</code>, <code>config:*:read</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../authentication/">Authentication &amp; Authorization</a> for the general RBAC model, role-management CLI, and permission wildcard rules.</p>
+<h2 id="deployment">Deployment<a class="headerlink" href="#deployment" title="Permanent link">&para;</a></h2>
+<p>The agent process is a thin client of the Flux server. It talks over HTTPS and SSE, so it can run anywhere the Flux API is reachable.</p>
+<ul>
+<li><strong>Terminal</strong>: runs on the operator's machine. No network surface beyond its outbound HTTP calls.</li>
+<li><strong>Web</strong>: binds to <code>0.0.0.0</code> by default but is designed as a single-operator chat UI. Put a reverse proxy (nginx, Caddy) in front if you need to expose it beyond localhost, and enforce your own authentication there. Web mode does <strong>not</strong> check a per-request Bearer token.</li>
+<li><strong>API</strong>: multi-client by design. Each request must carry a Bearer token; tokens are passed through to the Flux server untrusted on the agent process side.</li>
+</ul>
+<h3 id="pinning-agents-to-specific-workers">Pinning agents to specific workers<a class="headerlink" href="#pinning-agents-to-specific-workers" title="Permanent link">&para;</a></h3>
+<p>The <code>agent_chat</code> workflow dispatches like any other Flux workflow. If your agent needs a specific environment (browser automation, a desktop sandbox, a GPU), combine the harness with <a href="../worker-affinity/">Worker Affinity</a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>flux<span class="w"> </span>start<span class="w"> </span>worker<span class="w"> </span>--label<span class="w"> </span><span class="nv">role</span><span class="o">=</span>harness<span class="w"> </span>--label<span class="w"> </span><span class="nv">env</span><span class="o">=</span>sandbox<span class="w"> </span>--label<span class="w"> </span><span class="nv">browser</span><span class="o">=</span><span class="nb">true</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># Custom workflow file referenced by workflow_file in the agent YAML</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span>
+<a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>
+<a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">namespace</span><span class="o">=</span><span class="s2">&quot;agents&quot;</span><span class="p">,</span> <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="s2">&quot;harness&quot;</span><span class="p">})</span>
+<a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">agent_chat</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>    <span class="o">...</span>  <span class="c1"># same contract as the built-in template</span>
+</code></pre></div>
+<p>Pair that with <code>workflow_file: ./custom_chat.py</code> in the agent definition.</p>
+<h3 id="scaling">Scaling<a class="headerlink" href="#scaling" title="Permanent link">&para;</a></h3>
+<p>Agent processes are stateless and can be horizontally scaled behind a load balancer when running in <code>api</code> mode. Sessions are addressed by execution ID, which is globally unique, so two processes can serve different sessions of the same agent concurrently without any shared state.</p>
+<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
+<p>Ready-to-use agent definitions and supporting code are in <code>examples/agents/</code>. Each YAML file is a complete agent definition you can create and run immediately.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>What it shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>assistant.yaml</code></td>
+<td>Minimal agent — model + system prompt, no tools</td>
+</tr>
+<tr>
+<td><code>coder.yaml</code></td>
+<td>System tools, MCP integration, planning, reasoning</td>
+</tr>
+<tr>
+<td><code>ollama_local.yaml</code></td>
+<td>Fully offline agent using a local Ollama model</td>
+</tr>
+<tr>
+<td><code>researcher.yaml</code></td>
+<td>Long-term memory, skills, plan approval</td>
+</tr>
+<tr>
+<td><code>delegation.yaml</code></td>
+<td>Lead agent delegating to specialist sub-agents</td>
+</tr>
+<tr>
+<td><code>custom_tools.py</code></td>
+<td><code>@task</code> functions used as agent tools via <code>--tools-file</code></td>
+</tr>
+<tr>
+<td><code>custom_workflow.py</code></td>
+<td>Custom chat loop with welcome message and turn limit</td>
+</tr>
+<tr>
+<td><code>api_client.py</code></td>
+<td>Python client for headless API mode interaction</td>
+</tr>
+</tbody>
+</table>
+<h3 id="custom-tools">Custom tools<a class="headerlink" href="#custom-tools" title="Permanent link">&para;</a></h3>
+<p>Define <code>@task</code> functions in a Python file and reference them at creation time:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>create<span class="w"> </span>support-bot<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="w">  </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-20250514<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a><span class="w">  </span>--system-prompt<span class="w"> </span><span class="s2">&quot;You are a support agent.&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-35-4" name="__codelineno-35-4" href="#__codelineno-35-4"></a><span class="w">  </span>--tools-file<span class="w"> </span>examples/agents/custom_tools.py
+</code></pre></div>
+<p>Each <code>@task</code> function becomes a callable tool. The function name is the tool name and the docstring is the tool description sent to the LLM. At creation time, the file is read and stored inline in the agent definition — workers load it from the database, not the filesystem.</p>
+<h3 id="custom-workflows_1">Custom workflows<a class="headerlink" href="#custom-workflows_1" title="Permanent link">&para;</a></h3>
+<p>Override the built-in <code>agent_chat</code> template with a workflow file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>create<span class="w"> </span>my-agent<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a><span class="w">  </span>--model<span class="w"> </span>anthropic/claude-sonnet-4-20250514<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a><span class="w">  </span>--system-prompt<span class="w"> </span><span class="s2">&quot;You are a helpful assistant.&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-36-4" name="__codelineno-36-4" href="#__codelineno-36-4"></a><span class="w">  </span>--workflow-file<span class="w"> </span>examples/agents/custom_workflow.py
+</code></pre></div>
+<p>Custom workflows must follow the <a href="#agent-workflow-contract">agent workflow contract</a>: accept <code>{"agent": "&lt;name&gt;"}</code> as input, pause with typed output, accept <code>{"message": "..."}</code> on resume.</p>
+<h3 id="api-mode-integration">API mode integration<a class="headerlink" href="#api-mode-integration" title="Permanent link">&para;</a></h3>
+<p>Start an agent in headless API mode and interact from any HTTP client:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>assistant<span class="w"> </span>--mode<span class="w"> </span>api<span class="w"> </span>--port<span class="w"> </span><span class="m">9100</span>
+</code></pre></div>
+<p>Endpoints:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>POST /chat                  Start a new session (SSE response)
+<a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a>POST /chat?session=&lt;id&gt;     Resume a session (SSE response)
+<a id="__codelineno-38-3" name="__codelineno-38-3" href="#__codelineno-38-3"></a>POST /elicitation/&lt;id&gt;      Respond to an MCP elicitation
+<a id="__codelineno-38-4" name="__codelineno-38-4" href="#__codelineno-38-4"></a>GET  /health                Health check
+</code></pre></div>
+<p>Every request except <code>/health</code> requires <code>Authorization: Bearer &lt;token&gt;</code>. See <code>examples/agents/api_client.py</code> for a Python client example.</p>
+<h2 id="example-a-coding-assistant">Example: A Coding Assistant<a class="headerlink" href="#example-a-coding-assistant" title="Permanent link">&para;</a></h2>
+<p>This walks through a realistic end-to-end flow: define an agent, start a session, have a conversation, resume it later.</p>
+<h3 id="1-define-the-agent">1. Define the agent<a class="headerlink" href="#1-define-the-agent" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="c1"># coder.yaml</span>
+<a id="__codelineno-39-2" name="__codelineno-39-2" href="#__codelineno-39-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">coder</span>
+<a id="__codelineno-39-3" name="__codelineno-39-3" href="#__codelineno-39-3"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-sonnet-4-20250514</span>
+<a id="__codelineno-39-4" name="__codelineno-39-4" href="#__codelineno-39-4"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Coding assistant with workspace access and GitHub MCP.</span>
+<a id="__codelineno-39-5" name="__codelineno-39-5" href="#__codelineno-39-5"></a><span class="nt">system_prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-39-6" name="__codelineno-39-6" href="#__codelineno-39-6"></a><span class="w">  </span><span class="no">You are a senior engineer helping the user write and review code.</span>
+<a id="__codelineno-39-7" name="__codelineno-39-7" href="#__codelineno-39-7"></a><span class="w">  </span><span class="no">Use the available tools to read, search, and edit files in the project.</span>
+<a id="__codelineno-39-8" name="__codelineno-39-8" href="#__codelineno-39-8"></a><span class="w">  </span><span class="no">Always run the test suite after making changes. Be concise.</span>
+<a id="__codelineno-39-9" name="__codelineno-39-9" href="#__codelineno-39-9"></a>
+<a id="__codelineno-39-10" name="__codelineno-39-10" href="#__codelineno-39-10"></a><span class="nt">tools</span><span class="p">:</span>
+<a id="__codelineno-39-11" name="__codelineno-39-11" href="#__codelineno-39-11"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">system_tools</span><span class="p">:</span>
+<a id="__codelineno-39-12" name="__codelineno-39-12" href="#__codelineno-39-12"></a><span class="w">      </span><span class="nt">workspace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/home/user/project</span>
+<a id="__codelineno-39-13" name="__codelineno-39-13" href="#__codelineno-39-13"></a><span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<a id="__codelineno-39-14" name="__codelineno-39-14" href="#__codelineno-39-14"></a><span class="w">      </span><span class="nt">max_output_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200000</span>
+<a id="__codelineno-39-15" name="__codelineno-39-15" href="#__codelineno-39-15"></a>
+<a id="__codelineno-39-16" name="__codelineno-39-16" href="#__codelineno-39-16"></a><span class="nt">mcp_servers</span><span class="p">:</span>
+<a id="__codelineno-39-17" name="__codelineno-39-17" href="#__codelineno-39-17"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp.github.example.com</span>
+<a id="__codelineno-39-18" name="__codelineno-39-18" href="#__codelineno-39-18"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-39-19" name="__codelineno-39-19" href="#__codelineno-39-19"></a><span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bearer</span>
+<a id="__codelineno-39-20" name="__codelineno-39-20" href="#__codelineno-39-20"></a><span class="w">    </span><span class="nt">secret</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GITHUB_TOKEN</span>
+<a id="__codelineno-39-21" name="__codelineno-39-21" href="#__codelineno-39-21"></a>
+<a id="__codelineno-39-22" name="__codelineno-39-22" href="#__codelineno-39-22"></a><span class="nt">planning</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-39-23" name="__codelineno-39-23" href="#__codelineno-39-23"></a><span class="nt">max_plan_steps</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15</span>
+<a id="__codelineno-39-24" name="__codelineno-39-24" href="#__codelineno-39-24"></a><span class="nt">max_tool_calls</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<a id="__codelineno-39-25" name="__codelineno-39-25" href="#__codelineno-39-25"></a><span class="nt">reasoning_effort</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">medium</span>
+</code></pre></div>
+<h3 id="2-create-it">2. Create it<a class="headerlink" href="#2-create-it" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>flux<span class="w"> </span>secrets<span class="w"> </span><span class="nb">set</span><span class="w"> </span>GITHUB_TOKEN<span class="w"> </span><span class="s2">&quot;ghp_...&quot;</span>
+<a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a>flux<span class="w"> </span>agent<span class="w"> </span>create<span class="w"> </span>coder<span class="w"> </span>--file<span class="w"> </span>coder.yaml
+<a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a>flux<span class="w"> </span>agent<span class="w"> </span>show<span class="w"> </span>coder
+</code></pre></div>
+<h3 id="3-start-a-terminal-session">3. Start a terminal session<a class="headerlink" href="#3-start-a-terminal-session" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>start<span class="w"> </span>coder<span class="w"> </span>--mode<span class="w"> </span>terminal
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>Flux Agent — coder
+<a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a>Session: 9e1b2f0c-4a2a-4e3d-b0f1-6a8a7a4c1b20
+<a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a>Type /help for commands, Ctrl+D to exit.
+<a id="__codelineno-42-4" name="__codelineno-42-4" href="#__codelineno-42-4"></a>
+<a id="__codelineno-42-5" name="__codelineno-42-5" href="#__codelineno-42-5"></a>&gt; find all TODO comments in the project and summarize them
+<a id="__codelineno-42-6" name="__codelineno-42-6" href="#__codelineno-42-6"></a>Calling shell(cmd=&quot;rg -n TODO .&quot;)... Done.
+<a id="__codelineno-42-7" name="__codelineno-42-7" href="#__codelineno-42-7"></a>
+<a id="__codelineno-42-8" name="__codelineno-42-8" href="#__codelineno-42-8"></a>Found 3 TODO comments:
+<a id="__codelineno-42-9" name="__codelineno-42-9" href="#__codelineno-42-9"></a>1. src/parser.py:82 — &quot;refactor this when we drop Py3.9&quot;
+<a id="__codelineno-42-10" name="__codelineno-42-10" href="#__codelineno-42-10"></a>...
+<a id="__codelineno-42-11" name="__codelineno-42-11" href="#__codelineno-42-11"></a>
+<a id="__codelineno-42-12" name="__codelineno-42-12" href="#__codelineno-42-12"></a>&gt; /quit
+<a id="__codelineno-42-13" name="__codelineno-42-13" href="#__codelineno-42-13"></a>
+<a id="__codelineno-42-14" name="__codelineno-42-14" href="#__codelineno-42-14"></a>Session: 9e1b2f0c-4a2a-4e3d-b0f1-6a8a7a4c1b20
+</code></pre></div>
+<h3 id="4-resume-later">4. Resume later<a class="headerlink" href="#4-resume-later" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>session<span class="w"> </span>resume<span class="w"> </span>9e1b2f0c-4a2a-4e3d-b0f1-6a8a7a4c1b20
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>&gt; pick up where you left off and open a PR for the first TODO
+<a id="__codelineno-44-2" name="__codelineno-44-2" href="#__codelineno-44-2"></a>...
+</code></pre></div>
+<h3 id="5-stop-a-runaway-session">5. Stop a runaway session<a class="headerlink" href="#5-stop-a-runaway-session" title="Permanent link">&para;</a></h3>
+<p>If something goes wrong mid-turn:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>flux<span class="w"> </span>agent<span class="w"> </span>stop<span class="w"> </span>9e1b2f0c-4a2a-4e3d-b0f1-6a8a7a4c1b20
+</code></pre></div>
+<p>This calls the Flux execution cancel endpoint. The next resume will not reattach — the session is terminated.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<p><strong><code>Error starting agent: ... 401</code></strong> — the process could not authenticate to the Flux server. Run <code>flux auth login</code>, or set <code>FLUX_AUTH_TOKEN</code> to a valid Bearer token. Confirm with <code>flux auth status</code>.</p>
+<p><strong><code>Missing or invalid Authorization header</code></strong> — you hit the API mode <code>/chat</code> endpoint without a Bearer token. API mode does <strong>not</strong> fall back to the operator token; every request must carry its own <code>Authorization: Bearer ...</code> header.</p>
+<p><strong><code>Agent process started without a token</code></strong> — web mode was started without a way to resolve the operator token. Run <code>flux auth login</code> first, or launch with <code>FLUX_AUTH_TOKEN</code> set in the environment.</p>
+<p><strong>MCP server prompts for authorization repeatedly</strong> — elicitation state is not cached across sessions in v1. If you decline or cancel, the next tool call on that server will pause again. Accept once and keep the session alive for the remainder of the work.</p>
+<p><strong>Session won't resume</strong> — the underlying execution may have ended or errored. Inspect it directly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$FLUX_AUTH_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-46-2" name="__codelineno-46-2" href="#__codelineno-46-2"></a><span class="w">  </span>http://localhost:8000/executions/&lt;session-id&gt;
+</code></pre></div>
+<p>If it is <code>COMPLETED</code>, <code>CANCELLED</code>, or <code>FAILED</code>, start a new session instead.</p>
+<p><strong>Tools are never called</strong> — check <code>approval_mode</code>: <code>always</code> requires a human to approve every tool call, and <code>never</code> disables tools entirely. Also confirm the caller has <code>workflow:agents:agent_chat:task:&lt;task_name&gt;:execute</code> for the tools the agent uses — missing task permissions silently skip or reject the call depending on server configuration.</p>
+<p><strong><code>Unknown tool group</code></strong> — the tools resolver only recognizes <code>system_tools</code>, <code>shell</code>, <code>files</code>, <code>search</code>, and <code>directory</code> out of the box. For anything else, expose it as a <code>@task</code> in a Python file and reference it via <code>file:</code> or <code>tools_file:</code>.</p>
+<p><strong>Event stream ends with no <code>chat_response</code></strong> — the workflow paused on something the parser does not recognize and the loop exits. Check the execution's task events via <code>GET /executions/&lt;id&gt;</code> on the server. Unknown pause outputs are ignored on the parser side to stay forward-compatible; future Flux versions may add new pause types.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/edurdias/flux" target="_blank" rel="noopener" title="Flux on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.tabs.link", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
