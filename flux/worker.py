@@ -326,6 +326,34 @@ class Worker:
                     f"Resuming Execution - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
                 )
 
+                base_url = f"{self.base_url}/{self.name}"
+                headers = {"Authorization": f"Bearer {self.session_token}"}
+
+                logger.debug(f"Claiming resumed execution: {request.context.execution_id}")
+                try:
+                    response = await self.client.post(
+                        f"{base_url}/claim/{request.context.execution_id}",
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as claim_err:
+                    if claim_err.response.status_code == 409:
+                        logger.info(
+                            f"Resume claim for {request.context.execution_id} returned 409 "
+                            f"(already claimed); dropping duplicate dispatch.",
+                        )
+                        return
+                    raise
+
+                logger.info(
+                    f"Execution Claimed - {request.workflow.name} v{request.workflow.version} - {request.context.execution_id}",
+                )
+
+                claim_data = response.json()
+                request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
+                if request.exec_token:
+                    request.context.set_exec_token(request.exec_token)
+
                 if m:
                     m.record_worker_execution_started(self.name)
 
@@ -398,6 +426,9 @@ class Worker:
                 )
                 response.raise_for_status()
                 claim_data = response.json()
+                request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
+                if request.exec_token:
+                    request.context.set_exec_token(request.exec_token)
                 logger.debug(f"Claim response: {claim_data}")
 
                 logger.info(
@@ -446,6 +477,33 @@ class Worker:
         Returns:
             ExecutionContext: The execution context after workflow execution
         """
+        from flux.remote_managers import (
+            RemoteConfigManager,
+            RemoteSecretManager,
+            reset_remote_managers,
+            set_remote_managers,
+        )
+
+        server_url = self.base_url.rsplit("/workers", 1)[0]
+        config_manager = RemoteConfigManager(server_url, self.session_token)
+        secret_manager = RemoteSecretManager(
+            server_url,
+            self.session_token,
+            worker_name=self.name,
+            execution_id=request.context.execution_id,
+        )
+        remote_tokens = set_remote_managers(
+            config=config_manager,
+            secret=secret_manager,
+        )
+        try:
+            return await self._run_workflow(request)
+        finally:
+            reset_remote_managers(remote_tokens)
+            await config_manager.aclose()
+            await secret_manager.aclose()
+
+    async def _run_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         logger.debug(
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
@@ -733,7 +791,11 @@ class Worker:
 
     async def _get_gpu_info(self):
         logger.debug("Collecting GPU information")
-        import GPUtil
+        try:
+            import GPUtil
+        except (ImportError, ModuleNotFoundError):
+            logger.debug("GPUtil not available, skipping GPU info")
+            return []
 
         gpus = []
         gpu_devices = GPUtil.getGPUs()

@@ -178,6 +178,21 @@ class AnthropicFormatter(LLMFormatter):
     def remove_tools_from_kwargs(self, call_kwargs: dict) -> dict:
         return {k: v for k, v in call_kwargs.items() if k != "tools"}
 
+    supports_reasoning_stream = True
+
+    async def call_with_reasoning_stream(
+        self,
+        messages: list[dict],
+        call_kwargs: dict,
+        on_reasoning_token: Any,
+    ) -> LLMResponse:
+        async with self._client.messages.stream(messages=messages, **call_kwargs) as stream:
+            async for event in stream:
+                if event.type == "content_block_delta" and event.delta.type == "thinking_delta":
+                    await on_reasoning_token(event.delta.thinking)
+            final_message = await stream.get_final_message()
+        return _to_llm_response(final_message)
+
     async def stream(
         self,
         messages: list[dict],

@@ -359,9 +359,10 @@ class TestWorker:
         mock_gpu.memoryTotal = 10240
         mock_gpu.memoryFree = 8192
 
-        with patch("GPUtil.getGPUs") as mock_get_gpus:
-            mock_get_gpus.return_value = [mock_gpu]
+        mock_gputil = MagicMock()
+        mock_gputil.getGPUs.return_value = [mock_gpu]
 
+        with patch.dict("sys.modules", {"GPUtil": mock_gputil}):
             gpus = await worker._get_gpu_info()
 
             assert len(gpus) == 1

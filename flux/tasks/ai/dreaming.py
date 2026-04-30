@@ -17,7 +17,7 @@ logger = logging.getLogger("flux.dreaming")
 MEMORY_PROVIDER_URL_SECRET = "MEMORY_PROVIDER_URL"
 
 
-def _build_provider(provider_type: str):
+async def _build_provider(provider_type: str):
     """Build a MemoryProvider from type string + secret.
 
     Uses the same factory names as flux.tasks.ai.memory (sqlite, postgresql, in_memory).
@@ -26,7 +26,7 @@ def _build_provider(provider_type: str):
     if provider_type in ("sqlite", "postgresql"):
         from flux.secret_managers import SecretManager
 
-        secrets = SecretManager.current().get([MEMORY_PROVIDER_URL_SECRET])
+        secrets = await SecretManager.current().get([MEMORY_PROVIDER_URL_SECRET])
         url = secrets.get(MEMORY_PROVIDER_URL_SECRET)
         if not url:
             raise ValueError(
@@ -180,7 +180,7 @@ async def agent_dream(ctx):
 
     memory = None
     try:
-        provider = _build_provider(provider_type)
+        provider = await _build_provider(provider_type)
         memory = long_term_memory(provider=provider, agent=agent_id, scope=scope)
 
         if not await check_failure_gate(memory):

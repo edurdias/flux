@@ -6,12 +6,14 @@ from typing import Any, Callable, TypeVar
 
 from flux._namespace import validate_namespace
 from flux.context_managers import ContextManager
+from flux.domain.events import ExecutionState
 from flux.domain.execution_context import ExecutionContext
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.schedule import Schedule
 from flux.errors import PauseRequested
 from flux.output_storage import OutputStorage
 from flux.utils import maybe_awaitable
+from flux.worker_registry import WorkerInfo
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -119,6 +121,11 @@ class workflow:
         if ctx.is_paused and not ctx.is_resuming:
             ctx.start_resuming()
             await ctx.checkpoint()
+
+        if ctx._state == ExecutionState.RESUMING:
+            local_worker = WorkerInfo(name=ctx.current_worker or "local")
+            ctx.resume_schedule(local_worker)
+            ctx.resume_claim(local_worker)
 
         if not ctx.has_started:
             ctx.start(self.id)

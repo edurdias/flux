@@ -60,10 +60,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: "3.14"
         cache: 'pip'
 
     - name: Install Poetry
@@ -78,7 +78,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .venv
-        key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
+        key: venv-${{ runner.os }}-3.14-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install dependencies
       if: steps.cached-lint-deps.outputs.cache-hit != 'true'
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.14"]
 
     steps:
     - uses: actions/checkout@v4
@@ -148,10 +148,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python 3.12
+    - name: Set up Python 3.14
       uses: actions/setup-python@v5
       with:
-        python-version: "3.12"
+        python-version: "3.14"
         cache: 'pip'
 
     - name: Install Poetry
@@ -166,7 +166,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .venv
-        key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
+        key: venv-${{ runner.os }}-3.14-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install dependencies
       if: steps.cached-e2e-deps.outputs.cache-hit != 'true'

@@ -63,6 +63,74 @@ def test_anthropic_streaming_emits_progress():
     asyncio.run(run())
 
 
+def test_anthropic_reasoning_stream_emits_tokens():
+    async def run():
+        from flux.tasks.ai.anthropic import build_anthropic_provider
+
+        thinking_delta1 = MagicMock()
+        thinking_delta1.type = "content_block_delta"
+        thinking_delta1.delta = MagicMock(type="thinking_delta", thinking="Let me ")
+
+        thinking_delta2 = MagicMock()
+        thinking_delta2.type = "content_block_delta"
+        thinking_delta2.delta = MagicMock(type="thinking_delta", thinking="think...")
+
+        text_delta = MagicMock()
+        text_delta.type = "content_block_delta"
+        text_delta.delta = MagicMock(type="text_delta")
+
+        final_message = MagicMock()
+        thinking_block = MagicMock()
+        thinking_block.type = "thinking"
+        thinking_block.thinking = "Let me think..."
+        thinking_block.signature = "sig_abc"
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "The answer."
+        final_message.content = [thinking_block, text_block]
+
+        mock_stream_cm = MagicMock()
+
+        async def mock_event_stream():
+            for event in [thinking_delta1, thinking_delta2, text_delta]:
+                yield event
+
+        stream_obj = MagicMock()
+        stream_obj.__aiter__ = lambda self: mock_event_stream()
+        stream_obj.get_final_message = AsyncMock(return_value=final_message)
+
+        mock_stream_cm.__aenter__ = AsyncMock(return_value=stream_obj)
+        mock_stream_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("flux.tasks.ai.anthropic.AsyncAnthropic") as MockAnthropic:
+            mock_client = MagicMock()
+            mock_client.messages.stream = MagicMock(return_value=mock_stream_cm)
+            MockAnthropic.return_value = mock_client
+
+            _, formatter = build_anthropic_provider("claude-sonnet-4-20250514")
+
+            assert formatter.supports_reasoning_stream is True
+
+            messages, call_kwargs = formatter.build_messages("Test", "Think about this")
+
+            reasoning_tokens = []
+            on_token = AsyncMock(side_effect=lambda t: reasoning_tokens.append(t))
+
+            response = await formatter.call_with_reasoning_stream(
+                messages,
+                call_kwargs,
+                on_reasoning_token=on_token,
+            )
+
+            assert reasoning_tokens == ["Let me ", "think..."]
+            assert response.text == "The answer."
+            assert response.reasoning is not None
+            assert response.reasoning.text == "Let me think..."
+            assert response.reasoning.opaque["type"] == "thinking"
+
+    asyncio.run(run())
+
+
 def test_anthropic_no_streaming_when_disabled():
     captured_progress = []
 

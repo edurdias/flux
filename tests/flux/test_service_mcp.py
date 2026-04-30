@@ -108,7 +108,8 @@ class TestToolGeneration:
         assert "resume_farewell" in names
         assert "status_greet" in names
 
-    def test_pydantic_schema_generates_typed_params(self):
+    @pytest.mark.asyncio
+    async def test_pydantic_schema_generates_typed_params(self):
         schema = {
             "properties": {
                 "name": {"type": "string"},
@@ -119,20 +120,22 @@ class TestToolGeneration:
         ep = _make_endpoint("register", input_schema=schema)
         server = _build_server({"register": ep})
 
-        fn = server.get_tool_function("register")
+        fn = await server.get_tool_function("register")
         assert fn is not None
         assert fn.__annotations__["name"] is str
         assert fn.__annotations__["age"] is int
 
-    def test_no_schema_uses_input_str(self):
+    @pytest.mark.asyncio
+    async def test_no_schema_uses_input_str(self):
         ep = _make_endpoint("simple")
         server = _build_server({"simple": ep})
 
-        fn = server.get_tool_function("simple")
+        fn = await server.get_tool_function("simple")
         assert fn is not None
         assert "input" in fn.__annotations__
 
-    def test_complex_types_in_schema(self):
+    @pytest.mark.asyncio
+    async def test_complex_types_in_schema(self):
         schema = {
             "type": "object",
             "properties": {
@@ -148,7 +151,7 @@ class TestToolGeneration:
         server = _build_server({"complex": ep})
         assert "complex" in server.tool_names
 
-        fn = server.get_tool_function("complex")
+        fn = await server.get_tool_function("complex")
         assert fn is not None
         annotations = fn.__annotations__
         assert annotations.get("name") is str
@@ -157,11 +160,12 @@ class TestToolGeneration:
         assert annotations.get("count") is int
         assert annotations.get("active") is bool
 
-    def test_tool_description_from_metadata(self):
+    @pytest.mark.asyncio
+    async def test_tool_description_from_metadata(self):
         ep = _make_endpoint("deploy", description="Deploy to production")
         server = _build_server({"deploy": ep})
 
-        fn = server.get_tool_function("deploy")
+        fn = await server.get_tool_function("deploy")
         assert fn is not None
         assert "Deploy to production" in (fn.__doc__ or "")
 

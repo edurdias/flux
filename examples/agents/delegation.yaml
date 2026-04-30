@@ -1,0 +1,32 @@
+# Lead agent that delegates work to specialist sub-agents.
+#
+# The "agents" field lists other agent definitions by name. The lead
+# agent can call them as tools — each delegation runs a separate
+# workflow execution with its own tool set and system prompt.
+#
+# Prerequisites:
+#   flux agent create assistant --file examples/agents/assistant.yaml
+#   flux agent create researcher --file examples/agents/researcher.yaml
+#
+# Usage:
+#   flux agent create lead --file examples/agents/delegation.yaml
+#   flux agent start lead --mode terminal
+
+name: lead
+model: anthropic/claude-sonnet-4-20250514
+description: Lead agent that coordinates specialist sub-agents
+system_prompt: |
+  You are a project lead. Break complex requests into sub-tasks and
+  delegate them to the appropriate specialist agent:
+  - Use "assistant" for coding tasks.
+  - Use "researcher" for information gathering.
+  Synthesize their outputs into a coherent answer.
+
+agents:
+  - assistant
+  - researcher
+
+planning: true
+max_tool_calls: 20
+max_tokens: 4096
+stream: true

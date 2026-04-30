@@ -14,6 +14,7 @@ from uuid import uuid4
 from flux.domain.events import ExecutionEvent
 from flux.domain.events import ExecutionEventType
 from flux.domain.events import ExecutionState
+from flux.domain.events import PausedEventValue
 from flux.errors import ExecutionError
 from flux.utils import FluxEncoder
 from flux.utils import maybe_awaitable
@@ -134,12 +135,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
     @property
     def is_resuming(self) -> bool:
         """
-        Check if the execution is currently resuming.
-
-        Returns:
-            bool: True if the last event is a workflow resuming event, False otherwise.
+        Check if the execution is in the RESUME_CLAIMED state — i.e. the
+        worker has claimed the resume and is about to invoke `ctx.resume()`
+        inside the paused task's body.
         """
-        return self._is_last_event(ExecutionEventType.WORKFLOW_RESUMING)
+        return self._state == ExecutionState.RESUME_CLAIMED
 
     @property
     def is_cancelled(self) -> bool:
@@ -231,6 +231,53 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return self
 
+    def resume_schedule(self, worker: WorkerInfo) -> Self:
+        if self._state != ExecutionState.RESUMING:
+            raise ExecutionError(
+                message=(
+                    f"Cannot schedule resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUMING.value}"
+                ),
+            )
+        self._current_worker = worker.name
+        self._state = ExecutionState.RESUME_SCHEDULED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUME_SCHEDULED,
+                source_id=worker.name,
+                name=worker.name,
+                subject=None,
+            ),
+        )
+        return self
+
+    def resume_claim(self, worker: WorkerInfo) -> Self:
+        if self._state != ExecutionState.RESUME_SCHEDULED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot claim resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUME_SCHEDULED.value}"
+                ),
+            )
+        if self._current_worker is not None and self._current_worker != worker.name:
+            raise ExecutionError(
+                message=(
+                    f"Cannot claim resume: scheduled for worker "
+                    f"'{self._current_worker}', not '{worker.name}'"
+                ),
+            )
+        self._current_worker = worker.name
+        self._state = ExecutionState.RESUME_CLAIMED
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUME_CLAIMED,
+                source_id=worker.name,
+                name=worker.name,
+                subject=None,
+            ),
+        )
+        return self
+
     def start(self, id: str) -> Self:
         self._state = ExecutionState.RUNNING
         self.events.append(
@@ -259,8 +306,13 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def resume(self) -> Any:
-        if self.is_paused:
-            self.start_resuming()
+        if self._state != ExecutionState.RESUME_CLAIMED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot resume: state is {self._state.value}, "
+                    f"expected {ExecutionState.RESUME_CLAIMED.value}"
+                ),
+            )
 
         resuming_events = [e for e in self.events if e.type == ExecutionEventType.WORKFLOW_RESUMING]
         event = next(reversed(resuming_events), None)
@@ -289,7 +341,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
                 type=ExecutionEventType.WORKFLOW_PAUSED,
                 source_id=id,
                 name=self.workflow_name,
-                value={"name": name, "output": output},
+                value=PausedEventValue(name=name, output=output),
                 subject=None,
             ),
         )

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from flux import ExecutionContext
 from flux.domain import ExecutionState
 from flux.domain import ResourceRequest
-from flux.errors import ExecutionContextNotFoundError
+from flux.errors import ExecutionContextNotFoundError, ExecutionError
 from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
 from flux.models import RepositoryFactory
@@ -62,11 +62,23 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def claim_resume(
+        self,
+        execution_id: str,
+        worker: WorkerInfo,
+    ) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def unclaim(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
     def release_worker(self, execution_id: str) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def find_by_worker(self, worker_name: str) -> list[ExecutionContext]:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -285,25 +297,55 @@ class DatabaseContextManager(ContextManager):
                 .limit(1)
             )
             result = sticky_query.first()
-            if result:
-                model, workflow = result
-                return model.to_plain()
 
-            fallback_query = (
-                session.query(ExecutionContextModel, WorkflowModel)
-                .join(WorkflowModel)
-                .filter(
-                    ExecutionContextModel.state == ExecutionState.RESUMING,
-                    ExecutionContextModel.worker_name.is_(None),
+            if result is None:
+                fallback_query = (
+                    session.query(ExecutionContextModel, WorkflowModel)
+                    .join(WorkflowModel)
+                    .filter(
+                        ExecutionContextModel.state == ExecutionState.RESUMING,
+                        ExecutionContextModel.worker_name.is_(None),
+                    )
+                    .with_for_update(skip_locked=True)
                 )
-                .with_for_update(skip_locked=True)
-            )
-            for model, workflow in fallback_query:
-                if not self._worker_matches_workflow(worker, workflow):
-                    continue
-                return model.to_plain()
+                for model, workflow in fallback_query:
+                    if self._worker_matches_workflow(worker, workflow):
+                        result = (model, workflow)
+                        break
 
-            return None
+            if result is None:
+                return None
+
+            model, workflow = result
+            ctx = model.to_plain()
+            ctx.resume_schedule(worker)
+            model.state = ctx.state
+            model.worker_name = ctx.current_worker
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+
+            from flux.domain.events import ExecutionEventType
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                resuming_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUMING
+                ]
+                scheduled_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_SCHEDULED
+                ]
+                if resuming_events and scheduled_events:
+                    duration = (
+                        scheduled_events[-1].time - resuming_events[-1].time
+                    ).total_seconds()
+                    m.record_resume_scheduled(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                        max(duration, 0.0),
+                    )
+
+            return ctx
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
@@ -318,9 +360,70 @@ class DatabaseContextManager(ContextManager):
                 return ctx
             raise ExecutionContextNotFoundError(execution_id)
 
+    def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
+        with self.session() as session:
+            model = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.execution_id == execution_id,
+                    ExecutionContextModel.state == ExecutionState.RESUME_SCHEDULED,
+                    ExecutionContextModel.worker_name == worker.name,
+                )
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if not model:
+                # Either the execution doesn't exist, isn't RESUME_SCHEDULED,
+                # or was scheduled for a different worker. resume_claim() will
+                # produce the precise error after we re-fetch.
+                fallback = session.get(ExecutionContextModel, execution_id)
+                if not fallback:
+                    raise ExecutionContextNotFoundError(execution_id)
+                ctx = fallback.to_plain()
+                ctx.resume_claim(worker)
+                # Unreachable: resume_claim raises above. Kept for type safety.
+                raise ExecutionError(message="claim_resume failed without a specific reason")
+            ctx = model.to_plain()
+            ctx.resume_claim(worker)
+            model.state = ctx.state
+            model.worker_name = ctx.current_worker
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+
+            from flux.domain.events import ExecutionEventType
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                scheduled_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_SCHEDULED
+                ]
+                claimed_events = [
+                    e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_RESUME_CLAIMED
+                ]
+                if scheduled_events and claimed_events:
+                    duration = (claimed_events[-1].time - scheduled_events[-1].time).total_seconds()
+                    m.record_resume_claimed(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                        max(duration, 0.0),
+                    )
+
+            return ctx
+
     def unclaim(self, execution_id: str) -> ExecutionContext:
-        """Reset an active execution back to CREATED for rescheduling."""
-        reclaimable = {
+        """Reset an active execution for rescheduling.
+
+        Recovery rules:
+        - RESUME_SCHEDULED or RESUME_CLAIMED → RESUMING (preserves resume input)
+        - SCHEDULED, CLAIMED, or RUNNING → CREATED (existing behaviour)
+        - Any other state → no-op (returns the current context)
+        """
+        resume_recovery = {
+            ExecutionState.RESUME_SCHEDULED,
+            ExecutionState.RESUME_CLAIMED,
+        }
+        initial_recovery = {
             ExecutionState.SCHEDULED,
             ExecutionState.CLAIMED,
             ExecutionState.RUNNING,
@@ -329,11 +432,16 @@ class DatabaseContextManager(ContextManager):
             model = session.get(ExecutionContextModel, execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(execution_id)
-            if model.state not in reclaimable:
+            if model.state in resume_recovery:
+                model.state = ExecutionState.RESUMING
+                model.worker_name = None
+                session.commit()
                 return model.to_plain()
-            model.state = ExecutionState.CREATED
-            model.worker_name = None
-            session.commit()
+            if model.state in initial_recovery:
+                model.state = ExecutionState.CREATED
+                model.worker_name = None
+                session.commit()
+                return model.to_plain()
             return model.to_plain()
 
     def release_worker(self, execution_id: str) -> ExecutionContext:
@@ -356,6 +464,27 @@ class DatabaseContextManager(ContextManager):
             model.worker_name = None
             session.commit()
             return model.to_plain()
+
+    def find_by_worker(self, worker_name: str) -> list[ExecutionContext]:
+        active_states = [
+            ExecutionState.SCHEDULED,
+            ExecutionState.CLAIMED,
+            ExecutionState.RUNNING,
+            ExecutionState.PAUSED,
+            ExecutionState.RESUMING,
+            ExecutionState.RESUME_SCHEDULED,
+            ExecutionState.RESUME_CLAIMED,
+        ]
+        with self.session() as session:
+            models = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.worker_name == worker_name,
+                    ExecutionContextModel.state.in_(active_states),
+                )
+                .all()
+            )
+            return [m.to_plain() for m in models]
 
     def _get_additional_events(
         self,

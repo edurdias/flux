@@ -45,3 +45,13 @@ class LLMFormatter(ABC):
     ) -> AsyncIterator[str]:
         """Stream tokens from the LLM. Yields text strings."""
         yield ""  # pragma: no cover
+
+    supports_reasoning_stream: bool = False
+
+    async def call_with_reasoning_stream(
+        self,
+        messages: list[Any],
+        call_kwargs: dict,
+        on_reasoning_token: Any,
+    ) -> Any:
+        raise NotImplementedError

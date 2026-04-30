@@ -140,6 +140,21 @@ class FluxMetrics:
             description="Module cache lookups by result",
         )
 
+        self.resume_queue_depth = meter.create_up_down_counter(
+            "flux_resume_queue_depth",
+            description="Resumes waiting for workers",
+        )
+        self.resume_schedule_to_start = meter.create_histogram(
+            "flux_resume_schedule_to_start_seconds",
+            description="Time from RESUMING to RESUME_SCHEDULED",
+            unit="s",
+        )
+        self.resume_claim_duration = meter.create_histogram(
+            "flux_resume_claim_duration_seconds",
+            description="Time from RESUME_SCHEDULED to RESUME_CLAIMED",
+            unit="s",
+        )
+
     def record_workflow_started(self, namespace: str, workflow_name: str):
         self.workflow_executions.add(
             1,
@@ -270,6 +285,28 @@ class FluxMetrics:
         attrs = {"method": method, "endpoint": endpoint, "status_code": str(status_code)}
         self.http_requests.add(1, attrs)
         self.http_request_duration.record(duration, {"method": method, "endpoint": endpoint})
+
+    def record_resume_queued(self, namespace: str, workflow_name: str) -> None:
+        self.resume_queue_depth.add(
+            1,
+            {"workflow_namespace": namespace, "workflow_name": workflow_name},
+        )
+
+    def record_resume_scheduled(self, namespace: str, workflow_name: str, duration: float) -> None:
+        self.resume_queue_depth.add(
+            -1,
+            {"workflow_namespace": namespace, "workflow_name": workflow_name},
+        )
+        self.resume_schedule_to_start.record(
+            duration,
+            {"workflow_namespace": namespace, "workflow_name": workflow_name},
+        )
+
+    def record_resume_claimed(self, namespace: str, workflow_name: str, duration: float) -> None:
+        self.resume_claim_duration.record(
+            duration,
+            {"workflow_namespace": namespace, "workflow_name": workflow_name},
+        )
 
     def record_module_cache(self, result: str):
         self.module_cache.add(1, {"result": result})

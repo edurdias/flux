@@ -2,21 +2,33 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 
-import click
-import httpx
+import importlib
+import types
 
-from flux.catalogs import resolve_workflow_ref
-from flux.cli_auth import auth, roles, principals
-from flux.config import Configuration
-from flux.server import Server
-from flux.worker import Worker
-from flux.utils import parse_value
-from flux.utils import to_json
-from flux.secret_managers import SecretManager
+import click
+
+if TYPE_CHECKING:
+    import httpx
+else:
+
+    class _LazyModule(types.ModuleType):
+        """Proxy that defers the actual import until first attribute access.
+
+        Resolved attributes are cached on the instance so that
+        ``unittest.mock.patch`` (which uses setattr/delattr) can override them.
+        """
+
+        def __getattr__(self, name: str):
+            real = importlib.import_module(self.__name__)
+            val = getattr(real, name)
+            object.__setattr__(self, name, val)
+            return val
+
+    httpx = _LazyModule("httpx")
 
 
 @click.group()
@@ -31,6 +43,8 @@ def workflow():
 
 def get_server_url():
     """Get the server URL from configuration."""
+    from flux.config import Configuration
+
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
 
@@ -193,6 +207,9 @@ def register_workflows(filename: str, format: str, server_url: str | None):
 )
 def show_workflow(workflow_name: str, version: int | None, format: str, server_url: str | None):
     """Show the details of a registered workflow."""
+    from flux.catalogs import resolve_workflow_ref
+    from flux.utils import to_json
+
     try:
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
@@ -263,6 +280,8 @@ def delete_workflow(
 ):
     """Delete a workflow (all versions or a specific version)."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -319,6 +338,8 @@ def list_workflow_versions(
 ):
     """List all versions of a workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -387,6 +408,9 @@ def run_workflow(
 ):
     """Run the specified workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value, to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
@@ -461,6 +485,9 @@ def resume_workflow(
 ):
     """Run the specified workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value, to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
@@ -521,6 +548,9 @@ def workflow_status(
 ):
     """Check the status of a workflow execution."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
         namespace, name = resolve_workflow_ref(workflow_name)
 
@@ -554,6 +584,7 @@ def cancel_workflow(workflow_name: str, execution_id: str, server_url: str | Non
     """Cancel a running workflow execution."""
     try:
         from flux.catalogs import resolve_workflow_ref
+        from flux.utils import to_json
 
         namespace, name = resolve_workflow_ref(workflow_name)
         base_url = server_url or get_server_url()
@@ -644,6 +675,8 @@ def list_executions(
 ):
     """List workflow executions."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+
         base_url = server_url or get_server_url()
 
         if workflow and namespace:
@@ -709,6 +742,8 @@ def list_executions(
 def show_execution(execution_id: str, detailed: bool, server_url: str | None):
     """Show details of a specific execution."""
     try:
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
 
         with get_http_client() as client:
@@ -798,6 +833,8 @@ def list_workers(format: str, server_url: str | None):
 def show_worker(name: str, server_url: str | None):
     """Show details of a specific worker."""
     try:
+        from flux.utils import to_json
+
         base_url = server_url or get_server_url()
 
         with get_http_client() as client:
@@ -887,6 +924,9 @@ def start():
 )
 def server(host: str | None = None, port: int | None = None):
     """Start the Flux server."""
+    from flux.config import Configuration
+    from flux.server import Server
+
     settings = Configuration.get().settings
     host = host or settings.server_host
     port = port or settings.server_port
@@ -908,6 +948,9 @@ def server(host: str | None = None, port: int | None = None):
     help="Worker label in key=value format (repeatable).",
 )
 def start_worker(name: str | None, server_url: str | None = None, label: tuple[str, ...] = ()):
+    from flux.config import Configuration
+    from flux.worker import Worker
+
     name = name or f"worker-{uuid4().hex[-6:]}"
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
@@ -1045,6 +1088,9 @@ def create_schedule(
 ):
     """Create a new schedule for a workflow."""
     try:
+        from flux.catalogs import resolve_workflow_ref
+        from flux.utils import parse_value
+
         namespace, wf_name = resolve_workflow_ref(workflow_name)
 
         # Validate schedule parameters
@@ -1429,22 +1475,26 @@ def secrets():
     default="simple",
     help="Output format",
 )
-def list_secrets(format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_secrets(format: str, server_url: str | None):
     """List all available secrets (shows only secret names, not values)."""
     try:
-        secret_manager = SecretManager.current()
-        secrets_list = secret_manager.all()
-
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/secrets")
+            response.raise_for_status()
+            secrets_list = response.json()
         if format == "json":
             click.echo(json.dumps({"secrets": secrets_list}, indent=2))
         else:
             if not secrets_list:
                 click.echo("No secrets found.")
                 return
-
             click.echo("Available secrets:")
             for secret_name in secrets_list:
                 click.echo(f"  - {secret_name}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error listing secrets: {str(ex)}", err=True)
 
@@ -1459,18 +1509,23 @@ def list_secrets(format: str):
     default="simple",
     help="Output format",
 )
-def set_secret(name: str, value: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def set_secret(name: str, value: str, format: str, server_url: str | None):
     """Set a secret value with given name and value.
 
     This command will create a new secret or update an existing one.
     """
     try:
-        secret_manager = SecretManager.current()
-        secret_manager.save(name, value)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/secrets", json={"name": name, "value": value})
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Secret '{name}' has been set successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error setting secret: {str(ex)}", err=True)
 
@@ -1484,7 +1539,8 @@ def set_secret(name: str, value: str, format: str):
     default="simple",
     help="Output format",
 )
-def get_secret(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def get_secret(name: str, format: str, server_url: str | None):
     """Get a secret value by name.
 
     Warning: This will display the secret value in the terminal.
@@ -1496,14 +1552,21 @@ def get_secret(name: str, format: str):
                 click.echo("Operation cancelled.")
                 return
 
-        secret_manager = SecretManager.current()
-        result = secret_manager.get([name])
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/secrets/{name}")
+            if response.status_code == 404:
+                click.echo(f"Secret not found: {name}", err=True)
+                return
+            response.raise_for_status()
+            data = response.json()
+        value = data.get("value", data)
         if format == "json":
-            click.echo(json.dumps({"name": name, "value": result[name]}, indent=2))
+            click.echo(json.dumps({"name": name, "value": value}, indent=2))
         else:
-            click.echo(f"Secret '{name}': {result[name]}")
-    except ValueError as ex:
-        click.echo(f"Secret not found: {str(ex)}", err=True)
+            click.echo(f"Secret '{name}': {value}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error getting secret: {str(ex)}", err=True)
 
@@ -1517,21 +1580,748 @@ def get_secret(name: str, format: str):
     default="simple",
     help="Output format",
 )
-def remove_secret(name: str, format: str):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def remove_secret(name: str, format: str, server_url: str | None):
     """Remove a secret by name.
 
     This permanently deletes the secret from the database.
     """
     try:
-        secret_manager = SecretManager.current()
-        secret_manager.remove(name)
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/secrets/{name}")
+            response.raise_for_status()
         if format == "json":
             click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
         else:
             click.echo(f"Secret '{name}' has been removed successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error removing secret: {str(ex)}", err=True)
 
+
+@cli.group()
+def config():
+    """Manage Flux configuration key-value pairs."""
+    pass
+
+
+@config.command("list")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_configs(format: str, server_url: str | None):
+    """List all configuration keys."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/configs")
+            response.raise_for_status()
+            config_list = response.json()
+        if format == "json":
+            click.echo(json.dumps({"configs": config_list}, indent=2))
+        else:
+            if not config_list:
+                click.echo("No configs found.")
+                return
+            click.echo("Available configs:")
+            for name in config_list:
+                click.echo(f"  - {name}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing configs: {str(ex)}", err=True)
+
+
+@config.command("set")
+@click.argument("name")
+@click.argument("value")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def set_config(name: str, value: str, format: str, server_url: str | None):
+    """Set a configuration value."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/configs", json={"name": name, "value": value})
+            response.raise_for_status()
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Config '{name}' has been set successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error setting config: {str(ex)}", err=True)
+
+
+@config.command("get")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def get_config_cmd(name: str, format: str, server_url: str | None):
+    """Get a configuration value by name."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/configs/{name}")
+            if response.status_code == 404:
+                click.echo(f"Config not found: {name}", err=True)
+                return
+            response.raise_for_status()
+            data = response.json()
+        value = data.get("value", data)
+        if format == "json":
+            click.echo(json.dumps({"name": name, "value": value}, indent=2))
+        else:
+            click.echo(f"Config '{name}': {value}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error getting config: {str(ex)}", err=True)
+
+
+@config.command("remove")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def remove_config(name: str, format: str, server_url: str | None):
+    """Remove a configuration by name."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/configs/{name}")
+            response.raise_for_status()
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Config '{name}' has been removed successfully.")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error removing config: {str(ex)}", err=True)
+
+
+@cli.group()
+def agent():
+    """Manage Flux agents."""
+    pass
+
+
+@agent.command("create")
+@click.argument("name")
+@click.option("--model", "-m", required=False, help="Model in provider/model_name format")
+@click.option("--system-prompt", "-s", required=False, help="System prompt text")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True),
+    help="Read system prompt from file",
+)
+@click.option("--description", "-d", help="Agent description")
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    help="YAML definition file",
+)
+@click.option("--tools", multiple=True, help="Built-in tool names (repeatable)")
+@click.option("--tools-file", type=click.Path(exists=True), help="Python file with @task tools")
+@click.option("--workflow-file", type=click.Path(exists=True), help="Custom workflow file")
+@click.option("--mcp-server", multiple=True, help="MCP server URL (repeatable)")
+@click.option("--skills-dir", type=click.Path(exists=True), help="Skills directory")
+@click.option("--planning/--no-planning", default=None, help="Enable planning")
+@click.option("--max-tool-calls", type=int, help="Max tool call iterations")
+@click.option("--max-tokens", type=int, help="Max LLM response tokens")
+@click.option(
+    "--reasoning-effort",
+    type=click.Choice(["low", "medium", "high"]),
+    help="Reasoning depth",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def create_agent(
+    name,
+    model,
+    system_prompt,
+    system_prompt_file,
+    description,
+    definition_file,
+    tools,
+    tools_file,
+    workflow_file,
+    mcp_server,
+    skills_dir,
+    planning,
+    max_tool_calls,
+    max_tokens,
+    reasoning_effort,
+    output_format,
+    server_url,
+):
+    """Create an agent definition."""
+    import yaml
+
+    from flux.agents.types import AgentDefinition
+
+    try:
+        data = {}
+        if definition_file:
+            with open(definition_file) as f:
+                data = yaml.safe_load(f)
+
+        data["name"] = name
+        if model:
+            data["model"] = model
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if system_prompt_file:
+            with open(system_prompt_file) as f:
+                data["system_prompt"] = f.read()
+        if description:
+            data["description"] = description
+        if tools:
+            data["tools"] = list(tools)
+        if tools_file:
+            data["tools_file"] = tools_file
+        if workflow_file:
+            data["workflow_file"] = workflow_file
+        if mcp_server:
+            data["mcp_servers"] = [{"url": url} for url in mcp_server]
+        if skills_dir:
+            data["skills_dir"] = skills_dir
+        if planning is not None:
+            data["planning"] = planning
+        if max_tool_calls is not None:
+            data["max_tool_calls"] = max_tool_calls
+        if max_tokens is not None:
+            data["max_tokens"] = max_tokens
+        if reasoning_effort:
+            data["reasoning_effort"] = reasoning_effort
+
+        if data.get("tools_file"):
+            tools_path = Path(data["tools_file"])
+            if tools_path.exists() and tools_path.is_file():
+                data["tools_file"] = tools_path.read_text()
+
+        if data.get("workflow_file"):
+            wf_path = Path(data["workflow_file"])
+            if wf_path.exists() and wf_path.is_file():
+                data["workflow_file"] = wf_path.read_text()
+
+        if data.get("skills_dir"):
+            skills_path = Path(data["skills_dir"])
+            if skills_path.is_dir():
+                skills_data = {}
+                for skill_dir in skills_path.iterdir():
+                    if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                        skill_files = {}
+                        for f in skill_dir.rglob("*"):
+                            if f.is_file():
+                                rel = str(f.relative_to(skills_path))
+                                skill_files[rel] = f.read_text()
+                        skills_data[skill_dir.name] = skill_files
+                data["skills_dir"] = json.dumps(skills_data)
+
+        definition = AgentDefinition(**data)
+
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.post(f"{base_url}/admin/agents", json=definition.model_dump())
+            response.raise_for_status()
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' created successfully.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 409:
+            click.echo(f"Agent '{name}' already exists.", err=True)
+        else:
+            click.echo(f"Error creating agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error creating agent: {str(ex)}", err=True)
+
+
+@agent.command("list")
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_agents(format, server_url):
+    """List all agents."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/agents")
+            response.raise_for_status()
+            agents = response.json()
+
+        if format == "json":
+            click.echo(json.dumps({"agents": agents}, indent=2))
+        else:
+            if not agents:
+                click.echo("No agents found.")
+                return
+            click.echo("Agents:")
+            for a in agents:
+                desc = f" — {a['description']}" if a.get("description") else ""
+                click.echo(f"  {a['name']} ({a['model']}){desc}")
+
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing agents: {str(ex)}", err=True)
+
+
+@agent.command("show")
+@click.argument("name")
+@click.option("--format", "-f", type=click.Choice(["simple", "json", "yaml"]), default="yaml")
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def show_agent(name, format, server_url):
+    """Show agent definition."""
+    import yaml
+
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/admin/agents/{name}")
+            response.raise_for_status()
+            data = response.json()
+
+        if format == "json":
+            click.echo(json.dumps(data, indent=2))
+        elif format == "yaml":
+            click.echo(yaml.dump(data, default_flow_style=False, sort_keys=False))
+        else:
+            for key, value in data.items():
+                click.echo(f"  {key}: {value}")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error showing agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing agent: {str(ex)}", err=True)
+
+
+@agent.command("update")
+@click.argument("name")
+@click.option("--model", "-m", help="Model in provider/model_name format")
+@click.option("--system-prompt", "-s", help="System prompt text")
+@click.option(
+    "--system-prompt-file",
+    type=click.Path(exists=True),
+    help="Read system prompt from file",
+)
+@click.option("--description", "-d", help="Agent description")
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    help="YAML definition file",
+)
+@click.option("--planning/--no-planning", default=None, help="Enable planning")
+@click.option("--max-tool-calls", type=int, help="Max tool call iterations")
+@click.option(
+    "--reasoning-effort",
+    type=click.Choice(["low", "medium", "high"]),
+    help="Reasoning depth",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def update_agent(
+    name,
+    model,
+    system_prompt,
+    system_prompt_file,
+    description,
+    definition_file,
+    planning,
+    max_tool_calls,
+    reasoning_effort,
+    output_format,
+    server_url,
+):
+    """Update an agent definition."""
+    import yaml
+
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            get_resp = client.get(f"{base_url}/admin/agents/{name}")
+            get_resp.raise_for_status()
+            data = get_resp.json()
+
+        if definition_file:
+            with open(definition_file) as f:
+                file_data = yaml.safe_load(f)
+                data.update(file_data)
+
+        if model:
+            data["model"] = model
+        if system_prompt:
+            data["system_prompt"] = system_prompt
+        if system_prompt_file:
+            with open(system_prompt_file) as f:
+                data["system_prompt"] = f.read()
+        if description:
+            data["description"] = description
+        if planning is not None:
+            data["planning"] = planning
+        if max_tool_calls is not None:
+            data["max_tool_calls"] = max_tool_calls
+        if reasoning_effort:
+            data["reasoning_effort"] = reasoning_effort
+
+        data["name"] = name
+
+        with get_http_client() as client:
+            put_resp = client.put(f"{base_url}/admin/agents/{name}", json=data)
+            put_resp.raise_for_status()
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' updated successfully.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error updating agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error updating agent: {str(ex)}", err=True)
+
+
+@agent.command("delete")
+@click.argument("name")
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def delete_agent(name, format, server_url):
+    """Delete an agent definition."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.delete(f"{base_url}/admin/agents/{name}")
+            response.raise_for_status()
+
+        if format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' deleted successfully.")
+
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Agent '{name}' not found.", err=True)
+        else:
+            click.echo(f"Error deleting agent: {str(ex)}", err=True)
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error deleting agent: {str(ex)}", err=True)
+
+
+@agent.command("start")
+@click.argument("name")
+@click.option(
+    "--mode",
+    "-m",
+    type=click.Choice(["terminal", "web", "api"]),
+    default="terminal",
+    help="Serving mode",
+)
+@click.option("--session", "-s", "session_id", help="Attach to existing session")
+@click.option("--port", "-p", type=int, help="Port for web/api mode")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose externally)",
+)
+@click.option("--server", default=None, help="Flux server URL (default: from config)")
+@click.option("--plain", is_flag=True, help="Use plain ANSI terminal (no TUI)")
+def start_agent(name, mode, session_id, port, host, server, plain):
+    """Start an agent in the specified mode."""
+    import asyncio
+
+    from flux.agents.process import AgentProcess
+    from flux.config import Configuration
+
+    try:
+        if server is None:
+            settings = Configuration.get().settings
+            server = f"http://{settings.server_host}:{settings.server_port}"
+
+        token = _get_auth_token()
+
+        workflow_name = "agent_chat"
+        try:
+            with get_http_client() as client:
+                resp = client.get(f"{server}/admin/agents/{name}")
+                if resp.status_code == 200:
+                    agent_def = resp.json()
+                    if agent_def.get("workflow_file"):
+                        click.echo("Custom workflow detected. Registering...")
+                        custom_name = f"agent_custom_{name}"
+                        source = agent_def["workflow_file"]
+                        if isinstance(source, str):
+                            source = source.encode("utf-8")
+                        reg_resp = client.post(
+                            f"{server}/workflows",
+                            files={"file": (f"{custom_name}.py", source)},
+                        )
+                        if reg_resp.status_code == 200:
+                            workflow_name = custom_name
+                            click.echo(f"Custom workflow registered as '{custom_name}'.")
+                        else:
+                            click.echo(
+                                f"Warning: failed to register custom workflow: {reg_resp.text}",
+                                err=True,
+                            )
+        except Exception:
+            pass
+
+        if plain:
+            import os
+
+            os.environ["FLUX_PLAIN_TERMINAL"] = "1"
+
+        process = AgentProcess(
+            agent_name=name,
+            server_url=server,
+            mode=mode,
+            session_id=session_id,
+            token=token,
+            port=port,
+            host=host,
+            workflow_name=workflow_name,
+        )
+        asyncio.run(process.run())
+    except KeyboardInterrupt:
+        pass
+    except Exception as ex:
+        click.echo(f"Error starting agent: {str(ex)}", err=True)
+
+
+@agent.command("stop")
+@click.argument("session_id")
+def stop_agent(session_id):
+    """Stop a running agent session."""
+    import httpx
+
+    from flux.config import Configuration
+
+    click.echo(f"Stopping session {session_id}...")
+
+    try:
+        settings = Configuration.get().settings
+        server_url = f"http://{settings.server_host}:{settings.server_port}"
+        token = _get_auth_token()
+
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        response = httpx.post(
+            f"{server_url}/executions/{session_id}/cancel",
+            headers=headers,
+        )
+        response.raise_for_status()
+        click.echo(f"Session {session_id} stopped.")
+    except Exception as ex:
+        click.echo(f"Error stopping session: {str(ex)}", err=True)
+
+
+@agent.group("session")
+def agent_session():
+    """Manage agent sessions."""
+    pass
+
+
+@agent_session.command("list")
+@click.argument("agent_name", required=False)
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def list_sessions(agent_name, format, server_url):
+    """List agent sessions."""
+    try:
+        url = server_url or get_server_url()
+        with get_http_client() as client:
+            resp = client.get(
+                f"{url}/executions",
+                params={"namespace": "agents", "workflow": "agent_chat", "limit": "50"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        executions = data.get("executions", data) if isinstance(data, dict) else data
+
+        if agent_name:
+            executions = [
+                e
+                for e in executions
+                if isinstance(e.get("input"), dict) and e["input"].get("agent") == agent_name
+            ]
+
+        if format == "json":
+            click.echo(json.dumps({"sessions": executions}, indent=2))
+        else:
+            if not executions:
+                click.echo("No sessions found.")
+                return
+            click.echo("Sessions:")
+            for e in executions:
+                agent = (
+                    e.get("input", {}).get("agent", "?")
+                    if isinstance(e.get("input"), dict)
+                    else "?"
+                )
+                eid = e.get("execution_id", "?")
+                click.echo(f"  {eid[:12]}...  state={e.get('state', '?'):10s}  agent={agent}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error listing sessions: {str(ex)}", err=True)
+
+
+@agent_session.command("show")
+@click.argument("session_id")
+@click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def show_session(session_id, format, server_url):
+    """Show session details."""
+    try:
+        url = server_url or get_server_url()
+        with get_http_client() as client:
+            resp = client.get(f"{url}/executions/{session_id}")
+            if resp.status_code == 404:
+                click.echo(f"Session not found: {session_id}", err=True)
+                return
+            resp.raise_for_status()
+            data = resp.json()
+
+        if format == "json":
+            click.echo(json.dumps(data, indent=2))
+        else:
+            click.echo(f"Session: {data.get('execution_id', session_id)}")
+            click.echo(f"  State:    {data.get('state', '?')}")
+            click.echo(
+                f"  Workflow: {data.get('workflow_namespace', '?')}/{data.get('workflow_name', '?')}",
+            )
+            click.echo(f"  Worker:   {data.get('current_worker') or 'none'}")
+            inp = data.get("input")
+            agent = inp.get("agent", "?") if isinstance(inp, dict) else "?"
+            click.echo(f"  Agent:    {agent}")
+            if data.get("output"):
+                click.echo(f"  Output:   {json.dumps(data['output'])[:200]}")
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error showing session: {str(ex)}", err=True)
+
+
+@agent_session.command("resume")
+@click.argument("session_id")
+def resume_session(session_id):
+    """Resume a session in terminal mode (shortcut for start --session)."""
+    import asyncio
+
+    from flux.agents.process import AgentProcess
+    from flux.config import Configuration
+
+    try:
+        settings = Configuration.get().settings
+        server = f"http://{settings.server_host}:{settings.server_port}"
+        token = _get_auth_token()
+
+        process = AgentProcess(
+            agent_name="",
+            server_url=server,
+            mode="terminal",
+            session_id=session_id,
+            token=token,
+        )
+        asyncio.run(process.run())
+    except KeyboardInterrupt:
+        pass
+    except Exception as ex:
+        click.echo(f"Error resuming session: {str(ex)}", err=True)
+
+
+def _get_auth_token() -> str | None:
+    """Resolve the operator auth token for agent processes.
+
+    Resolution order:
+    1. ``FLUX_AUTH_TOKEN`` environment variable.
+    2. Bearer token derived from OIDC credentials via ``cli_auth.get_auth_headers()``
+       (refresh-token exchange on each invocation).
+
+    Returns ``None`` when no token can be resolved so callers may proceed
+    unauthenticated against servers that do not enforce auth.
+    """
+    import os
+
+    token = os.environ.get("FLUX_AUTH_TOKEN")
+    if token:
+        return token
+
+    try:
+        from flux.cli_auth import get_auth_headers
+
+        headers = get_auth_headers()
+        auth_header = headers.get("Authorization", "") if headers else ""
+        if auth_header.startswith("Bearer "):
+            return auth_header[len("Bearer ") :]
+    except Exception:
+        pass
+
+    return None
+
+
+from flux.cli_auth import auth, principals, roles  # noqa: E402
 
 cli.add_command(auth)
 cli.add_command(roles)

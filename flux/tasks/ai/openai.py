@@ -39,6 +39,8 @@ def build_openai_provider(
 
 
 class OpenAIFormatter(LLMFormatter):
+    supports_reasoning_stream = True
+
     def __init__(
         self,
         client: Any,
@@ -186,6 +188,67 @@ class OpenAIFormatter(LLMFormatter):
             token = chunk.choices[0].delta.content
             if token:
                 yield token
+
+    async def call_with_reasoning_stream(
+        self,
+        messages: list[dict],
+        call_kwargs: dict,
+        on_reasoning_token: Any,
+    ) -> LLMResponse:
+        reasoning_parts: list[str] = []
+        content_parts: list[str] = []
+        tool_calls_by_index: dict[int, dict] = {}
+
+        async for chunk in await self._client.chat.completions.create(
+            messages=messages,
+            **call_kwargs,
+            stream=True,
+        ):
+            delta = chunk.choices[0].delta
+            if getattr(delta, "reasoning_content", None):
+                reasoning_parts.append(delta.reasoning_content)
+                await on_reasoning_token(delta.reasoning_content)
+            if delta.content:
+                content_parts.append(delta.content)
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_calls_by_index:
+                        tool_calls_by_index[idx] = {
+                            "id": tc_delta.id or "",
+                            "name": "",
+                            "arguments": "",
+                        }
+                    entry = tool_calls_by_index[idx]
+                    if tc_delta.id:
+                        entry["id"] = tc_delta.id
+                    if tc_delta.function and tc_delta.function.name:
+                        entry["name"] = tc_delta.function.name
+                    if tc_delta.function and tc_delta.function.arguments:
+                        entry["arguments"] += tc_delta.function.arguments
+
+        text = "".join(content_parts)
+        reasoning_text = "".join(reasoning_parts) or None
+
+        tool_calls: list[ToolCall] = []
+        for _idx in sorted(tool_calls_by_index):
+            tc = tool_calls_by_index[_idx]
+            tool_calls.append(
+                ToolCall(
+                    id=tc["id"],
+                    name=tc["name"],
+                    arguments=json.loads(tc["arguments"]) if tc["arguments"] else {},
+                ),
+            )
+
+        reasoning = None
+        if reasoning_text:
+            reasoning = ReasoningContent(
+                text=reasoning_text,
+                opaque={"reasoning_content": reasoning_text},
+            )
+
+        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _to_llm_response(response: Any) -> LLMResponse:

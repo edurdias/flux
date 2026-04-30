@@ -23,7 +23,7 @@ class TestProviderLifecycle:
         from flux.observability import is_enabled, setup
 
         assert is_enabled() is False
-        config = ObservabilityConfig(enabled=True)
+        config = ObservabilityConfig(enabled=True, prometheus_enabled=False)
         setup(config)
         assert is_enabled() is True
 
@@ -49,7 +49,7 @@ class TestProviderLifecycle:
     def test_get_meter_returns_meter(self):
         from flux.observability import get_meter, setup
 
-        config = ObservabilityConfig(enabled=True)
+        config = ObservabilityConfig(enabled=True, prometheus_enabled=False)
         setup(config)
         meter = get_meter("test")
         assert meter is not None
@@ -57,7 +57,7 @@ class TestProviderLifecycle:
     def test_get_tracer_returns_tracer(self):
         from flux.observability import get_tracer, setup
 
-        config = ObservabilityConfig(enabled=True)
+        config = ObservabilityConfig(enabled=True, prometheus_enabled=False)
         setup(config)
         tracer = get_tracer("test")
         assert tracer is not None
@@ -80,7 +80,7 @@ class TestProviderLifecycle:
     def test_shutdown_resets_enabled_flag(self):
         from flux.observability import is_enabled, setup, shutdown
 
-        config = ObservabilityConfig(enabled=True)
+        config = ObservabilityConfig(enabled=True, prometheus_enabled=False)
         setup(config)
         assert is_enabled() is True
         shutdown()

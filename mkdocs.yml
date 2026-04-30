@@ -88,6 +88,7 @@ nav:
       - Observability: advanced-features/observability.md
       - Task Progress Streaming: advanced-features/task-progress.md
       - Agent Skills: advanced-features/agent-skills.md
+      - Agent Harness: advanced-features/agent-harness.md
       - MCP Client: advanced-features/mcp-client.md
       - AI Memory: advanced-features/ai-memory.md
     # - Output Storage: advanced-features/output-storage.md

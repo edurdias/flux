@@ -104,6 +104,11 @@ class SecretResponse(BaseModel):
     value: Any | None = None
 
 
+class ConfigRequest(BaseModel):
+    name: str
+    value: Any
+
+
 class ScheduleRequest(BaseModel):
     """Model for schedule creation/update requests"""
 
@@ -289,7 +294,6 @@ class Server:
         self._worker_offline_since: dict[str, float] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
-        self._worker_executions: dict[str, set[str]] = {}
         self._worker_connection_gen: dict[str, int] = {}
 
         config = Configuration.get().settings.scheduling
@@ -538,14 +542,16 @@ class Server:
     ) -> AsyncIterator[dict]:
         event = self._execution_events[ctx.execution_id]
         progress_buffer = self._progress_buffers.get(ctx.execution_id)
+        active_tasks: set[asyncio.Task] = set()
         try:
             while not ctx.has_finished:
                 if progress_buffer:
                     progress_task = asyncio.create_task(progress_buffer.get())
                     checkpoint_task = asyncio.create_task(event.wait())
+                    active_tasks = {progress_task, checkpoint_task}
 
                     done, pending = await asyncio.wait(
-                        {progress_task, checkpoint_task},
+                        active_tasks,
                         timeout=30.0,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
@@ -553,6 +559,7 @@ class Server:
                         t.cancel()
                     if pending:
                         await asyncio.gather(*pending, return_exceptions=True)
+                    active_tasks.clear()
 
                     if not done:
                         continue
@@ -605,8 +612,28 @@ class Server:
                             "data": to_json(dto if detailed else dto.summary()),
                         }
         finally:
+            for t in active_tasks:
+                if not t.done():
+                    t.cancel()
+            if active_tasks:
+                await asyncio.gather(*active_tasks, return_exceptions=True)
             self._execution_events.pop(ctx.execution_id, None)
             self._progress_buffers.pop(ctx.execution_id, None)
+            try:
+                from flux.domain import ExecutionState as _ExecutionState
+
+                latest = manager.get(ctx.execution_id)
+                if latest and latest.state == _ExecutionState.RESUME_SCHEDULED:
+                    manager.unclaim(ctx.execution_id)
+                    logger.info(
+                        f"SSE disconnect: reverted {ctx.execution_id} from "
+                        f"RESUME_SCHEDULED back to RESUMING",
+                    )
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to revert RESUME_SCHEDULED on SSE disconnect for "
+                    f"{ctx.execution_id}: {exc}",
+                )
 
     # ===========================================
     # Integrated Scheduler Methods
@@ -696,39 +723,45 @@ class Server:
                     logger.warning(f"Cannot revoke API key for {name}: no event loop")
 
     def _unclaim_worker_executions(self, worker_name: str) -> None:
-        """Release all executions assigned to an evicted worker.
+        """Recover all executions assigned to an evicted worker.
 
-        Active executions (SCHEDULED, CLAIMED, RUNNING) are reset to CREATED
-        for rescheduling.  Suspended executions (PAUSED, RESUMING) have their
-        worker assignment cleared so another worker can pick them up via
-        affinity matching.
+        Queries the DB directly instead of relying on in-memory tracking,
+        so dispatched-but-not-yet-claimed executions are also recovered.
         """
-        execution_ids = self._worker_executions.pop(worker_name, set())
-        if not execution_ids:
+        context_manager = ContextManager.create()
+        executions = context_manager.find_by_worker(worker_name)
+        if not executions:
             return
 
+        from flux.domain import ExecutionState
         from flux.observability import get_metrics
 
-        context_manager = ContextManager.create()
-        for execution_id in execution_ids:
+        for ctx in executions:
             try:
-                from flux.domain import ExecutionState
-
-                ctx = context_manager.unclaim(execution_id)
-                if ctx.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
-                    context_manager.release_worker(execution_id)
-                self._execution_queue_times[execution_id] = time.monotonic()
+                unclaimed = context_manager.unclaim(ctx.execution_id)
+                if unclaimed.state in (ExecutionState.PAUSED, ExecutionState.RESUMING):
+                    context_manager.release_worker(ctx.execution_id)
+                self._execution_queue_times[ctx.execution_id] = time.monotonic()
                 m = get_metrics()
                 if m:
                     m.record_execution_queued()
+                    if ctx.state in (
+                        ExecutionState.RESUMING,
+                        ExecutionState.RESUME_SCHEDULED,
+                        ExecutionState.RESUME_CLAIMED,
+                    ):
+                        m.record_resume_queued(
+                            ctx.workflow_namespace,
+                            ctx.workflow_name,
+                        )
                 logger.info(
-                    f"Unclaimed execution {execution_id} from evicted worker {worker_name}",
+                    f"Unclaimed execution {ctx.execution_id} from evicted worker {worker_name}",
                 )
-                event = self._execution_events.get(execution_id)
+                event = self._execution_events.get(ctx.execution_id)
                 if event:
                     event.set()
             except Exception as e:
-                logger.error(f"Failed to unclaim execution {execution_id}: {e}")
+                logger.error(f"Failed to unclaim execution {ctx.execution_id}: {e}")
 
         self._work_available.set()
 
@@ -1303,12 +1336,34 @@ class Server:
                         detail="Invalid mode. Use 'sync', 'async', or 'stream'.",
                     )
 
+                manager = ContextManager.create()
+
+                ctx = manager.get(execution_id)
+
+                if ctx is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                if ctx.workflow_namespace != namespace or ctx.workflow_name != workflow_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Execution {execution_id} does not belong to "
+                            f"workflow {namespace}/{workflow_name}."
+                        ),
+                    )
+
                 if auth_service is not None and auth_config.enabled:
-                    workflow_info = WorkflowCatalog.create().get(namespace, workflow_name)
+                    workflow_info = WorkflowCatalog.create().get(
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
+                    )
                     result = await auth_service.authorize(
                         identity,
-                        namespace,
-                        workflow_name,
+                        ctx.workflow_namespace,
+                        ctx.workflow_name,
                         workflow_info.metadata or {},
                     )
                     if not result.ok:
@@ -1319,16 +1374,6 @@ class Server:
                                 "missing_permissions": result.missing_permissions,
                             },
                         )
-
-                manager = ContextManager.create()
-
-                ctx = manager.get(execution_id)
-
-                if ctx is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Execution context with ID {execution_id} not found.",
-                    )
 
                 if identity and identity != ANONYMOUS and auth_config.enabled:
                     from flux.security.execution_token import mint_execution_token
@@ -1361,6 +1406,13 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
+
+                from flux.observability import get_metrics as _get_resume_metrics
+
+                _rm = _get_resume_metrics()
+                if _rm:
+                    _rm.record_resume_queued(ctx.workflow_namespace, ctx.workflow_name)
+
                 logger.debug(
                     f"Resuming execution context: {ctx.execution_id} for workflow: {namespace}/{workflow_name}",
                 )
@@ -1923,20 +1975,49 @@ class Server:
             execution_id: str,
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
+            from flux.domain import ExecutionState
+
             try:
                 logger.debug(f"Worker {name} claiming execution: {execution_id}")
                 self._verify_worker_identity(identity, name)
                 registry = WorkerRegistry.create()
                 worker = registry.get(name)
                 context_manager = ContextManager.create()
-                ctx = context_manager.claim(execution_id, worker)
-                self._worker_executions.setdefault(name, set()).add(execution_id)
+
+                try:
+                    current = context_manager.get(execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution {execution_id} not found.",
+                    )
+
+                from flux.errors import ExecutionError
+
+                if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
+                    ctx = context_manager.claim(execution_id, worker)
+                    is_resume_claim = False
+                elif current.state == ExecutionState.RESUME_SCHEDULED:
+                    try:
+                        ctx = context_manager.claim_resume(execution_id, worker)
+                    except ExecutionError as e:
+                        raise HTTPException(status_code=409, detail=str(e))
+                    is_resume_claim = True
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Cannot claim execution {execution_id}: "
+                            f"current state is {current.state.value}"
+                        ),
+                    )
+
                 logger.info(f"Execution {execution_id} claimed by worker {name}")
 
                 from flux.observability import get_metrics
 
                 m = get_metrics()
-                if m:
+                if m and not is_resume_claim:
                     queued_at = self._execution_queue_times.pop(execution_id, None)
                     schedule_to_start = time.monotonic() - queued_at if queued_at else None
                     m.record_execution_claimed(schedule_to_start)
@@ -1946,12 +2027,12 @@ class Server:
                 if event:
                     event.set()
 
-                return ctx.summary()
+                return ctx.to_dict()
             except HTTPException:
                 raise
             except Exception as e:
                 logger.error(f"Error claiming execution {execution_id} by worker {name}: {str(e)}")
-                raise HTTPException(status_code=404, detail=str(e))
+                raise HTTPException(status_code=500, detail=str(e))
 
         @api.post("/workers/{name}/checkpoint/{execution_id}")
         async def workers_checkpoint(
@@ -1981,9 +2062,6 @@ class Server:
 
                 if ctx.has_finished:
                     self._execution_queue_times.pop(execution_id, None)
-                    worker_execs = self._worker_executions.get(name)
-                    if worker_execs:
-                        worker_execs.discard(execution_id)
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)
@@ -2024,6 +2102,50 @@ class Server:
                     pass
             return {"status": "ok"}
 
+        @api.post("/workers/{name}/secrets/batch")
+        async def workers_secrets_batch(
+            name: str,
+            payload: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            self._verify_worker_identity(identity, name)
+            execution_id = payload.get("execution_id")
+            keys = payload.get("names") or []
+            if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+                raise HTTPException(status_code=400, detail="'names' must be a list of strings")
+            if not execution_id:
+                raise HTTPException(status_code=400, detail="'execution_id' is required")
+
+            ctx = ContextManager.create().get(execution_id)
+            if ctx is None:
+                raise HTTPException(status_code=404, detail="Execution not found")
+            if ctx.current_worker != name:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Worker does not own this execution",
+                )
+
+            try:
+                wf = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
+            except Exception:
+                raise HTTPException(status_code=404, detail="Workflow not found")
+            declared = set((getattr(wf, "metadata", None) or {}).get("secret_requests", []) or [])
+
+            requested = set(keys)
+            disallowed = requested - declared
+            if disallowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Secrets not declared by workflow: {sorted(disallowed)}",
+                )
+
+            try:
+                return await SecretManager.current().get(list(requested))
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
         @api.get("/admin/secrets")
         async def admin_list_secrets(
             identity: FluxIdentity = Depends(require_permission("admin:secrets:read")),
@@ -2057,7 +2179,7 @@ class Server:
                 # Get secret value
                 secret_manager = SecretManager.current()
                 try:
-                    result = secret_manager.get([name])
+                    result = await secret_manager.get([name])
                     logger.info(f"Admin API: Successfully retrieved secret '{name}'")
                     return SecretResponse(name=name, value=result[name])
                 except ValueError:
@@ -2124,6 +2246,220 @@ class Server:
                 raise
             except Exception as ex:
                 logger.error(f"Admin API: Error in admin_delete_secret for '{name}': {str(ex)}")
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        # Config API
+
+        @api.get("/admin/configs")
+        async def admin_list_configs(
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                return manager.all()
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.get("/admin/configs/{name}")
+        async def admin_get_config(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                result = await manager.get([name])
+                return {"name": name, "value": result[name]}
+            except ValueError:
+                raise HTTPException(status_code=404, detail=f"Config not found: {name}")
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/configs")
+        async def admin_create_or_update_config(
+            config_req: ConfigRequest = Body(...),
+            identity: FluxIdentity = Depends(require_permission("config:*:manage")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                manager.save(config_req.name, config_req.value)
+                return {
+                    "status": "success",
+                    "message": f"Config '{config_req.name}' saved successfully",
+                }
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.delete("/admin/configs/{name}")
+        async def admin_delete_config(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("config:*:manage")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                manager.remove(name)
+                return {
+                    "status": "success",
+                    "message": f"Config '{name}' deleted successfully",
+                }
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/configs/batch")
+        async def admin_batch_configs(
+            keys: list[str] = Body(...),
+            identity: FluxIdentity = Depends(require_permission("config:*:read")),
+        ):
+            from flux.config_manager import ConfigManager
+
+            try:
+                manager = ConfigManager.current()
+                result = await manager.get(keys)
+                return result
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/secrets/batch")
+        async def admin_batch_secrets(
+            keys: list[str] = Body(...),
+            identity: FluxIdentity = Depends(require_permission("admin:secrets:read")),
+        ):
+            try:
+                secret_manager = SecretManager.current()
+                result = await secret_manager.get(keys)
+                return result
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        # Agent API
+
+        @api.get("/admin/agents")
+        async def admin_list_agents(
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                agents = manager.list()
+                return [a.model_dump() for a in agents]
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.get("/admin/agents/{name}")
+        async def admin_get_agent(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                agent_def = manager.get(name)
+                return agent_def.model_dump()
+            except ValueError:
+                raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.post("/admin/agents")
+        async def admin_create_agent(
+            agent_data: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("agent:*:create")),
+        ):
+            from flux.agents.manager import AgentManager
+            from flux.agents.types import AgentDefinition
+
+            try:
+                definition = AgentDefinition(**agent_data)
+                if definition.tools_file or definition.workflow_file:
+                    if auth_service is not None:
+                        has_perm = await auth_service.is_authorized(
+                            identity,
+                            "workflow:*:*:register",
+                        )
+                        if not has_perm:
+                            raise HTTPException(
+                                status_code=403,
+                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                            )
+                manager = AgentManager.current()
+                manager.create(definition)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{definition.name}' created successfully",
+                }
+            except HTTPException:
+                raise
+            except ValueError as ex:
+                raise HTTPException(status_code=409, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.put("/admin/agents/{name}")
+        async def admin_update_agent(
+            name: str,
+            agent_data: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("agent:*:update")),
+        ):
+            from flux.agents.manager import AgentManager
+            from flux.agents.types import AgentDefinition
+
+            try:
+                agent_data["name"] = name
+                definition = AgentDefinition(**agent_data)
+                if definition.tools_file or definition.workflow_file:
+                    if auth_service is not None:
+                        has_perm = await auth_service.is_authorized(
+                            identity,
+                            "workflow:*:*:register",
+                        )
+                        if not has_perm:
+                            raise HTTPException(
+                                status_code=403,
+                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                            )
+                manager = AgentManager.current()
+                manager.update(definition)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{name}' updated successfully",
+                }
+            except HTTPException:
+                raise
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
+                raise HTTPException(status_code=500, detail=str(ex))
+
+        @api.delete("/admin/agents/{name}")
+        async def admin_delete_agent(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("agent:*:delete")),
+        ):
+            from flux.agents.manager import AgentManager
+
+            try:
+                manager = AgentManager.current()
+                manager.delete(name)
+                return {
+                    "status": "success",
+                    "message": f"Agent '{name}' deleted successfully",
+                }
+            except ValueError as ex:
+                raise HTTPException(status_code=404, detail=str(ex))
+            except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
         # Scheduling API
@@ -3666,6 +4002,12 @@ class Server:
 
                 ctx.start_resuming(input)
                 manager.save(ctx)
+
+                from flux.observability import get_metrics as _get_resume_metrics
+
+                _rm = _get_resume_metrics()
+                if _rm:
+                    _rm.record_resume_queued(ctx.workflow_namespace, ctx.workflow_name)
 
                 if mode in ("sync", "stream"):
                     self._execution_events.setdefault(ctx.execution_id, asyncio.Event())

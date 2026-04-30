@@ -56,11 +56,9 @@ class ServiceMCPServer:
     def tool_names(self) -> set[str]:
         return set(self._tool_names)
 
-    def get_tool_function(self, name: str):
-        for t in self.mcp._tool_manager.list_tools():
-            if t.name == name:
-                return t.fn
-        return None
+    async def get_tool_function(self, name: str):
+        tool = await self.mcp._tool_manager.get_tool(name)
+        return tool.fn if tool else None
 
     async def refresh(self) -> None:
         endpoints = await self.provider.get_endpoints()
@@ -266,6 +264,21 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         super().__init__(service_name, provider, auth=auth)
         self._client = client
 
+    @staticmethod
+    def _forward_auth_headers() -> dict[str, str]:
+        try:
+            from fastmcp.server.dependencies import get_http_headers
+
+            headers = get_http_headers()
+        except Exception:
+            return {}
+        forwarded: dict[str, str] = {}
+        for key in ("authorization", "x-api-key"):
+            value = headers.get(key)
+            if value:
+                forwarded[key] = value
+        return forwarded
+
     async def _execute_run(
         self,
         namespace: str,
@@ -277,6 +290,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             response = await self._client.post(
                 f"/workflows/{namespace}/{name}/run/{mode}",
                 json=input_data,
+                headers=self._forward_auth_headers(),
                 timeout=300.0 if mode == "sync" else 30.0,
             )
             response.raise_for_status()
@@ -299,6 +313,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             response = await self._client.post(
                 f"/workflows/{namespace}/{name}/resume/{execution_id}/{mode}",
                 json=input_data,
+                headers=self._forward_auth_headers(),
                 timeout=300.0 if mode == "sync" else 30.0,
             )
             response.raise_for_status()
@@ -313,6 +328,7 @@ class ProxyBackedMCPServer(ServiceMCPServer):
         try:
             response = await self._client.get(
                 f"/workflows/{namespace}/{name}/status/{execution_id}",
+                headers=self._forward_auth_headers(),
             )
             response.raise_for_status()
             result = response.json()

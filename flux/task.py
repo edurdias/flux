@@ -60,7 +60,8 @@ class _WithOptions:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        secret_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
+        config_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
@@ -76,7 +77,8 @@ class _WithOptions:
                 retry_delay=retry_delay,
                 retry_backoff=retry_backoff,
                 timeout=timeout,
-                secret_requests=secret_requests,
+                secret_requests=list(secret_requests) if secret_requests else [],
+                config_requests=list(config_requests) if config_requests else [],
                 output_storage=output_storage,
                 cache=cache,
                 metadata=metadata,
@@ -99,7 +101,8 @@ class task:
         retry_delay: int = 1,
         retry_backoff: int = 2,
         timeout: int = 0,
-        secret_requests: list[str] = [],
+        secret_requests: list[str] | None = None,
+        config_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         cache: bool = False,
         metadata: bool = False,
@@ -114,7 +117,8 @@ class task:
         self.retry_delay = retry_delay
         self.retry_backoff = retry_backoff
         self.timeout = timeout
-        self.secret_requests = secret_requests
+        self.secret_requests = list(secret_requests) if secret_requests else []
+        self.config_requests = list(config_requests) if config_requests else []
         self.output_storage = output_storage if output_storage else InlineOutputStorage()
         self.cache = cache
         self.metadata = metadata
@@ -270,13 +274,22 @@ class task:
             with span_cm:
                 try:
                     output = None
+                    cache_hit = False
                     if self.cache:
                         output = CacheManager.get(task_id)
+                        cache_hit = output is not None
 
-                    if not output:
+                    if not cache_hit:
                         if self.secret_requests:
-                            secrets = SecretManager.current().get(self.secret_requests)
+                            secrets = await SecretManager.current().get(self.secret_requests)
                             kwargs = {**kwargs, "secrets": secrets}
+
+                        if self.config_requests:
+                            resolved_keys = [k.format(**task_args) for k in self.config_requests]
+                            from flux.config_manager import ConfigManager
+
+                            configs = await ConfigManager.current().get(resolved_keys)
+                            kwargs = {**kwargs, "config": configs}
 
                         if self.metadata:
                             kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
@@ -353,6 +366,7 @@ class task:
         retry_backoff: int | None = None,
         timeout: int | None = None,
         secret_requests: list[str] | None = None,
+        config_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         cache: bool | None = None,
         metadata: bool | None = None,
@@ -373,6 +387,9 @@ class task:
             secret_requests=secret_requests
             if secret_requests is not None
             else self.secret_requests,
+            config_requests=config_requests
+            if config_requests is not None
+            else self.config_requests,
             output_storage=output_storage if output_storage is not None else self.output_storage,
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
