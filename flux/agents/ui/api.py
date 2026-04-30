@@ -36,10 +36,12 @@ class ApiUI:
         operator_token: str | None = None,
         port: int = 8080,
         workflow_name: str = "agent_chat",
+        host: str = "127.0.0.1",
     ) -> None:
         self.server_url = server_url
         self.agent_name = agent_name
         self.operator_token = operator_token
+        self.host = host
         self.port = port
         self.workflow_name = workflow_name
         self.app = FastAPI(title="Flux Agent API")
@@ -155,6 +157,6 @@ class ApiUI:
     async def serve(self) -> None:
         import uvicorn
 
-        config = uvicorn.Config(self.app, host="0.0.0.0", port=self.port, log_level="info")
+        config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()

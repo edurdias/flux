@@ -2076,9 +2076,14 @@ def delete_agent(name, format, server_url):
 )
 @click.option("--session", "-s", "session_id", help="Attach to existing session")
 @click.option("--port", "-p", type=int, help="Port for web/api mode")
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose externally)",
+)
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
 @click.option("--plain", is_flag=True, help="Use plain ANSI terminal (no TUI)")
-def start_agent(name, mode, session_id, port, server, plain):
+def start_agent(name, mode, session_id, port, host, server, plain):
     """Start an agent in the specified mode."""
     import asyncio
 
@@ -2131,6 +2136,7 @@ def start_agent(name, mode, session_id, port, server, plain):
             session_id=session_id,
             token=token,
             port=port,
+            host=host,
             workflow_name=workflow_name,
         )
         asyncio.run(process.run())

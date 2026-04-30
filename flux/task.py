@@ -274,10 +274,12 @@ class task:
             with span_cm:
                 try:
                     output = None
+                    cache_hit = False
                     if self.cache:
                         output = CacheManager.get(task_id)
+                        cache_hit = output is not None
 
-                    if not output:
+                    if not cache_hit:
                         if self.secret_requests:
                             secrets = await SecretManager.current().get(self.secret_requests)
                             kwargs = {**kwargs, "secrets": secrets}

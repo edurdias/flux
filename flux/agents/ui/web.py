@@ -25,6 +25,7 @@ class WebUI(ApiUI):
         operator_token: str | None = None,
         port: int = 8080,
         workflow_name: str = "agent_chat",
+        host: str = "127.0.0.1",
     ) -> None:
         super().__init__(
             server_url=server_url,
@@ -32,6 +33,7 @@ class WebUI(ApiUI):
             operator_token=operator_token,
             port=port,
             workflow_name=workflow_name,
+            host=host,
         )
         self._setup_web_routes()
 
