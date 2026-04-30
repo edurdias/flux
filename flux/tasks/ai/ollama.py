@@ -44,6 +44,8 @@ def build_ollama_provider(
 
 
 class OllamaFormatter(LLMFormatter):
+    supports_reasoning_stream = True
+
     def __init__(
         self,
         model_name: str,
@@ -166,6 +168,58 @@ class OllamaFormatter(LLMFormatter):
             token = chunk["message"]["content"]
             if token:
                 yield token
+
+    async def call_with_reasoning_stream(
+        self,
+        messages: list[dict],
+        call_kwargs: dict,
+        on_reasoning_token: Any,
+    ) -> LLMResponse:
+        stream_kwargs = {k: v for k, v in call_kwargs.items() if k != "tool_names"}
+        tool_names = call_kwargs.get("tool_names", set())
+
+        thinking_parts: list[str] = []
+        content_parts: list[str] = []
+        tool_calls_raw: list[dict] = []
+
+        async for chunk in await self._client.chat(
+            messages=messages,
+            **stream_kwargs,
+            stream=True,
+        ):
+            msg = chunk.get("message", {})
+            if msg.get("thinking"):
+                thinking_parts.append(msg["thinking"])
+                await on_reasoning_token(msg["thinking"])
+            if msg.get("content"):
+                content_parts.append(msg["content"])
+            if msg.get("tool_calls"):
+                tool_calls_raw.extend(msg["tool_calls"])
+
+        content = "".join(content_parts)
+        thinking = "".join(thinking_parts) or None
+
+        tool_calls: list[ToolCall] = []
+        if tool_calls_raw:
+            for i, tc in enumerate(tool_calls_raw):
+                tool_calls.append(
+                    ToolCall(
+                        id=f"call_{i}",
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                    ),
+                )
+        elif tool_names and content:
+            extracted = extract_tool_calls_from_content(content, tool_names)
+            if extracted:
+                tool_calls = [
+                    ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
+                    for tc in extracted
+                ]
+                content = strip_tool_calls_from_content(content)
+
+        reasoning = ReasoningContent(text=thinking, opaque=None) if thinking else None
+        return LLMResponse(text=content, tool_calls=tool_calls, reasoning=reasoning)
 
 
 def _to_llm_response(

@@ -80,7 +80,7 @@ pip install flux-core
 ```
 
 **Requirements**:
-- Python 3.12 or later
+- Python 3.14 or later
 - Dependencies are managed through Poetry
 
 ## Quick Start

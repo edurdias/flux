@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -13,7 +14,15 @@ import httpx
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-E2E_PORT = int(os.environ.get("FLUX_E2E_PORT", "19000"))
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+E2E_PORT = int(os.environ.get("FLUX_E2E_PORT", "0")) or _free_port()
 E2E_SERVER_URL = f"http://localhost:{E2E_PORT}"
 
 # ---------------------------------------------------------------------------
@@ -182,8 +191,11 @@ class FluxCLI:
             args.extend(["--namespace", namespace])
         return self._server_json(args)
 
-    def execution_show(self, exec_id: str) -> dict:
-        return self._server_json(["execution", "show", exec_id])
+    def execution_show(self, exec_id: str, detailed: bool = False) -> dict:
+        args = ["execution", "show", exec_id]
+        if detailed:
+            args.append("--detailed")
+        return self._server_json(args)
 
     # -- schedule commands -------------------------------------------------
 
@@ -416,6 +428,65 @@ class FluxCLI:
 
     def secrets_remove(self, name: str) -> None:
         self._ok(["secrets", "remove", name])
+
+    # -- config (local, no --server-url) -----------------------------------
+
+    def config_set(self, name: str, value: str) -> None:
+        self._ok(["config", "set", name, value])
+
+    def config_get(self, name: str) -> dict:
+        return self._json(["config", "get", name, "--format", "json"])
+
+    def config_list(self) -> dict:
+        return self._json(["config", "list", "--format", "json"])
+
+    def config_remove(self, name: str) -> None:
+        self._ok(["config", "remove", name])
+
+    # -- agent (local, no --server-url) ------------------------------------
+
+    def agent_create(
+        self,
+        name: str,
+        model: str,
+        system_prompt: str,
+        **kwargs: Any,
+    ) -> None:
+        args = [
+            "agent",
+            "create",
+            name,
+            "--model",
+            model,
+            "--system-prompt",
+            system_prompt,
+        ]
+        for k, v in kwargs.items():
+            flag = f"--{k.replace('_', '-')}"
+            if isinstance(v, bool):
+                if v:
+                    args.append(flag)
+            else:
+                args.extend([flag, str(v)])
+        args.extend(["--format", "json"])
+        self._ok(args)
+
+    def agent_list(self) -> dict:
+        return self._json(["agent", "list", "--format", "json"])
+
+    def agent_show(self, name: str) -> dict:
+        return self._json(["agent", "show", name, "--format", "json"])
+
+    def agent_update(self, name: str, **kwargs: Any) -> None:
+        args = ["agent", "update", name]
+        for k, v in kwargs.items():
+            flag = f"--{k.replace('_', '-')}"
+            args.extend([flag, str(v)])
+        args.extend(["--format", "json"])
+        self._ok(args)
+
+    def agent_delete(self, name: str) -> None:
+        self._ok(["agent", "delete", name])
 
     # -- polling helpers ---------------------------------------------------
 

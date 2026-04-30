@@ -182,6 +182,7 @@ Pipfile
 
 # Claude
 .claude/
+.superpowers/
 
 # Worktrees
 .worktrees/

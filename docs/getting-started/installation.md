@@ -4,7 +4,7 @@
 
 Before installing Flux, ensure you have:
 
-- Python 3.12 or later
+- Python 3.14 or later
 - pip (Python package installer)
 - Optional: Poetry for dependency management
 

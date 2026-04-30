@@ -240,9 +240,9 @@ class TestBuiltInWorkerRole:
         perms = BUILT_IN_ROLES["worker"]
         assert "worker:*:*" in perms
         assert "config:*:read" in perms
-        assert "admin:secrets:read" in perms
         assert "execution:*:read" in perms
-        assert len(perms) == 4
+        assert "admin:secrets:read" not in perms
+        assert len(perms) == 3
 
 
 class TestRevokeAllApiKeys:

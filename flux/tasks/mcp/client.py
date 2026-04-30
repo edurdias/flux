@@ -76,7 +76,7 @@ class MCPClient:
             elif self._auth.secret:
                 from flux.secret_managers import SecretManager
 
-                secrets = SecretManager.current().get([self._auth.secret])
+                secrets = await SecretManager.current().get([self._auth.secret])
                 token = secrets.get(self._auth.secret)
             else:
                 token = self._auth.token

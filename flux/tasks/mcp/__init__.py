@@ -5,6 +5,7 @@ from typing import Literal
 from flux.tasks.mcp.auth import bearer, oauth, BearerAuthConfig, OAuthConfig
 from flux.tasks.mcp.client import MCPClient
 from flux.tasks.mcp.discovery import ToolSet
+from flux.tasks.mcp.elicitation import ElicitationRequestOutput, ElicitationResponse
 from flux.tasks.mcp.errors import ToolExecutionError
 
 
@@ -44,4 +45,6 @@ __all__ = [
     "MCPClient",
     "ToolSet",
     "ToolExecutionError",
+    "ElicitationRequestOutput",
+    "ElicitationResponse",
 ]

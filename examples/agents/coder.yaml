@@ -1,0 +1,36 @@
+# Full-featured coding agent with system tools, planning, and MCP.
+#
+# Prerequisites:
+#   flux secrets set GITHUB_TOKEN "ghp_..."
+#
+# Usage:
+#   flux agent create coder --file examples/agents/coder.yaml
+#   flux agent start coder --mode terminal
+
+name: coder
+model: anthropic/claude-sonnet-4-20250514
+description: Senior engineer with workspace access and GitHub integration
+system_prompt: |
+  You are a senior software engineer helping the user write, debug,
+  and review code. Use the available tools to read, search, and edit
+  files in the project workspace. Run the test suite after making
+  changes. Be concise and focus on working code.
+
+tools:
+  - system_tools:
+      workspace: .
+      timeout: 60
+      max_output_chars: 200000
+
+mcp_servers:
+  - url: https://mcp.github.example.com
+    name: github
+    auth: bearer
+    secret: GITHUB_TOKEN
+
+planning: true
+max_plan_steps: 15
+max_tool_calls: 30
+max_tokens: 8192
+reasoning_effort: medium
+stream: true

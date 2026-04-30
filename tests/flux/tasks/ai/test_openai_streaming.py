@@ -58,6 +58,52 @@ def test_openai_streaming_emits_progress():
     asyncio.run(run())
 
 
+def test_openai_reasoning_stream_emits_tokens():
+    async def run():
+        from flux.tasks.ai.openai import build_openai_provider
+
+        async def mock_stream():
+            for reasoning_token, text_token in [
+                ("Step 1: ", None),
+                ("analyze.", None),
+                (None, "The answer."),
+            ]:
+                chunk = MagicMock()
+                chunk.choices = [MagicMock()]
+                chunk.choices[0].delta.reasoning_content = reasoning_token
+                chunk.choices[0].delta.content = text_token
+                chunk.choices[0].delta.tool_calls = None
+                yield chunk
+
+        with patch("flux.tasks.ai.openai.AsyncOpenAI") as MockOpenAI:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+            MockOpenAI.return_value = mock_client
+
+            _, formatter = build_openai_provider("o3-mini")
+
+            assert formatter.supports_reasoning_stream is True
+
+            messages, call_kwargs = formatter.build_messages("Test", "Think about this")
+
+            reasoning_tokens = []
+            on_token = AsyncMock(side_effect=lambda t: reasoning_tokens.append(t))
+
+            response = await formatter.call_with_reasoning_stream(
+                messages,
+                call_kwargs,
+                on_reasoning_token=on_token,
+            )
+
+            assert reasoning_tokens == ["Step 1: ", "analyze."]
+            assert response.text == "The answer."
+            assert response.reasoning is not None
+            assert response.reasoning.text == "Step 1: analyze."
+            assert response.reasoning.opaque == {"reasoning_content": "Step 1: analyze."}
+
+    asyncio.run(run())
+
+
 def test_openai_no_streaming_when_disabled():
     captured_progress = []
 

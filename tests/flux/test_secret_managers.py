@@ -8,7 +8,7 @@ import pytest
 from flux.secret_managers import SecretManager
 
 
-def test_save_and_get_secret():
+async def test_save_and_get_secret():
     """Test saving and retrieving a secret."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -19,7 +19,7 @@ def test_save_and_get_secret():
     secret_manager.save(secret_name, secret_value)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the value is correct
     assert secret_name in result
@@ -29,7 +29,7 @@ def test_save_and_get_secret():
     secret_manager.remove(secret_name)
 
 
-def test_save_and_update_secret():
+async def test_save_and_update_secret():
     """Test saving and then updating a secret."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -44,7 +44,7 @@ def test_save_and_update_secret():
     secret_manager.save(secret_name, updated_value)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the value has been updated
     assert secret_name in result
@@ -54,7 +54,7 @@ def test_save_and_update_secret():
     secret_manager.remove(secret_name)
 
 
-def test_get_multiple_secrets():
+async def test_get_multiple_secrets():
     """Test retrieving multiple secrets at once."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -69,7 +69,7 @@ def test_get_multiple_secrets():
     secret_manager.save(secret2_name, secret2_value)
 
     # Retrieve both secrets
-    result = secret_manager.get([secret1_name, secret2_name])
+    result = await secret_manager.get([secret1_name, secret2_name])
 
     # Verify both values are correct
     assert len(result) == 2
@@ -81,7 +81,7 @@ def test_get_multiple_secrets():
     secret_manager.remove(secret2_name)
 
 
-def test_get_nonexistent_secret():
+async def test_get_nonexistent_secret():
     """Test that getting a nonexistent secret raises an error."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -97,13 +97,13 @@ def test_get_nonexistent_secret():
 
     # Verify that a ValueError is raised
     with pytest.raises(ValueError) as excinfo:
-        secret_manager.get([nonexistent_secret])
+        await secret_manager.get([nonexistent_secret])
 
     # Check that the error message contains the name of the missing secret
     assert nonexistent_secret in str(excinfo.value)
 
 
-def test_remove_secret():
+async def test_remove_secret():
     """Test removing a secret."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -114,7 +114,7 @@ def test_remove_secret():
     secret_manager.save(secret_name, secret_value)
 
     # Verify the secret exists
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
     assert secret_name in result
 
     # Remove the secret
@@ -122,7 +122,7 @@ def test_remove_secret():
 
     # Verify the secret is gone
     with pytest.raises(ValueError):
-        secret_manager.get([secret_name])
+        await secret_manager.get([secret_name])
 
 
 def test_all_secrets():
@@ -160,7 +160,7 @@ def test_all_secrets():
         secret_manager.remove(name)
 
 
-def test_save_complex_value():
+async def test_save_complex_value():
     """Test saving and retrieving a complex object as a secret value."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -173,7 +173,7 @@ def test_save_complex_value():
     secret_manager.save(secret_name, complex_value)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the complex value is preserved
     assert secret_name in result
@@ -204,7 +204,7 @@ def test_remove_nonexistent_secret():
     secret_manager.remove(nonexistent_secret)  # This should not raise an exception
 
 
-def test_save_and_get_empty_value():
+async def test_save_and_get_empty_value():
     """Test saving and retrieving an empty string as a secret value."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -215,7 +215,7 @@ def test_save_and_get_empty_value():
     secret_manager.save(secret_name, secret_value)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the empty value is preserved
     assert secret_name in result
@@ -243,7 +243,7 @@ def test_save_none_value():
     assert "Secret value cannot be None" in str(excinfo.value)
 
 
-def test_unicode_secret_name_and_value():
+async def test_unicode_secret_name_and_value():
     """Test saving and retrieving a secret with Unicode characters in name and value."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -254,7 +254,7 @@ def test_unicode_secret_name_and_value():
     secret_manager.save(secret_name, secret_value)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the Unicode value is preserved
     assert secret_name in result
@@ -264,7 +264,7 @@ def test_unicode_secret_name_and_value():
     secret_manager.remove(secret_name)
 
 
-def test_overwrite_and_remove_multiple_secrets():
+async def test_overwrite_and_remove_multiple_secrets():
     """Test overwriting and then removing multiple secrets."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -289,7 +289,7 @@ def test_overwrite_and_remove_multiple_secrets():
         secret_manager.save(name, value)
 
     # Retrieve and verify the updated values
-    result = secret_manager.get(list(test_secrets.keys()))
+    result = await secret_manager.get(list(test_secrets.keys()))
     assert len(result) == 2
     assert result["multi_test_1"] == updated_values["multi_test_1"]
     assert result["multi_test_2"] == updated_values["multi_test_2"]
@@ -297,22 +297,22 @@ def test_overwrite_and_remove_multiple_secrets():
     # Remove the secrets one by one
     for name in list(test_secrets.keys()):
         # First verify we can get the secret before removing it
-        assert name in secret_manager.get([name])
+        assert name in await secret_manager.get([name])
 
         # Remove the secret
         secret_manager.remove(name)
 
         # Verify the removed secret is gone
         with pytest.raises(ValueError):
-            secret_manager.get([name])
+            await secret_manager.get([name])
 
     # Verify all secrets are gone
     for name in test_secrets.keys():
         with pytest.raises(ValueError):
-            secret_manager.get([name])
+            await secret_manager.get([name])
 
 
-def test_save_and_retrieve_json_serializable_data():
+async def test_save_and_retrieve_json_serializable_data():
     """Test saving and retrieving JSON-serializable data."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -333,7 +333,7 @@ def test_save_and_retrieve_json_serializable_data():
     secret_manager.save(secret_name, json_data)
 
     # Retrieve the secret
-    result = secret_manager.get([secret_name])
+    result = await secret_manager.get([secret_name])
 
     # Verify the JSON data is preserved
     assert secret_name in result
@@ -372,7 +372,7 @@ def test_all_secrets_with_no_secrets():
         assert name not in all_secrets
 
 
-def test_same_secret_different_types():
+async def test_same_secret_different_types():
     """Test updating a secret with different data types."""
     # Get the current secret manager
     secret_manager = SecretManager.current()
@@ -387,7 +387,7 @@ def test_same_secret_different_types():
         secret_manager.save(secret_name, value)
 
         # Retrieve and verify
-        result = secret_manager.get([secret_name])
+        result = await secret_manager.get([secret_name])
         assert secret_name in result
         assert result[secret_name] == value
         assert type(result[secret_name]) is type(value)

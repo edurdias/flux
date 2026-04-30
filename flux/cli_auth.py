@@ -5,17 +5,39 @@ import os
 import stat
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import importlib
+import types
 
 import click
-import httpx
 
-from flux.config import Configuration
+if TYPE_CHECKING:
+    import httpx
+else:
+
+    class _LazyModule(types.ModuleType):
+        """Proxy that defers the actual import until first attribute access.
+
+        Resolved attributes are cached on the instance so that
+        ``unittest.mock.patch`` (which uses setattr/delattr) can override them.
+        """
+
+        def __getattr__(self, name: str):
+            real = importlib.import_module(self.__name__)
+            val = getattr(real, name)
+            object.__setattr__(self, name, val)
+            return val
+
+    httpx = _LazyModule("httpx")
 
 
 CREDENTIALS_FILE = Path.home() / ".flux" / "credentials.json"
 
 
 def get_server_url():
+    from flux.config import Configuration
+
     settings = Configuration.get().settings
     return f"http://{settings.server_host}:{settings.server_port}"
 
@@ -170,6 +192,8 @@ def auth_status(fmt):
 def auth_login(issuer, client_id):
     """Authenticate via OIDC Device Authorization Grant."""
     if issuer is None:
+        from flux.config import Configuration
+
         oidc_config = Configuration.get().settings.security.auth.oidc
         if not oidc_config.enabled or not oidc_config.issuer:
             click.echo("Error: OIDC not configured. Pass --issuer or enable OIDC in flux.toml.")

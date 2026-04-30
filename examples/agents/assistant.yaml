@@ -1,0 +1,13 @@
+# Minimal agent — a general-purpose coding assistant.
+#
+# Usage:
+#   flux agent create assistant --file examples/agents/assistant.yaml
+#   flux agent start assistant --mode terminal
+
+name: assistant
+model: anthropic/claude-sonnet-4-20250514
+system_prompt: |
+  You are a helpful coding assistant. Keep answers concise and
+  practical. When the user asks about code, read the relevant files
+  before answering. Prefer showing code over describing it.
+description: General-purpose coding helper

@@ -297,6 +297,46 @@ class SecretModel(Base):
     )
 
 
+class ConfigModel(Base):
+    __tablename__ = "configs"
+
+    name = Column(String, primary_key=True, unique=True, nullable=False)
+    value = Column(TEXT, nullable=False)
+
+
+class AgentModel(Base):
+    __tablename__ = "agents"
+
+    name = Column(String, primary_key=True, unique=True, nullable=False)
+    model = Column(String, nullable=False)
+    system_prompt = Column(TEXT, nullable=False)
+    description = Column(TEXT, nullable=True)
+    tools = Column(JSON, nullable=False, default=list)
+    tools_file = Column(TEXT, nullable=True)
+    workflow_file = Column(TEXT, nullable=True)
+    mcp_servers = Column(JSON, nullable=False, default=list)
+    skills_dir = Column(TEXT, nullable=True)
+    agents = Column(JSON, nullable=False, default=list)
+    planning = Column(Boolean, nullable=False, default=False)
+    max_plan_steps = Column(Integer, nullable=False, default=20)
+    approve_plan = Column(Boolean, nullable=False, default=False)
+    max_tool_calls = Column(Integer, nullable=False, default=10)
+    max_concurrent_tools = Column(Integer, nullable=True)
+    max_tokens = Column(Integer, nullable=False, default=4096)
+    stream = Column(Boolean, nullable=False, default=True)
+    approval_mode = Column(String, nullable=False, default="default")
+    reasoning_effort = Column(String, nullable=True)
+    long_term_memory = Column(JSON, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class WorkerRuntimeModel(Base):
     __tablename__ = "worker_runtimes"
 

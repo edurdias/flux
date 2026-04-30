@@ -39,27 +39,27 @@ class TestWorkflowRoute:
     def test_post_workflow_reaches_handler(self):
         app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
         with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/invoice")
+            r = client.post("/run/invoice")
             assert r.status_code in (404, 500, 502)
 
     def test_resume_workflow_reaches_handler(self):
         app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
         with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.post("/invoice/resume/exec-123")
+            r = client.post("/run/invoice/resume/exec-123")
             assert r.status_code in (404, 500, 502)
 
     def test_status_workflow_reaches_handler(self):
         app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
         with TestClient(app, raise_server_exceptions=False) as client:
-            r = client.get("/invoice/status/exec-123")
+            r = client.get("/run/invoice/status/exec-123")
             assert r.status_code in (404, 500, 502)
 
 
 class TestMCPRouting:
     """Verify /mcp and /.well-known/ are routed to the FastMCP app,
-    not swallowed by the /{workflow_name} catch-all.
+    not swallowed by FastAPI's routing.
 
-    This is the exact bug that the MCPRouteMiddleware prevents.
+    This is the bug that the MCPRouteMiddleware prevents.
     """
 
     def test_mcp_not_treated_as_workflow(self):
@@ -101,13 +101,13 @@ class TestMCPRouting:
             body_text = json.dumps(r.json()) if _is_json(r) else r.text
             assert "Workflow" not in body_text
 
-    def test_mcp_disabled_falls_through_to_workflow_handler(self):
-        """Without MCP, /mcp should be treated as a workflow name."""
+    def test_mcp_disabled_returns_404(self):
+        """Without MCP, /mcp is not a registered route on this branch
+        (workflows live under /run/{name}), so it should 404."""
         app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=False)
         with TestClient(app, raise_server_exceptions=False) as client:
             r = client.post("/mcp")
-            # Reaches the workflow handler — fails because backend is unreachable
-            assert r.status_code in (404, 500, 502)
+            assert r.status_code in (404, 405)
 
     @pytest.mark.parametrize(
         "path",
@@ -124,7 +124,7 @@ class TestMCPRouting:
 
     @pytest.mark.parametrize(
         "path",
-        ["/mcp_billing", "/mcptest", "/mcp-workflow"],
+        ["/run/mcp_billing", "/run/mcptest", "/run/mcp-workflow"],
         ids=["mcp_underscore", "mcptest", "mcp-hyphen"],
     )
     def test_mcp_prefixed_workflow_not_hijacked(self, path):
@@ -132,8 +132,7 @@ class TestMCPRouting:
         app = create_standalone_app("test-svc", UNREACHABLE_SERVER, enable_mcp=True)
         with TestClient(app, raise_server_exceptions=False) as client:
             r = client.post(path)
-            # Should reach the workflow handler, not the MCP app.
-            # The workflow handler fails to connect (500/502) or can't resolve (404).
+            # Reaches the workflow handler, not the MCP app.
             assert r.status_code in (404, 500, 502)
 
 

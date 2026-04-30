@@ -183,7 +183,7 @@ def create_standalone_app(
             "mcp_enabled": enable_mcp,
         }
 
-    @app.post("/{workflow_name}")
+    @app.post("/run/{workflow_name}")
     async def run_workflow(
         request: Request,
         workflow_name: str,
@@ -235,7 +235,7 @@ def create_standalone_app(
 
         return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @app.post("/{workflow_name}/resume/{execution_id}")
+    @app.post("/run/{workflow_name}/resume/{execution_id}")
     async def resume_workflow(
         request: Request,
         workflow_name: str,
@@ -274,7 +274,7 @@ def create_standalone_app(
 
         return JSONResponse(status_code=response.status_code, content=response.json())
 
-    @app.get("/{workflow_name}/status/{execution_id}")
+    @app.get("/run/{workflow_name}/status/{execution_id}")
     async def workflow_status(
         request: Request,
         workflow_name: str,

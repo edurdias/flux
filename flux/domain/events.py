@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 
 from flux.utils import make_hashable
+
+
+class PausedEventValue(TypedDict):
+    name: str
+    output: Any
 
 
 class ExecutionState(str, Enum):
@@ -16,6 +21,8 @@ class ExecutionState(str, Enum):
     FAILED = "FAILED"
     PAUSED = "PAUSED"
     RESUMING = "RESUMING"
+    RESUME_SCHEDULED = "RESUME_SCHEDULED"
+    RESUME_CLAIMED = "RESUME_CLAIMED"
     CANCELLING = "CANCELLING"
     CANCELLED = "CANCELLED"
 
@@ -29,6 +36,8 @@ class ExecutionEventType(str, Enum):
     WORKFLOW_PAUSED = "WORKFLOW_PAUSED"
     WORKFLOW_RESUMING = "WORKFLOW_RESUMING"
     WORKFLOW_RESUMED = "WORKFLOW_RESUMED"
+    WORKFLOW_RESUME_SCHEDULED = "WORKFLOW_RESUME_SCHEDULED"
+    WORKFLOW_RESUME_CLAIMED = "WORKFLOW_RESUME_CLAIMED"
     WORKFLOW_CANCELLING = "WORKFLOW_CANCELLING"
     WORKFLOW_CANCELLED = "WORKFLOW_CANCELLED"
 

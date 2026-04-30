@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from flux.errors import PauseRequested
 from flux.tasks.ai.models import LLMResponse
 from flux.tasks.ai.tool_executor import execute_tools
+from flux.tasks.progress import progress
 
 if TYPE_CHECKING:
     from flux.task import task as TaskType
@@ -56,6 +57,58 @@ async def _store_reasoning(working_memory: Any, response: Any) -> None:
         )
 
 
+async def _call_llm(
+    llm_task: TaskType,
+    formatter: LLMFormatter,
+    messages: list[Any],
+    call_kwargs: dict,
+    working_memory: Any,
+    stream: bool,
+    call_counter: int,
+) -> LLMResponse:
+    if stream and formatter.supports_reasoning_stream:
+        from flux.domain.execution_context import CURRENT_CONTEXT
+
+        async def _direct_stream() -> LLMResponse:
+            return await formatter.call_with_reasoning_stream(
+                messages,
+                call_kwargs,
+                on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
+            )
+
+        if CURRENT_CONTEXT.get() is None:
+            response = _ensure_llm_response(await _direct_stream())
+        else:
+            # Wrap the streaming call in a Flux task so the LLM response is
+            # checkpointed under a stable task_id. Without this, a tool pause
+            # would re-run the LLM on resume and could produce different
+            # tool_calls than the pre-pause invocation.
+            from flux.task import task as task_dec
+
+            @task_dec.with_options(name=f"llm_{call_counter}")
+            async def _streaming_llm(
+                stream_messages: list[Any],
+                stream_kwargs: dict,
+            ) -> LLMResponse:
+                return await formatter.call_with_reasoning_stream(
+                    stream_messages,
+                    stream_kwargs,
+                    on_reasoning_token=lambda t: progress({"type": "reasoning", "text": t}),
+                )
+
+            response = _ensure_llm_response(await _streaming_llm(messages, call_kwargs))
+    else:
+        result = await llm_task.with_options(name=f"llm_{call_counter}")(
+            messages,
+            **call_kwargs,
+        )
+        response = _ensure_llm_response(result)
+        if stream and response.reasoning and response.reasoning.text:
+            await progress({"type": "reasoning", "text": response.reasoning.text})
+    await _store_reasoning(working_memory, response)
+    return response
+
+
 async def run_agent_loop(
     *,
     llm_task: TaskType,
@@ -76,8 +129,6 @@ async def run_agent_loop(
     on_pause: list[Any] | None = None,
     agent_name: str = "agent",
 ) -> str | BaseModel:
-    from flux.tasks.progress import progress
-
     user_content = instruction
     if context:
         user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
@@ -112,10 +163,16 @@ async def run_agent_loop(
         await _fire_hooks(on_complete, agent_name, content)
         return content
 
-    result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
+    response = await _call_llm(
+        llm_task,
+        formatter,
+        messages,
+        call_kwargs,
+        working_memory,
+        stream,
+        call_counter,
+    )
     call_counter += 1
-    response = _ensure_llm_response(result)
-    await _store_reasoning(working_memory, response)
 
     always_approved: set[str] = set()
 
@@ -144,6 +201,17 @@ async def run_agent_loop(
                 json.dumps({"calls": tool_call_dicts}),
             )
 
+        if stream:
+            for tc in response.tool_calls:
+                await progress(
+                    {
+                        "type": "tool_start",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "args": tc.arguments,
+                    },
+                )
+
         try:
             results = await execute_tools(
                 tool_call_dicts,
@@ -157,6 +225,18 @@ async def run_agent_loop(
             await _fire_hooks(on_pause, agent_name, None)
             raise
         tool_iteration += 1
+
+        if stream:
+            for tc_dict, result in zip(tool_call_dicts, results):
+                status = "error" if "error" in result else "success"
+                await progress(
+                    {
+                        "type": "tool_done",
+                        "id": tc_dict.get("id", ""),
+                        "name": tc_dict.get("name", ""),
+                        "status": status,
+                    },
+                )
 
         if working_memory:
             for tc_dict, result in zip(tool_call_dicts, results):
@@ -186,10 +266,16 @@ async def run_agent_loop(
 
         messages.extend(tool_result_messages)
 
-        result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **call_kwargs)
+        response = await _call_llm(
+            llm_task,
+            formatter,
+            messages,
+            call_kwargs,
+            working_memory,
+            stream,
+            call_counter,
+        )
         call_counter += 1
-        response = _ensure_llm_response(result)
-        await _store_reasoning(working_memory, response)
 
         if (
             not response.tool_calls
@@ -203,13 +289,16 @@ async def run_agent_loop(
             messages.append(
                 formatter.format_user_message(f"Continue working on your plan. {summary}"),
             )
-            result = await llm_task.with_options(name=f"llm_{call_counter}")(
+            response = await _call_llm(
+                llm_task,
+                formatter,
                 messages,
-                **call_kwargs,
+                call_kwargs,
+                working_memory,
+                stream,
+                call_counter,
             )
             call_counter += 1
-            response = _ensure_llm_response(result)
-            await _store_reasoning(working_memory, response)
 
     if response.tool_calls and tool_call_count >= max_tool_calls:
         messages.append(formatter.format_assistant_message(response))
@@ -219,10 +308,16 @@ async def run_agent_loop(
             ),
         )
         no_tool_kwargs = formatter.remove_tools_from_kwargs(call_kwargs)
-        result = await llm_task.with_options(name=f"llm_{call_counter}")(messages, **no_tool_kwargs)
+        response = await _call_llm(
+            llm_task,
+            formatter,
+            messages,
+            no_tool_kwargs,
+            working_memory,
+            stream,
+            call_counter,
+        )
         call_counter += 1
-        response = _ensure_llm_response(result)
-        await _store_reasoning(working_memory, response)
 
     content = response.text
 
@@ -233,6 +328,8 @@ async def run_agent_loop(
         async for token in formatter.stream(messages, no_tool_kwargs):
             content += token
             await progress({"token": token})
+    elif stream and content:
+        await progress({"token": content})
 
     if working_memory and not entered_tool_loop:
         await working_memory.memorize("user", user_content)

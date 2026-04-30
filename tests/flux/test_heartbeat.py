@@ -222,7 +222,6 @@ class TestServerHeartbeatReaper:
         server._worker_last_pong["w1"] = time.monotonic() - 20
         server._worker_cache["w1"] = WorkerResponse(name="w1", status="online")
         server._worker_stale_since["w1"] = time.monotonic() - 15
-        server._worker_executions["w1"] = {"exec-1", "exec-2"}
 
         call_count = 0
 
@@ -233,15 +232,21 @@ class TestServerHeartbeatReaper:
                 return
             raise asyncio.CancelledError()
 
+        fake_ctx_1 = MagicMock()
+        fake_ctx_1.execution_id = "exec-1"
+        fake_ctx_2 = MagicMock()
+        fake_ctx_2.execution_id = "exec-2"
+
         with (
             patch("asyncio.sleep", side_effect=sleep_then_cancel),
             patch("flux.server.ContextManager") as mock_cm,
         ):
             mock_manager = MagicMock()
+            mock_manager.find_by_worker.return_value = [fake_ctx_1, fake_ctx_2]
             mock_cm.create.return_value = mock_manager
             await server._run_heartbeat_reaper()
 
-        assert "w1" not in server._worker_executions
+        assert mock_manager.find_by_worker.call_count == 1
         assert mock_manager.unclaim.call_count == 2
 
 
