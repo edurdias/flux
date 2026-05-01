@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from flux.domain.execution_context import ExecutionContext
@@ -10,6 +11,57 @@ from flux.workflow import workflow
 
 from flux.agents.tools_resolver import resolve_builtin_tools
 from flux.agents.types import ChatResponseOutput
+
+
+def _materialize_skills_bundle(tmp: Path, skills_data: dict[str, Any]) -> None:
+    """Write a skills bundle into ``tmp``, rejecting any path that escapes it.
+
+    The bundle is sourced from agent definitions in the database and is therefore
+    treated as untrusted: each ``file_path`` must be a relative path that resolves
+    inside ``tmp`` after path normalization, and each ``content`` must be a string.
+    """
+    base = tmp.resolve()
+    for skill_name, files in skills_data.items():
+        if not isinstance(files, dict):
+            raise ValueError(
+                f"Skill '{skill_name}' bundle must be a mapping of file paths to contents.",
+            )
+        for file_path, content in files.items():
+            if not isinstance(file_path, str):
+                raise ValueError(
+                    f"Skill '{skill_name}' bundle keys must be strings; got {type(file_path).__name__}.",
+                )
+            if not isinstance(content, str):
+                raise ValueError(
+                    f"Skill '{skill_name}' file {file_path!r} must have string content; "
+                    f"got {type(content).__name__}.",
+                )
+            # Belt-and-suspenders: reject by string shape AND by Path semantics. A
+            # Linux/macOS absolute path begins with '/'; a Windows absolute path may
+            # begin with a drive letter or backslash. Path.is_absolute() handles the
+            # platform conventions; the string checks catch pathological inputs that
+            # might escape Path's normalization.
+            if (
+                file_path.startswith("/")
+                or file_path.startswith("\\")
+                or (len(file_path) >= 2 and file_path[1] == ":")
+                or "\x00" in file_path
+            ):
+                raise ValueError(
+                    f"Skill '{skill_name}' contains unsafe file path: {file_path!r}",
+                )
+            candidate = Path(file_path)
+            if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+                raise ValueError(
+                    f"Skill '{skill_name}' contains unsafe file path: {file_path!r}",
+                )
+            full_path = (base / candidate).resolve()
+            if not full_path.is_relative_to(base):
+                raise ValueError(
+                    f"Skill '{skill_name}' file path escapes bundle root: {file_path!r}",
+                )
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(content)
 
 
 @workflow.with_options(namespace="agents")
@@ -25,7 +77,6 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     _skills_tmp_dir = None
     if agent_def.get("skills_dir"):
         import tempfile
-        from pathlib import Path
         from flux.tasks.ai.skills import SkillCatalog
 
         skills_data = agent_def["skills_dir"]
@@ -38,11 +89,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
         if isinstance(skills_data, dict):
             _skills_tmp_dir = tempfile.TemporaryDirectory(prefix="flux_skills_")
             tmp = Path(_skills_tmp_dir.name)
-            for skill_name, files in skills_data.items():
-                for file_path, content in files.items():
-                    full_path = tmp / file_path
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.write_text(content)
+            _materialize_skills_bundle(tmp, skills_data)
             skills = SkillCatalog.from_directory(str(tmp))
         else:
             skills = SkillCatalog.from_directory(str(skills_data))

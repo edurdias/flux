@@ -1010,6 +1010,70 @@ def console(server_url: str | None = None):
     raise click.exceptions.Exit(1)
 
 
+@cli.group("server")
+def server_group():
+    """Server lifecycle commands (run on the server host)."""
+    pass
+
+
+@server_group.command("bootstrap-token")
+@click.option(
+    "--rotate",
+    is_flag=True,
+    default=False,
+    help=(
+        "Generate a fresh token and persist it. The server caches the token at startup, "
+        "so you must restart it for the rotated value to take effect; existing workers "
+        "must then re-register. If FLUX_WORKERS__BOOTSTRAP_TOKEN or [flux.workers] "
+        "bootstrap_token is set, that override still wins until removed."
+    ),
+)
+def server_bootstrap_token(rotate: bool):
+    """Print the server's bootstrap token (or rotate it).
+
+    Reading: prints the configured token (env / config file) if set; else the
+    persisted file at <home>/bootstrap-token; else exits 1.
+
+    Rotating: writes a new token to the persisted file. The running server
+    keeps using its in-memory copy until restarted; configured overrides win.
+    """
+    from flux.config import Configuration
+    from flux.security import bootstrap_token as bt
+
+    settings = Configuration.get().settings
+    # Mirror the resolver's normalization: a whitespace-only env/config value is
+    # treated as unset so it does not silently win over the persisted file.
+    configured = bt._normalize(settings.workers.bootstrap_token)
+    home = settings.home
+
+    if rotate:
+        if configured:
+            click.echo(
+                "Warning: bootstrap_token is set via env var or config; rotating the file "
+                "will not change the active token until that override is removed.",
+                err=True,
+            )
+        token = bt.rotate(home)
+        click.echo(token)
+        return
+
+    if configured:
+        click.echo(configured)
+        return
+
+    persisted = bt.read_persisted(home)
+    if persisted:
+        click.echo(persisted)
+        return
+
+    click.echo(
+        "No bootstrap token found. Start the server once to auto-generate one, "
+        "or set FLUX_WORKERS__BOOTSTRAP_TOKEN.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
+
+
 @cli.group()
 def schedule():
     """Manage workflow schedules."""

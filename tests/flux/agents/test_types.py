@@ -146,6 +146,58 @@ class TestAgentDefinition:
         assert agent.name == "coder"
         assert agent.tools == ["shell", "read_file"]
 
+    def test_has_skills_bundle_detects_inline_json_dict(self):
+        agent = AgentDefinition(
+            name="x",
+            model="openai/gpt-4o",
+            system_prompt="x",
+            skills_dir='{"my-skill": {"SKILL.md": "..."}}',
+        )
+        assert agent.has_skills_bundle() is True
+        assert agent.requires_code_upload_permission() is True
+
+    def test_has_skills_bundle_false_for_path_string(self):
+        agent = AgentDefinition(
+            name="x",
+            model="openai/gpt-4o",
+            system_prompt="x",
+            skills_dir="/var/lib/flux/skills",
+        )
+        assert agent.has_skills_bundle() is False
+        assert agent.requires_code_upload_permission() is False
+
+    def test_has_skills_bundle_false_for_json_non_dict(self):
+        agent = AgentDefinition(
+            name="x",
+            model="openai/gpt-4o",
+            system_prompt="x",
+            skills_dir='["a", "b"]',
+        )
+        assert agent.has_skills_bundle() is False
+
+    def test_has_skills_bundle_false_when_none(self):
+        agent = AgentDefinition(name="x", model="openai/gpt-4o", system_prompt="x")
+        assert agent.has_skills_bundle() is False
+        assert agent.requires_code_upload_permission() is False
+
+    def test_requires_code_upload_permission_for_tools_file(self):
+        agent = AgentDefinition(
+            name="x",
+            model="openai/gpt-4o",
+            system_prompt="x",
+            tools_file="from flux import task",
+        )
+        assert agent.requires_code_upload_permission() is True
+
+    def test_requires_code_upload_permission_for_workflow_file(self):
+        agent = AgentDefinition(
+            name="x",
+            model="openai/gpt-4o",
+            system_prompt="x",
+            workflow_file="from flux import workflow",
+        )
+        assert agent.requires_code_upload_permission() is True
+
 
 class TestChatResponseOutput:
     def test_chat_response(self):
