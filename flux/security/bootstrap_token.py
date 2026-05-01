@@ -69,14 +69,31 @@ def generate() -> str:
     return secrets.token_hex(32)
 
 
+def _normalize(value: str | None) -> str | None:
+    """Strip whitespace; treat empty-after-strip as unset.
+
+    Mirrors ``read_persisted`` behavior so that a configured value like ``"   "``
+    or ``"\\n"`` is treated the same as no value at all, regardless of where it
+    came from (env var, flux.toml, CLI input).
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def resolve_or_generate(home: str | Path, configured: str | None) -> tuple[str, bool]:
     """Resolve the active bootstrap token; generate + persist on first call.
 
     Returns ``(token, generated_now)`` where ``generated_now`` is True only when
-    this call wrote a brand-new token to disk.
+    this call wrote a brand-new token to disk. Whitespace-only ``configured``
+    values are treated as unset (mirrors ``read_persisted``) so an operator
+    who exports ``FLUX_WORKERS__BOOTSTRAP_TOKEN=" "`` does not silently get an
+    unusable active token.
     """
-    if configured:
-        return configured, False
+    configured_norm = _normalize(configured)
+    if configured_norm:
+        return configured_norm, False
     persisted = read_persisted(home)
     if persisted:
         return persisted, False
