@@ -2383,16 +2383,19 @@ class Server:
 
             try:
                 definition = AgentDefinition(**agent_data)
-                if definition.tools_file or definition.workflow_file:
-                    if auth_service is not None:
-                        has_perm = await auth_service.is_authorized(
+                if definition.requires_code_upload_permission():
+                    from flux.security.dependencies import _get_auth_service
+
+                    upload_auth_service = _get_auth_service()
+                    if upload_auth_service is not None:
+                        has_perm = await upload_auth_service.is_authorized(
                             identity,
                             "workflow:*:*:register",
                         )
                         if not has_perm:
                             raise HTTPException(
                                 status_code=403,
-                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                                detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
                 manager = AgentManager.current()
                 manager.create(definition)
@@ -2419,16 +2422,19 @@ class Server:
             try:
                 agent_data["name"] = name
                 definition = AgentDefinition(**agent_data)
-                if definition.tools_file or definition.workflow_file:
-                    if auth_service is not None:
-                        has_perm = await auth_service.is_authorized(
+                if definition.requires_code_upload_permission():
+                    from flux.security.dependencies import _get_auth_service
+
+                    upload_auth_service = _get_auth_service()
+                    if upload_auth_service is not None:
+                        has_perm = await upload_auth_service.is_authorized(
                             identity,
                             "workflow:*:*:register",
                         )
                         if not has_perm:
                             raise HTTPException(
                                 status_code=403,
-                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                                detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
                 manager = AgentManager.current()
                 manager.update(definition)

@@ -906,3 +906,133 @@ class TestAgentAdminEndpointsRBAC:
             resp.status_code not in (401, 403)
         ), f"agent:*:delete should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
         assert "agent:*:delete" in perms
+
+
+class TestAgentCodeUploadGate:
+    """POST/PUT /admin/agents must escalate to workflow:*:*:register when the body
+    ships executable content (tools_file, workflow_file) or an inline skills_dir bundle
+    that gets materialized on worker filesystems.
+    """
+
+    def _post_agent(self, client, body, granted_permissions):
+        """Call POST /admin/agents with auth enabled and only the listed permissions granted."""
+        from flux.config import Configuration
+        from flux.security.identity import FluxIdentity
+
+        permissions_checked: list[str] = []
+        identity = FluxIdentity(subject="limited-user", roles=frozenset({"role-x"}))
+
+        async def mock_authenticate(token):
+            return identity
+
+        async def mock_is_authorized(ident, permission):
+            permissions_checked.append(permission)
+            return permission in granted_permissions
+
+        mock_auth_service = MagicMock()
+        mock_auth_service.authenticate = mock_authenticate
+        mock_auth_service.is_authorized = mock_is_authorized
+
+        settings = Configuration.get().settings
+        orig_keys = settings.security.auth.api_keys.enabled
+        settings.security.auth.api_keys.enabled = True
+        try:
+            with patch(
+                "flux.security.dependencies._get_auth_service",
+                return_value=mock_auth_service,
+            ):
+                resp = client.post(
+                    "/admin/agents",
+                    json=body,
+                    headers={"Authorization": "Bearer fake-token"},
+                )
+        finally:
+            settings.security.auth.api_keys.enabled = orig_keys
+        return resp, permissions_checked
+
+    def _base_body(self, **overrides):
+        body = {
+            "name": "evil",
+            "model": "openai/gpt-4o",
+            "system_prompt": "x",
+        }
+        body.update(overrides)
+        return body
+
+    def test_skills_dir_bundle_blocked_without_register_permission(self, client):
+        """A caller with only agent:*:create must NOT be able to ship an inline skills_dir bundle."""
+        body = self._base_body(
+            skills_dir='{"a": {"../../etc/passwd": "rooted"}}',
+        )
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create"},
+        )
+        assert (
+            resp.status_code == 403
+        ), f"Inline skills_dir bundle must require workflow:*:*:register; got {resp.status_code}"
+        assert "workflow:*:*:register" in perms
+        assert "skills_dir" in resp.json().get("detail", "")
+
+    def test_tools_file_still_blocked_without_register_permission(self, client):
+        """Regression: tools_file gate keeps working under the renamed helper."""
+        body = self._base_body(tools_file="from flux import task")
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create"},
+        )
+        assert resp.status_code == 403
+        assert "workflow:*:*:register" in perms
+
+    def test_workflow_file_still_blocked_without_register_permission(self, client):
+        """Regression: workflow_file gate keeps working under the renamed helper."""
+        body = self._base_body(workflow_file="from flux import workflow")
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create"},
+        )
+        assert resp.status_code == 403
+        assert "workflow:*:*:register" in perms
+
+    def test_skills_dir_path_string_does_not_require_register_permission(self, client):
+        """A plain path string in skills_dir is NOT a code-upload — it must not trigger the gate."""
+        body = self._base_body(skills_dir="/var/lib/flux/skills")
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create"},
+        )
+        # The gate must not be tripped (no 403 referencing the upload restriction).
+        # The endpoint may still 500 because no AgentManager is registered in this
+        # test harness — what we're asserting is the absence of the upload gate.
+        assert (
+            "workflow:*:*:register" not in perms
+        ), f"Path-only skills_dir must NOT trigger workflow:*:*:register; perms checked: {perms}"
+
+    def test_no_dangerous_fields_does_not_require_register_permission(self, client):
+        """Plain agent definition (no executable content) must not trigger the gate."""
+        body = self._base_body()
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create"},
+        )
+        assert "workflow:*:*:register" not in perms
+
+    def test_skills_dir_bundle_allowed_with_register_permission(self, client):
+        """When workflow:*:*:register is granted, the bundle path is allowed past the gate."""
+        body = self._base_body(
+            skills_dir='{"a": {"SKILL.md": "harmless"}}',
+        )
+        resp, perms = self._post_agent(
+            client,
+            body,
+            granted_permissions={"agent:*:create", "workflow:*:*:register"},
+        )
+        # Permission was checked and granted; any non-403 response means the gate
+        # did not block the request.
+        assert resp.status_code != 403
+        assert "workflow:*:*:register" in perms
