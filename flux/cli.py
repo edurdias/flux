@@ -1010,6 +1010,56 @@ def console(server_url: str | None = None):
     raise click.exceptions.Exit(1)
 
 
+@cli.group("server")
+def server_group():
+    """Server lifecycle commands (run on the server host)."""
+    pass
+
+
+@server_group.command("bootstrap-token")
+@click.option(
+    "--rotate",
+    is_flag=True,
+    default=False,
+    help="Generate a fresh token, persist it, and print it. Existing workers must re-register.",
+)
+def server_bootstrap_token(rotate: bool):
+    """Print the server's bootstrap token (or rotate it)."""
+    from flux.config import Configuration
+    from flux.security import bootstrap_token as bt
+
+    settings = Configuration.get().settings
+    configured = settings.workers.bootstrap_token
+    home = settings.home
+
+    if rotate:
+        if configured:
+            click.echo(
+                "Warning: bootstrap_token is set via env var or config; rotating the file "
+                "will not change the active token until that override is removed.",
+                err=True,
+            )
+        token = bt.rotate(home)
+        click.echo(token)
+        return
+
+    if configured:
+        click.echo(configured)
+        return
+
+    persisted = bt.read_persisted(home)
+    if persisted:
+        click.echo(persisted)
+        return
+
+    click.echo(
+        "No bootstrap token found. Start the server once to auto-generate one, "
+        "or set FLUX_WORKERS__BOOTSTRAP_TOKEN.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
+
+
 @cli.group()
 def schedule():
     """Manage workflow schedules."""

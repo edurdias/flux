@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import re
 import time
 from typing import Any, Literal
@@ -1033,6 +1034,15 @@ class Server:
         auth_service.seed_built_in_roles()
         init_auth_service(auth_service)
 
+        from flux.security.bootstrap_token import resolve_or_generate
+
+        _settings = Configuration.get().settings
+        bootstrap_token, _ = resolve_or_generate(
+            home=_settings.home,
+            configured=_settings.workers.bootstrap_token,
+        )
+        self._bootstrap_token = bootstrap_token
+
         from flux.observability import get_metrics, is_enabled
 
         if is_enabled():
@@ -1613,8 +1623,7 @@ class Server:
             try:
                 logger.debug(f"Worker registration request: {registration.name}")
                 token = self._extract_token(authorization)
-                settings = Configuration.get().settings
-                if settings.workers.bootstrap_token != token:
+                if not token or not hmac.compare_digest(self._bootstrap_token, token):
                     logger.warning(f"Invalid bootstrap token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,

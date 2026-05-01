@@ -35,7 +35,7 @@ def test_base_config_to_dict():
 def test_executor_config_defaults():
     """Test default values for ExecutorConfig."""
     config = WorkersConfig()
-    assert config.bootstrap_token is not None
+    assert config.bootstrap_token is None
     assert config.server_url == "http://localhost:8000"
     assert config.default_timeout == 0
     assert config.retry_attempts == 3
@@ -254,6 +254,25 @@ def test_shipped_flux_toml_does_not_hardcode_encryption_key():
     assert (
         "encryption_key" not in encryption
     ), f"flux.toml must not hardcode encryption_key; got: {encryption.get('encryption_key')!r}"
+
+
+def test_shipped_flux_toml_does_not_hardcode_bootstrap_token():
+    """Regression: flux.toml must NOT ship a literal bootstrap_token.
+
+    A previous default UUID was published to the public repo and baked into
+    the Docker image, allowing anyone to register a rogue worker against a
+    default-deployed Flux server. Server-side, the token is auto-generated
+    and persisted at <home>/bootstrap-token; workers must be supplied an
+    explicit value via env var or config.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    shipped = FluxConfig._load_from_toml(str(repo_root / "flux.toml"), ["flux"])
+    workers = shipped.get("workers", {})
+    assert (
+        "bootstrap_token" not in workers
+    ), f"flux.toml must not hardcode bootstrap_token; got: {workers.get('bootstrap_token')!r}"
 
 
 @pytest.fixture

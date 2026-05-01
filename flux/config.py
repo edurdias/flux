@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
-from uuid import uuid4
 
 import tomli
 from pydantic import BaseModel
@@ -25,9 +24,14 @@ class BaseConfig(BaseModel):
 class WorkersConfig(BaseConfig):
     """Configuration for workflow executor."""
 
-    bootstrap_token: str = Field(
-        default_factory=lambda: uuid4().hex,
-        description="Token for bootstrapping workers",
+    bootstrap_token: str | None = Field(
+        default=None,
+        description=(
+            "Token for bootstrapping workers. When unset on the server, one is "
+            "auto-generated and persisted at <home>/bootstrap-token on first start; "
+            "retrieve it with 'flux server bootstrap-token'. Workers must always "
+            "be supplied an explicit value."
+        ),
     )
 
     server_url: str = Field(
