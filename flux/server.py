@@ -295,6 +295,10 @@ class Server:
         self._worker_offline_since: dict[str, float] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
+        # Resolved by the FastAPI lifespan startup hook in _create_api so that
+        # merely constructing the app for tests / OpenAPI does not have the
+        # side effect of generating the persisted token file.
+        self._bootstrap_token: str | None = None
         self._worker_connection_gen: dict[str, int] = {}
 
         config = Configuration.get().settings.scheduling
@@ -994,6 +998,20 @@ class Server:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            # Resolve / generate the bootstrap token here (not at module
+            # construction) so merely creating the FastAPI app for tests or
+            # OpenAPI generation does not have the side effect of creating
+            # <home>/bootstrap-token. FastAPI guarantees the startup half of
+            # lifespan runs before any request is dispatched.
+            from flux.security.bootstrap_token import resolve_or_generate
+
+            startup_settings = Configuration.get().settings
+            token, _ = resolve_or_generate(
+                home=startup_settings.home,
+                configured=startup_settings.workers.bootstrap_token,
+            )
+            self._bootstrap_token = token
+
             yield
             await self._stop_scheduler()
             await self._stop_reaper()
@@ -1033,15 +1051,6 @@ class Server:
         )
         auth_service.seed_built_in_roles()
         init_auth_service(auth_service)
-
-        from flux.security.bootstrap_token import resolve_or_generate
-
-        _settings = Configuration.get().settings
-        bootstrap_token, _ = resolve_or_generate(
-            home=_settings.home,
-            configured=_settings.workers.bootstrap_token,
-        )
-        self._bootstrap_token = bootstrap_token
 
         from flux.observability import get_metrics, is_enabled
 
@@ -1623,7 +1632,8 @@ class Server:
             try:
                 logger.debug(f"Worker registration request: {registration.name}")
                 token = self._extract_token(authorization)
-                if not token or not hmac.compare_digest(self._bootstrap_token, token):
+                expected = self._bootstrap_token
+                if not expected or not token or not hmac.compare_digest(expected, token):
                     logger.warning(f"Invalid bootstrap token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,

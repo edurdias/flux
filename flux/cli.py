@@ -1021,10 +1021,22 @@ def server_group():
     "--rotate",
     is_flag=True,
     default=False,
-    help="Generate a fresh token, persist it, and print it. Existing workers must re-register.",
+    help=(
+        "Generate a fresh token and persist it. The server caches the token at startup, "
+        "so you must restart it for the rotated value to take effect; existing workers "
+        "must then re-register. If FLUX_WORKERS__BOOTSTRAP_TOKEN or [flux.workers] "
+        "bootstrap_token is set, that override still wins until removed."
+    ),
 )
 def server_bootstrap_token(rotate: bool):
-    """Print the server's bootstrap token (or rotate it)."""
+    """Print the server's bootstrap token (or rotate it).
+
+    Reading: prints the configured token (env / config file) if set; else the
+    persisted file at <home>/bootstrap-token; else exits 1.
+
+    Rotating: writes a new token to the persisted file. The running server
+    keeps using its in-memory copy until restarted; configured overrides win.
+    """
     from flux.config import Configuration
     from flux.security import bootstrap_token as bt
 

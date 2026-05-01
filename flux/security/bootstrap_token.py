@@ -20,6 +20,7 @@ filesystem with the server.
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import stat
 from pathlib import Path
@@ -43,10 +44,23 @@ def read_persisted(home: str | Path) -> str | None:
 
 
 def write(home: str | Path, token: str) -> Path:
-    """Persist ``token`` to ``<home>/bootstrap-token`` with mode 0600."""
+    """Persist ``token`` to ``<home>/bootstrap-token`` with mode 0600.
+
+    Creates the file atomically with restrictive permissions: ``os.open`` with
+    ``O_CREAT|O_TRUNC`` and ``mode=0600`` ensures the file never briefly exists
+    with the umask-derived permissions before the chmod. Falls back to a
+    second chmod for the case where the file already existed with wider mode.
+    """
     p = _path(home)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(token)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(str(p), flags, _FILE_MODE)
+    try:
+        os.write(fd, token.encode("utf-8"))
+    finally:
+        os.close(fd)
+    # If the file already existed with wider mode, os.open keeps the old mode.
+    # Tighten it explicitly.
     p.chmod(_FILE_MODE)
     return p
 
