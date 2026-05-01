@@ -16,7 +16,10 @@ database_url = "sqlite:///.flux/flux.db"                            # Database U
 # database_max_overflow = 20
 
 [flux.workers]
-bootstrap_token = "4298a036-a934-4add-8963-521294f06bf3"    # Token for bootstrapping workers
+# bootstrap_token = "<set explicitly OR omit to let the server auto-generate>"
+# When unset on the server, a fresh token is written to <home>/bootstrap-token
+# on first start; retrieve it via 'flux server bootstrap-token'. Workers must
+# always be supplied an explicit value (env var, flux.toml, or CLI flag).
 server_url = "http://localhost:8000"                        # Default server URL to connect to
 default_timeout = 30                                        # Default timeout for tasks in seconds
 retry_attempts = 0                                          # Default number of retry attempts for failed tasks
