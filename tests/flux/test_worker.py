@@ -64,6 +64,30 @@ def test_worker_init_fails_fast_when_bootstrap_token_empty():
             Worker(name="test-worker", server_url="http://localhost:8000")
 
 
+def test_worker_init_fails_fast_when_bootstrap_token_whitespace_only():
+    """Whitespace-only bootstrap_token must be rejected, not sent as 'Bearer    '."""
+    mock_settings = MagicMock()
+    mock_settings.workers.bootstrap_token = "   \n\t  "
+    mock_settings.workers.server_url = "http://localhost:8000"
+
+    with patch.object(Configuration, "get") as mock_get:
+        mock_get.return_value = MagicMock(settings=mock_settings)
+        with pytest.raises(RuntimeError, match="Worker bootstrap token is not configured"):
+            Worker(name="test-worker", server_url="http://localhost:8000")
+
+
+def test_worker_init_strips_bootstrap_token_padding():
+    """A token with leading/trailing whitespace is stripped before use."""
+    mock_settings = MagicMock()
+    mock_settings.workers.bootstrap_token = "  real-token  "
+    mock_settings.workers.server_url = "http://localhost:8000"
+
+    with patch.object(Configuration, "get") as mock_get:
+        mock_get.return_value = MagicMock(settings=mock_settings)
+        worker = Worker(name="test-worker", server_url="http://localhost:8000")
+        assert worker.bootstrap_token == "real-token"
+
+
 @pytest.fixture
 def sample_workflow_definition():
     """Create a sample workflow definition for testing."""

@@ -387,7 +387,14 @@ class Server:
             raise HTTPException(status_code=401, detail="Authorization header missing")
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization format")
-        return authorization.split(" ")[1]
+        # Match flux.security.dependencies.get_identity: split exactly once so a
+        # token containing spaces parses correctly, and strip surrounding
+        # whitespace so a header like "Bearer  abc " yields "abc" rather than "".
+        parts = authorization.split(" ", 1)
+        token = parts[1].strip() if len(parts) == 2 else ""
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization format")
+        return token
 
     def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
         auth_config = Configuration.get().settings.security.auth

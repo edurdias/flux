@@ -183,3 +183,37 @@ def test_resolve_or_generate_then_rotate_then_resolve_uses_new_token(tmp_path: P
     final, generated = bt.resolve_or_generate(tmp_path, configured=None)
     assert final == rotated
     assert generated is False
+
+
+def test_resolve_or_generate_treats_whitespace_only_configured_as_unset(tmp_path: Path):
+    """A whitespace-only env/config value must not become the active token."""
+    bt.write(tmp_path, "real-persisted")
+    token, generated = bt.resolve_or_generate(tmp_path, configured="   \n\t  ")
+    assert token == "real-persisted"
+    assert generated is False
+
+
+def test_resolve_or_generate_strips_padded_configured(tmp_path: Path):
+    """A configured value with leading/trailing whitespace is normalized."""
+    token, generated = bt.resolve_or_generate(tmp_path, configured="  real-token  ")
+    assert token == "real-token"
+    assert generated is False
+    # Configured value won; file should NOT have been written.
+    assert not (tmp_path / bt.TOKEN_FILENAME).exists()
+
+
+def test_resolve_or_generate_whitespace_falls_through_to_generation(tmp_path: Path):
+    """When configured is whitespace and no file exists, we still generate."""
+    token, generated = bt.resolve_or_generate(tmp_path, configured="   ")
+    assert generated is True
+    assert len(token) == 64
+    assert (tmp_path / bt.TOKEN_FILENAME).read_text() == token
+
+
+def test_normalize_helper_returns_none_for_blank_inputs():
+    assert bt._normalize(None) is None
+    assert bt._normalize("") is None
+    assert bt._normalize("   ") is None
+    assert bt._normalize("\n\t  ") is None
+    assert bt._normalize("ok") == "ok"
+    assert bt._normalize("  spaced  ") == "spaced"

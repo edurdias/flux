@@ -1041,7 +1041,9 @@ def server_bootstrap_token(rotate: bool):
     from flux.security import bootstrap_token as bt
 
     settings = Configuration.get().settings
-    configured = settings.workers.bootstrap_token
+    # Mirror the resolver's normalization: a whitespace-only env/config value is
+    # treated as unset so it does not silently win over the persisted file.
+    configured = bt._normalize(settings.workers.bootstrap_token)
     home = settings.home
 
     if rotate:

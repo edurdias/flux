@@ -125,6 +125,27 @@ class TestServerBootstrapToken:
         assert result.exit_code == 0
         assert result.output.strip() == "hand-edited-token"
 
+    def test_whitespace_only_configured_falls_through_to_persisted(self, runner, tmp_path: Path):
+        """A whitespace-only env/config value must not suppress the persisted-file fallback."""
+        bt.write(tmp_path, "persisted-token")
+        with patch(
+            "flux.config.Configuration.get",
+            return_value=_patched_settings(tmp_path, configured="   \n\t  "),
+        ):
+            result = runner.invoke(cli, ["server", "bootstrap-token"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "persisted-token"
+
+    def test_padded_configured_is_stripped_before_print(self, runner, tmp_path: Path):
+        """Leading/trailing whitespace on configured value must be stripped."""
+        with patch(
+            "flux.config.Configuration.get",
+            return_value=_patched_settings(tmp_path, configured="  padded-token  "),
+        ):
+            result = runner.invoke(cli, ["server", "bootstrap-token"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "padded-token"
+
     def test_rotate_warning_does_not_pollute_token_output(self, tmp_path: Path):
         """The warning goes to stderr; stdout must contain ONLY the token.
 
@@ -134,7 +155,11 @@ class TestServerBootstrapToken:
         import os
         import subprocess
         import sys
-        from tests.e2e.conftest import PROJECT_ROOT
+
+        # Compute the repo root locally rather than importing from
+        # tests.e2e.conftest, which has import-time side effects (binds a
+        # socket to pick an E2E port).
+        project_root = Path(__file__).resolve().parents[2]
 
         env = {
             **os.environ,
@@ -143,7 +168,7 @@ class TestServerBootstrapToken:
         }
         result = subprocess.run(
             [sys.executable, "-m", "flux.cli", "server", "bootstrap-token", "--rotate"],
-            cwd=PROJECT_ROOT,
+            cwd=project_root,
             env=env,
             capture_output=True,
             text=True,
