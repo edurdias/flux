@@ -237,6 +237,25 @@ def test_flux_config_load_from_config():
         mock_load.assert_called_once_with("flux.toml", ["flux"])
 
 
+def test_shipped_flux_toml_does_not_hardcode_encryption_key():
+    """Regression: flux.toml must NOT ship a literal encryption_key.
+
+    A previous default of "SUPER_SECRET_KEY" was published to a public repo
+    and baked into the Docker image, providing zero confidentiality for
+    encrypted secrets in any deployment that did not override it. The shipped
+    config must leave encryption_key unset so operators are forced to supply
+    one via env var or their own config.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    shipped = FluxConfig._load_from_toml(str(repo_root / "flux.toml"), ["flux"])
+    encryption = shipped.get("security", {}).get("encryption", {})
+    assert (
+        "encryption_key" not in encryption
+    ), f"flux.toml must not hardcode encryption_key; got: {encryption.get('encryption_key')!r}"
+
+
 @pytest.fixture
 def reset_configuration():
     """Fixture to reset the Configuration singleton before and after each test."""

@@ -26,7 +26,9 @@ module_cache_ttl = 300                                      # Seconds to cache c
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security.encryption]
-encryption_key = "SUPER_SECRET_KEY"
+# encryption_key = "<generate with: openssl rand -hex 32>"
+# Required for the secrets store. Set via FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY
+# in production; a missing key surfaces a clear error on first encrypt/decrypt.
 
 # Uncomment to enable API key authentication:
 # [flux.security.auth.api_keys]
