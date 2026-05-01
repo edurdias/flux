@@ -2724,6 +2724,7 @@
 </ul>
 <h3 id="file-resolution-at-creation-time">File resolution at creation time<a class="headerlink" href="#file-resolution-at-creation-time" title="Permanent link">&para;</a></h3>
 <p><code>skills_dir</code>, <code>tools_file</code>, and <code>workflow_file</code> are paths on the machine running <code>flux agent create</code>. Because the workflow runs on a worker — potentially a different machine — these files are read and stored inline in the database at creation (and again on <code>update</code> if paths are supplied). The worker never reads them from the local filesystem.</p>
+<p><strong>Permission requirement.</strong> When auth is enabled, shipping any of these inline payloads requires the <code>workflow:*:*:register</code> permission, not just <code>agent:*:create</code>. The contents are materialized on every worker that runs the agent, so the gate matches the one for registering workflow source code. Plain path-string <code>skills_dir</code> (referencing an existing directory on the worker host, not an inline bundle) does not trigger the elevated gate.</p>
 <h3 id="custom-workflows">Custom workflows<a class="headerlink" href="#custom-workflows" title="Permanent link">&para;</a></h3>
 <p>The built-in template is <code>agents/agent_chat</code>. Most agents do not need anything else. For advanced flows, supply <code>workflow_file</code> with a custom workflow that follows the same contract:</p>
 <ul>

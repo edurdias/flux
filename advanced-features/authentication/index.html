@@ -1383,6 +1383,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="API Endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#worker-bootstrap-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker bootstrap token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1955,7 +1972,7 @@
 <tr>
 <td><code>POST</code></td>
 <td><code>/workers/register</code></td>
-<td>bootstrap_token</td>
+<td>bootstrap_token (see below)</td>
 </tr>
 <tr>
 <td><code>POST</code></td>
@@ -1984,6 +2001,14 @@
 </tr>
 </tbody>
 </table>
+<h3 id="worker-bootstrap-token">Worker bootstrap token<a class="headerlink" href="#worker-bootstrap-token" title="Permanent link">&para;</a></h3>
+<p><code>POST /workers/register</code> is gated by a long-lived shared secret rather than the auth-service permission system. Resolution order on the server:</p>
+<ol>
+<li><code>FLUX_WORKERS__BOOTSTRAP_TOKEN</code> env var, or <code>[flux.workers] bootstrap_token</code> in flux.toml.</li>
+<li>Persisted file at <code>&lt;home&gt;/bootstrap-token</code> (mode 0600).</li>
+<li>Auto-generated on first server start, persisted to the path above, and logged at WARNING level.</li>
+</ol>
+<p>Retrieve the active token with <code>flux server bootstrap-token</code> (run on the server host). Force regeneration of the persisted file-backed token with <code>flux server bootstrap-token --rotate</code>; the running server reads the token once at startup, so you must <strong>restart the server</strong> for the rotated value to take effect, and existing workers will need to re-register with the new token. If <code>FLUX_WORKERS__BOOTSTRAP_TOKEN</code> or <code>[flux.workers] bootstrap_token</code> is set, that configured value still wins over the rotated file until removed. Workers must be supplied an explicit token via env var, config, or CLI flag; auto-generation is server-only because workers typically run on different hosts. The server compares submitted tokens with <code>hmac.compare_digest</code>.</p>
 <h2 id="dev-environment">Dev Environment<a class="headerlink" href="#dev-environment" title="Permanent link">&para;</a></h2>
 <p>The Docker Compose setup includes a pre-configured Keycloak instance. See <a href="../../DOCKER.md#authentication-dev-environment">DOCKER.md</a> for setup.</p>
 <h3 id="pre-seeded-users">Pre-seeded users<a class="headerlink" href="#pre-seeded-users" title="Permanent link">&para;</a></h3>
