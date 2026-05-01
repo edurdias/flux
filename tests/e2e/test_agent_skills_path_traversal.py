@@ -10,6 +10,14 @@ companion API-gate (workflow:*:*:register requirement for inline skills_dir
 bundles). That path is covered by the route-level integration tests in
 ``tests/security/test_server_auth_routes.py`` which run the real FastAPI app
 through TestClient with mocked auth.
+
+Workflow registration is module-scoped (one registration shared by all three
+tests) to dodge a pre-existing bug in Flux's worker module cache: after
+``test_agent_harness_server_modes`` registers a stub ``agents/agent_chat`` at
+some version N then deletes it, the worker keeps the compiled stub cached
+under key ``agents:agent_chat:N``. Per-test re-registration would bump the
+version on each call and eventually land back on the cached version, causing
+the test to silently run the stub instead of the real template.
 """
 
 from __future__ import annotations
@@ -17,6 +25,14 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _register_agent_chat(cli):
+    """Register the real agents/agent_chat exactly once for this module."""
+    cli.register("flux/agents/template.py")
+    yield
 
 
 def _create_agent(cli, name: str, skills_dir: str) -> httpx.Response:
@@ -38,8 +54,6 @@ def _delete_agent(cli, name: str) -> None:
 
 def test_skills_dir_bundle_with_dotdot_path_fails_workflow(cli):
     """Malicious bundle with a `..` segment must fail the workflow at materialize-time."""
-    cli.register("flux/agents/template.py")
-
     name = "e2e_skills_dotdot"
     bundle = json.dumps({"a": {"../../../../tmp/flux_pwn_dotdot.txt": "rooted"}})
 
@@ -66,8 +80,6 @@ def test_skills_dir_bundle_with_dotdot_path_fails_workflow(cli):
 
 def test_skills_dir_bundle_with_absolute_path_fails_workflow(cli):
     """Malicious bundle with an absolute path must fail the workflow at materialize-time."""
-    cli.register("flux/agents/template.py")
-
     name = "e2e_skills_absolute"
     bundle = json.dumps({"a": {"/tmp/flux_pwn_absolute.txt": "rooted"}})
 
@@ -92,8 +104,6 @@ def test_skills_dir_bundle_with_absolute_path_fails_workflow(cli):
 
 def test_skills_dir_bundle_with_safe_paths_succeeds(cli):
     """A well-formed skills bundle must pause at turn 0 (no LLM call) like a normal agent."""
-    cli.register("flux/agents/template.py")
-
     name = "e2e_skills_safe"
     bundle = json.dumps(
         {
