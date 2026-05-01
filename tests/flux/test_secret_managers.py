@@ -5,20 +5,7 @@ import json
 
 import pytest
 
-from flux.config import Configuration
 from flux.secret_managers import SecretManager
-
-
-@pytest.fixture(autouse=True)
-def _set_encryption_key():
-    """Provide an encryption key for the SecretModel.value column.
-
-    The shipped flux.toml no longer hardcodes an encryption_key (operators
-    must supply one in production), so these tests must seed one explicitly.
-    """
-    Configuration.get().override(security={"encryption": {"encryption_key": "test-encryption-key"}})
-    yield
-    Configuration.get().reset()
 
 
 async def test_save_and_get_secret():

@@ -82,6 +82,12 @@ class Worker:
         self.name = name
         self.labels = labels or {}
         config = Configuration.get().settings.workers
+        if not config.bootstrap_token:
+            raise RuntimeError(
+                "Worker bootstrap token is not configured. Set FLUX_WORKERS__BOOTSTRAP_TOKEN "
+                "or 'bootstrap_token' under [flux.workers] in flux.toml. Retrieve the server's "
+                "token by running 'flux server bootstrap-token' on the server host.",
+            )
         self.bootstrap_token = config.bootstrap_token
         self.base_url = f"{server_url or config.server_url}/workers"
         self.client = httpx.AsyncClient(timeout=config.default_timeout or None)
