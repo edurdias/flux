@@ -344,6 +344,8 @@ Working memory is always on; there is no flag to disable it.
 
 `skills_dir`, `tools_file`, and `workflow_file` are paths on the machine running `flux agent create`. Because the workflow runs on a worker — potentially a different machine — these files are read and stored inline in the database at creation (and again on `update` if paths are supplied). The worker never reads them from the local filesystem.
 
+**Permission requirement.** When auth is enabled, shipping any of these inline payloads requires the `workflow:*:*:register` permission, not just `agent:*:create`. The contents are materialized on every worker that runs the agent, so the gate matches the one for registering workflow source code. Plain path-string `skills_dir` (referencing an existing directory on the worker host, not an inline bundle) does not trigger the elevated gate.
+
 ### Custom workflows
 
 The built-in template is `agents/agent_chat`. Most agents do not need anything else. For advanced flows, supply `workflow_file` with a custom workflow that follows the same contract:
