@@ -553,6 +553,7 @@ def cli(tmp_path_factory):
         "FLUX_DATABASE_URL": f"sqlite:///{db_path}",
         "FLUX_WORKERS__SERVER_URL": E2E_SERVER_URL,
         "FLUX_SECURITY__AUTH__ENABLED": "false",
+        "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY": "e2e-test-encryption-key",
     }
 
     # -- start server -----------------------------------------------------
