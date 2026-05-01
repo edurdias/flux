@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import re
 import time
 from typing import Any, Literal
@@ -294,6 +295,10 @@ class Server:
         self._worker_offline_since: dict[str, float] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
+        # Resolved by the FastAPI lifespan startup hook in _create_api so that
+        # merely constructing the app for tests / OpenAPI does not have the
+        # side effect of generating the persisted token file.
+        self._bootstrap_token: str | None = None
         self._worker_connection_gen: dict[str, int] = {}
 
         config = Configuration.get().settings.scheduling
@@ -382,7 +387,14 @@ class Server:
             raise HTTPException(status_code=401, detail="Authorization header missing")
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization format")
-        return authorization.split(" ")[1]
+        # Match flux.security.dependencies.get_identity: split exactly once so a
+        # token containing spaces parses correctly, and strip surrounding
+        # whitespace so a header like "Bearer  abc " yields "abc" rather than "".
+        parts = authorization.split(" ", 1)
+        token = parts[1].strip() if len(parts) == 2 else ""
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization format")
+        return token
 
     def _verify_worker_identity(self, identity: FluxIdentity, name: str) -> None:
         auth_config = Configuration.get().settings.security.auth
@@ -993,6 +1005,20 @@ class Server:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            # Resolve / generate the bootstrap token here (not at module
+            # construction) so merely creating the FastAPI app for tests or
+            # OpenAPI generation does not have the side effect of creating
+            # <home>/bootstrap-token. FastAPI guarantees the startup half of
+            # lifespan runs before any request is dispatched.
+            from flux.security.bootstrap_token import resolve_or_generate
+
+            startup_settings = Configuration.get().settings
+            token, _ = resolve_or_generate(
+                home=startup_settings.home,
+                configured=startup_settings.workers.bootstrap_token,
+            )
+            self._bootstrap_token = token
+
             yield
             await self._stop_scheduler()
             await self._stop_reaper()
@@ -1613,8 +1639,8 @@ class Server:
             try:
                 logger.debug(f"Worker registration request: {registration.name}")
                 token = self._extract_token(authorization)
-                settings = Configuration.get().settings
-                if settings.workers.bootstrap_token != token:
+                expected = self._bootstrap_token
+                if not expected or not token or not hmac.compare_digest(expected, token):
                     logger.warning(f"Invalid bootstrap token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,
@@ -2383,16 +2409,19 @@ class Server:
 
             try:
                 definition = AgentDefinition(**agent_data)
-                if definition.tools_file or definition.workflow_file:
-                    if auth_service is not None:
-                        has_perm = await auth_service.is_authorized(
+                if definition.requires_code_upload_permission():
+                    from flux.security.dependencies import _get_auth_service
+
+                    upload_auth_service = _get_auth_service()
+                    if upload_auth_service is not None:
+                        has_perm = await upload_auth_service.is_authorized(
                             identity,
                             "workflow:*:*:register",
                         )
                         if not has_perm:
                             raise HTTPException(
                                 status_code=403,
-                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                                detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
                 manager = AgentManager.current()
                 manager.create(definition)
@@ -2419,16 +2448,19 @@ class Server:
             try:
                 agent_data["name"] = name
                 definition = AgentDefinition(**agent_data)
-                if definition.tools_file or definition.workflow_file:
-                    if auth_service is not None:
-                        has_perm = await auth_service.is_authorized(
+                if definition.requires_code_upload_permission():
+                    from flux.security.dependencies import _get_auth_service
+
+                    upload_auth_service = _get_auth_service()
+                    if upload_auth_service is not None:
+                        has_perm = await upload_auth_service.is_authorized(
                             identity,
                             "workflow:*:*:register",
                         )
                         if not has_perm:
                             raise HTTPException(
                                 status_code=403,
-                                detail="tools_file/workflow_file require workflow:*:*:register permission",
+                                detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
                 manager = AgentManager.current()
                 manager.update(definition)

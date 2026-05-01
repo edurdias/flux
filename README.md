@@ -683,8 +683,8 @@ retry_attempts = 3
 retry_delay = 1
 retry_backoff = 2
 
-[flux.security]
-encryption_key = "your-encryption-key"
+[flux.security.encryption]
+encryption_key = "your-encryption-key"  # generate with: openssl rand -hex 32
 
 [flux.mcp]
 name = "flux-workflows"
@@ -717,7 +717,7 @@ export FLUX_WORKERS__SERVER_URL=http://production:8000
 export FLUX_WORKERS__DEFAULT_TIMEOUT=600
 
 # Security settings
-export FLUX_SECURITY__ENCRYPTION_KEY=your-secret-key
+export FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=your-secret-key
 
 # MCP settings
 export FLUX_MCP__HOST=0.0.0.0

@@ -379,12 +379,22 @@ flux principals revoke-key <subject> --key-name <name>
 | `DELETE` | `/admin/principals/{id}` | `admin:principals:manage` |
 | `POST` | `/admin/principals/{id}/keys` | `admin:principals:manage` |
 | `DELETE` | `/admin/principals/{id}/keys/{name}` | `admin:principals:manage` |
-| `POST` | `/workers/register` | bootstrap_token |
+| `POST` | `/workers/register` | bootstrap_token (see below) |
 | `POST` | `/workers/{name}/pong` | `worker:*:*` |
 | `GET` | `/workers/{name}/connect` | `worker:*:*` |
 | `POST` | `/workers/{name}/claim/{id}` | `worker:*:*` |
 | `POST` | `/workers/{name}/checkpoint/{id}` | `worker:*:*` |
 | `POST` | `/workers/{name}/progress/{id}` | `worker:*:*` |
+
+### Worker bootstrap token
+
+`POST /workers/register` is gated by a long-lived shared secret rather than the auth-service permission system. Resolution order on the server:
+
+1. `FLUX_WORKERS__BOOTSTRAP_TOKEN` env var, or `[flux.workers] bootstrap_token` in flux.toml.
+2. Persisted file at `<home>/bootstrap-token` (mode 0600).
+3. Auto-generated on first server start, persisted to the path above, and logged at WARNING level.
+
+Retrieve the active token with `flux server bootstrap-token` (run on the server host). Force regeneration of the persisted file-backed token with `flux server bootstrap-token --rotate`; the running server reads the token once at startup, so you must **restart the server** for the rotated value to take effect, and existing workers will need to re-register with the new token. If `FLUX_WORKERS__BOOTSTRAP_TOKEN` or `[flux.workers] bootstrap_token` is set, that configured value still wins over the rotated file until removed. Workers must be supplied an explicit token via env var, config, or CLI flag; auto-generation is server-only because workers typically run on different hosts. The server compares submitted tokens with `hmac.compare_digest`.
 
 ## Dev Environment
 

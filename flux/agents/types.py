@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -51,6 +52,23 @@ class AgentDefinition(BaseModel):
                     "long_term_memory.connection is required when long_term_memory is set",
                 )
         return self
+
+    def has_skills_bundle(self) -> bool:
+        """Return True if skills_dir carries an inline JSON bundle (vs a worker-side path)."""
+        if not self.skills_dir:
+            return False
+        try:
+            return isinstance(json.loads(self.skills_dir), dict)
+        except (json.JSONDecodeError, ValueError):
+            return False
+
+    def requires_code_upload_permission(self) -> bool:
+        """Return True if this definition ships content that escalates beyond ``agent:*:create``.
+
+        ``tools_file``/``workflow_file`` are exec'd on workers; an inline ``skills_dir`` bundle
+        ships arbitrary file content materialized on the worker filesystem.
+        """
+        return bool(self.tools_file or self.workflow_file or self.has_skills_bundle())
 
 
 class AgentPauseOutput(BaseModel):
