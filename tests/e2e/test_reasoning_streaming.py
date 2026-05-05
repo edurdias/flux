@@ -46,7 +46,7 @@ def test_reasoning_events_streamed_during_tool_calling(cli):
         cli.wait_for_state("agents/agent_chat", exec_id, "PAUSED", timeout=30)
 
         # Resume via streaming endpoint and capture raw SSE
-        resume_url = f"{cli.server_url}/workflows/agents/agent_chat" f"/resume/{exec_id}/stream"
+        resume_url = f"{cli.server_url}/workflows/agents/agent_chat/resume/{exec_id}/stream"
         reasoning_events: list[dict] = []
         tool_events: list[str] = []
 
@@ -88,9 +88,9 @@ def test_reasoning_events_streamed_during_tool_calling(cli):
             assert "text" in re_evt, f"Reasoning event missing 'text': {re_evt}"
             assert len(re_evt["text"]) > 0, "Reasoning text should not be empty"
 
-        assert (
-            len(tool_events) >= 2
-        ), f"Expected at least 2 tool events (start+done); got {tool_events}"
+        assert len(tool_events) >= 2, (
+            f"Expected at least 2 tool events (start+done); got {tool_events}"
+        )
 
     finally:
         httpx.delete(f"{cli.server_url}/admin/agents/{agent_name}", timeout=10)

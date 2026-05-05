@@ -141,6 +141,62 @@ jobs:
         path: htmlcov/
         retention-days: 14
 
+  unit-postgres:
+    needs: [version-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: flux_test
+          POSTGRES_USER: flux_test_user
+          POSTGRES_PASSWORD: flux_test_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U flux_test_user -d flux_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      FLUX_DATABASE_URL: postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test
+      FLUX_DATABASE_TYPE: postgresql
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-pg-deps
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-3.14-pg-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-pg-deps.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --extras "observability postgresql"
+
+    - name: Ensure dependencies are available
+      if: steps.cached-pg-deps.outputs.cache-hit == 'true'
+      run: poetry install --no-interaction --no-root --extras "observability postgresql"
+
+    - name: Run unit tests against PostgreSQL
+      run: |
+        poetry run pytest tests/ --ignore=tests/e2e -v
+
   e2e:
     needs: [version-check]
     runs-on: ubuntu-latest

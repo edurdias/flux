@@ -254,9 +254,9 @@ def test_unclaim_from_running_clears_worker_name(manager):
     # Re-fetch from DB to verify worker_name was cleared
     with manager.session() as session:
         model = session.get(ExecutionContextModel, "exec-run-clear")
-        assert (
-            model.worker_name is None
-        ), f"worker_name should be cleared on initial-recovery; got {model.worker_name!r}"
+        assert model.worker_name is None, (
+            f"worker_name should be cleared on initial-recovery; got {model.worker_name!r}"
+        )
 
 
 def test_find_by_worker_returns_active_executions_for_worker(manager):

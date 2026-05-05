@@ -1,4 +1,5 @@
 """Namespace validation — shared between the workflow decorator and the catalog AST parser."""
+
 from __future__ import annotations
 
 import re

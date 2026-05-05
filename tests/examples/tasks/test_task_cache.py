@@ -5,9 +5,9 @@ from examples.tasks.task_cache import workflow_with_cached_task
 
 def test_should_succeed():
     ctx = workflow_with_cached_task.run((2, 3, 3))
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
     return ctx
 
 

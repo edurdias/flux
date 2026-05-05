@@ -1,4 +1,5 @@
 """E2E tests — pause, resume, and cancellation workflows."""
+
 from __future__ import annotations
 
 import time

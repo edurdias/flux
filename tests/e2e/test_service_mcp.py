@@ -1,4 +1,5 @@
 """E2E tests -- service MCP flag, schema extraction, and endpoint tests."""
+
 from __future__ import annotations
 
 from pathlib import Path

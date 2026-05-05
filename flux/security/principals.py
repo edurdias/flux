@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
 from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String, UniqueConstraint

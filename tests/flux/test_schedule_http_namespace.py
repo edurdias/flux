@@ -1,4 +1,5 @@
 """Regression test: POST /schedules with a qualified workflow ref must persist workflow_namespace."""
+
 from __future__ import annotations
 
 import pytest

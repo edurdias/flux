@@ -14,9 +14,9 @@ def test_should_succeed():
     }
 
     ctx = complex_pipeline.run(input)
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
 
     return ctx
 
@@ -25,9 +25,9 @@ def test_should_skip_if_finished():
     first_ctx = test_should_succeed()
     second_ctx = complex_pipeline.run(execution_id=first_ctx.execution_id)
 
-    assert (
-        second_ctx.has_finished and second_ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert second_ctx.has_finished and second_ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
 
     assert first_ctx.execution_id == second_ctx.execution_id
     assert first_ctx.output == second_ctx.output

@@ -13,7 +13,7 @@ from importlib import util
 from pathlib import Path
 from types import GeneratorType
 from typing import Any
-from typing import Callable
+from collections.abc import Callable
 
 from flux.errors import ExecutionError
 

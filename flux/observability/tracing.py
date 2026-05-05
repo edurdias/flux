@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 
 def traced(span_name: str, attributes: dict[str, Any] | None = None) -> Callable:

@@ -6,9 +6,9 @@ from flux.domain.events import ExecutionEventType
 
 def test_should_succeed():
     ctx = task_map.run(4)
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
     return ctx
 
 

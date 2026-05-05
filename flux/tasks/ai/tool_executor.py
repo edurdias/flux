@@ -6,7 +6,8 @@ import json
 import logging
 import re
 import typing
-from typing import Any, Callable, Union, get_type_hints
+from typing import Any, Union, get_type_hints
+from collections.abc import Callable
 
 from flux.errors import PauseRequested
 

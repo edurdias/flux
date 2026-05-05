@@ -78,9 +78,9 @@ class TestWorkerSetsExecTokenOnContext:
             "exec_token": "exec.tok.worker-side",
         }
         request = WorkflowExecutionRequest.from_json(data, checkpoint=AsyncMock())
-        assert (
-            request.context.exec_token == "exec.tok.worker-side"
-        ), "exec_token was not propagated to the ExecutionContext"
+        assert request.context.exec_token == "exec.tok.worker-side", (
+            "exec_token was not propagated to the ExecutionContext"
+        )
 
     def test_from_json_no_exec_token_context_exec_token_is_none(self):
         data = {

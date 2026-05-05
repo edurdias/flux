@@ -9,7 +9,7 @@ import sys
 import time
 from collections.abc import Awaitable
 from types import ModuleType
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 import psutil
@@ -532,6 +532,12 @@ class Worker:
 
         m = get_metrics()
 
+        module_name = _make_module_name(
+            request.workflow.namespace,
+            request.workflow.name,
+            request.workflow.version,
+        )
+
         if self._module_cache_ttl > 0:
             cached = self._module_cache.get(cache_key)
             if cached:
@@ -543,6 +549,7 @@ class Worker:
                         m.record_module_cache("hit")
                 else:
                     del self._module_cache[cache_key]
+                    sys.modules.pop(module_name, None)
 
         if module is None:
             if m and self._module_cache_ttl > 0:
@@ -551,11 +558,11 @@ class Worker:
             source_code = base64.b64decode(request.workflow.source).decode("utf-8")
             logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
 
-            module_name = _make_module_name(
-                request.workflow.namespace,
-                request.workflow.name,
-                request.workflow.version,
-            )
+            # Drop any stale module under this name before exec'ing the new
+            # source. Otherwise a re-registered version executes against the
+            # previous version's globals dict still pinned in sys.modules.
+            sys.modules.pop(module_name, None)
+
             logger.debug(f"Creating module: {module_name}")
             module_spec = importlib.util.spec_from_loader(module_name, loader=None)
             module = importlib.util.module_from_spec(module_spec)  # type: ignore

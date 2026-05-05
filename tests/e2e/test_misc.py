@@ -1,4 +1,5 @@
 """E2E tests — miscellaneous: scheduled workflow metadata."""
+
 from __future__ import annotations
 
 

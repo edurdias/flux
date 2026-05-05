@@ -229,7 +229,10 @@ def test_to_llm_response_with_structured_tool_calls():
 
     assert result.text == ""
     assert len(result.tool_calls) == 1
-    assert result.tool_calls[0].id == "call_0"
+    # Ollama doesn't provide tool-call IDs; we mint a unique uuid each time so
+    # multi-turn agent loops don't collide on `call_0`/`call_1`/...
+    assert result.tool_calls[0].id.startswith("call_")
+    assert len(result.tool_calls[0].id) > len("call_0")
     assert result.tool_calls[0].name == "search"
     assert result.tool_calls[0].arguments == {"q": "AI"}
 

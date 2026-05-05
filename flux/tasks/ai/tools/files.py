@@ -127,7 +127,7 @@ def build_file_tools(config: SystemToolsConfig) -> list:
         mode = stat.filemode(st.st_mode)
         modified = datetime.datetime.fromtimestamp(
             st.st_mtime,
-            tz=datetime.timezone.utc,
+            tz=datetime.UTC,
         ).isoformat()
 
         return {

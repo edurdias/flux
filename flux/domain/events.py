@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Any, TypedDict
 
-from flux.utils import make_hashable
+from flux.utils import FluxEncoder, make_hashable  # noqa: F401  (make_hashable kept for back-compat)
 
 
 class PausedEventValue(TypedDict):
@@ -88,6 +90,11 @@ class ExecutionEvent:
         return False
 
     def __generate_id(self):
+        # SHA256 of canonical JSON. Python's built-in hash() is randomized
+        # per-process under ASLR, so event IDs computed in one process did
+        # not match the same event re-derived in another, breaking the
+        # `(event_id, type)` dedup key in ContextManager._get_additional_events
+        # across server restarts and worker handoff.
         args = {
             "name": self.name,
             "type": self.type,
@@ -95,4 +102,5 @@ class ExecutionEvent:
             "value": self.value,
             "time": self.time,
         }
-        return f"{abs(hash(tuple(sorted(make_hashable(args)))))}"
+        canonical = json.dumps(args, sort_keys=True, cls=FluxEncoder, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]

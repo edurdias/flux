@@ -1,4 +1,5 @@
 """E2E tests -- workflow service lifecycle and endpoint execution."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -16,9 +16,9 @@ def test_distinct_tasks_have_independent_secret_requests_lists():
 
     assert a.secret_requests == []
     assert b.secret_requests == []
-    assert (
-        a.secret_requests is not b.secret_requests
-    ), "Mutable default leaked: two @task-decorated functions share the same list."
+    assert a.secret_requests is not b.secret_requests, (
+        "Mutable default leaked: two @task-decorated functions share the same list."
+    )
 
 
 def test_distinct_tasks_have_independent_config_requests_lists():
@@ -32,9 +32,9 @@ def test_distinct_tasks_have_independent_config_requests_lists():
 
     assert a.config_requests == []
     assert b.config_requests == []
-    assert (
-        a.config_requests is not b.config_requests
-    ), "Mutable default leaked: two @task-decorated functions share the same list."
+    assert a.config_requests is not b.config_requests, (
+        "Mutable default leaked: two @task-decorated functions share the same list."
+    )
 
 
 def test_mutating_one_task_secret_requests_does_not_affect_another():
@@ -47,9 +47,9 @@ def test_mutating_one_task_secret_requests_does_not_affect_another():
         pass
 
     a.secret_requests.append("leaked:key")
-    assert (
-        b.secret_requests == []
-    ), f"State leaked across task instances: b.secret_requests={b.secret_requests!r}"
+    assert b.secret_requests == [], (
+        f"State leaked across task instances: b.secret_requests={b.secret_requests!r}"
+    )
 
 
 def test_mutating_one_task_config_requests_does_not_affect_another():
@@ -62,9 +62,9 @@ def test_mutating_one_task_config_requests_does_not_affect_another():
         pass
 
     a.config_requests.append("leaked:key")
-    assert (
-        b.config_requests == []
-    ), f"State leaked across task instances: b.config_requests={b.config_requests!r}"
+    assert b.config_requests == [], (
+        f"State leaked across task instances: b.config_requests={b.config_requests!r}"
+    )
 
 
 def test_with_options_creates_independent_lists_from_defaults():
