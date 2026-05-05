@@ -102,5 +102,8 @@ class ExecutionEvent:
             "value": self.value,
             "time": self.time,
         }
-        canonical = json.dumps(args, sort_keys=True, cls=FluxEncoder, default=str)
+        # FluxEncoder is its own fallback (its default() ends in `return str(obj)`),
+        # so passing `default=...` here would override FluxEncoder.default and the
+        # canonical Enum/datetime handling we want.
+        canonical = json.dumps(args, sort_keys=True, cls=FluxEncoder)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
