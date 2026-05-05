@@ -41,7 +41,7 @@ class TestCancellationExample:
             assert not result_ctx.is_cancelled
             assert isinstance(result_ctx.output, list)
             assert len(result_ctx.output) == 1
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail("Test timed out")
 
     @pytest.mark.asyncio

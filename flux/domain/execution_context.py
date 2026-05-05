@@ -5,7 +5,7 @@ from collections.abc import Awaitable
 from contextvars import ContextVar
 from contextvars import Token
 from typing import Any
-from typing import Callable
+from collections.abc import Callable
 from typing import Generic
 from typing import Self
 from typing import TypeVar
@@ -207,6 +207,9 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return None
 
     def schedule(self, worker: WorkerInfo) -> Self:
+        # Pin the row to the scheduling worker so the claim path can lock and
+        # filter on worker_name — symmetric with resume_schedule below.
+        self._current_worker = worker.name
         self._state = ExecutionState.SCHEDULED
         self.events.append(
             ExecutionEvent(

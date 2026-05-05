@@ -84,20 +84,20 @@ def test_should_succeed(mock_httpx_client):
     assert mock_httpx_client.post.call_count == len(repos)
 
     # Verify the workflow completed successfully
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), f"The workflow should have been completed successfully, instead it finished with {ctx.state} state."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        f"The workflow should have been completed successfully, instead it finished with {ctx.state} state."
+    )
 
     # Verify all repositories are in the output
-    assert all(
-        repo in ctx.output for repo in repos
-    ), "The output should contain all the specified repositories."
+    assert all(repo in ctx.output for repo in repos), (
+        "The output should contain all the specified repositories."
+    )
 
     # Verify the star counts match our expected values
     for repo in repos:
-        assert (
-            ctx.output[repo] == REPO_STAR_COUNTS[repo]
-        ), f"Expected {REPO_STAR_COUNTS[repo]} stars for {repo}, but got {ctx.output[repo]}"
+        assert ctx.output[repo] == REPO_STAR_COUNTS[repo], (
+            f"Expected {REPO_STAR_COUNTS[repo]} stars for {repo}, but got {ctx.output[repo]}"
+        )
 
     return ctx
 

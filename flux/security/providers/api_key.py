@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
-from typing import Callable
+from collections.abc import Callable
 
 from flux.security.identity import FluxIdentity
 from flux.security.models import APIKeyModel

@@ -251,9 +251,9 @@ def test_shipped_flux_toml_does_not_hardcode_encryption_key():
     repo_root = Path(__file__).resolve().parents[2]
     shipped = FluxConfig._load_from_toml(str(repo_root / "flux.toml"), ["flux"])
     encryption = shipped.get("security", {}).get("encryption", {})
-    assert (
-        "encryption_key" not in encryption
-    ), f"flux.toml must not hardcode encryption_key; got: {encryption.get('encryption_key')!r}"
+    assert "encryption_key" not in encryption, (
+        f"flux.toml must not hardcode encryption_key; got: {encryption.get('encryption_key')!r}"
+    )
 
 
 def test_shipped_flux_toml_does_not_hardcode_bootstrap_token():
@@ -270,9 +270,9 @@ def test_shipped_flux_toml_does_not_hardcode_bootstrap_token():
     repo_root = Path(__file__).resolve().parents[2]
     shipped = FluxConfig._load_from_toml(str(repo_root / "flux.toml"), ["flux"])
     workers = shipped.get("workers", {})
-    assert (
-        "bootstrap_token" not in workers
-    ), f"flux.toml must not hardcode bootstrap_token; got: {workers.get('bootstrap_token')!r}"
+    assert "bootstrap_token" not in workers, (
+        f"flux.toml must not hardcode bootstrap_token; got: {workers.get('bootstrap_token')!r}"
+    )
 
 
 @pytest.fixture

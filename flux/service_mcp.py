@@ -35,8 +35,7 @@ class EndpointInfo:
 
 @runtime_checkable
 class EndpointProvider(Protocol):
-    async def get_endpoints(self) -> dict[str, EndpointInfo]:
-        ...
+    async def get_endpoints(self) -> dict[str, EndpointInfo]: ...
 
 
 class ServiceMCPServer:
@@ -356,9 +355,9 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             "output": output,
         }
         if state == "PAUSED":
-            resp[
-                "message"
-            ] = f"Use resume_{name}(execution_id='{execution_id}', input='...') to continue."
+            resp["message"] = (
+                f"Use resume_{name}(execution_id='{execution_id}', input='...') to continue."
+            )
         if mode == "async":
             resp["message"] = f"Use status_{name}(execution_id='{execution_id}') to check progress."
         return resp

@@ -57,9 +57,9 @@ def test_workers_register_rejects_wrong_bootstrap_token(cli):
         headers={"Authorization": "Bearer not-the-real-token"},
         timeout=10,
     )
-    assert (
-        resp.status_code == 403
-    ), f"expected 403 for wrong bootstrap token; got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 403, (
+        f"expected 403 for wrong bootstrap token; got {resp.status_code}: {resp.text}"
+    )
     assert "Invalid bootstrap token" in resp.text
 
 
@@ -114,9 +114,9 @@ def test_workers_register_accepts_correct_bootstrap_token(cli):
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
     )
-    assert (
-        resp.status_code == 200
-    ), f"expected 200 for correct bootstrap token; got {resp.status_code}: {resp.text}"
+    assert resp.status_code == 200, (
+        f"expected 200 for correct bootstrap token; got {resp.status_code}: {resp.text}"
+    )
 
 
 def test_server_bootstrap_token_rotate_writes_new_file(cli, tmp_path):

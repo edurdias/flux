@@ -1,4 +1,5 @@
 """E2E tests — pipelines, output storage, resource requests, secrets."""
+
 from __future__ import annotations
 
 import pytest

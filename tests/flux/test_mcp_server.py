@@ -1,4 +1,5 @@
 """Signature tests for MCP server tools — verify each namespace-aware tool signature."""
+
 from __future__ import annotations
 
 import inspect
@@ -72,8 +73,8 @@ def test_mcp_tools_use_typing_Any_not_builtin_any():
 
     source = inspect.getsource(src)
     # No lowercase `any` inside dict annotations
-    assert (
-        "dict[str, any]" not in source
-    ), "MCP tool annotations still use builtin `any`; use `typing.Any` instead"
+    assert "dict[str, any]" not in source, (
+        "MCP tool annotations still use builtin `any`; use `typing.Any` instead"
+    )
     # And at least one tool actually uses the correct form
     assert "dict[str, Any]" in source

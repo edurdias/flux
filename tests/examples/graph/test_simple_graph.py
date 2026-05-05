@@ -5,9 +5,9 @@ from examples.graph.simple_graph import simple_graph
 
 def test_should_succeed():
     ctx = simple_graph.run("Joe")
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
     assert ctx.output == "Hello, Joe"
     return ctx
 

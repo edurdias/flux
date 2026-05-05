@@ -229,6 +229,7 @@ class DatabaseContextManager(ContextManager):
                 ctx = model.to_plain()
                 ctx.schedule(worker)
                 model.state = ctx.state
+                model.worker_name = ctx.current_worker
                 model.events.extend(self._get_additional_events(ctx, model))
                 session.commit()
                 return ctx
@@ -349,16 +350,46 @@ class DatabaseContextManager(ContextManager):
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(ExecutionContextModel, execution_id)
-            if model:
-                ctx = model.to_plain()
-                ctx.claim(worker)
-                model.state = ctx.state
-                model.worker_name = ctx.current_worker
-                model.events.extend(self._get_additional_events(ctx, model))
-                session.commit()
-                return ctx
-            raise ExecutionContextNotFoundError(execution_id)
+            # Race-safe path: the row was already SCHEDULED to this worker by
+            # next_execution(). Lock it for update so a second worker can't
+            # double-claim between the SELECT and the COMMIT.
+            model = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.execution_id == execution_id,
+                    ExecutionContextModel.state == ExecutionState.SCHEDULED,
+                    ExecutionContextModel.worker_name == worker.name,
+                )
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            # Fall back to the plain lookup so direct ctx.claim() callers
+            # (tests, in-process flows that skip the dispatcher) still work.
+            if model is None:
+                model = session.get(ExecutionContextModel, execution_id)
+            if model is None:
+                raise ExecutionContextNotFoundError(execution_id)
+            # Don't let the fallback hijack a row that was scheduled to a
+            # different worker by the dispatcher. CREATED-from-tests still
+            # passes through.
+            if (
+                model.state == ExecutionState.SCHEDULED
+                and model.worker_name
+                and model.worker_name != worker.name
+            ):
+                raise ExecutionError(
+                    message=(
+                        f"Cannot claim execution {execution_id}: scheduled to "
+                        f"'{model.worker_name}', not '{worker.name}'"
+                    ),
+                )
+            ctx = model.to_plain()
+            ctx.claim(worker)
+            model.state = ctx.state
+            model.worker_name = ctx.current_worker
+            model.events.extend(self._get_additional_events(ctx, model))
+            session.commit()
+            return ctx
 
     def claim_resume(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:

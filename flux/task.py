@@ -12,7 +12,8 @@ from flux.utils import get_func_args, make_hashable, maybe_awaitable
 import asyncio
 import time
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Callable
 from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -300,7 +301,7 @@ class task:
                                     maybe_awaitable(self._func(*args, **kwargs)),
                                     timeout=self.timeout,
                                 )
-                            except asyncio.TimeoutError as ex:
+                            except TimeoutError as ex:
                                 raise ExecutionTimeoutError(
                                     "Task",
                                     self.name,

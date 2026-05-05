@@ -6,12 +6,12 @@ from examples.github_stars import github_stars
 def test_should_succeed():
     repos = ["python/cpython", "microsoft/vscode"]
     ctx = github_stars.run(repos)
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
-    assert all(
-        repo in ctx.output for repo in repos
-    ), "The output should contain all the specified repositories."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
+    assert all(repo in ctx.output for repo in repos), (
+        "The output should contain all the specified repositories."
+    )
     return ctx
 
 

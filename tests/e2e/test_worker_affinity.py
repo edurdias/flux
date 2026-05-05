@@ -1,4 +1,5 @@
 """E2E tests for worker affinity label-based dispatch."""
+
 from __future__ import annotations
 
 import time

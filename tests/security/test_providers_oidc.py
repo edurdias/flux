@@ -189,3 +189,23 @@ class TestOIDCProviderValidation:
         metadata = call.kwargs.get("metadata") or call.args[1] if len(call.args) > 1 else {}
         assert "email" not in metadata
         assert "email_verified" not in metadata
+
+
+class TestOIDCProviderInitValidation:
+    """OIDC must reject empty issuer/audience when enabled (token-confusion guard)."""
+
+    def test_disabled_oidc_with_empty_strings_is_allowed(self):
+        OIDCProvider(OIDCConfig(enabled=False, issuer="", audience=""))
+
+    def test_enabled_oidc_with_empty_issuer_raises(self):
+        with pytest.raises(ValueError, match="issuer is empty"):
+            OIDCProvider(OIDCConfig(enabled=True, issuer="", audience="flux-api"))
+
+    def test_enabled_oidc_with_empty_audience_raises(self):
+        with pytest.raises(ValueError, match="audience is empty"):
+            OIDCProvider(OIDCConfig(enabled=True, issuer="https://idp", audience=""))
+
+    def test_enabled_oidc_with_full_config_is_accepted(self):
+        OIDCProvider(
+            OIDCConfig(enabled=True, issuer="https://idp", audience="flux-api"),
+        )

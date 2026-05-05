@@ -1,4 +1,5 @@
 """Regression test for schedule manager cross-namespace isolation."""
+
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,5 @@
 """E2E tests — core workflow examples."""
+
 from __future__ import annotations
 
 

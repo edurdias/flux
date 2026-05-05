@@ -610,7 +610,7 @@ class Server:
                 else:
                     try:
                         await asyncio.wait_for(event.wait(), timeout=30.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         pass
                     event.clear()
                     new_ctx = manager.get(ctx.execution_id)
@@ -1059,6 +1059,14 @@ class Server:
         auth_service.seed_built_in_roles()
         init_auth_service(auth_service)
 
+        if not auth_config.enabled and not Configuration.get().settings.debug:
+            logger.critical(
+                "Authentication is DISABLED. All requests are treated as the ANONYMOUS "
+                "admin principal. This is not safe for production. Enable an auth "
+                "provider via [flux.security.auth.oidc] or [flux.security.auth.api_keys] "
+                "before exposing this server.",
+            )
+
         from flux.observability import get_metrics, is_enabled
 
         if is_enabled():
@@ -1074,7 +1082,9 @@ class Server:
                 from prometheus_client import REGISTRY, generate_latest
 
                 @api.get("/metrics")
-                async def metrics_endpoint():
+                async def metrics_endpoint(
+                    identity: FluxIdentity = Depends(require_permission("admin:metrics:read")),
+                ):
                     from starlette.responses import Response
 
                     return Response(
@@ -1301,7 +1311,7 @@ class Server:
                         while not ctx.has_finished:
                             try:
                                 await asyncio.wait_for(event.wait(), timeout=30.0)
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
@@ -1459,7 +1469,7 @@ class Server:
                         while not ctx.has_finished:
                             try:
                                 await asyncio.wait_for(event.wait(), timeout=30.0)
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
@@ -1603,7 +1613,7 @@ class Server:
                             )
                             try:
                                 await asyncio.wait_for(event.wait(), timeout=30.0)
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
@@ -2711,7 +2721,7 @@ class Server:
 
                 if auth_service is not None and auth_config.enabled:
                     required = (
-                        f"workflow:{schedule.workflow_namespace}:" f"{schedule.workflow_name}:read"
+                        f"workflow:{schedule.workflow_namespace}:{schedule.workflow_name}:read"
                     )
                     if not await auth_service.is_authorized(identity, required):
                         raise HTTPException(
@@ -3437,7 +3447,7 @@ class Server:
         @api.post("/services", status_code=201)
         async def create_service(
             request: Request,
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:manage")),
         ):
             from json import JSONDecodeError
 
@@ -3506,7 +3516,7 @@ class Server:
 
         @api.get("/services")
         async def list_services(
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:read")),
         ):
             from flux.service_store import ServiceStore
 
@@ -3535,7 +3545,7 @@ class Server:
         @api.get("/services/{service_name}")
         async def get_service(
             service_name: str,
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:read")),
         ):
             from flux.service_store import ServiceStore
             from flux.service_resolver import ServiceResolver, CollisionError
@@ -3591,7 +3601,7 @@ class Server:
         async def update_service(
             service_name: str,
             request: Request,
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:manage")),
         ):
             from json import JSONDecodeError
 
@@ -3662,7 +3672,7 @@ class Server:
         @api.delete("/services/{service_name}")
         async def delete_service(
             service_name: str,
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:manage")),
         ):
             from flux.service_store import ServiceStore, ServiceNotFoundError
 
@@ -3684,7 +3694,7 @@ class Server:
         @api.get("/services/{service_name}/mcp/tools")
         async def service_mcp_info(
             service_name: str,
-            identity: FluxIdentity = Depends(get_identity),
+            identity: FluxIdentity = Depends(require_permission("service:*:read")),
         ):
             from flux.service_store import ServiceStore
             from flux.service_resolver import ServiceResolver, CollisionError
@@ -3892,7 +3902,7 @@ class Server:
                         while not ctx.has_finished:
                             try:
                                 await asyncio.wait_for(event.wait(), timeout=30.0)
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             event.clear()
                             ctx = manager.get(ctx.execution_id)
@@ -4052,7 +4062,7 @@ class Server:
                         while not ctx.has_finished:
                             try:
                                 await asyncio.wait_for(event.wait(), timeout=30.0)
-                            except asyncio.TimeoutError:
+                            except TimeoutError:
                                 pass
                             event.clear()
                             ctx = manager.get(ctx.execution_id)

@@ -1,4 +1,5 @@
 """E2E tests — Ollama-based AI examples (auto-skipped without Ollama)."""
+
 from __future__ import annotations
 
 import pytest
