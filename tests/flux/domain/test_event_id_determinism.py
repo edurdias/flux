@@ -6,6 +6,7 @@ ContextManager._get_additional_events deduplication on replay. The IDs
 are now SHA256-derived, so the assertions below should hold across any
 fresh interpreter run.
 """
+
 from __future__ import annotations
 
 import subprocess
