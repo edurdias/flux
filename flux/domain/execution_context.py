@@ -207,6 +207,9 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return None
 
     def schedule(self, worker: WorkerInfo) -> Self:
+        # Pin the row to the scheduling worker so the claim path can lock and
+        # filter on worker_name — symmetric with resume_schedule below.
+        self._current_worker = worker.name
         self._state = ExecutionState.SCHEDULED
         self.events.append(
             ExecutionEvent(
