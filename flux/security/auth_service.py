@@ -4,7 +4,7 @@ import hashlib
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from collections.abc import Callable
 
 from flux.security.config import AuthConfig
 from flux.security.errors import AuthenticationError
@@ -33,6 +33,8 @@ BUILT_IN_ROLES = {
         "agent:*:*",
         "config:*:read",
         "config:*:manage",
+        "service:*:read",
+        "service:*:manage",
     ],
     "viewer": [
         "workflow:*:*:read",
@@ -40,6 +42,7 @@ BUILT_IN_ROLES = {
         "schedule:*:read",
         "agent:*:read",
         "config:*:read",
+        "service:*:read",
     ],
     "worker": [
         "worker:*:*",

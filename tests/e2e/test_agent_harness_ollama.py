@@ -296,18 +296,18 @@ async def test_api_mode_multi_turn_conversation_ollama(cli, agent_workflow):
 
         exec_detail = cli.execution_show(session_id, detailed=True)
         event_types = [e.get("type") for e in exec_detail.get("events", [])]
-        assert (
-            event_types.count("WORKFLOW_RESUMING") == 2
-        ), f"Expected 2 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
-        assert (
-            event_types.count("WORKFLOW_RESUME_SCHEDULED") == 2
-        ), f"Expected 2 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
-        assert (
-            event_types.count("WORKFLOW_RESUME_CLAIMED") == 2
-        ), f"Expected 2 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
-        assert (
-            event_types.count("WORKFLOW_RESUMED") == 2
-        ), f"Expected 2 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
+        assert event_types.count("WORKFLOW_RESUMING") == 2, (
+            f"Expected 2 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
+        )
+        assert event_types.count("WORKFLOW_RESUME_SCHEDULED") == 2, (
+            f"Expected 2 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
+        )
+        assert event_types.count("WORKFLOW_RESUME_CLAIMED") == 2, (
+            f"Expected 2 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
+        )
+        assert event_types.count("WORKFLOW_RESUMED") == 2, (
+            f"Expected 2 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
+        )
     finally:
         _teardown_agent(cli, agent_name)
 
@@ -478,17 +478,17 @@ async def test_api_mode_session_resume_after_process_restart_ollama(
 
         exec_detail = cli.execution_show(session_id, detailed=True)
         event_types = [e.get("type") for e in exec_detail.get("events", [])]
-        assert (
-            event_types.count("WORKFLOW_RESUMING") == 2
-        ), f"Expected 2 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
-        assert (
-            event_types.count("WORKFLOW_RESUME_SCHEDULED") == 2
-        ), f"Expected 2 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
-        assert (
-            event_types.count("WORKFLOW_RESUME_CLAIMED") == 2
-        ), f"Expected 2 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
-        assert (
-            event_types.count("WORKFLOW_RESUMED") == 2
-        ), f"Expected 2 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
+        assert event_types.count("WORKFLOW_RESUMING") == 2, (
+            f"Expected 2 WORKFLOW_RESUMING, got {event_types.count('WORKFLOW_RESUMING')}"
+        )
+        assert event_types.count("WORKFLOW_RESUME_SCHEDULED") == 2, (
+            f"Expected 2 WORKFLOW_RESUME_SCHEDULED, got {event_types.count('WORKFLOW_RESUME_SCHEDULED')}"
+        )
+        assert event_types.count("WORKFLOW_RESUME_CLAIMED") == 2, (
+            f"Expected 2 WORKFLOW_RESUME_CLAIMED, got {event_types.count('WORKFLOW_RESUME_CLAIMED')}"
+        )
+        assert event_types.count("WORKFLOW_RESUMED") == 2, (
+            f"Expected 2 WORKFLOW_RESUMED, got {event_types.count('WORKFLOW_RESUMED')}"
+        )
     finally:
         _teardown_agent(cli, agent_name)

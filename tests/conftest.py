@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from flux.config import Configuration
+from flux.models import DatabaseRepository
 
 
 @pytest.fixture(autouse=True)
@@ -23,3 +24,15 @@ def _seed_required_config():
     )
     yield
     Configuration.get().reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_engine_cache():
+    """Clear cached database engines between tests to prevent cross-test contamination.
+
+    Previously lived in tests/flux/conftest.py, which meant tests/security/,
+    tests/examples/, and tests/e2e/ inherited stale engines after a config override.
+    """
+    DatabaseRepository._engines.clear()
+    yield
+    DatabaseRepository._engines.clear()

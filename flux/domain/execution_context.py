@@ -5,7 +5,7 @@ from collections.abc import Awaitable
 from contextvars import ContextVar
 from contextvars import Token
 from typing import Any
-from typing import Callable
+from collections.abc import Callable
 from typing import Generic
 from typing import Self
 from typing import TypeVar

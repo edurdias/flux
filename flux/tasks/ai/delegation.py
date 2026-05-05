@@ -5,7 +5,8 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
+from collections.abc import Callable
 
 from flux.errors import ExecutionError, PauseRequested
 from flux.task import task

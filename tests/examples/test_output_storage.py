@@ -6,9 +6,9 @@ from flux.output_storage import OutputStorageReference
 
 def test_should_succeed():
     ctx = output_storage.run("examples/data/sample.csv")
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
     assert isinstance(ctx.output, OutputStorageReference)
     assert ctx.output.reference_id == f"{output_storage.name}_{ctx.execution_id}"
     return ctx

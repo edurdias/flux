@@ -1,4 +1,5 @@
 """E2E test infrastructure — session fixture, CLI wrapper, markers."""
+
 from __future__ import annotations
 
 import json
@@ -273,7 +274,7 @@ class FluxCLI:
             env=self._env,
         )
 
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             try:
                 r = httpx.get(f"{self.server_url}/workers", timeout=2)
@@ -286,7 +287,7 @@ class FluxCLI:
             time.sleep(1)
 
         _kill_process(proc, name)
-        raise RuntimeError(f"Worker '{name}' did not connect within 30s")
+        raise RuntimeError(f"Worker '{name}' did not connect within 60s")
 
     def stop_worker(self, proc: subprocess.Popen):
         _kill_process(proc, "worker")
@@ -567,8 +568,8 @@ def cli(tmp_path_factory):
         env=env,
     )
 
-    # Poll health
-    deadline = time.monotonic() + 30
+    # Poll health (60s deadline tolerates CPU-pressured CI runners)
+    deadline = time.monotonic() + 60
     healthy = False
     while time.monotonic() < deadline:
         try:
@@ -582,9 +583,13 @@ def cli(tmp_path_factory):
     if not healthy:
         _kill_process(srv, "server")
         srv_log.close()
+        try:
+            tail = (log_dir / "server.log").read_text()[-2000:]
+        except OSError:
+            tail = "<no server log>"
         pytest.fail(
-            f"Flux server did not become healthy on port {E2E_PORT} within 30s. "
-            f"Check {log_dir / 'server.log'}",
+            "Flux server did not become healthy on port "
+            f"{E2E_PORT} within 60s.\n--- server.log tail ---\n{tail}",
         )
 
     # -- start worker -----------------------------------------------------
@@ -606,8 +611,8 @@ def cli(tmp_path_factory):
         env=env,
     )
 
-    # Poll workers endpoint
-    deadline = time.monotonic() + 30
+    # Poll workers endpoint (60s deadline; same rationale as the health poll)
+    deadline = time.monotonic() + 60
     connected = False
     while time.monotonic() < deadline:
         try:
@@ -623,7 +628,13 @@ def cli(tmp_path_factory):
         _kill_process(srv, "server")
         wkr_log.close()
         srv_log.close()
-        pytest.fail(f"Worker did not connect within 30s. Check {log_dir / 'worker.log'}")
+        try:
+            tail = (log_dir / "worker.log").read_text()[-2000:]
+        except OSError:
+            tail = "<no worker log>"
+        pytest.fail(
+            f"Worker did not connect within 60s.\n--- worker.log tail ---\n{tail}",
+        )
 
     # -- yield CLI instance -----------------------------------------------
     flux_cli = FluxCLI(server_url=E2E_SERVER_URL)

@@ -4,7 +4,7 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
-from typing import Callable
+from collections.abc import Callable
 from typing import Literal
 
 from flux.task import task

@@ -12,9 +12,9 @@ def test_should_succeed():
     secret_manager.save(SECRET_NAME, SECRET_VALUE)
 
     ctx = using_secrets.run()
-    assert (
-        ctx.has_finished and ctx.has_succeeded
-    ), "The workflow should have been completed successfully."
+    assert ctx.has_finished and ctx.has_succeeded, (
+        "The workflow should have been completed successfully."
+    )
     assert ctx.output == SECRET_VALUE
     return ctx
 
