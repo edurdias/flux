@@ -4,7 +4,8 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Callable
 
 from flux.task import task
 
@@ -313,9 +314,9 @@ async def build_plan_tools(
         result = ctx.plan.to_dict()
         dropped = [s.name for s in old_completed if ctx.plan.get_step(s.name) is None]
         if dropped:
-            result[
-                "warning"
-            ] = f"Completed steps dropped (not in new plan): {dropped}. Their results are lost."
+            result["warning"] = (
+                f"Completed steps dropped (not in new plan): {dropped}. Their results are lost."
+            )
         return result
 
     @task

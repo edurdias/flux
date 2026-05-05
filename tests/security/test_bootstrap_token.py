@@ -59,9 +59,9 @@ def test_resolve_or_generate_uses_configured(tmp_path: Path):
     token, generated = bt.resolve_or_generate(tmp_path, configured="explicit-token")
     assert token == "explicit-token"
     assert generated is False
-    assert not (
-        tmp_path / bt.TOKEN_FILENAME
-    ).exists(), "configured value must NOT trigger file generation"
+    assert not (tmp_path / bt.TOKEN_FILENAME).exists(), (
+        "configured value must NOT trigger file generation"
+    )
 
 
 def test_resolve_or_generate_reads_persisted_when_no_configured(tmp_path: Path):
@@ -96,9 +96,9 @@ def test_resolve_or_generate_logs_warning_on_first_generation(tmp_path: Path, ca
 
     with caplog.at_level(logging.WARNING, logger="flux.security.bootstrap_token"):
         bt.resolve_or_generate(tmp_path, configured=None)
-    assert any(
-        "Generated bootstrap token" in record.message for record in caplog.records
-    ), f"expected a WARNING about generation; got: {[r.message for r in caplog.records]}"
+    assert any("Generated bootstrap token" in record.message for record in caplog.records), (
+        f"expected a WARNING about generation; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_resolve_or_generate_does_not_log_when_using_configured(tmp_path: Path, caplog):

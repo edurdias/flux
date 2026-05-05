@@ -41,6 +41,17 @@ _EXCLUDED_METADATA_CLAIMS = frozenset(
 
 class OIDCProvider(AuthProvider):
     def __init__(self, config: OIDCConfig, registry=None):
+        if config.enabled:
+            if not config.issuer:
+                raise ValueError(
+                    "OIDC is enabled but issuer is empty. Set [flux.security.auth.oidc] "
+                    "issuer to your IdP's issuer URL.",
+                )
+            if not config.audience:
+                raise ValueError(
+                    "OIDC is enabled but audience is empty. Set [flux.security.auth.oidc] "
+                    "audience to the JWT audience your IdP issues for this server.",
+                )
         self.config = config
         self._registry = registry
         self._discovery: dict | None = None

@@ -83,7 +83,7 @@ class TestCancellationIntegration:
             cancel_events = [e for e in ctx.events if e.type.name.startswith("WORKFLOW_CANCEL")]
             assert len(cancel_events) >= 1
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pytest.fail("Workflow did not cancel within timeout")
 
     @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 """E2E tests — schedule CRUD with namespaces."""
+
 from __future__ import annotations
 
 

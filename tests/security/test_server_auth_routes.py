@@ -109,9 +109,9 @@ class TestAuthIsAuthorizedEndpointRemoved:
             futures = [executor.submit(make_request) for _ in range(30)]
             results = [f.result() for f in concurrent.futures.as_completed(futures)]
 
-        assert all(
-            r.status_code != 429 for r in results
-        ), "Execution authorize endpoint is being rate-limited"
+        assert all(r.status_code != 429 for r in results), (
+            "Execution authorize endpoint is being rate-limited"
+        )
 
 
 class TestRateLimitHandlerSingleRegistration:
@@ -357,9 +357,9 @@ class TestDispatcherReadsExecTokenFromDB:
         import pathlib
 
         src = pathlib.Path("flux/server.py").read_text()
-        assert (
-            "_execution_auth_tokens" not in src
-        ), "_execution_auth_tokens still referenced in server.py"
+        assert "_execution_auth_tokens" not in src, (
+            "_execution_auth_tokens still referenced in server.py"
+        )
 
 
 class TestWorkflowsRunMintsExecToken:
@@ -381,9 +381,9 @@ class TestWorkflowsResumeMintsExecToken:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_resume":
                 func_src = ast.unparse(node)
-                assert (
-                    "mint_internal_token" not in func_src
-                ), "workflows_resume still calls mint_internal_token"
+                assert "mint_internal_token" not in func_src, (
+                    "workflows_resume still calls mint_internal_token"
+                )
                 break
 
 
@@ -401,12 +401,12 @@ class TestSchedulerPrincipalLookup:
                 and node.name == "_trigger_scheduled_workflow"
             ):
                 func_src = ast.unparse(node)
-                assert (
-                    "PrincipalRegistry" in func_src
-                ), "_trigger_scheduled_workflow does not use PrincipalRegistry"
-                assert (
-                    "get_service_account" not in func_src
-                ), "_trigger_scheduled_workflow still uses old get_service_account"
+                assert "PrincipalRegistry" in func_src, (
+                    "_trigger_scheduled_workflow does not use PrincipalRegistry"
+                )
+                assert "get_service_account" not in func_src, (
+                    "_trigger_scheduled_workflow still uses old get_service_account"
+                )
                 break
 
 
@@ -424,12 +424,12 @@ class TestSchedulerMintExecToken:
                 and node.name == "_trigger_scheduled_workflow"
             ):
                 func_src = ast.unparse(node)
-                assert (
-                    "mint_execution_token" in func_src
-                ), "_trigger_scheduled_workflow does not call mint_execution_token"
-                assert (
-                    "mint_internal_token" not in func_src
-                ), "_trigger_scheduled_workflow still calls mint_internal_token"
+                assert "mint_execution_token" in func_src, (
+                    "_trigger_scheduled_workflow does not call mint_execution_token"
+                )
+                assert "mint_internal_token" not in func_src, (
+                    "_trigger_scheduled_workflow still calls mint_internal_token"
+                )
                 break
 
 
@@ -507,9 +507,9 @@ class TestOldAuthIsAuthorizedTestUpdated:
         import pathlib
 
         src = pathlib.Path("tests/security/test_server_auth_routes.py").read_text()
-        assert (
-            "/auth/is-authorized" not in src or "404" in src
-        ), "Test still references old /auth/is-authorized endpoint without 404 assertion"
+        assert "/auth/is-authorized" not in src or "404" in src, (
+            "Test still references old /auth/is-authorized endpoint without 404 assertion"
+        )
 
 
 class TestBuiltInRolesPrincipalsPermission:
@@ -523,9 +523,9 @@ class TestBuiltInRolesPrincipalsPermission:
 
         for role, perms in BUILT_IN_ROLES.items():
             for perm in perms:
-                assert (
-                    "service-accounts" not in perm
-                ), f"Role '{role}' still has old service-accounts permission: {perm}"
+                assert "service-accounts" not in perm, (
+                    f"Role '{role}' still has old service-accounts permission: {perm}"
+                )
 
 
 class TestRegisterPermissionScopedToNamespace:
@@ -578,13 +578,13 @@ class TestRegisterPermissionScopedToNamespace:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "workflows_save still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "workflows_save still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "workflows_save does not use get_identity"
-                assert (
-                    "is_authorized" in func_src
-                ), "workflows_save does not call is_authorized post-parse"
+                assert "is_authorized" in func_src, (
+                    "workflows_save does not call is_authorized post-parse"
+                )
                 break
 
     def test_workflows_save_permission_uses_namespace(self):
@@ -598,9 +598,9 @@ class TestRegisterPermissionScopedToNamespace:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_save":
                 func_src = ast.unparse(node)
-                assert (
-                    "wf.namespace" in func_src
-                ), "workflows_save does not use wf.namespace to build the permission string"
+                assert "wf.namespace" in func_src, (
+                    "workflows_save does not use wf.namespace to build the permission string"
+                )
                 break
 
 
@@ -618,9 +618,9 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_all":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "workflows_all still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "workflows_all still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "workflows_all does not use get_identity"
                 break
 
@@ -635,9 +635,9 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_namespaces":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "list_namespaces still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "list_namespaces still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "list_namespaces does not use get_identity"
                 break
 
@@ -652,13 +652,13 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflow_delete_ns":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "workflow_delete_ns still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "workflow_delete_ns still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "workflow_delete_ns does not use get_identity"
-                assert (
-                    "is_authorized" in func_src
-                ), "workflow_delete_ns does not call is_authorized for post-resolution check"
+                assert "is_authorized" in func_src, (
+                    "workflow_delete_ns does not call is_authorized for post-resolution check"
+                )
                 break
 
     def test_workflow_delete_ns_permission_uses_namespace(self):
@@ -672,12 +672,12 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflow_delete_ns":
                 func_src = ast.unparse(node)
-                assert (
-                    "namespace" in func_src
-                ), "workflow_delete_ns does not use namespace in permission string"
-                assert (
-                    "register" in func_src
-                ), "workflow_delete_ns does not check register permission"
+                assert "namespace" in func_src, (
+                    "workflow_delete_ns does not use namespace in permission string"
+                )
+                assert "register" in func_src, (
+                    "workflow_delete_ns does not check register permission"
+                )
                 break
 
     def test_billing_read_grant_allows_billing_list(self):
@@ -711,9 +711,9 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "workflows_all":
                 func_src = ast.unparse(node)
-                assert (
-                    "resolve_permissions" in func_src or "is_authorized" in func_src
-                ), "workflows_all does not filter results by principal grants"
+                assert "resolve_permissions" in func_src or "is_authorized" in func_src, (
+                    "workflows_all does not filter results by principal grants"
+                )
                 break
 
     def test_list_namespaces_filters_by_namespace_grant(self):
@@ -727,9 +727,9 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_namespaces":
                 func_src = ast.unparse(node)
-                assert (
-                    "resolve_permissions" in func_src or "is_authorized" in func_src
-                ), "list_namespaces does not filter results by principal grants"
+                assert "resolve_permissions" in func_src or "is_authorized" in func_src, (
+                    "list_namespaces does not filter results by principal grants"
+                )
                 break
 
     def test_list_schedules_uses_get_identity_not_require_permission(self):
@@ -743,9 +743,9 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "list_schedules still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "list_schedules still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "list_schedules does not use get_identity"
                 break
 
@@ -760,12 +760,12 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_schedules":
                 func_src = ast.unparse(node)
-                assert (
-                    "resolve_permissions" in func_src
-                ), "list_schedules does not resolve per-principal permissions"
-                assert (
-                    "workflow:" in func_src and "has_permission" in func_src
-                ), "list_schedules does not check workflow:{ns}:{name}:read per schedule"
+                assert "resolve_permissions" in func_src, (
+                    "list_schedules does not resolve per-principal permissions"
+                )
+                assert "workflow:" in func_src and "has_permission" in func_src, (
+                    "list_schedules does not check workflow:{ns}:{name}:read per schedule"
+                )
                 break
 
     def test_get_schedule_checks_workflow_read_permission(self):
@@ -779,14 +779,14 @@ class TestNamespaceScopedVisibility:
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_schedule":
                 func_src = ast.unparse(node)
-                assert (
-                    "require_permission" not in func_src
-                ), "get_schedule still uses require_permission — must use get_identity"
+                assert "require_permission" not in func_src, (
+                    "get_schedule still uses require_permission — must use get_identity"
+                )
                 assert "get_identity" in func_src, "get_schedule does not use get_identity"
                 assert "is_authorized" in func_src, "get_schedule does not call is_authorized"
-                assert (
-                    "workflow_namespace" in func_src and "workflow_name" in func_src
-                ), "get_schedule does not use the schedule's namespace+name in the check"
+                assert "workflow_namespace" in func_src and "workflow_name" in func_src, (
+                    "get_schedule does not use the schedule's namespace+name in the check"
+                )
                 break
 
 
@@ -861,9 +861,9 @@ class TestAgentAdminEndpointsRBAC:
             401,
             403,
         ), f"Expected 401/403 when only agent:*:create is granted, got {resp.status_code}"
-        assert (
-            "agent:*:update" in perms or "agent:*:create" not in perms
-        ), f"Expected endpoint to check agent:*:update; checked: {perms}"
+        assert "agent:*:update" in perms or "agent:*:create" not in perms, (
+            f"Expected endpoint to check agent:*:update; checked: {perms}"
+        )
 
     def test_update_agent_allows_with_update_permission(self, client):
         """PUT /admin/agents/{name} must pass the permission check when agent:*:update is granted."""
@@ -874,9 +874,9 @@ class TestAgentAdminEndpointsRBAC:
             expected_permission="agent:*:update",
             granted_permissions={"agent:*:update"},
         )
-        assert (
-            resp.status_code not in (401, 403)
-        ), f"agent:*:update should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        assert resp.status_code not in (401, 403), (
+            f"agent:*:update should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        )
         assert "agent:*:update" in perms
 
     def test_delete_agent_requires_delete_permission_not_create(self, client):
@@ -889,9 +889,9 @@ class TestAgentAdminEndpointsRBAC:
             granted_permissions={"agent:*:create"},
         )
         assert resp.status_code in (401, 403)
-        assert (
-            "agent:*:delete" in perms or "agent:*:create" not in perms
-        ), f"Expected endpoint to check agent:*:delete; checked: {perms}"
+        assert "agent:*:delete" in perms or "agent:*:create" not in perms, (
+            f"Expected endpoint to check agent:*:delete; checked: {perms}"
+        )
 
     def test_delete_agent_allows_with_delete_permission(self, client):
         """DELETE /admin/agents/{name} must pass the permission check when agent:*:delete is granted."""
@@ -902,9 +902,9 @@ class TestAgentAdminEndpointsRBAC:
             expected_permission="agent:*:delete",
             granted_permissions={"agent:*:delete"},
         )
-        assert (
-            resp.status_code not in (401, 403)
-        ), f"agent:*:delete should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        assert resp.status_code not in (401, 403), (
+            f"agent:*:delete should allow the endpoint; got {resp.status_code} (perms checked: {perms})"
+        )
         assert "agent:*:delete" in perms
 
 
@@ -969,9 +969,9 @@ class TestAgentCodeUploadGate:
             body,
             granted_permissions={"agent:*:create"},
         )
-        assert (
-            resp.status_code == 403
-        ), f"Inline skills_dir bundle must require workflow:*:*:register; got {resp.status_code}"
+        assert resp.status_code == 403, (
+            f"Inline skills_dir bundle must require workflow:*:*:register; got {resp.status_code}"
+        )
         assert "workflow:*:*:register" in perms
         assert "skills_dir" in resp.json().get("detail", "")
 
@@ -1008,9 +1008,9 @@ class TestAgentCodeUploadGate:
         # The gate must not be tripped (no 403 referencing the upload restriction).
         # The endpoint may still 500 because no AgentManager is registered in this
         # test harness — what we're asserting is the absence of the upload gate.
-        assert (
-            "workflow:*:*:register" not in perms
-        ), f"Path-only skills_dir must NOT trigger workflow:*:*:register; perms checked: {perms}"
+        assert "workflow:*:*:register" not in perms, (
+            f"Path-only skills_dir must NOT trigger workflow:*:*:register; perms checked: {perms}"
+        )
 
     def test_no_dangerous_fields_does_not_require_register_permission(self, client):
         """Plain agent definition (no executable content) must not trigger the gate."""

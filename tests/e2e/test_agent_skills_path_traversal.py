@@ -65,15 +65,15 @@ def test_skills_dir_bundle_with_dotdot_path_fails_workflow(cli):
         exec_id = result["execution_id"]
 
         final = cli.wait_for_state("agents/agent_chat", exec_id, "FAILED", timeout=30)
-        assert (
-            final["state"] == "FAILED"
-        ), f"Expected FAILED (path-traversal rejected); got {final['state']}"
+        assert final["state"] == "FAILED", (
+            f"Expected FAILED (path-traversal rejected); got {final['state']}"
+        )
 
         detailed = cli.execution_show(exec_id, detailed=True)
         rendered = json.dumps(detailed)
-        assert (
-            "unsafe file path" in rendered or "escapes bundle root" in rendered
-        ), f"Expected path-traversal error in execution events; got: {rendered[:1000]}"
+        assert "unsafe file path" in rendered or "escapes bundle root" in rendered, (
+            f"Expected path-traversal error in execution events; got: {rendered[:1000]}"
+        )
     finally:
         _delete_agent(cli, name)
 
@@ -95,9 +95,9 @@ def test_skills_dir_bundle_with_absolute_path_fails_workflow(cli):
 
         detailed = cli.execution_show(exec_id, detailed=True)
         rendered = json.dumps(detailed)
-        assert (
-            "unsafe file path" in rendered
-        ), f"Expected 'unsafe file path' in execution events; got: {rendered[:1000]}"
+        assert "unsafe file path" in rendered, (
+            f"Expected 'unsafe file path' in execution events; got: {rendered[:1000]}"
+        )
     finally:
         _delete_agent(cli, name)
 
@@ -121,8 +121,8 @@ def test_skills_dir_bundle_with_safe_paths_succeeds(cli):
         exec_id = result["execution_id"]
 
         final = cli.wait_for_state("agents/agent_chat", exec_id, "PAUSED", timeout=30)
-        assert (
-            final["state"] == "PAUSED"
-        ), f"Expected PAUSED (safe bundle materialized); got {final['state']}"
+        assert final["state"] == "PAUSED", (
+            f"Expected PAUSED (safe bundle materialized); got {final['state']}"
+        )
     finally:
         _delete_agent(cli, name)

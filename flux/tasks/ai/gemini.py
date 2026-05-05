@@ -29,6 +29,17 @@ def build_gemini_provider(
             "pip install google-genai",
         )
 
+    # Client construction reads the API key from the environment, so defer it
+    # until first use. The shared holder is reused across the task and the
+    # formatter so each agent ends up with a single genai.Client instead of
+    # one per LLM call.
+    client_holder: dict[str, Any] = {}
+
+    def _client() -> Any:
+        if "client" not in client_holder:
+            client_holder["client"] = genai.Client()
+        return client_holder["client"]
+
     @task.with_options(name="gemini_llm")
     async def gemini_llm(
         contents: list,
@@ -38,17 +49,22 @@ def build_gemini_provider(
         tools: list | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        client = genai.Client()
         if tools is not None and config is not None:
             config = _config_with_tools(config, tools)
-        response = await client.aio.models.generate_content(
+        response = await _client().aio.models.generate_content(
             model=model,
             contents=contents,
             config=config,
         )
         return _to_llm_response(response)
 
-    formatter = GeminiFormatter(model_name, max_tokens, response_format, reasoning_effort)
+    formatter = GeminiFormatter(
+        model_name,
+        max_tokens,
+        response_format,
+        reasoning_effort,
+        client_factory=_client,
+    )
     return gemini_llm, formatter
 
 
@@ -61,11 +77,20 @@ class GeminiFormatter(LLMFormatter):
         max_tokens: int,
         response_format: type[BaseModel] | None = None,
         reasoning_effort: str | None = None,
+        client_factory: Any = None,
     ) -> None:
         self._model_name = model_name
         self._max_tokens = max_tokens
         self._response_format = response_format
         self._reasoning_effort = reasoning_effort
+        self._client_factory = client_factory or (lambda: genai.Client())
+        self._client_cached: Any = None
+
+    @property
+    def _client(self) -> Any:
+        if self._client_cached is None:
+            self._client_cached = self._client_factory()
+        return self._client_cached
 
     def _convert_memory_messages(self, memory_messages: list[dict]) -> list:
         import json
@@ -187,13 +212,22 @@ class GeminiFormatter(LLMFormatter):
         return types.Content(role="user", parts=[types.Part(text=text)])
 
     def remove_tools_from_kwargs(self, call_kwargs: dict) -> dict:
+        # Preserve response_mime_type / response_schema / thinking_config when
+        # stripping tools — otherwise the final no-tool turn silently drops
+        # structured-output settings and returns freeform text.
         old_config = call_kwargs.get("config")
         new_config_kwargs: dict[str, Any] = {}
         if old_config is not None:
-            if hasattr(old_config, "system_instruction"):
-                new_config_kwargs["system_instruction"] = old_config.system_instruction
-            if hasattr(old_config, "max_output_tokens"):
-                new_config_kwargs["max_output_tokens"] = old_config.max_output_tokens
+            for attr in (
+                "system_instruction",
+                "max_output_tokens",
+                "response_mime_type",
+                "response_schema",
+                "thinking_config",
+            ):
+                val = getattr(old_config, attr, None)
+                if val is not None:
+                    new_config_kwargs[attr] = val
         new_config = types.GenerateContentConfig(**new_config_kwargs)
         return {k: v for k, v in call_kwargs.items() if k not in ("config", "tools")} | {
             "config": new_config,
@@ -204,10 +238,9 @@ class GeminiFormatter(LLMFormatter):
         messages: list,
         call_kwargs: dict,
     ) -> AsyncIterator[str]:
-        client = genai.Client()
         model = call_kwargs.get("model", self._model_name)
         config = call_kwargs.get("config")
-        async for chunk in await client.aio.models.generate_content_stream(
+        async for chunk in await self._client.aio.models.generate_content_stream(
             model=model,
             contents=messages,
             config=config,
@@ -221,7 +254,6 @@ class GeminiFormatter(LLMFormatter):
         call_kwargs: dict,
         on_reasoning_token: Any,
     ) -> LLMResponse:
-        client = genai.Client()
         model = call_kwargs.get("model", self._model_name)
         config = call_kwargs.get("config")
 
@@ -229,7 +261,7 @@ class GeminiFormatter(LLMFormatter):
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
 
-        async for chunk in await client.aio.models.generate_content_stream(
+        async for chunk in await self._client.aio.models.generate_content_stream(
             model=model,
             contents=messages,
             config=config,

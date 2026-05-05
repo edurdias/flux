@@ -1,4 +1,5 @@
 """E2E tests — admin operations: health, workers, executions, roles, principals."""
+
 from __future__ import annotations
 
 

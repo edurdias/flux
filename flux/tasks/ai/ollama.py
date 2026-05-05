@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from typing import Any
+from uuid import uuid4
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
@@ -201,10 +202,14 @@ class OllamaFormatter(LLMFormatter):
 
         tool_calls: list[ToolCall] = []
         if tool_calls_raw:
-            for i, tc in enumerate(tool_calls_raw):
+            for tc in tool_calls_raw:
+                # Ollama doesn't return tool_call IDs. Generate a uuid each
+                # time so memory and replay layers keyed by ID stay unique
+                # across the multiple LLM turns of an agent loop — earlier
+                # versions reused `call_{i}` per turn and collided.
                 tool_calls.append(
                     ToolCall(
-                        id=f"call_{i}",
+                        id=f"call_{uuid4().hex}",
                         name=tc["function"]["name"],
                         arguments=tc["function"]["arguments"],
                     ),
@@ -231,10 +236,10 @@ def _to_llm_response(
     tool_calls: list[ToolCall] = []
 
     if message.get("tool_calls"):
-        for i, tc in enumerate(message["tool_calls"]):
+        for tc in message["tool_calls"]:
             tool_calls.append(
                 ToolCall(
-                    id=f"call_{i}",
+                    id=f"call_{uuid4().hex}",
                     name=tc["function"]["name"],
                     arguments=tc["function"]["arguments"],
                 ),

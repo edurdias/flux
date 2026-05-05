@@ -30,7 +30,7 @@ async def _fire_hooks(hooks: list[Any] | None, agent_name: str, value: Any) -> N
             result = hook(agent_name, value)
             if inspect.isawaitable(result):
                 await asyncio.wait_for(result, timeout=30)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Hook %s timed out after 30s", hook)
         except Exception:
             logger.warning("Hook %s failed", hook, exc_info=True)

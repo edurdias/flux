@@ -62,8 +62,7 @@ class FluxClient:
 
     def _resume_url(self, namespace: str, workflow_name: str, execution_id: str) -> str:
         return (
-            f"{self.server_url}/workflows/{namespace}/{workflow_name}"
-            f"/resume/{execution_id}/stream"
+            f"{self.server_url}/workflows/{namespace}/{workflow_name}/resume/{execution_id}/stream"
         )
 
     async def start_agent(

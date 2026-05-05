@@ -64,6 +64,27 @@ class TestEncryptedType:
         encrypted_type = EncryptedType()
         assert encrypted_type.cache_ok is True
 
+    def test_encryption_uses_fresh_iv_per_call(self):
+        """Two encryptions of identical plaintext must yield different ciphertext.
+
+        Encryption uses a fresh random salt + AES-GCM nonce per call. Same
+        plaintext encrypted twice should never produce identical bytes;
+        otherwise we'd be vulnerable to known-plaintext / IV-reuse attacks.
+        """
+        encrypted_type = EncryptedType()
+
+        with patch("flux.config.Configuration.get") as mock_config:
+            mock_settings = MagicMock()
+            mock_settings.security.encryption.encryption_key = "test_encryption_key"
+            mock_config.return_value.settings = mock_settings
+
+            payload = {"secret": "value", "n": 1}
+            c1 = encrypted_type.process_bind_param(payload, None)
+            c2 = encrypted_type.process_bind_param(payload, None)
+            assert c1 != c2
+            assert encrypted_type.process_result_value(c1, None) == payload
+            assert encrypted_type.process_result_value(c2, None) == payload
+
 
 class TestBase64Type:
     """Test Base64Type compatibility with PostgreSQL and SQLite."""
