@@ -256,15 +256,24 @@ async def execute_tools(
         max_concurrent: Maximum number of tools to run concurrently.
             When ``None`` (the default) all tools run in parallel with no limit.
             Set to ``1`` for fully sequential execution.
-        always_approved: Set of tool names that have been permanently approved
-            by the user. Tools in this set skip the approval check.
-        approval_mode: When set to ``"autonomous"``, all approval checks are
-            skipped regardless of the tool's ``requires_approval`` flag.
+        always_approved: Retained for harness UI compatibility (Tasks 19-20).
+            No longer consumed by the executor — the engine-side approval gate
+            (``task.requires_approval``) is the single source of truth.
+        approval_mode: When set to ``"autonomous"``, sets
+            ``ctx.approval_bypass = True`` on the active ExecutionContext so
+            the engine-side ``requires_approval`` gate is skipped for every
+            tool invoked from this batch.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
         func = tool.func if hasattr(tool, "func") else tool
         tool_map[func.__name__] = tool
+
+    if approval_mode == "autonomous":
+        from flux.domain.execution_context import ExecutionContext
+
+        ctx = await ExecutionContext.get()
+        ctx.approval_bypass = True
 
     async def _run_one(call: dict[str, Any]) -> dict[str, Any]:
         name = call["name"]
@@ -292,30 +301,6 @@ async def execute_tools(
             if unknown:
                 logger.debug("Tool '%s': dropping unknown args %s", name, unknown)
                 args = {k: v for k, v in args.items() if k in accepted}
-
-        _always_approved = always_approved if always_approved is not None else set()
-        if (
-            approval_mode != "autonomous"
-            and name not in _always_approved
-            and getattr(tool_fn, "requires_approval", False)
-        ):
-            from flux.tasks.pause import pause
-
-            approval = await pause(
-                f"tool_approval:{name}",
-                output={
-                    "type": "tool_approval",
-                    "tool": name,
-                    "arguments": args,
-                },
-            )
-            if not isinstance(approval, dict) or approval.get("approved") is not True:
-                return {
-                    "tool_call_id": call.get("id", name),
-                    "output": "Error: Tool call rejected by human.",
-                }
-            if approval.get("always_approve"):
-                _always_approved.add(name)
 
         try:
             call_id = call.get("id", name)
