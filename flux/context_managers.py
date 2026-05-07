@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func
 from sqlalchemy import or_
@@ -18,10 +19,18 @@ from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
 from flux.worker_registry import WorkerInfo
 
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
+
 
 class ContextManager(ABC):
     @abstractmethod
-    def save(self, ctx: ExecutionContext) -> ExecutionContext:  # pragma: no cover
+    def save(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -128,24 +137,42 @@ class DatabaseContextManager(ContextManager):
             )
             return result is not None
 
-    def save(self, ctx: ExecutionContext) -> ExecutionContext:
+    def save(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> ExecutionContext:
+        if uow is not None:
+            return self._save_with_session(ctx, uow.session, manage_transaction=False)
         with self.session() as session:
-            try:
-                model = session.get(
-                    ExecutionContextModel,
-                    ctx.execution_id,
-                )
-                if model:
-                    model.output = ctx.output
-                    model.state = ctx.state
-                    model.events.extend(self._get_additional_events(ctx, model))
-                else:
-                    session.add(ExecutionContextModel.from_plain(ctx))
+            return self._save_with_session(ctx, session, manage_transaction=True)
+
+    def _save_with_session(
+        self,
+        ctx: ExecutionContext,
+        session: Session,
+        *,
+        manage_transaction: bool,
+    ) -> ExecutionContext:
+        try:
+            model = session.get(
+                ExecutionContextModel,
+                ctx.execution_id,
+            )
+            if model:
+                model.output = ctx.output
+                model.state = ctx.state
+                model.events.extend(self._get_additional_events(ctx, model))
+            else:
+                session.add(ExecutionContextModel.from_plain(ctx))
+            if manage_transaction:
                 session.commit()
-                return ctx
-            except IntegrityError:  # pragma: no cover
+            return ctx
+        except IntegrityError:  # pragma: no cover
+            if manage_transaction:
                 session.rollback()
-                raise
+            raise
 
     def update(self, ctx: ExecutionContext) -> ExecutionContext:
         with self.session() as session:
