@@ -52,6 +52,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
         self._exec_token: str | None = None
+        self.approval_bypass: bool = False
 
     @staticmethod
     async def get() -> ExecutionContext:
@@ -416,6 +417,44 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def set_progress_callback(self, callback: Callable) -> Self:
         self._progress_callback = callback
         return self
+
+    def _await_approval(self, task_call_id: str):
+        """Suspension primitive for approval-gated task calls.
+
+        Reads the approval row state and either returns a verdict, raises
+        ``PauseRequested`` (workflow pauses), or raises ``ApprovalRejected``.
+
+        Symmetric with ``ctx.resume()`` / ``ctx.pause()`` — the row state
+        determines behaviour. First-call-vs-replay is implicit because the
+        engine simply re-checks whether the row has reached a terminal state.
+        """
+        from flux.approvals import (
+            ApprovalManager,
+            ApprovalRejected,
+            ApprovalVerdict,
+        )
+        from flux.errors import PauseRequested
+        from flux.models import ApprovalStatus
+
+        mgr = ApprovalManager()
+        row = mgr.get_by_call(self.execution_id, task_call_id)
+        if row is None or row.status == ApprovalStatus.PENDING:
+            raise PauseRequested(name=f"approval:{task_call_id}")
+        if row.status == ApprovalStatus.CANCELLED:
+            return ApprovalVerdict(approved=False, cancelled=True)
+        if row.status == ApprovalStatus.REJECTED:
+            raise ApprovalRejected(
+                task_name=f"{row.workflow_namespace}/{row.workflow_name}/{row.task_name}",
+                approver_subject=row.approver_subject,
+                approver_provider=row.approver_provider,
+                reason=row.reason,
+            )
+        return ApprovalVerdict(
+            approved=True,
+            approver_subject=row.approver_subject,
+            approver_provider=row.approver_provider,
+            reason=row.reason,
+        )
 
     @property
     def exec_token(self) -> str | None:

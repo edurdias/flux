@@ -1,8 +1,5 @@
-import os
-import tempfile
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -15,20 +12,6 @@ from flux.approvals import (
 )
 from flux.models import ApprovalRequestModel, ApprovalStatus, RepositoryFactory
 from flux.unit_of_work import UnitOfWork
-
-
-@pytest.fixture
-def isolated_db():
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as f:
-        db_path = f.name
-    db_url = f"sqlite:///{db_path}"
-    with patch("flux.config.Configuration.get") as mock_config:
-        mock_config.return_value.settings.database_url = db_url
-        mock_config.return_value.settings.database_type = "sqlite"
-        mock_config.return_value.settings.security.auth.enabled = False
-        yield
-    if os.path.exists(db_path):
-        os.unlink(db_path)
 
 
 def test_approval_status_enum_values():
