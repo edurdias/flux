@@ -909,8 +909,10 @@ class TestWorkflowCommandsNamespaceRouting:
         result = runner.invoke(cli, ["workflow", "status", "billing/invoice", "exec-1"])
 
         assert result.exit_code == 0
-        call_args = mock_client.get.call_args
-        assert "/workflows/billing/invoice/status/exec-1" in call_args[0][0]
+        # First GET fetches the workflow status; a follow-up GET fetches
+        # pending approvals for the execution. Inspect the first call.
+        first_call = mock_client.get.call_args_list[0]
+        assert "/workflows/billing/invoice/status/exec-1" in first_call[0][0]
 
 
 class TestConsoleCommand:

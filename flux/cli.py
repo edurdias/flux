@@ -562,7 +562,11 @@ def workflow_status(
             response.raise_for_status()
             result = response.json()
 
+            pending = _fetch_pending_approvals(client, base_url, execution_id)
+
         click.echo(to_json(result))
+        if pending:
+            click.echo(f"Blocked on {len(pending)} approval(s)")
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -754,7 +758,10 @@ def show_execution(execution_id: str, detailed: bool, server_url: str | None):
             response.raise_for_status()
             result = response.json()
 
+            pending = _fetch_pending_approvals(client, base_url, execution_id)
+
         click.echo(to_json(result))
+        _render_pending_approvals(pending)
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -768,6 +775,40 @@ def show_execution(execution_id: str, detailed: bool, server_url: str | None):
 # =============================================================================
 # Execution Approval Commands
 # =============================================================================
+
+
+def _fetch_pending_approvals(
+    client: httpx.Client,
+    base_url: str,
+    execution_id: str,
+) -> list[dict[str, Any]]:
+    """Fetch pending approvals for an execution; swallow errors so the
+    primary command output is never blocked by an approval-side failure."""
+    try:
+        resp = client.get(
+            f"{base_url}/executions/{execution_id}/approvals",
+            params={"status": "pending"},
+        )
+        resp.raise_for_status()
+        return resp.json().get("approvals", []) or []
+    except Exception:
+        return []
+
+
+def _render_pending_approvals(pending: list[dict[str, Any]]) -> None:
+    if not pending:
+        return
+    click.echo("")
+    click.echo("Pending approvals:")
+    for r in pending:
+        requested = (r.get("requested_at") or "")[:19]
+        click.echo(
+            f"  - {r.get('task_call_id', '?')}  "
+            f"{r.get('workflow_namespace', '?')}/"
+            f"{r.get('workflow_name', '?')}/"
+            f"{r.get('task_name', '?')}"
+            f"  (requested {requested})",
+        )
 
 
 def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:

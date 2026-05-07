@@ -221,3 +221,128 @@ class TestExecutionApprove409:
 
         assert result.exit_code != 0
         assert "already_decided" in result.output.lower()
+
+
+def _mock_two_get_client(execution_json: dict, approvals_json: dict):
+    """Mock httpx.Client whose two sequential GETs return execution then approvals."""
+    mock_client = MagicMock()
+    exec_resp = MagicMock()
+    exec_resp.raise_for_status = MagicMock()
+    exec_resp.json.return_value = execution_json
+    appr_resp = MagicMock()
+    appr_resp.raise_for_status = MagicMock()
+    appr_resp.json.return_value = approvals_json
+    mock_client.get.side_effect = [exec_resp, appr_resp]
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    return mock_client
+
+
+class TestExecutionShowApprovals:
+    @patch("flux.cli.httpx.Client")
+    def test_show_lists_pending_approvals(self, mock_class, runner):
+        eid = "exec-show-1"
+        approvals = {
+            "approvals": [
+                {
+                    "approval_id": "appr-1",
+                    "execution_id": eid,
+                    "task_call_id": "call-show-1",
+                    "workflow_namespace": "default",
+                    "workflow_name": "release",
+                    "task_name": "deploy",
+                    "status": "pending",
+                    "requested_at": "2026-05-07T10:00:00+00:00",
+                    "decided_at": None,
+                    "approver": None,
+                    "reason": None,
+                },
+            ],
+            "total": 1,
+            "limit": 20,
+            "offset": 0,
+        }
+        mock_class.return_value = _mock_two_get_client(
+            {"execution_id": eid, "state": "PAUSED"},
+            approvals,
+        )
+
+        result = runner.invoke(cli, ["execution", "show", eid])
+
+        assert result.exit_code == 0, result.output
+        assert "Pending approvals" in result.output
+        assert "call-show-1" in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_show_omits_section_when_no_approvals(self, mock_class, runner):
+        eid = "exec-show-2"
+        mock_class.return_value = _mock_two_get_client(
+            {"execution_id": eid, "state": "COMPLETED"},
+            {"approvals": [], "total": 0, "limit": 20, "offset": 0},
+        )
+
+        result = runner.invoke(cli, ["execution", "show", eid])
+
+        assert result.exit_code == 0
+        assert "Pending approvals" not in result.output
+
+
+class TestWorkflowStatusApprovals:
+    @patch("flux.cli.httpx.Client")
+    def test_status_shows_blocked_count(self, mock_class, runner):
+        eid = "exec-stat-1"
+        approvals = {
+            "approvals": [
+                {
+                    "approval_id": "appr-1",
+                    "execution_id": eid,
+                    "task_call_id": "call-stat-1",
+                    "workflow_namespace": "default",
+                    "workflow_name": "release",
+                    "task_name": "deploy",
+                    "status": "pending",
+                    "requested_at": "2026-05-07T10:00:00+00:00",
+                    "decided_at": None,
+                    "approver": None,
+                    "reason": None,
+                },
+                {
+                    "approval_id": "appr-2",
+                    "execution_id": eid,
+                    "task_call_id": "call-stat-2",
+                    "workflow_namespace": "default",
+                    "workflow_name": "release",
+                    "task_name": "deploy",
+                    "status": "pending",
+                    "requested_at": "2026-05-07T10:00:00+00:00",
+                    "decided_at": None,
+                    "approver": None,
+                    "reason": None,
+                },
+            ],
+            "total": 2,
+            "limit": 20,
+            "offset": 0,
+        }
+        mock_class.return_value = _mock_two_get_client(
+            {"execution_id": eid, "state": "PAUSED"},
+            approvals,
+        )
+
+        result = runner.invoke(cli, ["workflow", "status", "release", eid])
+
+        assert result.exit_code == 0, result.output
+        assert "Blocked on 2 approval" in result.output
+
+    @patch("flux.cli.httpx.Client")
+    def test_status_omits_line_when_no_approvals(self, mock_class, runner):
+        eid = "exec-stat-2"
+        mock_class.return_value = _mock_two_get_client(
+            {"execution_id": eid, "state": "COMPLETED"},
+            {"approvals": [], "total": 0, "limit": 20, "offset": 0},
+        )
+
+        result = runner.invoke(cli, ["workflow", "status", "release", eid])
+
+        assert result.exit_code == 0
+        assert "Blocked on" not in result.output
