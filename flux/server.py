@@ -165,6 +165,16 @@ class RoleCloneRequest(BaseModel):
     new_name: str
 
 
+class ApprovalDecideRequest(BaseModel):
+    """Body for POST /executions/{id}/approvals/{call}/{approve|reject}.
+
+    The decision verb (approve/reject) is path-derived; only the optional reason
+    travels in the body.
+    """
+
+    reason: str | None = None
+
+
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -3326,6 +3336,159 @@ class Server:
             if row is None:
                 raise HTTPException(status_code=404, detail={"error": "not_found"})
             return _approval_to_dict(row)
+
+        async def _decide_approval(
+            execution_id: str,
+            task_call_id: str,
+            identity: FluxIdentity,
+            *,
+            approved: bool,
+            reason: str | None,
+        ):
+            """Shared implementation for the approve/reject POST routes.
+
+            Two-stage AuthZ:
+              1. ``workflow:<ns>:<wf>:read`` on the execution's workflow.
+              2. ``workflow:<ns>:<wf>:task:<task>:approve`` on the approval row's task.
+
+            The decide + WORKFLOW event append + RESUMING transition all run
+            inside a single ``UnitOfWork`` so a partial failure cannot leave the
+            row decided but the workflow still paused (or vice versa).
+            """
+            from flux.approvals import (
+                ApprovalAlreadyDecided,
+                ApprovalManager,
+            )
+            from flux.unit_of_work import UnitOfWork
+
+            cm = ContextManager.create()
+
+            try:
+                exec_ctx = cm.get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            mgr = ApprovalManager()
+            row = mgr.get_by_call(execution_id, task_call_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            required = (
+                f"workflow:{row.workflow_namespace}:{row.workflow_name}"
+                f":task:{row.task_name}:approve"
+            )
+            if auth_service is not None and auth_config.enabled:
+                if not await auth_service.is_authorized(identity, required):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "forbidden",
+                            "missing_permission": required,
+                        },
+                    )
+
+            approver_subject = identity.subject if identity is not None else "anonymous"
+            approver_provider = (
+                (identity.metadata or {}).get("issuer", "flux")
+                if identity is not None
+                else "anonymous"
+            )
+
+            try:
+                with UnitOfWork() as uow:
+                    updated = mgr.decide(
+                        execution_id,
+                        task_call_id,
+                        approver_subject=approver_subject,
+                        approver_provider=approver_provider,
+                        approved=approved,
+                        reason=reason,
+                        uow=uow,
+                    )
+                    event_type = (
+                        ExecutionEventType.TASK_APPROVED
+                        if approved
+                        else ExecutionEventType.TASK_REJECTED
+                    )
+                    decided_iso = updated.decided_at.isoformat() if updated.decided_at else None
+                    # Transition the workflow back to RESUMING *before* the
+                    # TASK_APPROVED/REJECTED event so ``is_paused`` (which
+                    # checks the last event) still sees WORKFLOW_PAUSED. This
+                    # is a no-op when the ctx is not currently paused — for
+                    # instance, in the transient window where a worker has
+                    # already started replaying the task.
+                    exec_ctx.start_resuming()
+                    exec_ctx.events.append(
+                        ExecutionEvent(
+                            type=event_type,
+                            source_id=task_call_id,
+                            name=updated.task_name,
+                            value={
+                                "approver": {
+                                    "subject": updated.approver_subject,
+                                    "provider": updated.approver_provider,
+                                },
+                                "reason": reason,
+                                "decided_at": decided_iso,
+                            },
+                        ),
+                    )
+                    cm.save(exec_ctx, uow=uow)
+                    uow.commit()
+            except ApprovalAlreadyDecided as e:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "already_decided",
+                        "current_status": e.current_status.value,
+                        "decided_at": (e.decided_at.isoformat() if e.decided_at else None),
+                    },
+                )
+
+            self._notify_next_worker()
+
+            payload = _approval_to_dict(updated)
+            payload["execution_state"] = exec_ctx.state.value
+            return payload
+
+        @api.post("/executions/{execution_id}/approvals/{task_call_id}/approve")
+        async def approve_approval(
+            execution_id: str,
+            task_call_id: str,
+            body: ApprovalDecideRequest | None = Body(default=None),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            reason = body.reason if body is not None else None
+            return await _decide_approval(
+                execution_id,
+                task_call_id,
+                identity,
+                approved=True,
+                reason=reason,
+            )
+
+        @api.post("/executions/{execution_id}/approvals/{task_call_id}/reject")
+        async def reject_approval(
+            execution_id: str,
+            task_call_id: str,
+            body: ApprovalDecideRequest | None = Body(default=None),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            reason = body.reason if body is not None else None
+            return await _decide_approval(
+                execution_id,
+                task_call_id,
+                identity,
+                approved=False,
+                reason=reason,
+            )
 
         @api.get(
             "/workflows/{namespace}/{workflow_name}/executions",

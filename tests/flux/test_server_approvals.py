@@ -182,3 +182,132 @@ def test_get_one_approval_returns_payload(client):
     assert body["task_call_id"] == "call-one"
     assert body["status"] == "pending"
     assert body["approval_id"]
+
+
+# === POST approve/reject routes (Task 14) ===
+#
+# Auth is disabled in the ``client`` fixture — every request is treated as the
+# ANONYMOUS identity, which has the ``admin`` role. So the permission stages
+# trivially pass and we exercise the happy paths plus the 404/409 negative
+# cases. Permission-denial coverage lives in tests/security.
+
+
+def _seed(eid: str, call_id: str, *, namespace: str = "default", workflow: str = "release"):
+    """Combined helper: persist an execution + a pending approval row."""
+    _seed_execution(eid, namespace, workflow)
+    _seed_approval(eid, call_id, namespace=namespace, workflow=workflow)
+
+
+def test_post_approve_succeeds(client):
+    eid = f"exec-app-{uuid.uuid4().hex[:6]}"
+    _seed(eid, "call-app-1")
+    r = client.post(
+        f"/executions/{eid}/approvals/call-app-1/approve",
+        json={"reason": "lgtm"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "approved"
+    assert body["reason"] == "lgtm"
+    assert body["approver"]["subject"] == "anonymous"
+    # ``execution_state`` echoes whatever the ctx is in after the decide. We
+    # don't seed a paused ctx here, so ``start_resuming`` is a no-op and the
+    # state stays at its initial value. Real workflows reach this code in the
+    # PAUSED state and transition to RESUMING.
+    assert body["execution_state"] in ("PAUSED", "RESUMING", "CREATED")
+
+
+def test_post_reject_succeeds(client):
+    eid = f"exec-rej-{uuid.uuid4().hex[:6]}"
+    _seed(eid, "call-rej-1")
+    r = client.post(
+        f"/executions/{eid}/approvals/call-rej-1/reject",
+        json={"reason": "no good"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "rejected"
+    assert body["reason"] == "no good"
+
+
+def test_post_approve_with_no_body(client):
+    """Empty body should default reason to None and still succeed."""
+    eid = f"exec-nobody-{uuid.uuid4().hex[:6]}"
+    _seed(eid, "call-nobody")
+    r = client.post(f"/executions/{eid}/approvals/call-nobody/approve")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "approved"
+    assert r.json()["reason"] is None
+
+
+def test_post_approve_already_decided_returns_409(client):
+    eid = f"exec-409-{uuid.uuid4().hex[:6]}"
+    _seed(eid, "call-409-1")
+    r1 = client.post(f"/executions/{eid}/approvals/call-409-1/approve", json={})
+    assert r1.status_code == 200, r1.text
+    r2 = client.post(f"/executions/{eid}/approvals/call-409-1/reject", json={})
+    assert r2.status_code == 409
+    body = r2.json()
+    assert body["error"] == "already_decided"
+    assert body["current_status"] == "approved"
+    assert "approver" not in body
+
+
+def test_post_approve_404_on_unknown_execution(client):
+    r = client.post(
+        "/executions/no-such/approvals/no-such-call/approve",
+        json={},
+    )
+    assert r.status_code == 404
+
+
+def test_post_approve_404_on_unknown_call(client):
+    eid = f"exec-no-call-{uuid.uuid4().hex[:6]}"
+    _seed_execution(eid, "default", "release")
+    r = client.post(
+        f"/executions/{eid}/approvals/missing/approve",
+        json={"reason": "x"},
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"]["error"] == "not_found"
+
+
+def test_post_reject_404_on_unknown_call(client):
+    eid = f"exec-no-call-rej-{uuid.uuid4().hex[:6]}"
+    _seed_execution(eid, "default", "release")
+    r = client.post(
+        f"/executions/{eid}/approvals/missing/reject",
+        json={},
+    )
+    assert r.status_code == 404
+
+
+def test_post_approve_transitions_paused_ctx_to_resuming(client):
+    """When the ctx is in PAUSED, approval should drive it to RESUMING."""
+    from flux import ExecutionContext
+    from flux.context_managers import ContextManager
+
+    eid = f"exec-resume-{uuid.uuid4().hex[:6]}"
+    ns, wf = "default", "release"
+    ctx: ExecutionContext = ExecutionContext(
+        workflow_id=f"{ns}/{wf}",
+        workflow_namespace=ns,
+        workflow_name=wf,
+        input=None,
+        execution_id=eid,
+    )
+    ctx.pause(id="task-1", name="approval:call-resume-1")
+    ContextManager.create().save(ctx)
+    _seed_approval(eid, "call-resume-1", namespace=ns, workflow=wf)
+
+    r = client.post(
+        f"/executions/{eid}/approvals/call-resume-1/approve",
+        json={"reason": "ship it"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["execution_state"] == "RESUMING"
+
+    after = ContextManager.create().get(eid)
+    assert after.state.value == "RESUMING"
+    assert any(e.type.value == "TASK_APPROVED" for e in after.events)
+    assert any(e.type.value == "WORKFLOW_RESUMING" for e in after.events)
