@@ -10,6 +10,7 @@ from flux.utils import get_func_args, make_hashable, maybe_awaitable
 
 
 import asyncio
+import inspect
 import time
 from functools import wraps
 from typing import Any, TypeVar
@@ -238,6 +239,54 @@ class task:
                     ) from ex
             return self.output_storage.retrieve(reference)
 
+        # === Approval gate ===
+        # Evaluated *after* auth and the replay short-circuit. ``task_id`` doubles
+        # as ``task_call_id`` — the engine treats them as the same identifier.
+        # Idempotent on replay because we look up the existing approval row before
+        # inserting; if a row already exists we skip both the insert and the
+        # ``TASK_AWAITING_APPROVAL`` event emit.
+        if self.requires_approval is not False and not getattr(ctx, "approval_bypass", False):
+            verdict_required = await self._evaluate_approval_predicate(args, kwargs)
+            if verdict_required:
+                from flux.approvals import ApprovalManager
+                from flux.unit_of_work import UnitOfWork
+
+                mgr = ApprovalManager()
+                existing = mgr.get_by_call(ctx.execution_id, task_id)
+                if existing is None:
+                    from flux.context_managers import ContextManager
+
+                    cm = ContextManager.create()
+                    with UnitOfWork() as uow:
+                        mgr.create(
+                            execution_id=ctx.execution_id,
+                            task_call_id=task_id,
+                            workflow_namespace=ctx.workflow_namespace,
+                            workflow_name=ctx.workflow_name,
+                            task_name=self.name,
+                            uow=uow,
+                        )
+                        ctx.events.append(
+                            ExecutionEvent(
+                                type=ExecutionEventType.TASK_AWAITING_APPROVAL,
+                                source_id=task_id,
+                                name=full_name,
+                                value={
+                                    "task_call_id": task_id,
+                                    "workflow_namespace": ctx.workflow_namespace,
+                                    "workflow_name": ctx.workflow_name,
+                                    "task_name": self.name,
+                                },
+                            ),
+                        )
+                        cm.save(ctx, uow=uow)
+                        uow.commit()
+
+                verdict = ctx._await_approval(task_id)
+                if verdict.cancelled:
+                    raise asyncio.CancelledError()
+        # === End approval gate ===
+
         from flux._task_context import _CURRENT_TASK
 
         task_token = _CURRENT_TASK.set((task_id, full_name))
@@ -404,6 +453,28 @@ class task:
                 requires_approval if requires_approval is not None else self.requires_approval
             ),
         )
+
+    async def _evaluate_approval_predicate(self, args: tuple, kwargs: dict) -> bool:
+        """Evaluate the requires_approval spec for this call.
+
+        Static True/False short-circuit. Callables are bound against the wrapped
+        function's signature so the predicate sees the same parameter names the
+        task body does. Async callables are awaited.
+        """
+        spec = self.requires_approval
+        if spec is True:
+            return True
+        if spec is False or spec is None:
+            return False
+        try:
+            bound = inspect.signature(self._func).bind(*args, **kwargs)
+            bound.apply_defaults()
+            result = spec(*bound.args, **bound.kwargs)
+        except TypeError:
+            result = spec(*args, **kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(result)
 
     async def map(self, args):
         return await asyncio.gather(*(self(arg) for arg in args))
