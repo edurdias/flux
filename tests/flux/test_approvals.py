@@ -1,12 +1,20 @@
 import os
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 
+from flux.approvals import (
+    ApprovalAlreadyDecided,
+    ApprovalManager,
+    ApprovalRejected,
+    ApprovalVerdict,
+)
 from flux.models import ApprovalRequestModel, ApprovalStatus, RepositoryFactory
+from flux.unit_of_work import UnitOfWork
 
 
 @pytest.fixture
@@ -88,7 +96,8 @@ def test_approval_request_unique_per_execution_and_call(isolated_db):
             s.commit()
 
 
-from flux.approvals import ApprovalRejected, ApprovalVerdict
+def _new_call_id() -> str:
+    return f"call-{uuid.uuid4().hex[:8]}"
 
 
 def test_approval_rejected_carries_context():
@@ -120,3 +129,133 @@ def test_approval_verdict_cancelled():
     v = ApprovalVerdict(approved=False, cancelled=True)
     assert v.approved is False
     assert v.cancelled is True
+
+
+def test_create_inserts_pending_row(isolated_db):
+    mgr = ApprovalManager()
+    cid = _new_call_id()
+    with UnitOfWork() as uow:
+        mgr.create(
+            execution_id="exec-c1",
+            task_call_id=cid,
+            workflow_namespace="default",
+            workflow_name="release",
+            task_name="deploy_to_prod",
+            uow=uow,
+        )
+        uow.commit()
+    fetched = mgr.get_by_call("exec-c1", cid)
+    assert fetched is not None
+    assert fetched.status == ApprovalStatus.PENDING
+    assert fetched.workflow_namespace == "default"
+
+
+def test_decide_approve_marks_row_and_records_approver(isolated_db):
+    mgr = ApprovalManager()
+    cid = _new_call_id()
+    with UnitOfWork() as uow:
+        mgr.create(
+            execution_id="exec-d1",
+            task_call_id=cid,
+            workflow_namespace="x",
+            workflow_name="y",
+            task_name="z",
+            uow=uow,
+        )
+        uow.commit()
+    with UnitOfWork() as uow:
+        result = mgr.decide(
+            execution_id="exec-d1",
+            task_call_id=cid,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason="lgtm",
+            uow=uow,
+        )
+        uow.commit()
+    assert result.status == ApprovalStatus.APPROVED
+    assert result.approver_subject == "alice"
+    assert result.reason == "lgtm"
+
+
+def test_decide_on_already_decided_row_raises_conflict(isolated_db):
+    mgr = ApprovalManager()
+    cid = _new_call_id()
+    with UnitOfWork() as uow:
+        mgr.create(
+            execution_id="exec-r1",
+            task_call_id=cid,
+            workflow_namespace="x",
+            workflow_name="y",
+            task_name="z",
+            uow=uow,
+        )
+        uow.commit()
+    with UnitOfWork() as uow:
+        mgr.decide(
+            "exec-r1",
+            cid,
+            approver_subject="a",
+            approver_provider="oidc",
+            approved=True,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+    with pytest.raises(ApprovalAlreadyDecided) as exc_info:
+        with UnitOfWork() as uow:
+            mgr.decide(
+                "exec-r1",
+                cid,
+                approver_subject="b",
+                approver_provider="oidc",
+                approved=False,
+                reason=None,
+                uow=uow,
+            )
+            uow.commit()
+    assert exc_info.value.current_status == ApprovalStatus.APPROVED
+
+
+def test_list_filters_by_status_and_execution(isolated_db):
+    mgr = ApprovalManager()
+    eid = "exec-l1"
+    cid_a = _new_call_id()
+    cid_b = _new_call_id()
+    with UnitOfWork() as uow:
+        mgr.create(eid, cid_a, "ns1", "wf1", "t1", uow=uow)
+        mgr.create(eid, cid_b, "ns1", "wf1", "t2", uow=uow)
+        uow.commit()
+    pending = mgr.list(status=ApprovalStatus.PENDING, execution_id=eid)
+    call_ids = {r.task_call_id for r in pending}
+    assert cid_a in call_ids and cid_b in call_ids
+
+
+def test_list_paginates(isolated_db):
+    mgr = ApprovalManager()
+    with UnitOfWork() as uow:
+        for i in range(5):
+            mgr.create(f"exec-pag-{i}", f"call-pag-{i}", "ns", "wf", f"t{i}", uow=uow)
+        uow.commit()
+    page1 = mgr.list(limit=2, offset=0)
+    page2 = mgr.list(limit=2, offset=2)
+    assert len(page1) <= 2 and len(page2) <= 2
+    assert {r.id for r in page1}.isdisjoint({r.id for r in page2})
+
+
+def test_cancel_pending_for_execution(isolated_db):
+    mgr = ApprovalManager()
+    eid = "exec-cnl-1"
+    with UnitOfWork() as uow:
+        mgr.create(eid, "call-c1", "ns", "wf", "t1", uow=uow)
+        mgr.create(eid, "call-c2", "ns", "wf", "t2", uow=uow)
+        uow.commit()
+    with UnitOfWork() as uow:
+        count = mgr.cancel_pending_for_execution(eid, uow=uow)
+        uow.commit()
+    assert count == 2
+    rows = mgr.list(execution_id=eid)
+    statuses = {r.task_call_id: r.status for r in rows}
+    assert statuses["call-c1"] == ApprovalStatus.CANCELLED
+    assert statuses["call-c2"] == ApprovalStatus.CANCELLED
