@@ -1589,8 +1589,15 @@ class Server:
                         detail="Cannot cancel a finished execution.",
                     )
 
-                ctx.start_cancel()
-                manager.save(ctx)
+                from flux.unit_of_work import UnitOfWork
+                from flux.approvals import ApprovalManager
+
+                with UnitOfWork() as uow:
+                    ApprovalManager().cancel_pending_for_execution(execution_id, uow=uow)
+                    ctx.start_cancel()
+                    manager.save(ctx, uow=uow)
+                    uow.commit()
+
                 self._execution_queue_times.pop(execution_id, None)
 
                 from flux.observability import get_metrics
