@@ -4,6 +4,7 @@ import logging
 import sys
 import inspect
 import json
+import re
 import uuid
 from datetime import datetime
 from datetime import timedelta
@@ -248,3 +249,29 @@ def get_logger(name, parent="flux"):
     # The logger will inherit level and handlers from the parent logger
     # due to the hierarchical nature of the logging system
     return logger
+
+
+_DURATION_PATTERN = re.compile(r"^(\d+)([smhdw])$")
+_DURATION_UNITS = {
+    "s": "seconds",
+    "m": "minutes",
+    "h": "hours",
+    "d": "days",
+    "w": "weeks",
+}
+
+
+def parse_duration(s: str) -> timedelta:
+    """Parse a friendly duration like '5m', '24h', '7d' into a timedelta.
+
+    Accepts a positive integer followed by one of: s, m, h, d, w.
+    Raises ValueError for anything else (no decimals, no negatives, no zero-value forms).
+    """
+    if not s:
+        raise ValueError("Empty duration string")
+    m = _DURATION_PATTERN.match(s)
+    if not m:
+        raise ValueError(f"Invalid duration: {s!r} — expected '<int><s|m|h|d|w>'")
+    value = int(m.group(1))
+    unit = _DURATION_UNITS[m.group(2)]
+    return timedelta(**{unit: value})

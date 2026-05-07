@@ -6,10 +6,13 @@ from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 
+import pytest
+
 from flux import ExecutionContext
 from flux.utils import FluxEncoder
 from flux.utils import is_hashable
 from flux.utils import make_hashable
+from flux.utils import parse_duration
 from flux.utils import to_json
 
 
@@ -71,3 +74,24 @@ def test_flux_encoder():
 def test_to_json():
     data = {"test": "value"}
     assert to_json(data) == json.dumps(data, indent=4, cls=FluxEncoder)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("30s", timedelta(seconds=30)),
+        ("5m", timedelta(minutes=5)),
+        ("1h", timedelta(hours=1)),
+        ("24h", timedelta(hours=24)),
+        ("7d", timedelta(days=7)),
+        ("2w", timedelta(weeks=2)),
+    ],
+)
+def test_parse_duration_supported_suffixes(raw, expected):
+    assert parse_duration(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "1", "1x", "h1", "-1h", "1.5h"])
+def test_parse_duration_rejects_invalid(raw):
+    with pytest.raises(ValueError):
+        parse_duration(raw)
