@@ -13,7 +13,7 @@ import asyncio
 import time
 from functools import wraps
 from typing import Any, TypeVar
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -67,6 +67,7 @@ class _WithOptions:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -84,6 +85,7 @@ class _WithOptions:
                 cache=cache,
                 metadata=metadata,
                 auth_exempt=auth_exempt,
+                requires_approval=requires_approval,
             )
 
         return wrapper
@@ -108,6 +110,7 @@ class task:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -124,6 +127,7 @@ class task:
         self.cache = cache
         self.metadata = metadata
         self.auth_exempt = auth_exempt
+        self.requires_approval = requires_approval
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -372,6 +376,7 @@ class task:
         cache: bool | None = None,
         metadata: bool | None = None,
         auth_exempt: bool | None = None,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -395,6 +400,9 @@ class task:
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
             auth_exempt=auth_exempt if auth_exempt is not None else self.auth_exempt,
+            requires_approval=(
+                requires_approval if requires_approval is not None else self.requires_approval
+            ),
         )
 
     async def map(self, args):
