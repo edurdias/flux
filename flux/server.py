@@ -3142,6 +3142,191 @@ class Server:
                     detail=f"Error retrieving execution: {str(e)}",
                 )
 
+        # ===========================================
+        # Approval Endpoints (read-side)
+        # ===========================================
+
+        def _parse_iso8601_duration(s: str):
+            """Parse a minimal ISO-8601 duration subset (e.g. PT1H, P7D, PT30M)."""
+            import re as _re
+            from datetime import timedelta as _timedelta
+
+            m = _re.match(
+                r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$",
+                s,
+            )
+            if not m or s in ("P", "PT"):
+                raise ValueError(f"Invalid ISO-8601 duration: {s}")
+            days, hours, minutes, seconds = (int(x or 0) for x in m.groups())
+            if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
+                raise ValueError(f"Invalid ISO-8601 duration: {s}")
+            return _timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
+        def _approval_to_dict(r) -> dict:
+            return {
+                "approval_id": r.id,
+                "execution_id": r.execution_id,
+                "task_call_id": r.task_call_id,
+                "workflow_namespace": r.workflow_namespace,
+                "workflow_name": r.workflow_name,
+                "task_name": r.task_name,
+                "status": r.status.value,
+                "requested_at": r.requested_at.isoformat() if r.requested_at else None,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                "approver": (
+                    {"subject": r.approver_subject, "provider": r.approver_provider}
+                    if r.approver_subject
+                    else None
+                ),
+                "reason": r.reason,
+            }
+
+        async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
+            """Return True if auth is disabled or identity has workflow:<ns>:<name>:read."""
+            if auth_service is None or not auth_config.enabled:
+                return True
+            return await auth_service.is_authorized(
+                identity,
+                f"workflow:{ns}:{name}:read",
+            )
+
+        @api.get("/approvals")
+        async def list_approvals_cross_execution(
+            status: str | None = Query("pending"),
+            execution_id: str | None = Query(None),
+            workflow_namespace: str | None = Query(None),
+            workflow_name: str | None = Query(None),
+            task_name: str | None = Query(None),
+            age_min: str | None = Query(None),
+            limit: int = Query(20, ge=1, le=200),
+            offset: int = Query(0, ge=0),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+            from flux.models import ApprovalStatus
+
+            if status == "all":
+                parsed_status = None
+            elif status:
+                try:
+                    parsed_status = ApprovalStatus(status)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid status: {status}",
+                    )
+            else:
+                parsed_status = ApprovalStatus.PENDING
+
+            parsed_age = None
+            if age_min:
+                try:
+                    parsed_age = _parse_iso8601_duration(age_min)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid age_min: {age_min}",
+                    )
+
+            rows = ApprovalManager().list(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+                limit=limit,
+                offset=offset,
+            )
+            filtered = []
+            for r in rows:
+                if await _check_workflow_read(
+                    identity,
+                    r.workflow_namespace,
+                    r.workflow_name,
+                ):
+                    filtered.append(r)
+            return {
+                "approvals": [_approval_to_dict(r) for r in filtered],
+                "total": len(filtered),
+                "limit": limit,
+                "offset": offset,
+            }
+
+        @api.get("/executions/{execution_id}/approvals")
+        async def list_approvals_for_execution(
+            execution_id: str,
+            status: str | None = Query("pending"),
+            limit: int = Query(20, ge=1, le=200),
+            offset: int = Query(0, ge=0),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+            from flux.models import ApprovalStatus
+
+            try:
+                exec_ctx = ContextManager.create().get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            if status == "all":
+                parsed_status = None
+            elif status:
+                try:
+                    parsed_status = ApprovalStatus(status)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid status: {status}",
+                    )
+            else:
+                parsed_status = ApprovalStatus.PENDING
+
+            rows = ApprovalManager().list(
+                status=parsed_status,
+                execution_id=execution_id,
+                limit=limit,
+                offset=offset,
+            )
+            return {
+                "approvals": [_approval_to_dict(r) for r in rows],
+                "total": len(rows),
+                "limit": limit,
+                "offset": offset,
+            }
+
+        @api.get("/executions/{execution_id}/approvals/{task_call_id}")
+        async def get_one_approval(
+            execution_id: str,
+            task_call_id: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+
+            try:
+                exec_ctx = ContextManager.create().get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            row = ApprovalManager().get_by_call(execution_id, task_call_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+            return _approval_to_dict(row)
+
         @api.get(
             "/workflows/{namespace}/{workflow_name}/executions",
             response_model=ExecutionListResponse,
