@@ -86,3 +86,37 @@ def test_approval_request_unique_per_execution_and_call(isolated_db):
                 ),
             )
             s.commit()
+
+
+from flux.approvals import ApprovalRejected, ApprovalVerdict
+
+
+def test_approval_rejected_carries_context():
+    err = ApprovalRejected(
+        task_name="default/release/deploy_to_prod",
+        approver_subject="alice@example.com",
+        approver_provider="oidc",
+        reason="failed canary",
+    )
+    assert err.task_name == "default/release/deploy_to_prod"
+    assert err.approver_subject == "alice@example.com"
+    assert err.reason == "failed canary"
+    assert "deploy_to_prod" in str(err)
+    assert "alice@example.com" in str(err)
+
+
+def test_approval_verdict_approved():
+    v = ApprovalVerdict(
+        approved=True,
+        approver_subject="alice",
+        approver_provider="oidc",
+        reason=None,
+    )
+    assert v.approved is True
+    assert v.cancelled is False
+
+
+def test_approval_verdict_cancelled():
+    v = ApprovalVerdict(approved=False, cancelled=True)
+    assert v.approved is False
+    assert v.cancelled is True
