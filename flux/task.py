@@ -502,6 +502,11 @@ class task:
             await ctx.checkpoint()
             raise ex
 
+        from flux.approvals import ApprovalRejected
+
+        if isinstance(ex, ApprovalRejected):
+            raise
+
         try:
             if self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
                 return await self.__handle_retry(

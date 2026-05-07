@@ -313,3 +313,70 @@ def test_rejection_raises_approval_rejected(isolated_db):
     assert ctx.has_failed
     last_value = str(ctx.events[-1].value)
     assert "Approval rejected" in last_value or "Approval rejected" in str(ctx.exception)
+
+
+def test_rejected_does_not_trigger_retry(isolated_db):
+
+    retry_count = [0]
+
+    @task_decorator.with_options(requires_approval=True, retry_max_attempts=3)
+    async def gated_with_retry() -> str:
+        retry_count[0] += 1
+        return "should not run"
+
+    @workflow
+    async def wf_retry(ctx: ExecutionContext):
+        return await gated_with_retry()
+
+    ctx = wf_retry.run()
+    mgr = ApprovalManager()
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="a",
+            approver_provider="oidc",
+            approved=False,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+    ctx = wf_retry.run(execution_id=ctx.execution_id)
+    assert ctx.has_failed
+    assert retry_count[0] == 0, f"Body ran {retry_count[0]} times; should never run on rejection"
+
+
+def test_rejected_does_not_trigger_fallback(isolated_db):
+
+    fallback_called = [False]
+
+    async def my_fallback(*args, **kwargs):
+        fallback_called[0] = True
+        return "fallback ran"
+
+    @task_decorator.with_options(requires_approval=True, fallback=my_fallback)
+    async def gated_with_fallback() -> str:
+        return "primary"
+
+    @workflow
+    async def wf_fallback(ctx: ExecutionContext):
+        return await gated_with_fallback()
+
+    ctx = wf_fallback.run()
+    mgr = ApprovalManager()
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="a",
+            approver_provider="oidc",
+            approved=False,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+    ctx = wf_fallback.run(execution_id=ctx.execution_id)
+    assert ctx.has_failed
+    assert fallback_called[0] is False
