@@ -566,7 +566,7 @@ def workflow_status(
 
         click.echo(to_json(result))
         if pending:
-            click.echo(f"Blocked on {len(pending)} approval(s)")
+            click.echo(f"Blocked on {len(pending)} approval(s)", err=True)
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -796,10 +796,15 @@ def _fetch_pending_approvals(
 
 
 def _render_pending_approvals(pending: list[dict[str, Any]]) -> None:
+    """Render pending-approval info on stderr.
+
+    Stderr keeps stdout reserved for the primary JSON payload so callers
+    that pipe stdout to ``json.loads`` (e.g. E2E harness) keep working.
+    """
     if not pending:
         return
-    click.echo("")
-    click.echo("Pending approvals:")
+    click.echo("", err=True)
+    click.echo("Pending approvals:", err=True)
     for r in pending:
         requested = (r.get("requested_at") or "")[:19]
         click.echo(
@@ -808,6 +813,7 @@ def _render_pending_approvals(pending: list[dict[str, Any]]) -> None:
             f"{r.get('workflow_name', '?')}/"
             f"{r.get('task_name', '?')}"
             f"  (requested {requested})",
+            err=True,
         )
 
 
