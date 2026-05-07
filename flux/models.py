@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -676,6 +677,48 @@ class ExecutionEventModel(Base):
             value=obj.value,
             subject=obj.subject,
         )
+
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
+class ApprovalRequestModel(Base):
+    """Persistent state for a single human-approval gate on a task call.
+
+    The row is the source of truth for *what's pending*. Events
+    (TASK_AWAITING_APPROVAL, TASK_APPROVED, TASK_REJECTED) are the audit log.
+    The two are written atomically via UnitOfWork — see flux/unit_of_work.py.
+    """
+
+    __tablename__ = "approval_requests"
+
+    id = Column(String, primary_key=True)
+    execution_id = Column(
+        String,
+        ForeignKey("executions.execution_id"),
+        nullable=False,
+        index=True,
+    )
+    task_call_id = Column(String, nullable=False)
+    workflow_namespace = Column(String, nullable=False, index=True)
+    workflow_name = Column(String, nullable=False, index=True)
+    task_name = Column(String, nullable=False, index=True)
+    requested_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    status = Column(SqlEnum(ApprovalStatus), nullable=False)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    approver_subject = Column(String, nullable=True)
+    approver_provider = Column(String, nullable=True)
+    reason = Column(TEXT, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("execution_id", "task_call_id", name="uq_approval_exec_call"),
+        Index("ix_approvals_status_requested", "status", "requested_at"),
+    )
 
 
 class ScheduleModel(Base):
