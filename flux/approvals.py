@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
 from flux.models import ApprovalRequestModel, ApprovalStatus, RepositoryFactory
 from flux.unit_of_work import UnitOfWork
@@ -175,38 +175,46 @@ class ApprovalManager:
         reason: str | None,
         uow: UnitOfWork,
     ) -> ApprovalRequestModel:
-        """Record a decision on a pending approval. Caller commits the UoW.
+        """Record a decision via atomic CAS. Loser raises ApprovalAlreadyDecided."""
+        new_status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
+        decided_at = datetime.now(timezone.utc)
 
-        Takes a row lock via with_for_update() — Postgres honors it as a real
-        FOR UPDATE; on SQLite, the UoW's transaction provides equivalent
-        serialization.
-
-        Raises ApprovalAlreadyDecided if the row isn't pending.
-        """
-        stmt = (
-            select(ApprovalRequestModel)
+        result = uow.session.execute(
+            sa_update(ApprovalRequestModel)
             .where(
                 ApprovalRequestModel.execution_id == execution_id,
                 ApprovalRequestModel.task_call_id == task_call_id,
+                ApprovalRequestModel.status == ApprovalStatus.PENDING,
             )
-            .with_for_update()
+            .values(
+                status=new_status,
+                approver_subject=approver_subject,
+                approver_provider=approver_provider,
+                reason=reason,
+                decided_at=decided_at,
+            ),
         )
-        row = uow.session.execute(stmt).scalar_one_or_none()
-        if row is None:
-            raise LookupError(
-                f"No approval found for execution={execution_id} task_call_id={task_call_id}",
-            )
-        if row.status != ApprovalStatus.PENDING:
-            raise ApprovalAlreadyDecided(row.status, row.decided_at)
 
-        row.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
-        row.approver_subject = approver_subject
-        row.approver_provider = approver_provider
-        row.reason = reason
-        row.decided_at = datetime.now(timezone.utc)
+        if result.rowcount == 0:
+            existing = uow.session.execute(
+                select(ApprovalRequestModel).where(
+                    ApprovalRequestModel.execution_id == execution_id,
+                    ApprovalRequestModel.task_call_id == task_call_id,
+                ),
+            ).scalar_one_or_none()
+            if existing is None:
+                raise LookupError(
+                    f"No approval found for execution={execution_id} task_call_id={task_call_id}",
+                )
+            raise ApprovalAlreadyDecided(existing.status, existing.decided_at)
+
         uow.session.flush()
-        # Detach so attrs remain accessible after the caller's commit (which
-        # would otherwise expire managed instances).
+        row = uow.session.execute(
+            select(ApprovalRequestModel).where(
+                ApprovalRequestModel.execution_id == execution_id,
+                ApprovalRequestModel.task_call_id == task_call_id,
+            ),
+        ).scalar_one()
         uow.session.expunge(row)
         return row
 
