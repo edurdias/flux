@@ -178,3 +178,26 @@ class TerminalUI(UI):
             f" {self._c(_DIM, f'({output.turns} turns)')}",
         )
         print(_hr())
+
+    async def display_approval_request(self, request: dict) -> dict:
+        await self._stop_spinner()
+        task_name = request.get("task_name", "<unknown>")
+        ns = request.get("workflow_namespace", "?")
+        wf = request.get("workflow_name", "?")
+        print(
+            f"\n  {self._c(_YELLOW, '⚡')} Tool {self._c(_BOLD, task_name)} "
+            f"{self._c(_DIM, f'(in {ns}/{wf})')} requires approval.",
+        )
+        prompt = (
+            f"  {self._c(_DIM, '[a]')} approve  "
+            f"{self._c(_DIM, '[r]')} reject  "
+            f"{self._c(_DIM, '[A]')} always approve  > "
+        )
+        loop = asyncio.get_event_loop()
+        answer = (await loop.run_in_executor(None, lambda: input(prompt))).strip()
+        if answer == "A":
+            return {"approved": True, "reason": None, "always_approve": True}
+        if answer == "a":
+            return {"approved": True, "reason": None, "always_approve": False}
+        reason = (await loop.run_in_executor(None, lambda: input("  Reason (optional): "))).strip()
+        return {"approved": False, "reason": reason or None, "always_approve": False}
