@@ -69,3 +69,17 @@ class ElicitationRequested(Message):
         super().__init__()
         self.request = request
         self.future = future
+
+
+class ApprovalRequested(Message):
+    """Posted when the workflow pauses for an engine-level approval gate.
+
+    The handler in AgentApp resolves ``future`` with the operator's decision
+    dict (``{approved, reason, always_approve}``) when the user presses the
+    approval keys, or cancels the future if the app tears down first.
+    """
+
+    def __init__(self, request: dict[str, Any], future: asyncio.Future) -> None:
+        super().__init__()
+        self.request = request
+        self.future = future

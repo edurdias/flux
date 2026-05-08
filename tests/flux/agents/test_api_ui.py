@@ -64,6 +64,42 @@ def test_chat_rejects_missing_bearer():
     assert response.status_code == 401
 
 
+def test_chat_streams_approval_required_event_through_sse():
+    """When the workflow pauses for approval, the API SSE stream surfaces
+    the approval_required event so the JS client can render a prompt and
+    POST a decision via the Flux server's /executions/{id}/approvals routes."""
+    ui = _make_ui()
+    events = [
+        AgentEvent(kind="session_id", data={"id": "exec-app-1"}),
+        AgentEvent(
+            kind="approval_required",
+            data={
+                "execution_id": "exec-app-1",
+                "task_call_id": "deploy_1",
+                "task_name": "deploy",
+                "workflow_namespace": "default",
+                "workflow_name": "release",
+                "approval_id": "appr-1",
+                "requested_at": "2026-05-07T10:00:00",
+            },
+        ),
+    ]
+    with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/chat",
+            json={"message": ""},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
+    payloads = [json.loads(line[len("data: ") :]) for line in lines]
+    appr = next((p for p in payloads if p.get("type") == "approval_required"), None)
+    assert appr is not None
+    assert appr["task_call_id"] == "deploy_1"
+    assert appr["task_name"] == "deploy"
+
+
 def test_chat_new_session_streams_sse():
     ui = _make_ui()
     events = [
