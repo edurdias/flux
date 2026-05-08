@@ -140,6 +140,36 @@ def test_get_approvals_age_min_accepts_iso_duration(client):
     assert r.status_code == 200
 
 
+def test_get_approvals_auth_disabled_response_includes_auth_filtered_false(client):
+    eid = f"exec-flag-{uuid.uuid4().hex[:6]}"
+    _seed_approval(eid, "call-flag")
+
+    r = client.get(f"/approvals?execution_id={eid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["auth_filtered"] is False
+
+
+@pytest.mark.parametrize(
+    "perms,expected",
+    [
+        ({"*"}, True),
+        ({"workflow:*:*:read"}, True),
+        ({"workflow:billing:report:read"}, True),
+        ({"workflow:billing:*"}, True),
+        ({"workflow:*"}, True),
+        ({"schedule:*:read"}, False),
+        ({"execution:*:read"}, False),
+        ({"agent:*:read"}, False),
+        (set(), False),
+    ],
+)
+def test_has_any_workflow_read(perms, expected):
+    from flux.server import _has_any_workflow_read
+
+    assert _has_any_workflow_read(perms) is expected
+
+
 def test_get_approvals_for_execution_returns_404_on_unknown(client):
     r = client.get("/executions/no-such/approvals")
     assert r.status_code == 404

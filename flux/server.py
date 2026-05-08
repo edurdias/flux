@@ -280,6 +280,16 @@ class ScheduleHistoryResponse(BaseModel):
     offset: int
 
 
+def _has_any_workflow_read(permissions: set[str]) -> bool:
+    if "*" in permissions:
+        return True
+    for p in permissions:
+        parts = p.split(":")
+        if parts[0] == "workflow" and (parts[-1] == "read" or parts[-1] == "*"):
+            return True
+    return False
+
+
 class Server:
     """
     Server for managing workflows and tasks with integrated scheduler.
@@ -3232,29 +3242,62 @@ class Server:
                         detail=f"Invalid age_min: {age_min}",
                     )
 
-            rows = ApprovalManager().list(
+            has_broad_read = True
+            if auth_config.enabled and auth_service is not None:
+                permissions = await auth_service.resolve_permissions(identity)
+                has_broad_read = identity.has_permission("workflow:*:*:read", permissions)
+                if not has_broad_read and not _has_any_workflow_read(permissions):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "forbidden",
+                            "missing_permission": "workflow:*:*:read",
+                        },
+                    )
+
+            mgr = ApprovalManager()
+
+            if has_broad_read:
+                rows = mgr.list(
+                    status=parsed_status,
+                    execution_id=execution_id,
+                    workflow_namespace=workflow_namespace,
+                    workflow_name=workflow_name,
+                    task_name=task_name,
+                    age_min=parsed_age,
+                    limit=limit,
+                    offset=offset,
+                )
+                return {
+                    "approvals": [_approval_to_dict(r) for r in rows],
+                    "total": len(rows),
+                    "limit": limit,
+                    "offset": offset,
+                    "auth_filtered": False,
+                }
+
+            window = max((limit + offset) * 5, 100)
+            rows = mgr.list(
                 status=parsed_status,
                 execution_id=execution_id,
                 workflow_namespace=workflow_namespace,
                 workflow_name=workflow_name,
                 task_name=task_name,
                 age_min=parsed_age,
-                limit=limit,
-                offset=offset,
+                limit=window,
+                offset=0,
             )
             filtered = []
             for r in rows:
-                if await _check_workflow_read(
-                    identity,
-                    r.workflow_namespace,
-                    r.workflow_name,
-                ):
+                if await _check_workflow_read(identity, r.workflow_namespace, r.workflow_name):
                     filtered.append(r)
+            page = filtered[offset : offset + limit]
             return {
-                "approvals": [_approval_to_dict(r) for r in filtered],
+                "approvals": [_approval_to_dict(r) for r in page],
                 "total": len(filtered),
                 "limit": limit,
                 "offset": offset,
+                "auth_filtered": True,
             }
 
         @api.get("/executions/{execution_id}/approvals")
