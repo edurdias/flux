@@ -87,3 +87,32 @@ def test_seed_built_in_roles_running_twice_is_safe(tmp_path):
     with Session() as s:
         rows = s.query(RoleModel).filter_by(name="operator").all()
         assert len(rows) == 1
+
+
+def test_seed_built_in_roles_warns_when_extra_perms_present(tmp_path, caplog):
+    """Existing perms not in BUILT_IN_ROLES are kept (no removal) but logged."""
+    import logging
+
+    db_path = tmp_path / "seed_warn.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+
+    with Session() as s:
+        s.add(
+            RoleModel(
+                name="operator",
+                permissions=["workflow:*:*:read", "deprecated:legacy:perm"],
+                built_in=True,
+            ),
+        )
+        s.commit()
+
+    auth = AuthService(config=AuthConfig(), session_factory=Session)
+    with caplog.at_level(logging.WARNING):
+        auth.seed_built_in_roles()
+
+    assert any("deprecated:legacy:perm" in m for m in caplog.messages)
+    with Session() as s:
+        op = s.query(RoleModel).filter_by(name="operator").first()
+        assert "deprecated:legacy:perm" in op.permissions

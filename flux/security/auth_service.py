@@ -458,6 +458,14 @@ class AuthService:
                 else:
                     existing_set = set(existing.permissions or [])
                     desired_set = set(permissions)
+                    extra = existing_set - desired_set
+                    if extra:
+                        logger.warning(
+                            "Built-in role '%s' has permissions not in current "
+                            "BUILT_IN_ROLES; these will not be removed automatically: %s",
+                            name,
+                            sorted(extra),
+                        )
                     merged = existing_set | desired_set
                     if merged != existing_set:
                         existing.permissions = sorted(merged)
