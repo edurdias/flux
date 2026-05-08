@@ -95,3 +95,31 @@ def test_parse_duration_supported_suffixes(raw, expected):
 def test_parse_duration_rejects_invalid(raw):
     with pytest.raises(ValueError):
         parse_duration(raw)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("PT30S", timedelta(seconds=30)),
+        ("PT5M", timedelta(minutes=5)),
+        ("PT1H", timedelta(hours=1)),
+        ("PT1H30M", timedelta(hours=1, minutes=30)),
+        ("P7D", timedelta(days=7)),
+        ("P1DT2H3M4S", timedelta(days=1, hours=2, minutes=3, seconds=4)),
+    ],
+)
+def test_parse_iso8601_duration_supported(raw, expected):
+    from flux.utils import parse_iso8601_duration
+
+    assert parse_iso8601_duration(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "P", "PT", "1H", "PT0S", "P0D", "PT", "P1Y", "garbage"],
+)
+def test_parse_iso8601_duration_rejects_invalid(raw):
+    from flux.utils import parse_iso8601_duration
+
+    with pytest.raises(ValueError):
+        parse_iso8601_duration(raw)

@@ -3163,21 +3163,7 @@ class Server:
         # Approval Endpoints (read-side)
         # ===========================================
 
-        def _parse_iso8601_duration(s: str):
-            """Parse a minimal ISO-8601 duration subset (e.g. PT1H, P7D, PT30M)."""
-            import re as _re
-            from datetime import timedelta as _timedelta
-
-            m = _re.match(
-                r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$",
-                s,
-            )
-            if not m or s in ("P", "PT"):
-                raise ValueError(f"Invalid ISO-8601 duration: {s}")
-            days, hours, minutes, seconds = (int(x or 0) for x in m.groups())
-            if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
-                raise ValueError(f"Invalid ISO-8601 duration: {s}")
-            return _timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+        from flux.utils import parse_iso8601_duration
 
         def _approval_to_dict(r) -> dict:
             return {
@@ -3199,9 +3185,10 @@ class Server:
             }
 
         async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
-            """Return True if auth is disabled or identity has workflow:<ns>:<name>:read."""
-            if auth_service is None or not auth_config.enabled:
+            if not auth_config.enabled:
                 return True
+            if auth_service is None:
+                return False
             return await auth_service.is_authorized(
                 identity,
                 f"workflow:{ns}:{name}:read",
@@ -3238,7 +3225,7 @@ class Server:
             parsed_age = None
             if age_min:
                 try:
-                    parsed_age = _parse_iso8601_duration(age_min)
+                    parsed_age = parse_iso8601_duration(age_min)
                 except ValueError:
                     raise HTTPException(
                         status_code=400,

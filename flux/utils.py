@@ -277,3 +277,21 @@ def parse_duration(s: str) -> timedelta:
         raise ValueError(f"Invalid duration: {s!r} — zero is not a valid duration")
     unit = _DURATION_UNITS[m.group(2)]
     return timedelta(**{unit: value})
+
+
+_ISO8601_DURATION_PATTERN = re.compile(
+    r"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$",
+)
+
+
+def parse_iso8601_duration(s: str) -> timedelta:
+    """Parse a minimal ISO-8601 duration subset (e.g. PT1H, P7D, PT30M)."""
+    if not s:
+        raise ValueError("Empty duration string")
+    m = _ISO8601_DURATION_PATTERN.match(s)
+    if not m or s in ("P", "PT"):
+        raise ValueError(f"Invalid ISO-8601 duration: {s}")
+    days, hours, minutes, seconds = (int(x or 0) for x in m.groups())
+    if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
+        raise ValueError(f"Invalid ISO-8601 duration: {s}")
+    return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
