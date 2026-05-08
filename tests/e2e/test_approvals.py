@@ -116,7 +116,7 @@ def test_workflow_status_blocked_line_on_stderr(cli):
     exec_id = r["execution_id"]
 
     cli.wait_for_state("approval_e2e", exec_id, "PAUSED", timeout=30)
-    _wait_for_pending_approval(cli, exec_id)
+    pending = _wait_for_pending_approval(cli, exec_id)
 
     proc = cli._server(["workflow", "status", "approval_e2e", exec_id])
     assert proc.returncode == 0
@@ -124,5 +124,8 @@ def test_workflow_status_blocked_line_on_stderr(cli):
     assert parsed["execution_id"] == exec_id
     assert "Blocked on" in proc.stderr
 
-    # Cleanup: cancel so the test doesn't leave a paused execution behind.
-    cli.cancel("approval_e2e", exec_id)
+    # Drive the workflow to a terminal state so it doesn't leave a paused
+    # execution behind that subsequent tests inherit through the shared
+    # session-scoped server. Approve and wait for COMPLETED before returning.
+    cli._server_ok(["execution", "approve", exec_id, pending["task_call_id"]])
+    cli.wait_for_state("approval_e2e", exec_id, "COMPLETED", timeout=30)
