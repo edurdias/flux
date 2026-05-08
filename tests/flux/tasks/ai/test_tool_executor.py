@@ -5,7 +5,6 @@ import time
 
 
 from flux import task
-from flux.tasks.ai.approval import requires_approval
 from flux.tasks.ai.tool_executor import (
     build_tool_schemas,
     build_tools_preamble,
@@ -416,13 +415,14 @@ def test_execute_tools_single_call_unchanged():
 # --- tool approval tests ---
 
 
-@task
+@task.with_options(requires_approval=True)
 async def dangerous_tool(target: str) -> str:
     """Delete something dangerous."""
     return f"deleted:{target}"
 
 
-dangerous_tool_approved = requires_approval(dangerous_tool)
+# Alias kept for readability of existing test names; the task itself is gated.
+dangerous_tool_approved = dangerous_tool
 
 
 def test_approval_autonomous_mode_skips_all():
