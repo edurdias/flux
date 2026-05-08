@@ -27,6 +27,7 @@ KIND_CHAT_RESPONSE = "chat_response"
 KIND_ELICITATION = "elicitation"
 KIND_SESSION_END = "session_end"
 KIND_REASONING = "reasoning"
+KIND_APPROVAL_REQUIRED = "approval_required"
 KIND_ERROR = "error"
 KIND_END = "end"
 
@@ -125,6 +126,19 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
                 data={
                     "reason": output.get("reason", ""),
                     "turns": output.get("turns", 0),
+                },
+            )
+        elif pause_type == KIND_APPROVAL_REQUIRED:
+            yield AgentEvent(
+                kind=KIND_APPROVAL_REQUIRED,
+                data={
+                    "execution_id": output.get("execution_id", ""),
+                    "task_call_id": output.get("task_call_id", ""),
+                    "task_name": output.get("task_name", ""),
+                    "workflow_namespace": output.get("workflow_namespace", ""),
+                    "workflow_name": output.get("workflow_name", ""),
+                    "approval_id": output.get("approval_id", ""),
+                    "requested_at": output.get("requested_at", ""),
                 },
             )
         return

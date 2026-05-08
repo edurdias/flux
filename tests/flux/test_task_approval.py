@@ -89,6 +89,35 @@ def test_await_approval_pending_raises_pause_requested(isolated_db):
         ctx._await_approval("nonexistent-call-id")
 
 
+def test_await_approval_pending_pause_carries_metadata_payload(isolated_db):
+    """When a real PENDING row exists, the PauseRequested output carries the
+    approval metadata so SSE consumers (the agent harness) can render a
+    human-meaningful prompt from the workflow_paused event."""
+    from flux.approvals import ApprovalManager
+    from flux.tasks.pause import PauseRequested
+    from flux.unit_of_work import UnitOfWork
+
+    ctx = _build_test_ctx()
+    mgr = ApprovalManager()
+    with UnitOfWork() as uow:
+        mgr.create(ctx.execution_id, "call-meta-1", "billing", "release", "deploy", uow=uow)
+        uow.commit()
+
+    with pytest.raises(PauseRequested) as exc_info:
+        ctx._await_approval("call-meta-1")
+
+    output = exc_info.value.output
+    assert output is not None
+    assert output["type"] == "approval_required"
+    assert output["task_call_id"] == "call-meta-1"
+    assert output["task_name"] == "deploy"
+    assert output["workflow_namespace"] == "billing"
+    assert output["workflow_name"] == "release"
+    assert output["execution_id"] == ctx.execution_id
+    assert output["approval_id"]  # opaque id is present
+    assert output["requested_at"]  # ISO timestamp present
+
+
 def test_await_approval_approved_returns_verdict(isolated_db):
     from flux.approvals import ApprovalManager
     from flux.unit_of_work import UnitOfWork

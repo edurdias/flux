@@ -163,3 +163,29 @@ class FluxClient:
             response = await client.get(url, headers=self._build_headers())
             response.raise_for_status()
             return response.json()
+
+    async def decide_approval(
+        self,
+        execution_id: str,
+        task_call_id: str,
+        *,
+        approved: bool,
+        reason: str | None = None,
+    ) -> dict:
+        """POST a decision to the Flux approval routes.
+
+        Wraps ``POST /executions/{id}/approvals/{call}/{approve|reject}`` so
+        agent-harness UIs can decide approvals against the same server
+        endpoint backing the ``flux execution approve/reject`` CLI commands.
+        """
+        verb = "approve" if approved else "reject"
+        url = f"{self.server_url}/executions/{execution_id}/approvals/{task_call_id}/{verb}"
+        body = {"reason": reason} if reason else {}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=body,
+                headers=self._build_headers(),
+            )
+            response.raise_for_status()
+            return response.json()

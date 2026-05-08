@@ -438,8 +438,22 @@ class ExecutionContext(Generic[WorkflowInputType]):
 
         mgr = ApprovalManager()
         row = mgr.get_by_call(self.execution_id, task_call_id)
-        if row is None or row.status == ApprovalStatus.PENDING:
+        if row is None:
             raise PauseRequested(name=f"approval:{task_call_id}")
+        if row.status == ApprovalStatus.PENDING:
+            raise PauseRequested(
+                name=f"approval:{task_call_id}",
+                output={
+                    "type": "approval_required",
+                    "execution_id": self.execution_id,
+                    "task_call_id": task_call_id,
+                    "task_name": row.task_name,
+                    "workflow_namespace": row.workflow_namespace,
+                    "workflow_name": row.workflow_name,
+                    "approval_id": row.id,
+                    "requested_at": (row.requested_at.isoformat() if row.requested_at else None),
+                },
+            )
         if row.status == ApprovalStatus.CANCELLED:
             return ApprovalVerdict(approved=False, cancelled=True)
         if row.status == ApprovalStatus.REJECTED:
