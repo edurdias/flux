@@ -23,6 +23,29 @@ if TYPE_CHECKING:
     from flux.unit_of_work import UnitOfWork
 
 
+_NO_DEMOTE_TO_PAUSED_FROM = frozenset(
+    {
+        ExecutionState.RESUMING,
+        ExecutionState.CANCELLING,
+    },
+)
+_TERMINAL_STATES = frozenset(
+    {
+        ExecutionState.COMPLETED,
+        ExecutionState.FAILED,
+        ExecutionState.CANCELLED,
+    },
+)
+
+
+def _accept_state_write(new: ExecutionState, db: ExecutionState) -> bool:
+    if new in _TERMINAL_STATES:
+        return True
+    if new == ExecutionState.PAUSED and db in _NO_DEMOTE_TO_PAUSED_FROM:
+        return False
+    return True
+
+
 class ContextManager(ABC):
     @abstractmethod
     def save(
@@ -156,13 +179,11 @@ class DatabaseContextManager(ContextManager):
         manage_transaction: bool,
     ) -> ExecutionContext:
         try:
-            model = session.get(
-                ExecutionContextModel,
-                ctx.execution_id,
-            )
+            model = self._lock_for_write(session, ctx.execution_id)
             if model:
+                if _accept_state_write(ctx.state, model.state):
+                    model.state = ctx.state
                 model.output = ctx.output
-                model.state = ctx.state
                 model.events.extend(self._get_additional_events(ctx, model))
             else:
                 session.add(ExecutionContextModel.from_plain(ctx))
@@ -176,17 +197,29 @@ class DatabaseContextManager(ContextManager):
 
     def update(self, ctx: ExecutionContext) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(
-                ExecutionContextModel,
-                ctx.execution_id,
-            )
+            model = self._lock_for_write(session, ctx.execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(ctx.execution_id)
+            if _accept_state_write(ctx.state, model.state):
+                model.state = ctx.state
             model.output = ctx.output
-            model.state = ctx.state
             model.events.extend(self._get_additional_events(ctx, model))
             session.commit()
             return ctx
+
+    @staticmethod
+    def _lock_for_write(
+        session: Session,
+        execution_id: str,
+    ) -> ExecutionContextModel | None:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ExecutionContextModel)
+            .where(ExecutionContextModel.execution_id == execution_id)
+            .with_for_update()
+        )
+        return session.execute(stmt).scalar_one_or_none()
 
     def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
         if workflow.affinity is not None:

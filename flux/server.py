@@ -3425,12 +3425,6 @@ class Server:
                         else ExecutionEventType.TASK_REJECTED
                     )
                     decided_iso = updated.decided_at.isoformat() if updated.decided_at else None
-                    # Transition the workflow back to RESUMING *before* the
-                    # TASK_APPROVED/REJECTED event so ``is_paused`` (which
-                    # checks the last event) still sees WORKFLOW_PAUSED. This
-                    # is a no-op when the ctx is not currently paused — for
-                    # instance, in the transient window where a worker has
-                    # already started replaying the task.
                     exec_ctx.start_resuming()
                     exec_ctx.events.append(
                         ExecutionEvent(

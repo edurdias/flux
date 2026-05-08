@@ -296,17 +296,16 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def start_resuming(self, input: Any | None = None) -> Self:
-        if self.is_paused:
-            self._state = ExecutionState.RESUMING
-            self.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_RESUMING,
-                    source_id=self._current_worker,
-                    name=self.workflow_name,
-                    value=input,
-                    subject=None,
-                ),
-            )
+        self._state = ExecutionState.RESUMING
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUMING,
+                source_id=self._current_worker,
+                name=self.workflow_name,
+                value=input,
+                subject=None,
+            ),
+        )
         return self
 
     def resume(self) -> Any:
