@@ -269,11 +269,18 @@ async def execute_tools(
         func = tool.func if hasattr(tool, "func") else tool
         tool_map[func.__name__] = tool
 
+    # Scope the autonomous bypass to this batch only. Without the
+    # save-and-restore the flag persists on the shared ExecutionContext and
+    # subsequent (non-autonomous) approval-gated tasks in the same workflow
+    # would silently bypass the gate.
+    bypass_ctx: Any = None
+    prior_bypass: bool = False
     if approval_mode == "autonomous":
         from flux.domain.execution_context import ExecutionContext
 
-        ctx = await ExecutionContext.get()
-        ctx.approval_bypass = True
+        bypass_ctx = await ExecutionContext.get()
+        prior_bypass = bypass_ctx.approval_bypass
+        bypass_ctx.approval_bypass = True
 
     async def _run_one(call: dict[str, Any]) -> dict[str, Any]:
         name = call["name"]
@@ -315,15 +322,19 @@ async def execute_tools(
             logger.warning("Tool '%s' failed: %s (args=%s)", name, e, args)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    if max_concurrent is not None:
-        if max_concurrent < 1:
-            raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
-        sem = asyncio.Semaphore(max_concurrent)
+    try:
+        if max_concurrent is not None:
+            if max_concurrent < 1:
+                raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+            sem = asyncio.Semaphore(max_concurrent)
 
-        async def _limited(call: dict[str, Any]) -> dict[str, Any]:
-            async with sem:
-                return await _run_one(call)
+            async def _limited(call: dict[str, Any]) -> dict[str, Any]:
+                async with sem:
+                    return await _run_one(call)
 
-        return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
+            return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
 
-    return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))
+        return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))
+    finally:
+        if bypass_ctx is not None:
+            bypass_ctx.approval_bypass = prior_bypass

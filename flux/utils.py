@@ -265,7 +265,7 @@ def parse_duration(s: str) -> timedelta:
     """Parse a friendly duration like '5m', '24h', '7d' into a timedelta.
 
     Accepts a positive integer followed by one of: s, m, h, d, w.
-    Raises ValueError for anything else (no decimals, no negatives, no zero-value forms).
+    Raises ValueError for anything else (no decimals, no negatives, no zero).
     """
     if not s:
         raise ValueError("Empty duration string")
@@ -273,5 +273,7 @@ def parse_duration(s: str) -> timedelta:
     if not m:
         raise ValueError(f"Invalid duration: {s!r} — expected '<int><s|m|h|d|w>'")
     value = int(m.group(1))
+    if value == 0:
+        raise ValueError(f"Invalid duration: {s!r} — zero is not a valid duration")
     unit = _DURATION_UNITS[m.group(2)]
     return timedelta(**{unit: value})

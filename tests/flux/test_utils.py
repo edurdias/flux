@@ -91,7 +91,7 @@ def test_parse_duration_supported_suffixes(raw, expected):
     assert parse_duration(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "abc", "1", "1x", "h1", "-1h", "1.5h"])
+@pytest.mark.parametrize("raw", ["", "abc", "1", "1x", "h1", "-1h", "1.5h", "0s", "0h", "0d"])
 def test_parse_duration_rejects_invalid(raw):
     with pytest.raises(ValueError):
         parse_duration(raw)

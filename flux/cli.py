@@ -782,8 +782,13 @@ def _fetch_pending_approvals(
     base_url: str,
     execution_id: str,
 ) -> list[dict[str, Any]]:
-    """Fetch pending approvals for an execution; swallow errors so the
-    primary command output is never blocked by an approval-side failure."""
+    """Fetch pending approvals for an execution.
+
+    Errors are caught and logged to stderr so the primary command output
+    (the JSON payload on stdout) is never blocked by an approval-side
+    failure. We narrow to the network/parse errors we actually expect —
+    bare ``except Exception`` would also swallow programming errors.
+    """
     try:
         resp = client.get(
             f"{base_url}/executions/{execution_id}/approvals",
@@ -791,7 +796,8 @@ def _fetch_pending_approvals(
         )
         resp.raise_for_status()
         return resp.json().get("approvals", []) or []
-    except Exception:
+    except (httpx.HTTPError, json.JSONDecodeError) as ex:
+        click.echo(f"(approvals lookup failed: {ex})", err=True)
         return []
 
 

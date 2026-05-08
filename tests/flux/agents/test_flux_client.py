@@ -181,3 +181,27 @@ async def test_decide_approval_reject_route_with_no_reason():
 
     assert captured["url"].endswith("/executions/exec-2/approvals/call-2/reject")
     assert captured["body"] == {}
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_409_returns_body_instead_of_raising():
+    """The race-loss case (CLI operator decided first) must not raise --- the
+    agent harness has no way to recover from an exception escaping _dispatch."""
+    client = FluxClient(server_url="http://test")
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "error": "already_decided",
+                "current_status": "approved",
+                "decided_at": "2026-05-08T01:00:00",
+            },
+        )
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        result = await client.decide_approval("exec-1", "call-1", approved=True)
+
+    assert result["error"] == "already_decided"
+    assert result["current_status"] == "approved"

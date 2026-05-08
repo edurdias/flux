@@ -187,5 +187,10 @@ class FluxClient:
                 json=body,
                 headers=self._build_headers(),
             )
+            # 409 ``already_decided`` is the race-loss case: another approver
+            # (e.g. the CLI) won. Return the body so callers can treat it as
+            # benign instead of letting it kill the agent session.
+            if response.status_code == 409:
+                return response.json()
             response.raise_for_status()
             return response.json()
