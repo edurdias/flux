@@ -1,0 +1,167 @@
+# Human approvals on tasks
+
+Flux tasks can pause for explicit human approval before running. Approval is
+declared on the task itself, runs through the engine uniformly, and is
+visible to CLI/API/UI clients alike.
+
+## Quick start
+
+```python
+from flux import task, workflow, ExecutionContext
+
+
+@task.with_options(requires_approval=True)
+async def deploy_to_prod() -> None:
+    ...
+
+
+@workflow
+async def release(ctx: ExecutionContext):
+    await deploy_to_prod()  # workflow pauses here until approved
+```
+
+Run the workflow; check pending approvals; approve:
+
+```bash
+flux execution approvals
+flux execution approve <execution_id> <task_call_id> --reason "tests green"
+```
+
+## Conditional approval
+
+Pass a callable that takes the same arguments as the task and returns `bool`
+(or an awaitable bool) to gate dynamically:
+
+```python
+@task.with_options(
+    requires_approval=lambda amount, customer: amount > 100,
+)
+async def issue_refund(amount: float, customer: str) -> None:
+    ...
+```
+
+The predicate is evaluated **before** the task body runs. If it raises, the
+task call fails — predicate exceptions are not silently mapped to "approve"
+or "reject."
+
+## Lifecycle
+
+When a task with an active approval gate is called:
+
+1. Engine emits `TASK_AWAITING_APPROVAL` and inserts an approval row.
+2. Workflow pauses (same machinery as `pause()`); worker releases the slot.
+3. An approver hits `POST /executions/{id}/approvals/{task_call_id}/approve`
+   (via CLI, web UI, or the agent harness).
+4. Workflow resumes; engine reads the verdict and either runs the body or
+   raises `ApprovalRejected` at the call site.
+
+`ApprovalRejected` propagates as a normal exception. **Retry, fallback, and
+rollback chains are skipped on rejection** — the body never ran, so there is
+nothing to retry, fall back from, or undo.
+
+## Permissions
+
+A new task-level verb: `workflow:{ns}:{wf}:task:{name}:approve`. Operators
+get this by default (`workflow:*:*:task:*:approve`).
+
+A user with `workflow:{ns}:{wf}:read` can *see* a pending approval but
+cannot decide it without `task:*:approve`.
+
+## Replay & determinism
+
+Both the predicate verdict and the approver's verdict are pinned in
+persistent state (event log + approval row). On replay or worker reclaim,
+neither is consulted again. Predicates only re-run in the rare worker-crash
+window between predicate evaluation and the next event flush — same
+restart-race contract as task bodies.
+
+## Retries and approval
+
+Each retry attempt is a fresh task call: the predicate re-evaluates and a
+new approval is required. Reasoning: the previous attempt may have had
+partial side effects, and the approver should reconsider. "Approve once,
+run forever" is a footgun.
+
+## Cancellation
+
+If a workflow is cancelled while paused on approval, all pending approval
+rows for that execution transition to `cancelled`. They do *not* emit
+`TASK_REJECTED` — rejection implies an approver acted; cancellation does
+not. Cancellation handling at the workflow level takes over from there.
+
+## Limitations (v1)
+
+- **Parallel approval-gated calls in a single execution** are not supported —
+  `asyncio.gather(approve_a(), approve_b())` where both gate will only
+  surface the first approval. Lifted by a follow-up spec on parallel-pause
+  coordination.
+- **No timeouts.** Tasks pause forever until acted on. Wrap in
+  `tasks.timeout` if a deadline matters.
+- **Single approver.** No N-of-M policies; no role-scoped approver lists.
+
+## CLI
+
+```bash
+flux execution approvals                                # list pending
+flux execution approvals --status all --age 1h          # all from the last hour
+flux execution approve <exec_id> <task_call_id> --reason "..."
+flux execution reject  <exec_id> <task_call_id> --reason "..."
+flux execution show    <exec_id>                        # appends pending approvals on stderr
+flux workflow status   <wf> <exec_id>                   # appends 'Blocked on N' on stderr
+```
+
+The `Pending approvals:` block in `execution show` and the
+`Blocked on N approval(s)` line in `workflow status` are written to **stderr**,
+so callers piping stdout to `json.loads` continue to work unchanged.
+
+## HTTP API
+
+```
+GET  /approvals[?status=&execution_id=&workflow_namespace=&workflow_name=&task_name=&age_min=&limit=&offset=]
+GET  /executions/{execution_id}/approvals
+GET  /executions/{execution_id}/approvals/{task_call_id}
+POST /executions/{execution_id}/approvals/{task_call_id}/approve
+POST /executions/{execution_id}/approvals/{task_call_id}/reject
+```
+
+POST body: `{"reason": "optional"}`. `200` returns the post-decision row;
+`409` returns `{"error": "already_decided", "current_status": ..., "decided_at": ...}`
+without leaking the winning approver's identity.
+
+## Agent harness
+
+When an agent's tool is gated, the harness pauses with the engine-level
+approval payload and surfaces it through the same UI channel as elicitations:
+
+- **Terminal mode:** prints the task name and pauses on
+  `[a] approve  [r] reject  [A] always approve`. The `[A]` answer caches
+  the task name in a per-session set so subsequent calls auto-approve.
+- **Textual mode:** mounts a system message with the same `[a]/[r]/[A]`
+  hint in the status bar; the keypress resolves the pending approval.
+- **API / Web modes:** the SSE stream emits an `approval_required` event
+  carrying the request payload; the consumer is expected to call the
+  HTTP `approve`/`reject` routes directly.
+
+Setting `approval_mode="autonomous"` on `agent(...)` propagates
+`ctx.approval_bypass = True` so the engine-level gate is skipped for every
+tool invoked from that batch.
+
+## Migration from the old wrapper
+
+If your code uses `flux.tasks.ai.approval.requires_approval` (deleted in
+v0.34), migrate to per-task `with_options`:
+
+```diff
+-from flux.tasks.ai.approval import requires_approval
+-tools = requires_approval(system_tools("."), only=["shell"])
++tools_raw = system_tools(".")
++tools = [
++    t.with_options(requires_approval=True)
++    if (t.func.__name__ if hasattr(t, "func") else t.__name__) == "shell"
++    else t
++    for t in tools_raw
++]
+```
+
+The agent harness's tool-approval prompt still works the same way — only
+the underlying mechanism changed.
