@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from flux.workflow import workflow
 
 from flux.agents.tools_resolver import resolve_builtin_tools
 from flux.agents.types import ChatResponseOutput
+
+logger = logging.getLogger(__name__)
 
 
 def _materialize_skills_bundle(tmp: Path, skills_data: dict[str, Any]) -> None:
@@ -216,4 +219,8 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
             try:
                 await _client.__aexit__(None, None, None)
             except Exception:
-                pass
+                logger.warning(
+                    "MCP client teardown failed for agent '%s'",
+                    agent_name,
+                    exc_info=True,
+                )

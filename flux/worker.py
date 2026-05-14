@@ -703,7 +703,12 @@ class Worker:
                                 headers=headers,
                             )
                         except Exception:
-                            pass
+                            logger.warning(
+                                "Dropped %d progress event(s) for %s on cancel-flush",
+                                len(batch),
+                                execution_id,
+                                exc_info=True,
+                            )
                     return
 
                 try:
@@ -713,9 +718,18 @@ class Worker:
                         headers=headers,
                     )
                 except Exception:
-                    logger.debug(f"Failed to flush progress for {execution_id}")
+                    logger.warning(
+                        "Dropped %d progress event(s) for %s",
+                        len(batch),
+                        execution_id,
+                        exc_info=True,
+                    )
         except Exception:
-            pass
+            logger.error(
+                "Progress flusher for %s exited unexpectedly",
+                execution_id,
+                exc_info=True,
+            )
 
     def _setup_progress(self, ctx):
         queue = asyncio.Queue(maxsize=1000)

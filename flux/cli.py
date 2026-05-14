@@ -2185,8 +2185,14 @@ def start_agent(name, mode, session_id, port, host, server, plain):
                                 f"Warning: failed to register custom workflow: {reg_resp.text}",
                                 err=True,
                             )
-        except Exception:
-            pass
+        except Exception as ex:
+            # Falling back to the default workflow silently would run the wrong
+            # thing — surface the failure so the operator can see why.
+            click.echo(
+                f"Warning: custom workflow lookup/registration raised {type(ex).__name__}: {ex}; "
+                f"falling back to default 'agent_chat'.",
+                err=True,
+            )
 
         if plain:
             import os
@@ -2248,43 +2254,43 @@ def agent_session():
 @agent_session.command("list")
 @click.argument("agent_name", required=False)
 @click.option("--format", "-f", type=click.Choice(["simple", "json"]), default="simple")
+@click.option("--state", "state", default=None, help="Filter by execution state")
+@click.option("--limit", type=int, default=50, show_default=True)
 @click.option("--server-url", "server_url", default=None, help="Flux server URL")
-def list_sessions(agent_name, format, server_url):
+def list_sessions(agent_name, format, state, limit, server_url):
     """List agent sessions."""
     try:
         url = server_url or get_server_url()
+        if agent_name:
+            endpoint = f"{url}/agents/{agent_name}/sessions"
+        else:
+            endpoint = f"{url}/agents/sessions"
+        params: dict[str, str] = {"limit": str(limit)}
+        if state:
+            params["state"] = state
+
         with get_http_client() as client:
-            resp = client.get(
-                f"{url}/executions",
-                params={"namespace": "agents", "workflow": "agent_chat", "limit": "50"},
-            )
+            resp = client.get(endpoint, params=params)
             resp.raise_for_status()
             data = resp.json()
 
-        executions = data.get("executions", data) if isinstance(data, dict) else data
-
-        if agent_name:
-            executions = [
-                e
-                for e in executions
-                if isinstance(e.get("input"), dict) and e["input"].get("agent") == agent_name
-            ]
+        sessions = data.get("sessions", []) if isinstance(data, dict) else []
 
         if format == "json":
-            click.echo(json.dumps({"sessions": executions}, indent=2))
+            click.echo(json.dumps(data, indent=2))
         else:
-            if not executions:
+            if not sessions:
                 click.echo("No sessions found.")
                 return
             click.echo("Sessions:")
-            for e in executions:
-                agent = (
-                    e.get("input", {}).get("agent", "?")
-                    if isinstance(e.get("input"), dict)
-                    else "?"
+            for s in sessions:
+                eid = s.get("execution_id", "?")
+                agent = s.get("agent_name", "?")
+                st = s.get("state", "?")
+                started = s.get("started_at") or "?"
+                click.echo(
+                    f"  {eid[:12]}...  state={st:10s}  agent={agent:20s}  started={started}",
                 )
-                eid = e.get("execution_id", "?")
-                click.echo(f"  {eid[:12]}...  state={e.get('state', '?'):10s}  agent={agent}")
     except httpx.ConnectError:
         click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
