@@ -999,17 +999,6 @@ def mcp(
     MCPServer(name, host, port, server_url, transport).start()
 
 
-@start.command()
-@click.option("--server-url", "-surl", default=None, help="Server URL to connect to.")
-def console(server_url: str | None = None):
-    """Interactive TUI console (disabled in this release)."""
-    click.echo(
-        "The Flux console TUI is disabled in this release.",
-        err=True,
-    )
-    raise click.exceptions.Exit(1)
-
-
 @cli.group("server")
 def server_group():
     """Server lifecycle commands (run on the server host)."""
