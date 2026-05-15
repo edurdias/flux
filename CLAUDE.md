@@ -42,7 +42,6 @@ poetry run flux start worker                    # worker (auto-named if no arg)
 poetry run flux start worker my-worker --server-url http://localhost:8000 \
                               --label gpu=true  # labels enable affinity dispatch
 poetry run flux start mcp                       # MCP server exposing workflow tools
-poetry run flux start console                   # Textual TUI
 
 # Common CLI groups (each group has --help)
 poetry run flux workflow list|register|run|show|resume|cancel|status|versions|delete
@@ -130,7 +129,6 @@ Higher-level managers wrap the repositories:
 ### Other subsystems
 
 - `flux/agents/` — first-class **AI agent harness**: `manager.py` (CRUD), `process.py` + `session.py` (conversation lifecycle), `template.py`, `tools_resolver.py`, plus `ui/` (terminal + Textual + web) and a static `web/index.html`. Agents are stored in the `agents` table and *also* mirrored into the configs table under `agent:<name>` so workflow templates can fetch them via `get_config`.
-- `flux/console/` — `flux start console` Textual TUI. `app.py` shell, screens in `screens/` (dashboard / executions / workflows / schedules / workers / logs), reusable widgets in `widgets/` (Gantt, run history, status badge, JSON viewer, …). The TUI talks to the server via the async `client.py` (REST wrapper).
 - `flux/service_*` modules + `flux/service_mcp.py` — **Workflow services**: a workflow can be exposed as an HTTP endpoint or MCP tool with a stable name. `service_resolver.py` handles collision detection; `service_proxy.py` provides standalone MCP endpoints with lazy discovery.
 - `flux/schedule_manager.py` — runs inside the server process; polls scheduled workflows, dispatches them, and tracks history.
 - `flux/observability/` — OpenTelemetry tracing/metrics + a Prometheus `/metrics` endpoint, gated by `[flux.observability] enabled` and the `observability` extra.
@@ -148,7 +146,7 @@ Loaded by `flux/config.py` via `pydantic-settings` with this precedence (highest
 
 ## Testing layout
 
-- `tests/flux/` — framework unit tests. Subdirs: `agents/`, `console/`, `domain/`, `observability/`, `output_storage/`, `tasks/`. Shared fixtures in `tests/flux/fixtures/` (config, database). `tests/flux/conftest.py` adds an autouse fixture that clears `DatabaseRepository._engines` between tests.
+- `tests/flux/` — framework unit tests. Subdirs: `agents/`, `domain/`, `observability/`, `output_storage/`, `tasks/`. Shared fixtures in `tests/flux/fixtures/` (config, database). `tests/flux/conftest.py` adds an autouse fixture that clears `DatabaseRepository._engines` between tests.
 - `tests/examples/` — runs every example in `examples/` end-to-end through the **inline** path. Use the same pattern when adding examples: `assert ctx.has_finished and ctx.has_succeeded`.
 - `tests/e2e/` — `tests/e2e/conftest.py` is the important one: a session-scoped `cli` fixture spawns `flux start server` + `flux start worker` as subprocesses on a free port, seeds env vars (`FLUX_E2E_PORT`, `FLUX_DATABASE_URL`, `FLUX_WORKERS__BOOTSTRAP_TOKEN`, `FLUX_SECURITY__AUTH__ENABLED=false`, …), and exposes a `FluxCLI` wrapper that shells out to `poetry run flux …`. Tests register example workflows from `examples/` and `tests/e2e/fixtures/` and assert on JSON CLI output. Set `FLUX_E2E_KEEP_LOGS=1` to preserve logs at teardown.
 - `tests/security/` — auth/permissions/principals/providers; uses real OIDC mocks.
@@ -187,4 +185,3 @@ Run `pre-commit`, the unit suite, and the E2E suite locally before pushing — r
 | Add a built-in task primitive | `flux/tasks/builtins.py` (re-exports via `flux/tasks/__init__.py`) |
 | Add an LLM provider | `flux/tasks/ai/<provider>.py` — implement a `(factory, formatter)` pair against `formatter.py::LLMFormatter` |
 | Add an auth provider | `flux/security/providers/` |
-| Add a TUI screen | `flux/console/screens/` + register in `flux/console/app.py` |
