@@ -608,6 +608,40 @@ class ExecutionContextModel(Base):
         )
 
 
+class AgentSessionModel(Base):
+    """Join row linking an execution to the agent it serves.
+
+    Kept separate from the executions table so the execution model stays
+    generic; agent-specific session metadata (mode, last activity, etc.)
+    can grow here without polluting executions. Written once, on session
+    start, by the workflow-run handler when the request body has an
+    ``agent`` key.
+    """
+
+    __tablename__ = "agent_sessions"
+
+    execution_id = Column(
+        String,
+        ForeignKey("executions.execution_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # Not a FK: the agent definition can be deleted while sessions persist.
+    agent_name = Column(String, nullable=False)
+    started_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    mode = Column(String, nullable=True)
+
+    execution = relationship("ExecutionContextModel", backref="agent_session")
+
+    __table_args__ = (
+        Index("idx_agent_sessions_agent", "agent_name"),
+        Index("idx_agent_sessions_agent_started", "agent_name", "started_at"),
+    )
+
+
 class ExecutionEventModel(Base):
     __tablename__ = "execution_events"
 

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from collections.abc import AsyncIterable, AsyncIterator
 
 import httpx
 
 from flux.agents.events import is_terminal_state
+
+logger = logging.getLogger(__name__)
 
 
 async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict]:
@@ -24,7 +27,11 @@ async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict
                 try:
                     yield json.loads("\n".join(buf))
                 except json.JSONDecodeError:
-                    pass
+                    logger.debug(
+                        "Discarding malformed SSE frame (%d lines)",
+                        len(buf),
+                        exc_info=True,
+                    )
                 buf = []
             continue
         if raw.startswith("data:"):
@@ -36,7 +43,11 @@ async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict
         try:
             yield json.loads("\n".join(buf))
         except json.JSONDecodeError:
-            pass
+            logger.debug(
+                "Discarding malformed trailing SSE frame (%d lines)",
+                len(buf),
+                exc_info=True,
+            )
 
 
 _STREAM_TIMEOUT = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
