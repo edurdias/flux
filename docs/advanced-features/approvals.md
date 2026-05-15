@@ -69,11 +69,23 @@ cannot decide it without `task:*:approve`.
 
 ## Replay & determinism
 
-Both the predicate verdict and the approver's verdict are pinned in
-persistent state (event log + approval row). On replay or worker reclaim,
-neither is consulted again. Predicates only re-run in the rare worker-crash
-window between predicate evaluation and the next event flush — same
-restart-race contract as task bodies.
+The approval row is the durable record that the gate was triggered. On
+replay or worker reclaim the engine looks up the row by `task_id` *before*
+evaluating the predicate; if a row exists the gate is honored without
+re-running the predicate, so non-deterministic predicates (time, random,
+external state) cannot flip the verdict between runs. The approver's
+verdict lives on the same row, so it isn't re-derived either.
+
+The predicate only runs on the very first call, when no row exists yet.
+A worker crash between predicate evaluation and the next event flush is
+the one window where the predicate can re-run on reclaim — identical to
+the restart-race contract for task bodies.
+
+Approval rejection emits a `TASK_FAILED` event with the `ApprovalRejected`
+exception persisted via the task's configured output storage. On replay,
+the event log short-circuits the task call and re-raises the same
+exception, so the workflow body sees identical behavior on the original
+run and on every replay.
 
 ## Retries and approval
 

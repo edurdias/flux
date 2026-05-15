@@ -409,3 +409,126 @@ def test_rejected_does_not_trigger_fallback(isolated_db):
     ctx = wf_fallback.run(execution_id=ctx.execution_id)
     assert ctx.has_failed
     assert fallback_called[0] is False
+
+
+# ---------------------------------------------------------------------------
+# Determinism: predicate must not re-run when an approval row already exists
+# ---------------------------------------------------------------------------
+
+
+def test_predicate_not_reevaluated_when_row_exists(isolated_db):
+    """Replay-on-reclaim must not re-run a non-deterministic predicate.
+
+    Regression for: predicate flips True -> False on replay would silently
+    bypass the gate and run the task body without approval. The fix is to
+    treat the existing approval row as the durable record that the gate
+    was triggered, and only consult the predicate when no row exists.
+    """
+    from flux.approvals import ApprovalManager
+    from flux.models import ApprovalStatus
+    from flux.unit_of_work import UnitOfWork
+
+    call_count = [0]
+
+    def flipping_predicate(*_args, **_kwargs):
+        call_count[0] += 1
+        # First call returns True (gate triggered), every subsequent call
+        # returns False — simulates a non-deterministic predicate that
+        # would silently bypass the gate on replay if consulted again.
+        return call_count[0] == 1
+
+    @task_decorator.with_options(requires_approval=flipping_predicate)
+    async def gated_flipping() -> str:
+        return "should-only-run-after-approval"
+
+    @workflow
+    async def wf_flip(ctx: ExecutionContext):
+        return await gated_flipping()
+
+    ctx = wf_flip.run()
+    assert ctx.is_paused, f"Expected pause on first call, got state={ctx.state}"
+    assert call_count[0] == 1, "Predicate should run exactly once on first call"
+
+    # Approve so the workflow can resume to completion.
+    mgr = ApprovalManager()
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+
+    ctx = wf_flip.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == "should-only-run-after-approval"
+    # Resume re-enters the gate; the row exists so the predicate must NOT
+    # be consulted again, otherwise the flipping predicate would falsely
+    # report "no approval required" and silently bypass the gate.
+    assert call_count[0] == 1, (
+        f"Predicate ran {call_count[0]} times; should run exactly once "
+        f"because the approval row is the durable record on replay."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Approval rejection emits TASK_FAILED via output_storage
+# ---------------------------------------------------------------------------
+
+
+def test_rejection_emits_task_failed_event_via_output_storage(isolated_db):
+    """ApprovalRejected must be recorded as TASK_FAILED in the event log,
+    routed through the task's output_storage so replay re-raises identically.
+    """
+    from flux.approvals import ApprovalManager, ApprovalRejected
+    from flux.domain.events import ExecutionEventType
+    from flux.models import ApprovalStatus
+    from flux.output_storage import OutputStorageReference
+    from flux.unit_of_work import UnitOfWork
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_rej() -> str:
+        return "never"
+
+    @workflow
+    async def wf_rej(ctx: ExecutionContext):
+        return await gated_rej()
+
+    ctx = wf_rej.run()
+    assert ctx.is_paused
+
+    mgr = ApprovalManager()
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=False,
+            reason="not safe",
+            uow=uow,
+        )
+        uow.commit()
+
+    ctx = wf_rej.run(execution_id=ctx.execution_id)
+    assert ctx.has_failed
+
+    failed = [e for e in ctx.events if e.type == ExecutionEventType.TASK_FAILED]
+    assert len(failed) == 1, "Expected a TASK_FAILED event for the rejected approval"
+    # Persisted via output_storage — the value is a reference, not the
+    # bare exception (so the configured backend handles failure persistence
+    # the same way it handles success persistence).
+    assert isinstance(failed[0].value, OutputStorageReference)
+
+    # Round-trip back through retrieve to confirm fidelity.
+    retrieved = gated_rej.output_storage.retrieve(failed[0].value)
+    assert isinstance(retrieved, ApprovalRejected)
+    assert retrieved.reason == "not safe"
+    assert retrieved.approver_subject == "alice"

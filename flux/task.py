@@ -220,7 +220,8 @@ class task:
         ]
 
         if len(finished) > 0:
-            value = finished[0].value
+            event = finished[0]
+            value = event.value
             if isinstance(value, OutputStorageReference):
                 reference = value
             else:
@@ -237,24 +238,40 @@ class task:
                         f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
                         f"Original error: {ex}",
                     ) from ex
-            return self.output_storage.retrieve(reference)
+            retrieved = self.output_storage.retrieve(reference)
+            if event.type == ExecutionEventType.TASK_FAILED:
+                # Persisted failure — re-raise the stored exception so the
+                # workflow body sees the same exception it saw on the
+                # original run. Without this branch the replay path would
+                # return the exception object as if it were a successful
+                # output.
+                raise retrieved
+            return retrieved
 
         # === Approval gate ===
         # Evaluated *after* auth and the replay short-circuit. ``task_id`` doubles
         # as ``task_call_id`` — the engine treats them as the same identifier.
-        # Idempotent on replay because we look up the existing approval row before
-        # inserting; if a row already exists we skip both the insert and the
-        # ``TASK_AWAITING_APPROVAL`` event emit.
+        #
+        # Determinism: the approval row is the durable record that this gate
+        # was triggered. We look it up *before* evaluating the predicate so
+        # replay (worker reclaim before the body runs) honors the original
+        # verdict regardless of whether the predicate is non-deterministic.
+        # The predicate only runs on the first call — when no row exists yet.
         if self.requires_approval is not False and not getattr(ctx, "approval_bypass", False):
-            verdict_required = await self._evaluate_approval_predicate(args, kwargs)
-            if verdict_required:
-                from flux.approvals import ApprovalManager
-                from flux.unit_of_work import UnitOfWork
+            from flux.approvals import ApprovalManager
 
-                mgr = ApprovalManager()
-                existing = mgr.get_by_call(ctx.execution_id, task_id)
+            mgr = ApprovalManager()
+            existing = mgr.get_by_call(ctx.execution_id, task_id)
+
+            if existing is not None:
+                verdict_required = True
+            else:
+                verdict_required = await self._evaluate_approval_predicate(args, kwargs)
+
+            if verdict_required:
                 if existing is None:
                     from flux.context_managers import ContextManager
+                    from flux.unit_of_work import UnitOfWork
 
                     cm = ContextManager.create()
                     with UnitOfWork() as uow:
@@ -282,7 +299,24 @@ class task:
                         cm.save(ctx, uow=uow)
                         uow.commit()
 
-                verdict = ctx._await_approval(task_id)
+                from flux.approvals import ApprovalRejected
+
+                try:
+                    verdict = ctx._await_approval(task_id)
+                except ApprovalRejected as ex:
+                    # Persist rejection as a terminal task failure so the
+                    # event log records it and the replay short-circuit
+                    # short-circuits future calls.
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_FAILED,
+                            source_id=task_id,
+                            name=full_name,
+                            value=self.output_storage.store(task_id, ex),
+                        ),
+                    )
+                    await ctx.checkpoint()
+                    raise
                 if verdict.cancelled:
                     raise asyncio.CancelledError()
         # === End approval gate ===
@@ -540,7 +574,7 @@ class task:
                         type=ExecutionEventType.TASK_FAILED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=ex,
+                        value=self.output_storage.store(task_id, ex),
                     ),
                 )
                 if isinstance(ex, RetryError):
