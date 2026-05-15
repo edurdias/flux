@@ -8,10 +8,6 @@ the retrieved value, TASK_FAILED re-raises it.
 
 from __future__ import annotations
 
-import asyncio
-
-import pytest
-
 from flux import ExecutionContext, task as task_decorator, workflow
 from flux.domain.events import ExecutionEventType
 from flux.errors import ExecutionError
@@ -23,8 +19,9 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
     persists the exception alongside successful outputs.
 
     The stored value is the same exception instance that gets raised,
-    so replay re-raises identically — for non-ExecutionError bodies the
-    engine wraps in ExecutionError(inner) and stores the wrapper.
+    so replay re-raises identically — non-ExecutionError bodies are
+    wrapped in ExecutionError(inner) by the engine and the wrapper is
+    what gets stored.
     """
 
     class Boom(Exception):
@@ -35,10 +32,10 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
         raise Boom("nope")
 
     @workflow
-    async def wf(ctx: ExecutionContext):
+    async def wf_value(ctx: ExecutionContext):
         return await fails()
 
-    ctx = wf.run()
+    ctx = wf_value.run()
     assert ctx.has_failed
     failed = [e for e in ctx.events if e.type == ExecutionEventType.TASK_FAILED]
     assert len(failed) == 1
@@ -49,94 +46,56 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
     assert str(retrieved.inner_exception) == "nope"
 
 
-def test_failed_task_replay_reraises_stored_exception(isolated_db):
-    """Direct test of the replay short-circuit: a TASK_FAILED event in the
-    log must re-raise the stored exception on the next call, so the
-    workflow body sees identical behavior on the original run and replay.
+def test_failed_task_replay_matches_original_run(isolated_db):
+    """Replay symmetry: the workflow body must see the same exception on
+    the original run and on every replay. Regression for the case where
+    the task layer stored ``ex`` raw but raised the wrapped
+    ``ExecutionError(ex)`` — replay would re-raise the raw inner and the
+    workflow would catch a different type than on the first run.
     """
-    from flux.domain.events import ExecutionEvent
+
+    class Boom(Exception):
+        pass
 
     @task_decorator
-    async def t() -> str:
-        return "should-not-run"
+    async def fails() -> str:
+        raise Boom("nope")
 
-    ctx: ExecutionContext = ExecutionContext(
-        workflow_id="wf-replay",
-        workflow_namespace="default",
-        workflow_name="replay",
-        input=None,
-    )
+    @workflow
+    async def wf_replay(ctx: ExecutionContext):
+        return await fails()
 
-    # Mirror the engine's task_id derivation so the replay short-circuit
-    # finds our injected event. See task.__call__ for the exact formula.
-    from flux.utils import get_func_args, make_hashable
+    first = wf_replay.run()
+    assert first.has_failed
+    assert isinstance(first.output, ExecutionError)
+    assert isinstance(first.output.inner_exception, Boom)
 
-    args: tuple = ()
-    kwargs: dict = {}
-    task_args = get_func_args(t._func, args)
-    task_id = (
-        f"{t.name}_"
-        f"{abs(hash((t.name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
-    )
-
-    stored = ExecutionError(ValueError("from-event-log"))
-    ctx.events.append(
-        ExecutionEvent(
-            type=ExecutionEventType.TASK_FAILED,
-            source_id=task_id,
-            name=t.name,
-            value=t.output_storage.store(task_id, stored),
-        ),
-    )
-
-    token = ExecutionContext.set(ctx)
-    try:
-        with pytest.raises(ExecutionError) as exc_info:
-            asyncio.run(t())
-        assert isinstance(exc_info.value.inner_exception, ValueError)
-        assert str(exc_info.value.inner_exception) == "from-event-log"
-    finally:
-        ExecutionContext.reset(token)
+    # Re-run with the same execution_id: the task call hits the replay
+    # short-circuit, which retrieves the stored exception and re-raises
+    # it. The workflow catches the same wrapped ExecutionError that it
+    # caught on the first run.
+    second = wf_replay.run(execution_id=first.execution_id)
+    assert second.has_failed
+    assert isinstance(second.output, ExecutionError)
+    assert isinstance(second.output.inner_exception, Boom)
 
 
 def test_completed_task_replay_still_returns_value(isolated_db):
-    """Regression: TASK_COMPLETED replay path still returns the stored
-    output (the new branch must only re-raise on TASK_FAILED)."""
-    from flux.domain.events import ExecutionEvent
+    """Regression: TASK_COMPLETED replay still returns the stored output
+    (the new branch must only re-raise on TASK_FAILED)."""
 
     @task_decorator
     async def t() -> str:
-        return "should-not-run-on-replay"
+        return "first-result"
 
-    ctx: ExecutionContext = ExecutionContext(
-        workflow_id="wf-replay-ok",
-        workflow_namespace="default",
-        workflow_name="replay-ok",
-        input=None,
-    )
+    @workflow
+    async def wf_ok(ctx: ExecutionContext):
+        return await t()
 
-    from flux.utils import get_func_args, make_hashable
+    first = wf_ok.run()
+    assert first.has_succeeded
+    assert first.output == "first-result"
 
-    args: tuple = ()
-    kwargs: dict = {}
-    task_args = get_func_args(t._func, args)
-    task_id = (
-        f"{t.name}_"
-        f"{abs(hash((t.name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
-    )
-
-    ctx.events.append(
-        ExecutionEvent(
-            type=ExecutionEventType.TASK_COMPLETED,
-            source_id=task_id,
-            name=t.name,
-            value=t.output_storage.store(task_id, "from-event-log"),
-        ),
-    )
-
-    token = ExecutionContext.set(ctx)
-    try:
-        result = asyncio.run(t())
-        assert result == "from-event-log"
-    finally:
-        ExecutionContext.reset(token)
+    second = wf_ok.run(execution_id=first.execution_id)
+    assert second.has_succeeded
+    assert second.output == "first-result"
