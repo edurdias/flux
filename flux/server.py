@@ -249,6 +249,27 @@ class HealthResponse(BaseModel):
     version: str
 
 
+class AgentSessionSummaryResponse(BaseModel):
+    """Model for an agent-session row."""
+
+    execution_id: str
+    agent_name: str
+    state: str
+    started_at: str | None = None
+    workflow_namespace: str
+    workflow_name: str
+    current_worker: str | None = None
+
+
+class AgentSessionListResponse(BaseModel):
+    """Model for agent-session list responses."""
+
+    sessions: list[AgentSessionSummaryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class ScheduleHistoryEntry(BaseModel):
     """Model for schedule history entry"""
 
@@ -1268,6 +1289,33 @@ class Server:
 
                 ctx = self._create_execution(namespace, workflow_name, input, version)
                 manager = ContextManager.create()
+
+                # Record agent-session linkage for "agents" namespace runs so
+                # fleet queries don't have to crack open pickled execution
+                # inputs. Best-effort: a failure here must not block the run.
+                if namespace == "agents" and isinstance(input, dict):
+                    agent_field = input.get("agent")
+                    if isinstance(agent_field, str) and agent_field:
+                        session_db = self._get_db_session()
+                        try:
+                            from flux.models import AgentSessionModel
+
+                            session_db.add(
+                                AgentSessionModel(
+                                    execution_id=ctx.execution_id,
+                                    agent_name=agent_field,
+                                ),
+                            )
+                            session_db.commit()
+                        except Exception:
+                            session_db.rollback()
+                            logger.warning(
+                                "Failed to record agent_session for %s",
+                                ctx.execution_id,
+                                exc_info=True,
+                            )
+                        finally:
+                            session_db.close()
 
                 if identity and identity != ANONYMOUS and auth_config.enabled:
                     from flux.security.execution_token import mint_execution_token
@@ -2503,6 +2551,93 @@ class Server:
                 raise HTTPException(status_code=404, detail=str(ex))
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
+
+        # Agent Sessions API
+
+        def _list_agent_sessions(
+            agent: str | None,
+            state: str | None,
+            limit: int,
+            offset: int,
+        ) -> AgentSessionListResponse:
+            from flux.domain import ExecutionState
+            from flux.models import AgentSessionModel, ExecutionContextModel
+
+            state_filter: ExecutionState | None = None
+            if state:
+                try:
+                    state_filter = ExecutionState(state.upper())
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid state '{state}'. Valid states: "
+                        + ", ".join([s.value for s in ExecutionState]),
+                    )
+
+            db = self._get_db_session()
+            try:
+                query = db.query(AgentSessionModel, ExecutionContextModel).join(
+                    ExecutionContextModel,
+                    AgentSessionModel.execution_id == ExecutionContextModel.execution_id,
+                )
+                if agent is not None:
+                    query = query.filter(AgentSessionModel.agent_name == agent)
+                if state_filter is not None:
+                    query = query.filter(ExecutionContextModel.state == state_filter)
+
+                total = query.count()
+                rows = (
+                    query.order_by(AgentSessionModel.started_at.desc())
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
+
+                sessions = [
+                    AgentSessionSummaryResponse(
+                        execution_id=s.execution_id,
+                        agent_name=s.agent_name,
+                        state=ex.state.value,
+                        started_at=s.started_at.isoformat() if s.started_at else None,
+                        workflow_namespace=ex.workflow_namespace,
+                        workflow_name=ex.workflow_name,
+                        current_worker=ex.worker_name,
+                    )
+                    for s, ex in rows
+                ]
+                return AgentSessionListResponse(
+                    sessions=sessions,
+                    total=total,
+                    limit=limit,
+                    offset=offset,
+                )
+            finally:
+                db.close()
+
+        @api.get("/agents/sessions", response_model=AgentSessionListResponse)
+        async def agents_sessions_list(
+            agent: str | None = None,
+            state: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            """List agent sessions across all agents, optionally filtered."""
+            return _list_agent_sessions(agent, state, limit, offset)
+
+        @api.get(
+            "/agents/{name}/sessions",
+            response_model=AgentSessionListResponse,
+        )
+        async def agent_sessions_list_one(
+            name: str,
+            state: str | None = None,
+            limit: int = 50,
+            offset: int = 0,
+            identity: FluxIdentity = Depends(require_permission("agent:*:read")),
+        ):
+            """List sessions for one agent."""
+            return _list_agent_sessions(name, state, limit, offset)
 
         # Scheduling API
         def _schedule_model_to_response(schedule) -> ScheduleResponse:

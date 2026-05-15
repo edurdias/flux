@@ -5,7 +5,7 @@ Tool-agnostic guidance for AI coding assistants (Claude Code, Cursor, Copilot, C
 ## Operating principles
 
 1. **Trust the test suite over your intuition.** Flux is event-sourced and distributed. Edge cases (resume after worker eviction, replay determinism, schedule polling, claim races) are tested but not always obvious from the code. Run the relevant tests after every behavioral change, not just at the end.
-2. **Prefer the smallest correct change.** This codebase has accumulated many subsystems (security, observability, agents, console, services, MCP). Touch only what your task requires; avoid drive-by refactors and "while I'm here" cleanups.
+2. **Prefer the smallest correct change.** This codebase has accumulated many subsystems (security, observability, agents, services, MCP). Touch only what your task requires; avoid drive-by refactors and "while I'm here" cleanups.
 3. **Don't paper over warnings.** If a test surfaces a deprecation or a config-missing error, fix the root cause (or seed config explicitly) instead of catching/suppressing.
 4. **Match existing style.** Ruff (line length 100, double quotes) is the formatter of record; pre-commit is the lint gate. Type hints are expected on public functions; `from __future__ import annotations` is the convention.
 

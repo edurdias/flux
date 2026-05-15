@@ -242,15 +242,14 @@ Cancels the underlying Flux execution via `POST /executions/<id>/cancel`.
 ### `flux agent session`
 
 ```bash
-flux agent session list [<agent-name>] [--format simple|json]
+flux agent session list [<agent-name>] [--state <state>] [--limit <n>] [--format simple|json]
 flux agent session show <session-id> [--format simple|json]
 flux agent session resume <session-id>
 ```
 
 `resume` is a shortcut for `flux agent start <name> --mode terminal --session <id>` that does not require the agent name — it attaches to the execution directly.
 
-!!! note
-    `session list` and `session show` currently print a placeholder message pending full server-side integration. Use `flux execution list` or the `/executions` API to inspect sessions by their execution ID in the meantime.
+`session list` is backed by the `/agents/sessions` and `/agents/{name}/sessions` HTTP endpoints, which join the `agent_sessions` table against `executions`. Sessions are recorded automatically on first run for any workflow invoked under the `agents` namespace with an `agent` field in its input — this includes both the built-in `agent_chat` template and per-agent custom workflows. Sessions started before this feature landed do not appear in the listing; use `flux execution list` for those.
 
 ### `flux config`
 

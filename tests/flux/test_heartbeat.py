@@ -434,36 +434,3 @@ class TestWorkerReconnect:
         ):
             # Should not raise
             await worker._send_pong()
-
-
-class TestWorkerCardStatus:
-    """Tests for WorkerCard online/offline visual display."""
-
-    def test_online_worker_has_no_offline_class(self):
-        from flux.console.screens.workers import WorkerCard
-
-        card = WorkerCard({"name": "w1", "status": "online"})
-        assert "offline" not in card.classes
-
-    def test_offline_worker_has_offline_class(self):
-        from flux.console.screens.workers import WorkerCard
-
-        card = WorkerCard({"name": "w1", "status": "offline"})
-        assert "offline" in card.classes
-
-    def test_missing_status_defaults_to_offline(self):
-        from flux.console.screens.workers import WorkerCard
-
-        card = WorkerCard({"name": "w1"})
-        assert "offline" in card.classes
-
-    def test_workers_view_counts_by_status(self):
-        workers = [
-            {"name": "w1", "status": "online"},
-            {"name": "w2", "status": "online"},
-            {"name": "w3", "status": "offline"},
-        ]
-        online = sum(1 for w in workers if w.get("status") == "online")
-        offline = len(workers) - online
-        assert online == 2
-        assert offline == 1
