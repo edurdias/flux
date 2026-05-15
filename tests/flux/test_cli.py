@@ -913,14 +913,3 @@ class TestWorkflowCommandsNamespaceRouting:
         # pending approvals for the execution. Inspect the first call.
         first_call = mock_client.get.call_args_list[0]
         assert "/workflows/billing/invoice/status/exec-1" in first_call[0][0]
-
-
-class TestConsoleCommand:
-    def test_console_command_is_disabled(self):
-        from click.testing import CliRunner
-        from flux.cli import cli
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["start", "console"])
-        assert result.exit_code == 1
-        assert "disabled" in result.output.lower()

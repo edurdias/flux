@@ -193,11 +193,10 @@ class TerminalUI(UI):
             f"{self._c(_DIM, '[r]')} reject  "
             f"{self._c(_DIM, '[A]')} always approve  > "
         )
-        loop = asyncio.get_event_loop()
-        answer = (await loop.run_in_executor(None, lambda: input(prompt))).strip()
+        answer = (await asyncio.to_thread(input, prompt)).strip()
         if answer == "A":
             return {"approved": True, "reason": None, "always_approve": True}
         if answer == "a":
             return {"approved": True, "reason": None, "always_approve": False}
-        reason = (await loop.run_in_executor(None, lambda: input("  Reason (optional): "))).strip()
+        reason = (await asyncio.to_thread(input, "  Reason (optional): ")).strip()
         return {"approved": False, "reason": reason or None, "always_approve": False}
