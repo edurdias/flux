@@ -569,19 +569,30 @@ class task:
                     kwargs,
                 )
 
+                # Compute the final exception once, store *that* via
+                # output_storage, then raise the same instance. Storing the
+                # wrapped exception (rather than the raw `ex`) keeps replay
+                # symmetric: the workflow body sees the same exception type
+                # on the original run and on every replay.
+                # RetryError is a subclass of ExecutionError but is wrapped
+                # again here to preserve the prior identity contract — the
+                # workflow body sees ExecutionError(RetryError(...)), not
+                # bare RetryError.
+                if isinstance(ex, RetryError):
+                    final = ExecutionError(ex)
+                elif isinstance(ex, ExecutionError):
+                    final = ex
+                else:
+                    final = ExecutionError(ex)
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_FAILED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, ex),
+                        value=self.output_storage.store(task_id, final),
                     ),
                 )
-                if isinstance(ex, RetryError):
-                    raise ExecutionError(ex)
-                if isinstance(ex, ExecutionError):
-                    raise ex
-                raise ExecutionError(ex)
+                raise final
 
         except RetryError as ex:
             output = await self.__handle_exception(

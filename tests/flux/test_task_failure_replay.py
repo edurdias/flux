@@ -14,12 +14,18 @@ import pytest
 
 from flux import ExecutionContext, task as task_decorator, workflow
 from flux.domain.events import ExecutionEventType
+from flux.errors import ExecutionError
 from flux.output_storage import OutputStorageReference
 
 
 def test_failed_task_value_is_output_storage_reference(isolated_db):
     """A failure routes through output_storage so the configured backend
-    persists the exception alongside successful outputs."""
+    persists the exception alongside successful outputs.
+
+    The stored value is the same exception instance that gets raised,
+    so replay re-raises identically — for non-ExecutionError bodies the
+    engine wraps in ExecutionError(inner) and stores the wrapper.
+    """
 
     class Boom(Exception):
         pass
@@ -38,8 +44,9 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
     assert len(failed) == 1
     assert isinstance(failed[0].value, OutputStorageReference)
     retrieved = fails.output_storage.retrieve(failed[0].value)
-    assert isinstance(retrieved, Boom)
-    assert str(retrieved) == "nope"
+    assert isinstance(retrieved, ExecutionError)
+    assert isinstance(retrieved.inner_exception, Boom)
+    assert str(retrieved.inner_exception) == "nope"
 
 
 def test_failed_task_replay_reraises_stored_exception(isolated_db):
@@ -49,14 +56,10 @@ def test_failed_task_replay_reraises_stored_exception(isolated_db):
     """
     from flux.domain.events import ExecutionEvent
 
-    class Boom(Exception):
-        pass
-
     @task_decorator
     async def t() -> str:
         return "should-not-run"
 
-    # Hand-craft a context with a pre-existing TASK_FAILED event for this task.
     ctx: ExecutionContext = ExecutionContext(
         workflow_id="wf-replay",
         workflow_namespace="default",
@@ -76,21 +79,22 @@ def test_failed_task_replay_reraises_stored_exception(isolated_db):
         f"{abs(hash((t.name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
     )
 
-    boom = Boom("from-event-log")
+    stored = ExecutionError(ValueError("from-event-log"))
     ctx.events.append(
         ExecutionEvent(
             type=ExecutionEventType.TASK_FAILED,
             source_id=task_id,
             name=t.name,
-            value=t.output_storage.store(task_id, boom),
+            value=t.output_storage.store(task_id, stored),
         ),
     )
 
     token = ExecutionContext.set(ctx)
     try:
-        with pytest.raises(Boom) as exc_info:
+        with pytest.raises(ExecutionError) as exc_info:
             asyncio.run(t())
-        assert str(exc_info.value) == "from-event-log"
+        assert isinstance(exc_info.value.inner_exception, ValueError)
+        assert str(exc_info.value.inner_exception) == "from-event-log"
     finally:
         ExecutionContext.reset(token)
 
