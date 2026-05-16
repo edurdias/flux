@@ -240,7 +240,6 @@ async def execute_tools(
     tools: list[Any],
     iteration: int = 0,
     max_concurrent: int | None = None,
-    always_approved: set[str] | None = None,
     approval_mode: str = "default",
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
@@ -256,9 +255,6 @@ async def execute_tools(
         max_concurrent: Maximum number of tools to run concurrently.
             When ``None`` (the default) all tools run in parallel with no limit.
             Set to ``1`` for fully sequential execution.
-        always_approved: Retained for harness UI compatibility (Tasks 19-20).
-            No longer consumed by the executor — the engine-side approval gate
-            (``task.requires_approval``) is the single source of truth.
         approval_mode: When set to ``"autonomous"``, sets
             ``ctx.approval_bypass = True`` on the active ExecutionContext so
             the engine-side ``requires_approval`` gate is skipped for every

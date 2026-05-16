@@ -500,12 +500,17 @@ class task:
             return True
         if spec is False or spec is None:
             return False
+        # Only argument *binding* may fall back to raw args — a TypeError from
+        # the predicate body itself must propagate, not trigger a second
+        # invocation that could duplicate side effects.
         try:
             bound = inspect.signature(self._func).bind(*args, **kwargs)
             bound.apply_defaults()
-            result = spec(*bound.args, **bound.kwargs)
         except TypeError:
-            result = spec(*args, **kwargs)
+            call_args, call_kwargs = args, kwargs
+        else:
+            call_args, call_kwargs = bound.args, bound.kwargs
+        result = spec(*call_args, **call_kwargs)
         if inspect.isawaitable(result):
             result = await result
         return bool(result)

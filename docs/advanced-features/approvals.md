@@ -115,7 +115,7 @@ not. Cancellation handling at the workflow level takes over from there.
 
 ```bash
 flux execution approvals                                # list pending
-flux execution approvals --status all --age 1h          # all from the last hour
+flux execution approvals --status all --age 1h          # all at least 1h old
 flux execution approve <exec_id> <task_call_id> --reason "..."
 flux execution reject  <exec_id> <task_call_id> --reason "..."
 flux execution show    <exec_id>                        # appends pending approvals on stderr

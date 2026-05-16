@@ -3403,15 +3403,25 @@ class Server:
                     limit=limit,
                     offset=offset,
                 )
+                total = mgr.count(
+                    status=parsed_status,
+                    execution_id=execution_id,
+                    workflow_namespace=workflow_namespace,
+                    workflow_name=workflow_name,
+                    task_name=task_name,
+                    age_min=parsed_age,
+                )
                 return {
                     "approvals": [_approval_to_dict(r) for r in rows],
-                    "total": len(rows),
+                    "total": total,
                     "limit": limit,
                     "offset": offset,
                     "auth_filtered": False,
                 }
 
-            window = max((limit + offset) * 5, 100)
+            # Scoped reader: authorization must be applied before pagination,
+            # so fetch every matching row, filter by per-workflow read access,
+            # then slice. ``total`` is the count the caller is allowed to see.
             rows = mgr.list(
                 status=parsed_status,
                 execution_id=execution_id,
@@ -3419,7 +3429,7 @@ class Server:
                 workflow_name=workflow_name,
                 task_name=task_name,
                 age_min=parsed_age,
-                limit=window,
+                limit=None,
                 offset=0,
             )
             filtered = []
@@ -3471,20 +3481,25 @@ class Server:
             else:
                 parsed_status = ApprovalStatus.PENDING
 
-            rows = ApprovalManager().list(
+            approval_mgr = ApprovalManager()
+            rows = approval_mgr.list(
                 status=parsed_status,
                 execution_id=execution_id,
                 limit=limit,
                 offset=offset,
             )
+            total = approval_mgr.count(
+                status=parsed_status,
+                execution_id=execution_id,
+            )
             return {
                 "approvals": [_approval_to_dict(r) for r in rows],
-                "total": len(rows),
+                "total": total,
                 "limit": limit,
                 "offset": offset,
             }
 
-        @api.get("/executions/{execution_id}/approvals/{task_call_id}")
+        @api.get("/executions/{execution_id}/approvals/{task_call_id:path}")
         async def get_one_approval(
             execution_id: str,
             task_call_id: str,
@@ -3624,7 +3639,7 @@ class Server:
             payload["execution_state"] = exec_ctx.state.value
             return payload
 
-        @api.post("/executions/{execution_id}/approvals/{task_call_id}/approve")
+        @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/approve")
         async def approve_approval(
             execution_id: str,
             task_call_id: str,
@@ -3640,7 +3655,7 @@ class Server:
                 reason=reason,
             )
 
-        @api.post("/executions/{execution_id}/approvals/{task_call_id}/reject")
+        @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/reject")
         async def reject_approval(
             execution_id: str,
             task_call_id: str,

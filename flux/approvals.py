@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import func as sa_func, select, update as sa_update
 
 from flux.models import ApprovalRequestModel, ApprovalStatus, RepositoryFactory
 from flux.unit_of_work import UnitOfWork
@@ -142,6 +142,31 @@ class ApprovalManager:
         with self._repository.session() as s:
             return s.execute(stmt).scalar_one_or_none()
 
+    @staticmethod
+    def _filter_clauses(
+        status: ApprovalStatus | None,
+        execution_id: str | None,
+        workflow_namespace: str | None,
+        workflow_name: str | None,
+        task_name: str | None,
+        age_min: timedelta | None,
+    ) -> list:
+        clauses: list = []
+        if status is not None:
+            clauses.append(ApprovalRequestModel.status == status)
+        if execution_id is not None:
+            clauses.append(ApprovalRequestModel.execution_id == execution_id)
+        if workflow_namespace is not None:
+            clauses.append(ApprovalRequestModel.workflow_namespace == workflow_namespace)
+        if workflow_name is not None:
+            clauses.append(ApprovalRequestModel.workflow_name == workflow_name)
+        if task_name is not None:
+            clauses.append(ApprovalRequestModel.task_name == task_name)
+        if age_min is not None:
+            cutoff = datetime.now(timezone.utc) - age_min
+            clauses.append(ApprovalRequestModel.requested_at <= cutoff)
+        return clauses
+
     def list(
         self,
         *,
@@ -151,29 +176,56 @@ class ApprovalManager:
         workflow_name: str | None = None,
         task_name: str | None = None,
         age_min: timedelta | None = None,
-        limit: int = 20,
+        limit: int | None = 20,
         offset: int = 0,
         uow: UnitOfWork | None = None,
     ) -> Sequence[ApprovalRequestModel]:
-        stmt = select(ApprovalRequestModel)
-        if status is not None:
-            stmt = stmt.where(ApprovalRequestModel.status == status)
-        if execution_id is not None:
-            stmt = stmt.where(ApprovalRequestModel.execution_id == execution_id)
-        if workflow_namespace is not None:
-            stmt = stmt.where(ApprovalRequestModel.workflow_namespace == workflow_namespace)
-        if workflow_name is not None:
-            stmt = stmt.where(ApprovalRequestModel.workflow_name == workflow_name)
-        if task_name is not None:
-            stmt = stmt.where(ApprovalRequestModel.task_name == task_name)
-        if age_min is not None:
-            cutoff = datetime.now(timezone.utc) - age_min
-            stmt = stmt.where(ApprovalRequestModel.requested_at <= cutoff)
-        stmt = stmt.order_by(ApprovalRequestModel.requested_at.desc()).limit(limit).offset(offset)
+        """List approvals matching the filters. ``limit=None`` returns every
+        matching row (used when the caller must post-filter by authorization
+        before paginating)."""
+        clauses = self._filter_clauses(
+            status,
+            execution_id,
+            workflow_namespace,
+            workflow_name,
+            task_name,
+            age_min,
+        )
+        stmt = select(ApprovalRequestModel).where(*clauses)
+        stmt = stmt.order_by(ApprovalRequestModel.requested_at.desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        stmt = stmt.offset(offset)
         if uow is not None:
             return list(uow.session.execute(stmt).scalars())
         with self._repository.session() as s:
             return list(s.execute(stmt).scalars())
+
+    def count(
+        self,
+        *,
+        status: ApprovalStatus | None = None,
+        execution_id: str | None = None,
+        workflow_namespace: str | None = None,
+        workflow_name: str | None = None,
+        task_name: str | None = None,
+        age_min: timedelta | None = None,
+        uow: UnitOfWork | None = None,
+    ) -> int:
+        """Count approvals matching the filters, ignoring limit/offset."""
+        clauses = self._filter_clauses(
+            status,
+            execution_id,
+            workflow_namespace,
+            workflow_name,
+            task_name,
+            age_min,
+        )
+        stmt = select(sa_func.count()).select_from(ApprovalRequestModel).where(*clauses)
+        if uow is not None:
+            return int(uow.session.execute(stmt).scalar_one())
+        with self._repository.session() as s:
+            return int(s.execute(stmt).scalar_one())
 
     def decide(
         self,
@@ -239,16 +291,21 @@ class ApprovalManager:
 
         Called by the cancellation handler in flux/server.py. Returns the
         count of rows updated.
+
+        Uses a single conditional UPDATE gated on ``status == PENDING`` so a
+        concurrent approve/reject committed between read and write is never
+        overwritten — only rows still pending at write time are cancelled.
         """
-        stmt = select(ApprovalRequestModel).where(
-            ApprovalRequestModel.execution_id == execution_id,
-            ApprovalRequestModel.status == ApprovalStatus.PENDING,
+        result = uow.session.execute(
+            sa_update(ApprovalRequestModel)
+            .where(
+                ApprovalRequestModel.execution_id == execution_id,
+                ApprovalRequestModel.status == ApprovalStatus.PENDING,
+            )
+            .values(
+                status=ApprovalStatus.CANCELLED,
+                decided_at=datetime.now(timezone.utc),
+            ),
         )
-        rows = list(uow.session.execute(stmt).scalars())
-        now = datetime.now(timezone.utc)
-        for row in rows:
-            row.status = ApprovalStatus.CANCELLED
-            row.decided_at = now
-        if rows:
-            uow.session.flush()
-        return len(rows)
+        uow.session.flush()
+        return int(result.rowcount)
