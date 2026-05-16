@@ -248,78 +248,10 @@ class task:
                 raise retrieved
             return retrieved
 
-        # === Approval gate ===
-        # Evaluated *after* auth and the replay short-circuit. ``task_id`` doubles
-        # as ``task_call_id`` — the engine treats them as the same identifier.
-        #
-        # Determinism: the approval row is the durable record that this gate
-        # was triggered. We look it up *before* evaluating the predicate so
-        # replay (worker reclaim before the body runs) honors the original
-        # verdict regardless of whether the predicate is non-deterministic.
-        # The predicate only runs on the first call — when no row exists yet.
-        if self.requires_approval is not False and not getattr(ctx, "approval_bypass", False):
-            from flux.approvals import ApprovalManager
-
-            mgr = ApprovalManager()
-            existing = mgr.get_by_call(ctx.execution_id, task_id)
-
-            if existing is not None:
-                verdict_required = True
-            else:
-                verdict_required = await self._evaluate_approval_predicate(args, kwargs)
-
-            if verdict_required:
-                if existing is None:
-                    from flux.context_managers import ContextManager
-                    from flux.unit_of_work import UnitOfWork
-
-                    cm = ContextManager.create()
-                    with UnitOfWork() as uow:
-                        mgr.create(
-                            execution_id=ctx.execution_id,
-                            task_call_id=task_id,
-                            workflow_namespace=ctx.workflow_namespace,
-                            workflow_name=ctx.workflow_name,
-                            task_name=self.name,
-                            uow=uow,
-                        )
-                        ctx.events.append(
-                            ExecutionEvent(
-                                type=ExecutionEventType.TASK_AWAITING_APPROVAL,
-                                source_id=task_id,
-                                name=full_name,
-                                value={
-                                    "task_call_id": task_id,
-                                    "workflow_namespace": ctx.workflow_namespace,
-                                    "workflow_name": ctx.workflow_name,
-                                    "task_name": self.name,
-                                },
-                            ),
-                        )
-                        cm.save(ctx, uow=uow)
-                        uow.commit()
-
-                from flux.approvals import ApprovalRejected
-
-                try:
-                    verdict = ctx._await_approval(task_id)
-                except ApprovalRejected as ex:
-                    # Persist rejection as a terminal task failure so the
-                    # event log records it and the replay short-circuit
-                    # short-circuits future calls.
-                    ctx.events.append(
-                        ExecutionEvent(
-                            type=ExecutionEventType.TASK_FAILED,
-                            source_id=task_id,
-                            name=full_name,
-                            value=self.output_storage.store(task_id, ex),
-                        ),
-                    )
-                    await ctx.checkpoint()
-                    raise
-                if verdict.cancelled:
-                    raise asyncio.CancelledError()
-        # === End approval gate ===
+        # Approval gate — evaluated after auth and the replay short-circuit.
+        # ``task_id`` doubles as the approval ``task_call_id`` for the
+        # initial call; each retry attempt is gated under its own id.
+        await self._approval_gate(ctx, task_id, full_name, args, kwargs)
 
         from flux._task_context import _CURRENT_TASK
 
@@ -515,6 +447,101 @@ class task:
             result = await result
         return bool(result)
 
+    async def _approval_gate(
+        self,
+        ctx: ExecutionContext,
+        call_id: str,
+        full_name: str,
+        args: tuple,
+        kwargs: dict,
+    ) -> None:
+        """Run the approval gate for one task attempt identified by ``call_id``.
+
+        Returns normally when approved or no approval is required. Raises
+        ``ApprovalRejected`` on rejection, ``asyncio.CancelledError`` on
+        cancellation, and ``PauseRequested`` (via ``ctx._await_approval``)
+        while waiting for a decision.
+
+        Determinism: the approval row keyed by ``call_id`` is the durable
+        record that this gate was triggered. It is looked up *before* the
+        predicate runs so replay honors the original verdict regardless of
+        whether the predicate is non-deterministic. The initial call uses
+        ``task_id`` as ``call_id``; each retry attempt uses a distinct id so
+        every attempt is independently re-gated.
+        """
+        if self.requires_approval is False or getattr(ctx, "approval_bypass", False):
+            return
+
+        from flux.approvals import ApprovalManager, ApprovalRejected
+
+        mgr = ApprovalManager()
+        existing = mgr.get_by_call(ctx.execution_id, call_id)
+
+        if existing is not None:
+            verdict_required = True
+        else:
+            verdict_required = await self._evaluate_approval_predicate(args, kwargs)
+
+        if not verdict_required:
+            return
+
+        if existing is None:
+            from flux.context_managers import ContextManager
+            from flux.unit_of_work import UnitOfWork
+
+            cm = ContextManager.create()
+            with UnitOfWork() as uow:
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_AWAITING_APPROVAL,
+                        source_id=call_id,
+                        name=full_name,
+                        value={
+                            "task_call_id": call_id,
+                            "workflow_namespace": ctx.workflow_namespace,
+                            "workflow_name": ctx.workflow_name,
+                            "task_name": self.name,
+                        },
+                    ),
+                )
+                # Persist the execution context *before* the approval row is
+                # flushed so the approval_requests.execution_id foreign key
+                # has its target row (enforced on PostgreSQL).
+                cm.save(ctx, uow=uow)
+                mgr.create(
+                    execution_id=ctx.execution_id,
+                    task_call_id=call_id,
+                    workflow_namespace=ctx.workflow_namespace,
+                    workflow_name=ctx.workflow_name,
+                    task_name=self.name,
+                    uow=uow,
+                )
+                uow.commit()
+
+        try:
+            verdict = ctx._await_approval(call_id)
+        except ApprovalRejected as ex:
+            # Record the rejection as a terminal task failure. Idempotent so
+            # a replayed retry gate (which re-derives the verdict from the
+            # row) does not append a duplicate event.
+            already_failed = any(
+                e.source_id == call_id and e.type == ExecutionEventType.TASK_FAILED
+                for e in ctx.events
+            )
+            if not already_failed:
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_FAILED,
+                        source_id=call_id,
+                        name=full_name,
+                        value=self.output_storage.store(call_id, ex),
+                    ),
+                )
+                await ctx.checkpoint()
+            raise
+        if verdict.cancelled:
+            raise asyncio.CancelledError()
+
     async def map(self, args):
         return await asyncio.gather(*(self(arg) for arg in args))
 
@@ -706,6 +733,18 @@ class task:
         attempt = 0
         while attempt < self.retry_max_attempts:
             attempt += 1
+
+            # Re-gate every retry attempt under its own approval id so each
+            # attempt is independently reconsidered. Raised PauseRequested /
+            # ApprovalRejected must propagate past the retry loop, so the
+            # gate is invoked outside the per-attempt try/except below.
+            await self._approval_gate(
+                ctx,
+                f"{task_id}~retry{attempt}",
+                task_full_name,
+                args,
+                kwargs,
+            )
 
             from flux.observability import get_metrics as _get_retry_metrics
 

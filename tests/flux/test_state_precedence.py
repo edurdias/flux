@@ -126,6 +126,48 @@ def test_save_normal_pause_still_works(isolated_db):
     assert fetched.state == ExecutionState.PAUSED
 
 
+def test_save_does_not_resurrect_terminal_state(isolated_db):
+    """A stale RUNNING checkpoint must not overwrite a finished workflow."""
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    cm.save(ctx)
+    _set_db_state(ctx.execution_id, ExecutionState.COMPLETED)
+
+    ctx._state = ExecutionState.RUNNING
+    cm.save(ctx)
+
+    fetched = cm.get(ctx.execution_id)
+    assert fetched.state == ExecutionState.COMPLETED
+
+
+def test_save_does_not_demote_cancelling_to_running(isolated_db):
+    """A non-terminal write must not demote a persisted CANCELLING state."""
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    cm.save(ctx)
+    _set_db_state(ctx.execution_id, ExecutionState.CANCELLING)
+
+    ctx._state = ExecutionState.RUNNING
+    cm.save(ctx)
+
+    fetched = cm.get(ctx.execution_id)
+    assert fetched.state == ExecutionState.CANCELLING
+
+
+def test_save_allows_cancelling_to_reach_terminal(isolated_db):
+    """CANCELLING may still advance to a terminal CANCELLED state."""
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    cm.save(ctx)
+    _set_db_state(ctx.execution_id, ExecutionState.CANCELLING)
+
+    ctx._state = ExecutionState.CANCELLED
+    cm.save(ctx)
+
+    fetched = cm.get(ctx.execution_id)
+    assert fetched.state == ExecutionState.CANCELLED
+
+
 # --- update() state precedence -------------------------------------------
 
 

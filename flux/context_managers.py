@@ -39,8 +39,18 @@ _TERMINAL_STATES = frozenset(
 
 
 def _accept_state_write(new: ExecutionState, db: ExecutionState) -> bool:
-    if new in _TERMINAL_STATES:
-        return True
+    """Decide whether an incoming save/update may overwrite the persisted state.
+
+    A persisted terminal state is final, and a persisted ``CANCELLING`` may
+    only advance to a terminal state. This prevents a stale checkpoint — for
+    example a worker still reporting ``RUNNING`` — from resurrecting a
+    finished workflow or silently losing an in-flight cancellation. Events
+    and output are still persisted; only the state column is held back.
+    """
+    if db in _TERMINAL_STATES:
+        return new == db
+    if db == ExecutionState.CANCELLING and new not in _TERMINAL_STATES:
+        return False
     if new == ExecutionState.PAUSED and db in _NO_DEMOTE_TO_PAUSED_FROM:
         return False
     return True
