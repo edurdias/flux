@@ -358,8 +358,7 @@ def test_cancel_marks_pending_approvals_cancelled(client):
 
     # Cancel via the existing route
     r = client.get(f"/workflows/default/cancel_test/cancel/{eid}")
-    if r.status_code not in (200, 202):
-        pytest.skip(f"Cancel route returned {r.status_code}; might be a setup issue")
+    assert r.status_code in (200, 202), f"Cancel route returned {r.status_code}: {r.text}"
 
     # Verify pending rows are now cancelled
     rows = ApprovalManager().list(execution_id=eid, status=None)

@@ -532,3 +532,48 @@ def test_rejection_emits_task_failed_event_via_output_storage(isolated_db):
     assert isinstance(retrieved, ApprovalRejected)
     assert retrieved.reason == "not safe"
     assert retrieved.approver_subject == "alice"
+
+
+def test_retry_attempt_is_independently_re_gated(isolated_db):
+    """Each retry attempt is re-gated: an approved task that fails and
+    retries pauses again on a fresh approval scoped to the retry attempt."""
+
+    @task_decorator.with_options(
+        requires_approval=True,
+        retry_max_attempts=2,
+        retry_delay=0,
+    )
+    async def gated_retry() -> str:
+        raise ValueError("boom")
+
+    @workflow
+    async def wf_retry(ctx: ExecutionContext):
+        return await gated_retry()
+
+    mgr = ApprovalManager()
+
+    # First run pauses on the initial call's approval gate.
+    ctx = wf_retry.run()
+    assert ctx.is_paused
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1
+
+    # Approve the initial call and resume — the body runs, fails, and the
+    # first retry attempt hits its own gate as a new pending approval.
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+
+    ctx = wf_retry.run(execution_id=ctx.execution_id)
+    assert ctx.is_paused
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1
+    assert pending[0].task_call_id.endswith("~retry1")
