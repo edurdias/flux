@@ -97,6 +97,31 @@ def test_approval_rejected_carries_context():
     assert "alice@example.com" in str(err)
 
 
+def test_approval_rejected_round_trips_through_pickle():
+    """ApprovalRejected is persisted in the event log (dill) when a rejected
+    approval emits a TASK_FAILED event. A keyword-only constructor would
+    break unpickling, so the structured fields must survive a round-trip.
+    """
+    import pickle
+
+    import dill
+
+    err = ApprovalRejected(
+        task_name="default/release/deploy_to_prod",
+        approver_subject="alice@example.com",
+        approver_provider="oidc",
+        reason="failed canary",
+    )
+    for loads, dumps in ((pickle.loads, pickle.dumps), (dill.loads, dill.dumps)):
+        restored = loads(dumps(err))
+        assert isinstance(restored, ApprovalRejected)
+        assert restored.task_name == "default/release/deploy_to_prod"
+        assert restored.approver_subject == "alice@example.com"
+        assert restored.approver_provider == "oidc"
+        assert restored.reason == "failed canary"
+        assert str(restored) == str(err)
+
+
 def test_approval_verdict_approved():
     v = ApprovalVerdict(
         approved=True,

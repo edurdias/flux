@@ -4,6 +4,11 @@ Failures are persisted through the same output_storage abstraction as
 successes (``self.output_storage.store(task_id, ex)``), and the replay
 short-circuit at task.py branches on event type: TASK_COMPLETED returns
 the retrieved value, TASK_FAILED re-raises it.
+
+Tests use builtin exception types (``ValueError``) deliberately: a
+function-local exception class does not survive a dill pickle/unpickle
+round-trip with a stable class identity, so ``isinstance`` against the
+test-local class would fail after the event log reloads it.
 """
 
 from __future__ import annotations
@@ -18,18 +23,14 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
     """A failure routes through output_storage so the configured backend
     persists the exception alongside successful outputs.
 
-    The stored value is the same exception instance that gets raised,
-    so replay re-raises identically — non-ExecutionError bodies are
-    wrapped in ExecutionError(inner) by the engine and the wrapper is
-    what gets stored.
+    The stored value is the same exception instance that gets raised, so
+    replay re-raises identically — non-ExecutionError bodies are wrapped
+    in ExecutionError(inner) by the engine and the wrapper is stored.
     """
-
-    class Boom(Exception):
-        pass
 
     @task_decorator
     async def fails() -> str:
-        raise Boom("nope")
+        raise ValueError("nope")
 
     @workflow
     async def wf_value(ctx: ExecutionContext):
@@ -42,24 +43,19 @@ def test_failed_task_value_is_output_storage_reference(isolated_db):
     assert isinstance(failed[0].value, OutputStorageReference)
     retrieved = fails.output_storage.retrieve(failed[0].value)
     assert isinstance(retrieved, ExecutionError)
-    assert isinstance(retrieved.inner_exception, Boom)
+    assert isinstance(retrieved.inner_exception, ValueError)
     assert str(retrieved.inner_exception) == "nope"
 
 
-def test_failed_task_replay_matches_original_run(isolated_db):
-    """Replay symmetry: the workflow body must see the same exception on
-    the original run and on every replay. Regression for the case where
-    the task layer stored ``ex`` raw but raised the wrapped
-    ``ExecutionError(ex)`` — replay would re-raise the raw inner and the
-    workflow would catch a different type than on the first run.
+def test_failed_workflow_reload_preserves_wrapped_exception(isolated_db):
+    """Reloading a finished, failed execution from the event log preserves
+    the wrapped ExecutionError — the failure value round-trips through the
+    dill-backed event store intact.
     """
-
-    class Boom(Exception):
-        pass
 
     @task_decorator
     async def fails() -> str:
-        raise Boom("nope")
+        raise ValueError("nope")
 
     @workflow
     async def wf_replay(ctx: ExecutionContext):
@@ -68,21 +64,20 @@ def test_failed_task_replay_matches_original_run(isolated_db):
     first = wf_replay.run()
     assert first.has_failed
     assert isinstance(first.output, ExecutionError)
-    assert isinstance(first.output.inner_exception, Boom)
+    assert isinstance(first.output.inner_exception, ValueError)
 
-    # Re-run with the same execution_id: the task call hits the replay
-    # short-circuit, which retrieves the stored exception and re-raises
-    # it. The workflow catches the same wrapped ExecutionError that it
-    # caught on the first run.
+    # Re-run with the same execution_id. The workflow is already finished,
+    # so this reloads the persisted context from the event log; the failure
+    # value must survive the pickle/unpickle round-trip unchanged.
     second = wf_replay.run(execution_id=first.execution_id)
     assert second.has_failed
     assert isinstance(second.output, ExecutionError)
-    assert isinstance(second.output.inner_exception, Boom)
+    assert isinstance(second.output.inner_exception, ValueError)
 
 
-def test_completed_task_replay_still_returns_value(isolated_db):
-    """Regression: TASK_COMPLETED replay still returns the stored output
-    (the new branch must only re-raise on TASK_FAILED)."""
+def test_completed_workflow_reload_preserves_output(isolated_db):
+    """Regression: reloading a finished, succeeded execution preserves the
+    stored output (the TASK_FAILED replay branch must not affect success)."""
 
     @task_decorator
     async def t() -> str:

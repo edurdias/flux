@@ -23,11 +23,10 @@ class ApprovalRejected(Exception):
 
     def __init__(
         self,
-        *,
         task_name: str,
-        approver_subject: str | None,
-        approver_provider: str | None,
-        reason: str | None,
+        approver_subject: str | None = None,
+        approver_provider: str | None = None,
+        reason: str | None = None,
     ):
         self.task_name = task_name
         self.approver_subject = approver_subject
@@ -40,6 +39,18 @@ class ApprovalRejected(Exception):
         if reason:
             message += f": {reason}"
         super().__init__(message)
+
+    def __reduce__(self):
+        # Exceptions pickle as ``cls(*self.args)``; ``self.args`` is the
+        # rendered message string, which does not round-trip through this
+        # constructor. Reconstruct from the structured fields instead so the
+        # exception survives the event-log pickle/unpickle cycle (the event
+        # store uses dill). Positional args here require the constructor to
+        # accept these four positionally — hence no keyword-only marker.
+        return (
+            self.__class__,
+            (self.task_name, self.approver_subject, self.approver_provider, self.reason),
+        )
 
 
 class ApprovalAlreadyDecided(Exception):
