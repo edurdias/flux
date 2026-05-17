@@ -255,28 +255,16 @@ async def execute_tools(
         max_concurrent: Maximum number of tools to run concurrently.
             When ``None`` (the default) all tools run in parallel with no limit.
             Set to ``1`` for fully sequential execution.
-        approval_mode: When set to ``"autonomous"``, sets
-            ``ctx.approval_bypass = True`` on the active ExecutionContext so
-            the engine-side ``requires_approval`` gate is skipped for every
-            tool invoked from this batch.
+        approval_mode: When set to ``"autonomous"``, each tool in this batch
+            runs as a ``with_options(requires_approval=False)`` variant so the
+            engine-side approval gate is skipped. The override is scoped to
+            these tool invocations — it is not shared workflow state, so an
+            approval-gated task running concurrently is unaffected.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
         func = tool.func if hasattr(tool, "func") else tool
         tool_map[func.__name__] = tool
-
-    # Scope the autonomous bypass to this batch only. Without the
-    # save-and-restore the flag persists on the shared ExecutionContext and
-    # subsequent (non-autonomous) approval-gated tasks in the same workflow
-    # would silently bypass the gate.
-    bypass_ctx: Any = None
-    prior_bypass: bool = False
-    if approval_mode == "autonomous":
-        from flux.domain.execution_context import ExecutionContext
-
-        bypass_ctx = await ExecutionContext.get()
-        prior_bypass = bypass_ctx.approval_bypass
-        bypass_ctx.approval_bypass = True
 
     async def _run_one(call: dict[str, Any]) -> dict[str, Any]:
         name = call["name"]
@@ -308,8 +296,16 @@ async def execute_tools(
         try:
             call_id = call.get("id", name)
             effective_tool = tool_fn
-            if iteration > 0 and hasattr(tool_fn, "with_options"):
-                effective_tool = tool_fn.with_options(name=f"{name}_{iteration}")
+            if hasattr(tool_fn, "with_options"):
+                overrides: dict[str, Any] = {}
+                if iteration > 0:
+                    overrides["name"] = f"{name}_{iteration}"
+                if approval_mode == "autonomous":
+                    # Run a non-gated variant so this batch skips the approval
+                    # gate without touching shared workflow state.
+                    overrides["requires_approval"] = False
+                if overrides:
+                    effective_tool = tool_fn.with_options(**overrides)
             result = await effective_tool(**args)
             return {"tool_call_id": call_id, "output": _serialize_result(result)}
         except PauseRequested:
@@ -318,19 +314,15 @@ async def execute_tools(
             logger.warning("Tool '%s' failed: %s (args=%s)", name, e, args)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
-    try:
-        if max_concurrent is not None:
-            if max_concurrent < 1:
-                raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
-            sem = asyncio.Semaphore(max_concurrent)
+    if max_concurrent is not None:
+        if max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+        sem = asyncio.Semaphore(max_concurrent)
 
-            async def _limited(call: dict[str, Any]) -> dict[str, Any]:
-                async with sem:
-                    return await _run_one(call)
+        async def _limited(call: dict[str, Any]) -> dict[str, Any]:
+            async with sem:
+                return await _run_one(call)
 
-            return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
+        return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
 
-        return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))
-    finally:
-        if bypass_ctx is not None:
-            bypass_ctx.approval_bypass = prior_bypass
+    return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))

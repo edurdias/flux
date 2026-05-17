@@ -52,7 +52,6 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
         self._exec_token: str | None = None
-        self.approval_bypass: bool = False
 
     @staticmethod
     async def get() -> ExecutionContext:

@@ -154,9 +154,9 @@ approval payload and surfaces it through the same UI channel as elicitations:
   carrying the request payload; the consumer is expected to call the
   HTTP `approve`/`reject` routes directly.
 
-Setting `approval_mode="autonomous"` on `agent(...)` propagates
-`ctx.approval_bypass = True` so the engine-level gate is skipped for every
-tool invoked from that batch.
+Setting `approval_mode="autonomous"` on `agent(...)` runs each tool in the
+batch as a non-gated `with_options(requires_approval=False)` variant, so the
+engine-level approval gate is skipped for those tool invocations.
 
 ## Migration from the old wrapper
 

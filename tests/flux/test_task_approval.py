@@ -69,17 +69,6 @@ def _build_test_ctx():
     )
 
 
-def test_execution_context_has_approval_bypass_default_false():
-    ctx = _build_test_ctx()
-    assert ctx.approval_bypass is False
-
-
-def test_execution_context_approval_bypass_can_be_set():
-    ctx = _build_test_ctx()
-    ctx.approval_bypass = True
-    assert ctx.approval_bypass is True
-
-
 def test_await_approval_pending_raises_pause_requested(isolated_db):
     """If the approval row doesn't exist or is pending, _await_approval raises PauseRequested."""
     from flux.tasks.pause import PauseRequested
@@ -264,23 +253,6 @@ def test_callable_predicate_false_runs_body(isolated_db):
     mgr = ApprovalManager()
     rows = mgr.list(execution_id=ctx.execution_id)
     assert len(rows) == 0
-
-
-def test_approval_bypass_skips_gate(isolated_db):
-    @task_decorator.with_options(requires_approval=True)
-    async def gated_bypass() -> str:
-        return "bypassed"
-
-    @workflow
-    async def wf_bypass(ctx: ExecutionContext):
-        ctx.approval_bypass = True
-        return await gated_bypass()
-
-    ctx = wf_bypass.run()
-    assert ctx.has_succeeded
-    assert ctx.output == "bypassed"
-    mgr = ApprovalManager()
-    assert mgr.list(execution_id=ctx.execution_id) == []
 
 
 def test_approval_after_resume_runs_body(isolated_db):

@@ -471,7 +471,7 @@ class task:
         ``task_id`` as ``call_id``; each retry attempt uses a distinct id so
         every attempt is independently re-gated.
         """
-        if self.requires_approval is False or getattr(ctx, "approval_bypass", False):
+        if self.requires_approval is False:
             return
 
         from flux.approvals import ApprovalManager, ApprovalRejected

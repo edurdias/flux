@@ -1,10 +1,10 @@
 """Tests for the post-migration tool_executor approval behavior.
 
-Task 18 deletes the inline ``pause(...)``-based approval block from
-``flux/tasks/ai/tool_executor.py`` and instead relies on the engine-level
-``task.requires_approval`` gate (Tasks 8-11). When the agent runs in
-``autonomous`` mode, tool_executor must propagate that intent down to the
-engine by setting ``ctx.approval_bypass = True`` so the gate is skipped
+The inline ``pause(...)``-based approval block was removed from
+``flux/tasks/ai/tool_executor.py`` in favour of the engine-level
+``task.requires_approval`` gate. When the agent runs in ``autonomous``
+mode, tool_executor runs each tool as a
+``with_options(requires_approval=False)`` variant so the gate is skipped
 for tools invoked through this code path.
 """
 
@@ -40,28 +40,21 @@ def test_old_inline_approval_block_is_deleted():
     assert "tool_approval:" not in src
 
 
-def test_autonomous_mode_propagates_bypass_to_context():
-    """approval_mode='autonomous' must set ctx.approval_bypass=True for the
-    duration of the batch so the engine skips the requires_approval gate
-    for tools invoked from here. The flag is restored on exit (see
-    ``test_autonomous_bypass_does_not_leak_into_subsequent_batches``)."""
+def test_autonomous_mode_skips_gate():
+    """approval_mode='autonomous' runs each tool as a non-gated variant, so a
+    gated tool runs to completion instead of pausing for approval."""
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
+        return await execute_tools(
             [{"id": "c1", "name": "gated_tool", "arguments": {"target": "prod"}}],
             [gated_tool],
             approval_mode="autonomous",
         )
-        # Post-batch the bypass is restored. The behaviour we want to check
-        # is that the gated tool actually ran — i.e. the bypass was active
-        # while the tool was invoked.
-        return {"bypass_after": ctx.approval_bypass, "results": results}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded, [e.type for e in ctx.events]
-    assert ctx.output["bypass_after"] is False
-    assert ctx.output["results"][0]["output"] == "deleted:prod"
+    assert ctx.output[0]["output"] == "deleted:prod"
 
 
 def test_default_mode_lets_engine_gate_pause_workflow():
@@ -89,37 +82,21 @@ def test_non_gated_tools_unaffected_in_autonomous_mode():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
+        return await execute_tools(
             [{"id": "c1", "name": "benign_tool", "arguments": {"query": "hi"}}],
             [benign_tool],
             approval_mode="autonomous",
         )
-        return {"bypass_after": ctx.approval_bypass, "results": results}
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert ctx.output["bypass_after"] is False
-    assert ctx.output["results"][0]["output"] == "result:hi"
+    assert ctx.output[0]["output"] == "result:hi"
 
 
-def test_default_mode_does_not_set_bypass():
-    @workflow
-    async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
-            [{"id": "c1", "name": "benign_tool", "arguments": {"query": "hi"}}],
-            [benign_tool],
-        )
-        return {"bypass": ctx.approval_bypass, "results": results}
-
-    ctx = test_wf.run()
-    assert ctx.has_succeeded
-    assert ctx.output["bypass"] is False
-
-
-def test_autonomous_bypass_does_not_leak_into_subsequent_batches():
-    """Regression: a single autonomous batch must not flip the bypass flag
-    on for the rest of the workflow. Subsequent gated tools (run in default
-    mode by another execute_tools call) should still pause for approval."""
+def test_autonomous_batch_does_not_disable_later_gate():
+    """Regression: an autonomous batch must not disable approval for a later
+    default-mode gated tool. With per-batch with_options variants there is no
+    shared bypass state, so the next gated tool still pauses."""
     from flux.domain.events import ExecutionEventType
 
     @workflow
@@ -129,9 +106,6 @@ def test_autonomous_bypass_does_not_leak_into_subsequent_batches():
             [benign_tool],
             approval_mode="autonomous",
         )
-        # After the autonomous batch, bypass must be back to False so the
-        # next gated tool (default mode) actually pauses.
-        assert ctx.approval_bypass is False
         return await execute_tools(
             [{"id": "c2", "name": "gated_tool", "arguments": {"target": "prod"}}],
             [gated_tool],
