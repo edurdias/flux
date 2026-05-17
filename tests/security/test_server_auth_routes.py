@@ -54,7 +54,9 @@ class TestWorkflowExecutionsAuthEnforcement:
 
             settings = Configuration.get().settings
             original = settings.security.auth.api_keys.enabled
+            original_enabled = settings.security.auth.enabled
             settings.security.auth.api_keys.enabled = True
+            settings.security.auth.enabled = True
             try:
                 resp = client.get(
                     "/workflows/default/some_workflow/executions",
@@ -64,6 +66,7 @@ class TestWorkflowExecutionsAuthEnforcement:
                 assert resp.status_code in (401, 403)
             finally:
                 settings.security.auth.api_keys.enabled = original
+                settings.security.auth.enabled = original_enabled
 
     def test_executions_endpoint_allows_when_auth_disabled(self, client):
         """When auth is disabled, the endpoint should not require permissions."""

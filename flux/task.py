@@ -272,7 +272,7 @@ class task:
                     },
                 )
 
-            with span_cm:
+            with span_cm as span:
                 try:
                     output = None
                     cache_hit = False
@@ -316,6 +316,11 @@ class task:
 
                 except Exception as ex:
                     task_failed = True
+                    if span is not None:
+                        from opentelemetry.trace import Status, StatusCode
+
+                        span.set_status(Status(StatusCode.ERROR, str(ex)))
+                        span.record_exception(ex)
                     output = await self.__handle_exception(
                         ctx,
                         ex,
@@ -570,6 +575,9 @@ class task:
         kwargs: dict,
     ):
         attempt = 0
+        # current_delay persists across iterations so retry_backoff actually
+        # compounds: attempt 1 waits retry_delay, attempt 2 retry_delay*backoff, …
+        current_delay = self.retry_delay
         while attempt < self.retry_max_attempts:
             attempt += 1
 
@@ -579,7 +587,6 @@ class task:
             if _m:
                 _m.record_task_retry(ctx.workflow_namespace, ctx.workflow_name, self.name)
 
-            current_delay = self.retry_delay
             retry_args = {
                 "current_attempt": attempt,
                 "max_attempts": self.retry_max_attempts,
@@ -589,10 +596,6 @@ class task:
 
             try:
                 await asyncio.sleep(current_delay)
-                current_delay = min(
-                    current_delay * self.retry_backoff,
-                    600,
-                )
 
                 ctx.events.append(
                     ExecutionEvent(
@@ -602,7 +605,21 @@ class task:
                         value=retry_args,
                     ),
                 )
-                output = await maybe_awaitable(self._func(*args, **kwargs))
+                if self.timeout > 0:
+                    try:
+                        output = await asyncio.wait_for(
+                            maybe_awaitable(self._func(*args, **kwargs)),
+                            timeout=self.timeout,
+                        )
+                    except TimeoutError as ex:
+                        raise ExecutionTimeoutError(
+                            "Task",
+                            self.name,
+                            task_id,
+                            self.timeout,
+                        ) from ex
+                else:
+                    output = await maybe_awaitable(self._func(*args, **kwargs))
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_RETRY_COMPLETED,
@@ -639,3 +656,4 @@ class task:
                         self.retry_delay,
                         self.retry_backoff,
                     )
+                current_delay = min(current_delay * self.retry_backoff, 600)

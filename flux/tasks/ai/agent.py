@@ -71,7 +71,7 @@ async def agent(
         max_concurrent_tools: Maximum number of tools to run concurrently when
             the LLM emits multiple tool calls in a single turn. None means
             unlimited. Defaults to None.
-        max_tokens: Maximum tokens in the LLM response (used by Anthropic and Google, ignored by others).
+        max_tokens: Maximum tokens in the LLM response (used by OpenAI, Anthropic, and Google; ignored by Ollama).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
         on_complete: List of hook callables fired after the agent returns.
             Signature: ``async (agent_id: str, value: Any) -> None``. Sync hooks are also supported.
@@ -202,6 +202,7 @@ async def agent(
             model_name,
             response_format=response_format,
             reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
         )
 
         tool_schemas = build_tool_schemas(tools) if tools else None
@@ -241,6 +242,7 @@ async def agent(
             model_name,
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
+            response_format=response_format,
         )
 
         tool_schemas = build_tool_schemas(tools) if tools else None

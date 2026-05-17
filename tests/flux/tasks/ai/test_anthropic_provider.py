@@ -331,3 +331,55 @@ def test_format_assistant_message_empty_response():
 
         assert msg["role"] == "assistant"
         assert msg["content"] == []
+
+
+def test_apply_structured_output_forces_tool():
+    """Anthropic enforces structured output via a forced tool call rather than
+    only a prompt instruction."""
+    from pydantic import BaseModel
+
+    class Answer(BaseModel):
+        value: int
+
+    with patch("flux.tasks.ai.anthropic.AsyncAnthropic"):
+        from flux.tasks.ai.anthropic import (
+            _STRUCTURED_TOOL_NAME,
+            build_anthropic_provider,
+        )
+
+        _, formatter = build_anthropic_provider(
+            "claude-sonnet-4-20250514",
+            response_format=Answer,
+        )
+
+        call_kwargs: dict = {"model": "claude-sonnet-4-20250514", "max_tokens": 4096}
+        formatter.apply_structured_output(Answer, call_kwargs)
+
+        assert call_kwargs["tool_choice"] == {
+            "type": "tool",
+            "name": _STRUCTURED_TOOL_NAME,
+        }
+        assert call_kwargs["tools"][0]["name"] == _STRUCTURED_TOOL_NAME
+        assert call_kwargs["tools"][0]["input_schema"] == Answer.model_json_schema()
+
+
+def test_structured_tool_call_surfaces_as_text():
+    """A forced structured-output tool call is surfaced as JSON text so the
+    agent loop can validate it like any final answer."""
+    import json
+
+    from flux.tasks.ai.anthropic import _STRUCTURED_TOOL_NAME, _to_llm_response
+
+    structured_block = MagicMock()
+    structured_block.type = "tool_use"
+    structured_block.id = "tu_1"
+    structured_block.name = _STRUCTURED_TOOL_NAME
+    structured_block.input = {"value": 42}
+
+    response = MagicMock()
+    response.content = [structured_block]
+
+    result = _to_llm_response(response)
+
+    assert result.tool_calls == []
+    assert json.loads(result.text) == {"value": 42}
