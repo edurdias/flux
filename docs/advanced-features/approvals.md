@@ -160,8 +160,8 @@ tool invoked from that batch.
 
 ## Migration from the old wrapper
 
-If your code uses `flux.tasks.ai.approval.requires_approval` (deleted in
-v0.34), migrate to per-task `with_options`:
+If your code uses `flux.tasks.ai.approval.requires_approval` (removed in
+v0.35.0), migrate to per-task `with_options`:
 
 ```diff
 -from flux.tasks.ai.approval import requires_approval

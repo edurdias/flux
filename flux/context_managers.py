@@ -44,8 +44,10 @@ def _accept_state_write(new: ExecutionState, db: ExecutionState) -> bool:
     A persisted terminal state is final, and a persisted ``CANCELLING`` may
     only advance to a terminal state. This prevents a stale checkpoint — for
     example a worker still reporting ``RUNNING`` — from resurrecting a
-    finished workflow or silently losing an in-flight cancellation. Events
-    and output are still persisted; only the state column is held back.
+    finished workflow or silently losing an in-flight cancellation. When this
+    returns ``False`` the caller also holds back the row's output and event
+    writes, so a stale context cannot corrupt a terminal execution's output
+    or append misleading events.
     """
     if db in _TERMINAL_STATES:
         return new == db
@@ -193,8 +195,8 @@ class DatabaseContextManager(ContextManager):
             if model:
                 if _accept_state_write(ctx.state, model.state):
                     model.state = ctx.state
-                model.output = ctx.output
-                model.events.extend(self._get_additional_events(ctx, model))
+                    model.output = ctx.output
+                    model.events.extend(self._get_additional_events(ctx, model))
             else:
                 session.add(ExecutionContextModel.from_plain(ctx))
             if manage_transaction:
@@ -212,8 +214,8 @@ class DatabaseContextManager(ContextManager):
                 raise ExecutionContextNotFoundError(ctx.execution_id)
             if _accept_state_write(ctx.state, model.state):
                 model.state = ctx.state
-            model.output = ctx.output
-            model.events.extend(self._get_additional_events(ctx, model))
+                model.output = ctx.output
+                model.events.extend(self._get_additional_events(ctx, model))
             session.commit()
             return ctx
 

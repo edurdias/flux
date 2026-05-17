@@ -460,7 +460,9 @@ class task:
         Returns normally when approved or no approval is required. Raises
         ``ApprovalRejected`` on rejection, ``asyncio.CancelledError`` on
         cancellation, and ``PauseRequested`` (via ``ctx._await_approval``)
-        while waiting for a decision.
+        while waiting for a decision. An unexpected gate failure — a
+        predicate that raises, or an approval-store error — is recorded as a
+        ``TASK_FAILED`` event and re-raised as an ``ExecutionError``.
 
         Determinism: the approval row keyed by ``call_id`` is the durable
         record that this gate was triggered. It is looked up *before* the
@@ -474,73 +476,106 @@ class task:
 
         from flux.approvals import ApprovalManager, ApprovalRejected
 
-        mgr = ApprovalManager()
-        existing = mgr.get_by_call(ctx.execution_id, call_id)
-
-        if existing is not None:
-            verdict_required = True
-        else:
-            verdict_required = await self._evaluate_approval_predicate(args, kwargs)
-
-        if not verdict_required:
-            return
-
-        if existing is None:
-            from flux.context_managers import ContextManager
-            from flux.unit_of_work import UnitOfWork
-
-            cm = ContextManager.create()
-            with UnitOfWork() as uow:
-                ctx.events.append(
-                    ExecutionEvent(
-                        type=ExecutionEventType.TASK_AWAITING_APPROVAL,
-                        source_id=call_id,
-                        name=full_name,
-                        value={
-                            "task_call_id": call_id,
-                            "workflow_namespace": ctx.workflow_namespace,
-                            "workflow_name": ctx.workflow_name,
-                            "task_name": self.name,
-                        },
-                    ),
-                )
-                # Persist the execution context *before* the approval row is
-                # flushed so the approval_requests.execution_id foreign key
-                # has its target row (enforced on PostgreSQL).
-                cm.save(ctx, uow=uow)
-                mgr.create(
-                    execution_id=ctx.execution_id,
-                    task_call_id=call_id,
-                    workflow_namespace=ctx.workflow_namespace,
-                    workflow_name=ctx.workflow_name,
-                    task_name=self.name,
-                    uow=uow,
-                )
-                uow.commit()
-
         try:
+            mgr = ApprovalManager()
+            existing = mgr.get_by_call(ctx.execution_id, call_id)
+
+            if existing is not None:
+                verdict_required = True
+            else:
+                verdict_required = await self._evaluate_approval_predicate(args, kwargs)
+
+            if not verdict_required:
+                return
+
+            if existing is None:
+                from flux.context_managers import ContextManager
+                from flux.unit_of_work import UnitOfWork
+
+                cm = ContextManager.create()
+                with UnitOfWork() as uow:
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_AWAITING_APPROVAL,
+                            source_id=call_id,
+                            name=full_name,
+                            value={
+                                "task_call_id": call_id,
+                                "workflow_namespace": ctx.workflow_namespace,
+                                "workflow_name": ctx.workflow_name,
+                                "task_name": self.name,
+                            },
+                        ),
+                    )
+                    # Persist the execution context *before* the approval row
+                    # is flushed so the approval_requests.execution_id foreign
+                    # key has its target row (enforced on PostgreSQL).
+                    cm.save(ctx, uow=uow)
+                    mgr.create(
+                        execution_id=ctx.execution_id,
+                        task_call_id=call_id,
+                        workflow_namespace=ctx.workflow_namespace,
+                        workflow_name=ctx.workflow_name,
+                        task_name=self.name,
+                        uow=uow,
+                    )
+                    uow.commit()
+
             verdict = ctx._await_approval(call_id)
-        except ApprovalRejected as ex:
-            # Record the rejection as a terminal task failure. Idempotent so
-            # a replayed retry gate (which re-derives the verdict from the
-            # row) does not append a duplicate event.
-            already_failed = any(
-                e.source_id == call_id and e.type == ExecutionEventType.TASK_FAILED
-                for e in ctx.events
-            )
-            if not already_failed:
-                ctx.events.append(
-                    ExecutionEvent(
-                        type=ExecutionEventType.TASK_FAILED,
-                        source_id=call_id,
-                        name=full_name,
-                        value=self.output_storage.store(call_id, ex),
-                    ),
-                )
-                await ctx.checkpoint()
+        except (PauseRequested, asyncio.CancelledError):
+            # Expected suspension / cancellation signals — propagate untouched.
             raise
+        except ApprovalRejected as ex:
+            # Rejection is a terminal task failure that deliberately bypasses
+            # retry/fallback/rollback.
+            await self._record_gate_failure(ctx, call_id, full_name, ex)
+            raise
+        except Exception as ex:
+            # An unexpected gate failure — a requires_approval predicate that
+            # raised, or an approval-store error. The docs say predicate
+            # exceptions fail the task call, so route it through the same
+            # TASK_FAILED path instead of letting it escape the engine
+            # unrecorded.
+            wrapped = ex if isinstance(ex, ExecutionError) else ExecutionError(ex)
+            await self._record_gate_failure(ctx, call_id, full_name, wrapped)
+            raise wrapped
+
         if verdict.cancelled:
             raise asyncio.CancelledError()
+
+        # Approved. If this gate is the point a paused workflow resumed from,
+        # transition the context back to RUNNING — mirroring the pause()
+        # primitive — so subsequent task calls no longer see the execution as
+        # resuming and emit their TASK_STARTED events.
+        if ctx.is_resuming:
+            ctx.resume()
+
+    async def _record_gate_failure(
+        self,
+        ctx: ExecutionContext,
+        call_id: str,
+        full_name: str,
+        error: BaseException,
+    ) -> None:
+        """Persist a ``TASK_FAILED`` event for an approval-gate failure.
+
+        Idempotent: a replayed retry gate that re-derives the failure from the
+        approval row must not append a duplicate event.
+        """
+        already_failed = any(
+            e.source_id == call_id and e.type == ExecutionEventType.TASK_FAILED for e in ctx.events
+        )
+        if already_failed:
+            return
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_FAILED,
+                source_id=call_id,
+                name=full_name,
+                value=self.output_storage.store(call_id, error),
+            ),
+        )
+        await ctx.checkpoint()
 
     async def map(self, args):
         return await asyncio.gather(*(self(arg) for arg in args))

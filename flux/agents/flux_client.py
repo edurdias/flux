@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 from collections.abc import AsyncIterable, AsyncIterator
+from urllib.parse import quote
 
 import httpx
 
@@ -215,7 +216,10 @@ class FluxClient:
         endpoint backing the ``flux execution approve/reject`` CLI commands.
         """
         verb = "approve" if approved else "reject"
-        url = f"{self.server_url}/executions/{execution_id}/approvals/{task_call_id}/{verb}"
+        url = (
+            f"{self.server_url}/executions/{execution_id}"
+            f"/approvals/{quote(task_call_id, safe='')}/{verb}"
+        )
         body = {"reason": reason} if reason else {}
         async with httpx.AsyncClient() as client:
             response = await client.post(

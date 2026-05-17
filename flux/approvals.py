@@ -7,7 +7,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func as sa_func, select, update as sa_update
+from sqlalchemy import (
+    false as sa_false,
+    func as sa_func,
+    select,
+    tuple_ as sa_tuple,
+    update as sa_update,
+)
 
 from flux.models import ApprovalRequestModel, ApprovalStatus, RepositoryFactory
 from flux.unit_of_work import UnitOfWork
@@ -150,6 +156,7 @@ class ApprovalManager:
         workflow_name: str | None,
         task_name: str | None,
         age_min: timedelta | None,
+        workflows: Sequence[tuple[str, str]] | None = None,
     ) -> list:
         clauses: list = []
         if status is not None:
@@ -165,6 +172,19 @@ class ApprovalManager:
         if age_min is not None:
             cutoff = datetime.now(timezone.utc) - age_min
             clauses.append(ApprovalRequestModel.requested_at <= cutoff)
+        if workflows is not None:
+            # Restrict to an explicit (namespace, name) allow-list — used to
+            # push per-workflow read authorization into the query so a scoped
+            # reader's /approvals call stays bounded and paginates correctly.
+            if not workflows:
+                clauses.append(sa_false())
+            else:
+                clauses.append(
+                    sa_tuple(
+                        ApprovalRequestModel.workflow_namespace,
+                        ApprovalRequestModel.workflow_name,
+                    ).in_([tuple(w) for w in workflows]),
+                )
         return clauses
 
     def list(
@@ -176,13 +196,17 @@ class ApprovalManager:
         workflow_name: str | None = None,
         task_name: str | None = None,
         age_min: timedelta | None = None,
+        workflows: Sequence[tuple[str, str]] | None = None,
         limit: int | None = 20,
         offset: int = 0,
         uow: UnitOfWork | None = None,
     ) -> Sequence[ApprovalRequestModel]:
-        """List approvals matching the filters. ``limit=None`` returns every
-        matching row (used when the caller must post-filter by authorization
-        before paginating)."""
+        """List approvals matching the filters.
+
+        ``workflows`` restricts the result to an explicit (namespace, name)
+        allow-list, letting a scoped reader's authorization filter run inside
+        the query so pagination stays correct and bounded.
+        """
         clauses = self._filter_clauses(
             status,
             execution_id,
@@ -190,6 +214,7 @@ class ApprovalManager:
             workflow_name,
             task_name,
             age_min,
+            workflows,
         )
         stmt = select(ApprovalRequestModel).where(*clauses)
         stmt = stmt.order_by(ApprovalRequestModel.requested_at.desc())
@@ -210,6 +235,7 @@ class ApprovalManager:
         workflow_name: str | None = None,
         task_name: str | None = None,
         age_min: timedelta | None = None,
+        workflows: Sequence[tuple[str, str]] | None = None,
         uow: UnitOfWork | None = None,
     ) -> int:
         """Count approvals matching the filters, ignoring limit/offset."""
@@ -220,12 +246,52 @@ class ApprovalManager:
             workflow_name,
             task_name,
             age_min,
+            workflows,
         )
         stmt = select(sa_func.count()).select_from(ApprovalRequestModel).where(*clauses)
         if uow is not None:
             return int(uow.session.execute(stmt).scalar_one())
         with self._repository.session() as s:
             return int(s.execute(stmt).scalar_one())
+
+    def distinct_workflows(
+        self,
+        *,
+        status: ApprovalStatus | None = None,
+        execution_id: str | None = None,
+        workflow_namespace: str | None = None,
+        workflow_name: str | None = None,
+        task_name: str | None = None,
+        age_min: timedelta | None = None,
+        uow: UnitOfWork | None = None,
+    ) -> Sequence[tuple[str, str]]:
+        """Return the distinct (namespace, name) workflow pairs with approvals
+        matching the filters.
+
+        The result set is bounded by the workflow catalog, not the approvals
+        table, so a caller can resolve per-workflow authorization without
+        loading every approval row into memory.
+        """
+        clauses = self._filter_clauses(
+            status,
+            execution_id,
+            workflow_namespace,
+            workflow_name,
+            task_name,
+            age_min,
+        )
+        stmt = (
+            select(
+                ApprovalRequestModel.workflow_namespace,
+                ApprovalRequestModel.workflow_name,
+            )
+            .where(*clauses)
+            .distinct()
+        )
+        if uow is not None:
+            return [(ns, nm) for ns, nm in uow.session.execute(stmt).all()]
+        with self._repository.session() as s:
+            return [(ns, nm) for ns, nm in s.execute(stmt).all()]
 
     def decide(
         self,

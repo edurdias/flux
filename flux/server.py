@@ -592,10 +592,20 @@ class Server:
         ctx: ExecutionContext,
         manager: ContextManager,
         detailed: bool,
+        emit_initial: bool = False,
     ) -> AsyncIterator[dict]:
         event = self._execution_events[ctx.execution_id]
         progress_buffer = self._progress_buffers.get(ctx.execution_id)
         active_tasks: set[asyncio.Task] = set()
+        if emit_initial:
+            # Emit the current state immediately so a consumer attaching after
+            # the execution already finished still receives the terminal
+            # frame — the loop below exits at once when ctx.has_finished.
+            dto = ExecutionContextDTO.from_domain(ctx)
+            yield {
+                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                "data": to_json(dto if detailed else dto.summary()),
+            }
         try:
             while not ctx.has_finished:
                 if progress_buffer:
@@ -3306,7 +3316,12 @@ class Server:
                         asyncio.Queue(maxsize=10000),
                     )
                     return EventSourceResponse(
-                        self._stream_execution_events(ctx, manager, detailed),
+                        self._stream_execution_events(
+                            ctx,
+                            manager,
+                            detailed,
+                            emit_initial=True,
+                        ),
                         media_type="text/event-stream",
                         headers={
                             "Content-Type": "text/event-stream",
@@ -3450,9 +3465,23 @@ class Server:
                     "auth_filtered": False,
                 }
 
-            # Scoped reader: authorization must be applied before pagination,
-            # so fetch every matching row, filter by per-workflow read access,
-            # then slice. ``total`` is the count the caller is allowed to see.
+            # Scoped reader: resolve which workflows the caller may read
+            # *before* querying approvals, so the query stays bounded and
+            # paginates correctly. The distinct-workflows scan is bounded by
+            # the workflow catalog, not the approvals table.
+            candidate_workflows = mgr.distinct_workflows(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+            )
+            authorized_workflows = [
+                (ns, nm)
+                for ns, nm in candidate_workflows
+                if await _check_workflow_read(identity, ns, nm)
+            ]
             rows = mgr.list(
                 status=parsed_status,
                 execution_id=execution_id,
@@ -3460,17 +3489,22 @@ class Server:
                 workflow_name=workflow_name,
                 task_name=task_name,
                 age_min=parsed_age,
-                limit=None,
-                offset=0,
+                workflows=authorized_workflows,
+                limit=limit,
+                offset=offset,
             )
-            filtered = []
-            for r in rows:
-                if await _check_workflow_read(identity, r.workflow_namespace, r.workflow_name):
-                    filtered.append(r)
-            page = filtered[offset : offset + limit]
+            total = mgr.count(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+                workflows=authorized_workflows,
+            )
             return {
-                "approvals": [_approval_to_dict(r) for r in page],
-                "total": len(filtered),
+                "approvals": [_approval_to_dict(r) for r in rows],
+                "total": total,
                 "limit": limit,
                 "offset": offset,
                 "auth_filtered": True,

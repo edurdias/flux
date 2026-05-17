@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 
@@ -937,7 +938,7 @@ def _post_decision(
     body = {"reason": reason} if reason else {}
     with get_http_client() as client:
         response = client.post(
-            f"{base_url}/executions/{execution_id}/approvals/{task_call_id}/{verb}",
+            f"{base_url}/executions/{execution_id}/approvals/{quote(task_call_id, safe='')}/{verb}",
             json=body,
         )
         if response.status_code == 409:
