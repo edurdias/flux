@@ -137,7 +137,9 @@ class TestWorkerNameBinding:
 
         settings = Configuration.get().settings
         original = settings.security.auth.api_keys.enabled
+        original_enabled = settings.security.auth.enabled
         settings.security.auth.api_keys.enabled = True
+        settings.security.auth.enabled = True
         try:
             with _mock_auth(identity):
                 resp = client.post(
@@ -148,6 +150,7 @@ class TestWorkerNameBinding:
                 assert "mismatch" in resp.json()["detail"].lower()
         finally:
             settings.security.auth.api_keys.enabled = original
+            settings.security.auth.enabled = original_enabled
 
     def test_pong_allows_identity_match(self, client):
         identity = FluxIdentity(
@@ -158,7 +161,9 @@ class TestWorkerNameBinding:
 
         settings = Configuration.get().settings
         original = settings.security.auth.api_keys.enabled
+        original_enabled = settings.security.auth.enabled
         settings.security.auth.api_keys.enabled = True
+        settings.security.auth.enabled = True
         try:
             with _mock_auth(identity):
                 resp = client.post(
@@ -168,6 +173,7 @@ class TestWorkerNameBinding:
                 assert resp.status_code == 200
         finally:
             settings.security.auth.api_keys.enabled = original
+            settings.security.auth.enabled = original_enabled
 
     def test_pong_skips_name_check_when_auth_disabled(self, client):
         from flux.config import Configuration
@@ -175,14 +181,17 @@ class TestWorkerNameBinding:
         settings = Configuration.get().settings
         original_oidc = settings.security.auth.oidc.enabled
         original_keys = settings.security.auth.api_keys.enabled
+        original_enabled = settings.security.auth.enabled
         settings.security.auth.oidc.enabled = False
         settings.security.auth.api_keys.enabled = False
+        settings.security.auth.enabled = False
         try:
             resp = client.post("/workers/any-name/pong")
             assert resp.status_code != 403
         finally:
             settings.security.auth.oidc.enabled = original_oidc
             settings.security.auth.api_keys.enabled = original_keys
+            settings.security.auth.enabled = original_enabled
 
 
 @pytest.mark.asyncio

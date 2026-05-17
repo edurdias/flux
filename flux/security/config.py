@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from flux.config import EncryptionConfig
+
+logger = logging.getLogger(__name__)
 
 
 class _BaseConfig(BaseModel):
@@ -33,10 +36,34 @@ class APIKeyAuthConfig(_BaseConfig):
 class AuthConfig(_BaseConfig):
     oidc: OIDCConfig = Field(default_factory=OIDCConfig)
     api_keys: APIKeyAuthConfig = Field(default_factory=APIKeyAuthConfig)
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for authentication. Settable via "
+            "FLUX_SECURITY__AUTH__ENABLED. Enabling any provider implies it is "
+            "on; when on, at least one provider (oidc/api_keys) must be enabled."
+        ),
+    )
 
-    @property
-    def enabled(self) -> bool:
-        return self.oidc.enabled or self.api_keys.enabled
+    @model_validator(mode="after")
+    def _reconcile_enabled(self) -> AuthConfig:
+        provider_enabled = self.oidc.enabled or self.api_keys.enabled
+        if provider_enabled:
+            # Enabling a provider implies auth is on. Surface the override so a
+            # deliberate enabled=false isn't silently flipped back.
+            if not self.enabled:
+                logger.warning(
+                    "security.auth.enabled was false but an auth provider is "
+                    "enabled; forcing security.auth.enabled=true.",
+                )
+            self.enabled = True
+        elif self.enabled:
+            raise ValueError(
+                "security.auth.enabled is true but no auth provider is "
+                "configured. Enable [flux.security.auth.oidc] or "
+                "[flux.security.auth.api_keys].",
+            )
+        return self
 
 
 def _make_encryption_config():

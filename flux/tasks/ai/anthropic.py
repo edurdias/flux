@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -12,11 +13,17 @@ try:
 except ImportError:
     AsyncAnthropic = None  # type: ignore[assignment,misc]
 
+# Synthetic tool used to force Anthropic to emit schema-valid structured
+# output. Anthropic has no response_format parameter, so a forced tool call
+# is the API-level way to constrain the response shape.
+_STRUCTURED_TOOL_NAME = "respond_with_structured_output"
+
 
 def build_anthropic_provider(
     model_name: str,
     max_tokens: int = 4096,
     reasoning_effort: str | None = None,
+    response_format: Any | None = None,
 ) -> tuple[task, LLMFormatter]:
     if AsyncAnthropic is None:
         raise ImportError(
@@ -33,7 +40,13 @@ def build_anthropic_provider(
         )
         return _to_llm_response(response)
 
-    formatter = AnthropicFormatter(client, model_name, max_tokens, reasoning_effort)
+    formatter = AnthropicFormatter(
+        client,
+        model_name,
+        max_tokens,
+        reasoning_effort,
+        response_format,
+    )
     return anthropic_llm, formatter
 
 
@@ -44,15 +57,39 @@ class AnthropicFormatter(LLMFormatter):
         model_name: str,
         max_tokens: int,
         reasoning_effort: str | None = None,
+        response_format: Any | None = None,
     ) -> None:
         self._client = client
         self._model_name = model_name
         self._max_tokens = max_tokens
         self._reasoning_effort = reasoning_effort
+        self._response_format = response_format
+
+    def apply_structured_output(self, response_format: Any, call_kwargs: dict) -> None:
+        # Force a single tool call whose input_schema is the requested model;
+        # the API then guarantees schema-valid output. This commandeers the
+        # "tools"/"tool_choice" kwargs, so it is mutually exclusive with caller
+        # tool use — the agent loop guarantees this by only invoking us when no
+        # tools are configured. Assert it so a future caller change fails loud.
+        assert "tools" not in call_kwargs, (
+            "apply_structured_output cannot be combined with tool use"
+        )
+        call_kwargs["tools"] = [
+            {
+                "name": _STRUCTURED_TOOL_NAME,
+                "description": (
+                    "Return the final answer as structured data matching the "
+                    "required schema. You must call this tool to respond."
+                ),
+                "input_schema": response_format.model_json_schema(),
+            },
+        ]
+        call_kwargs["tool_choice"] = {"type": "tool", "name": _STRUCTURED_TOOL_NAME}
+        # Forced tool use is incompatible with extended thinking.
+        call_kwargs.pop("thinking", None)
+        call_kwargs.pop("output_config", None)
 
     def _convert_memory_messages(self, memory_messages: list[dict]) -> list[dict]:
-        import json
-
         converted = []
         pending_reasoning: dict | None = None
         for msg in memory_messages:
@@ -220,9 +257,14 @@ def _to_llm_response(response: Any) -> LLMResponse:
         elif block.type == "text":
             text_parts.append(block.text)
         elif block.type == "tool_use":
-            tool_calls.append(
-                ToolCall(id=block.id, name=block.name, arguments=block.input),
-            )
+            if block.name == _STRUCTURED_TOOL_NAME:
+                # Surface the forced structured-output tool as plain text so
+                # the agent loop validates it like any other final answer.
+                text_parts.append(json.dumps(block.input))
+            else:
+                tool_calls.append(
+                    ToolCall(id=block.id, name=block.name, arguments=block.input),
+                )
     return LLMResponse(
         text="\n".join(text_parts) if text_parts else "",
         tool_calls=tool_calls,

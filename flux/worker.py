@@ -5,6 +5,7 @@ import base64
 import importlib
 import platform
 import random
+import signal
 import sys
 import time
 from collections.abc import Awaitable
@@ -121,8 +122,8 @@ class Worker:
 
         try:
             asyncio.run(self._run())
-        except KeyboardInterrupt:
-            logger.info("Worker interrupted by user")
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("Worker shutdown requested")
         finally:
             try:
                 from flux.observability import shutdown as shutdown_observability
@@ -139,6 +140,27 @@ class Worker:
         On reconnect, skips registration and reuses the existing session token.
         If the server rejects the token (401/403), falls back to full re-registration.
         """
+        # systemd/Docker/k8s stop containers with SIGTERM, not SIGINT. Register
+        # cooperative loop-level handlers so a stop signal cancels the worker at
+        # an await boundary — letting in-flight checkpoints and shutdown
+        # finally-blocks run — instead of raising KeyboardInterrupt at an
+        # arbitrary bytecode point mid-coroutine.
+        loop = asyncio.get_running_loop()
+        main_task = asyncio.current_task()
+
+        def _request_shutdown(signame: str) -> None:
+            logger.info(f"Worker received {signame}, shutting down...")
+            if main_task is not None:
+                main_task.cancel()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown, sig.name)
+            except (NotImplementedError, RuntimeError, ValueError):
+                # Unsupported on Windows / outside the main thread; the default
+                # SIGINT->KeyboardInterrupt behaviour still applies there.
+                logger.debug(f"Could not install {sig.name} handler via event loop")
+
         backoff = 1
         while True:
             try:
