@@ -132,22 +132,27 @@ class OpenAIFormatter(LLMFormatter):
 
         call_kwargs: dict[str, Any] = {"model": self._model_name}
 
+        # max_completion_tokens is the unified token cap in the OpenAI v2 SDK;
+        # it is accepted by both reasoning and non-reasoning models.
         if self._max_tokens:
             call_kwargs["max_completion_tokens"] = self._max_tokens
-
-        if self._response_format:
-            call_kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": self._response_format.__name__,
-                    "schema": self._response_format.model_json_schema(),
-                },
-            }
 
         if self._reasoning_effort:
             call_kwargs["reasoning_effort"] = self._reasoning_effort
 
         return messages, call_kwargs
+
+    def apply_structured_output(self, response_format: Any, call_kwargs: dict) -> None:
+        # OpenAI enforces structured output natively via response_format. Wired
+        # through this hook (rather than build_messages) so every provider
+        # exposes structured output the same way to the agent loop.
+        call_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_format.__name__,
+                "schema": response_format.model_json_schema(),
+            },
+        }
 
     def format_assistant_message(self, response: LLMResponse) -> dict:
         msg: dict[str, Any] = {"role": "assistant", "content": response.text or None}

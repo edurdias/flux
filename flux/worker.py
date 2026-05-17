@@ -113,19 +113,6 @@ class Worker:
         logger.debug(f"Worker name: {self.name}")
         logger.debug(f"Server URL: {self.base_url}")
 
-        # systemd/Docker/k8s stop containers with SIGTERM, not SIGINT. Route it
-        # through the same KeyboardInterrupt path so the worker drains and runs
-        # its shutdown finally-block instead of being hard-killed.
-        def _handle_sigterm(_signum, _frame):
-            logger.info("Worker received SIGTERM, shutting down...")
-            raise KeyboardInterrupt
-
-        try:
-            signal.signal(signal.SIGTERM, _handle_sigterm)
-        except ValueError:
-            # signal.signal only works on the main thread; ignore otherwise.
-            logger.debug("Could not install SIGTERM handler (not main thread)")
-
         obs_config = Configuration.get().settings.observability
         if obs_config.enabled:
             from flux.observability import setup as setup_observability
@@ -135,8 +122,8 @@ class Worker:
 
         try:
             asyncio.run(self._run())
-        except KeyboardInterrupt:
-            logger.info("Worker interrupted by user")
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            logger.info("Worker shutdown requested")
         finally:
             try:
                 from flux.observability import shutdown as shutdown_observability
@@ -153,6 +140,27 @@ class Worker:
         On reconnect, skips registration and reuses the existing session token.
         If the server rejects the token (401/403), falls back to full re-registration.
         """
+        # systemd/Docker/k8s stop containers with SIGTERM, not SIGINT. Register
+        # cooperative loop-level handlers so a stop signal cancels the worker at
+        # an await boundary — letting in-flight checkpoints and shutdown
+        # finally-blocks run — instead of raising KeyboardInterrupt at an
+        # arbitrary bytecode point mid-coroutine.
+        loop = asyncio.get_running_loop()
+        main_task = asyncio.current_task()
+
+        def _request_shutdown(signame: str) -> None:
+            logger.info(f"Worker received {signame}, shutting down...")
+            if main_task is not None:
+                main_task.cancel()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown, sig.name)
+            except (NotImplementedError, RuntimeError, ValueError):
+                # Unsupported on Windows / outside the main thread; the default
+                # SIGINT->KeyboardInterrupt behaviour still applies there.
+                logger.debug(f"Could not install {sig.name} handler via event loop")
+
         backoff = 1
         while True:
             try:

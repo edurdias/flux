@@ -102,24 +102,33 @@ class Graph:
     def __detect_cycle(self) -> None:
         # Colour-based DFS over downstream edges: a GREY node reached again
         # means a back-edge, i.e. a cycle. Without this a cyclic graph would
-        # pass validation and blow up at runtime with RecursionError.
+        # pass validation and blow up at runtime with RecursionError. Uses an
+        # explicit stack so deep linear graphs don't hit the recursion limit.
         white, grey, black = 0, 1, 2
         color: dict[str, int] = dict.fromkeys(self._nodes, white)
 
-        def visit(name: str) -> None:
-            color[name] = grey
-            for dnode in self.__get_downstream(self._nodes[name]):
-                if color[dnode.name] == grey:
-                    raise ValueError(
-                        f"Graph contains a cycle involving node '{dnode.name}'.",
-                    )
-                if color[dnode.name] == white:
-                    visit(dnode.name)
-            color[name] = black
-
-        for node_name in self._nodes:
-            if color[node_name] == white:
-                visit(node_name)
+        for root in self._nodes:
+            if color[root] != white:
+                continue
+            # Each entry is (name, exiting): exiting=True is the post-order
+            # sentinel pushed beneath a node's children to mark it black.
+            stack: list[tuple[str, bool]] = [(root, False)]
+            while stack:
+                name, exiting = stack.pop()
+                if exiting:
+                    color[name] = black
+                    continue
+                if color[name] != white:
+                    continue
+                color[name] = grey
+                stack.append((name, True))
+                for dnode in self.__get_downstream(self._nodes[name]):
+                    if color[dnode.name] == grey:
+                        raise ValueError(
+                            f"Graph contains a cycle involving node '{dnode.name}'.",
+                        )
+                    if color[dnode.name] == white:
+                        stack.append((dnode.name, False))
 
     @task.with_options(name="graph_{self._name}")
     async def __call__(self, input: Any | None = None):
