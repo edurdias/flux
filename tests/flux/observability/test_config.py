@@ -9,10 +9,22 @@ class TestObservabilityConfig:
         assert config.enabled is False
         assert config.service_name == "flux"
         assert config.otlp_endpoint is None
+        assert config.otlp_protocol == "grpc"
         assert config.prometheus_enabled is True
         assert config.trace_sample_rate == 1.0
         assert config.metric_export_interval == 60
         assert config.resource_attributes == {}
+
+    def test_otlp_protocol_http(self):
+        config = ObservabilityConfig(otlp_protocol="http")
+        assert config.otlp_protocol == "http"
+
+    def test_otlp_protocol_rejects_unknown(self):
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(otlp_protocol="thrift")
 
     def test_custom_values(self):
         config = ObservabilityConfig(

@@ -41,6 +41,19 @@ def test_build_messages_basic():
             {"role": "user", "content": "Hello"},
         ]
         assert kwargs["model"] == "gpt-4o"
+        # No max_tokens configured ⇒ not sent.
+        assert "max_completion_tokens" not in kwargs
+
+
+def test_build_messages_passes_max_tokens():
+    with patch("flux.tasks.ai.openai.AsyncOpenAI"):
+        from flux.tasks.ai.openai import build_openai_provider
+
+        _, formatter = build_openai_provider("gpt-4o", max_tokens=512)
+
+        _, kwargs = formatter.build_messages("sys", "Hello")
+
+        assert kwargs["max_completion_tokens"] == 512
 
 
 def test_build_messages_with_working_memory():
@@ -340,7 +353,7 @@ def test_stream_yields_tokens():
     asyncio.run(run())
 
 
-def test_build_messages_with_response_format():
+def test_apply_structured_output_sets_response_format():
     with patch("flux.tasks.ai.openai.AsyncOpenAI"):
         from pydantic import BaseModel
 
@@ -352,8 +365,11 @@ def test_build_messages_with_response_format():
 
         _, formatter = build_openai_provider("gpt-4o", response_format=MyFormat)
 
-        messages, kwargs = formatter.build_messages("You are helpful.", "Hello")
+        # response_format is wired through the apply_structured_output hook
+        # (symmetric with the other providers), not build_messages.
+        _, kwargs = formatter.build_messages("You are helpful.", "Hello")
+        assert "response_format" not in kwargs
 
-        assert kwargs["model"] == "gpt-4o"
+        formatter.apply_structured_output(MyFormat, kwargs)
         assert kwargs["response_format"]["type"] == "json_schema"
         assert kwargs["response_format"]["json_schema"]["name"] == "MyFormat"

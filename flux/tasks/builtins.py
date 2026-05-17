@@ -23,7 +23,7 @@ async def uuid4() -> uuid.UUID:
 
 
 @task
-async def choice(options: list[Any]) -> int:
+async def choice(options: list[Any]) -> Any:
     return random.choice(options)
 
 

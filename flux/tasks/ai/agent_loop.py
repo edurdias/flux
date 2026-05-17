@@ -140,6 +140,11 @@ async def run_agent_loop(
 
     messages, call_kwargs = formatter.build_messages(sys_prompt, user_content, working_memory)
 
+    if response_format and not tools:
+        # Let providers with native structured-output support enforce the
+        # schema at the API level rather than relying only on the prompt.
+        formatter.apply_structured_output(response_format, call_kwargs)
+
     if tool_schemas:
         call_kwargs["tools"] = tool_schemas
 

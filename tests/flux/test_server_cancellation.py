@@ -444,7 +444,7 @@ class TestHealthEndpoint:
 
         response = test_client.get("/health")
 
-        assert response.status_code == 200
+        assert response.status_code == 503
         data = response.json()
         assert data["status"] == "unhealthy"
         assert data["database"] is False
@@ -538,7 +538,7 @@ class TestAPIEdgeCases:
 
         response = test_client.get("/health")
 
-        assert response.status_code == 200
+        assert response.status_code == 503
         data = response.json()
         assert data["status"] == "unhealthy"
 
