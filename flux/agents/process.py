@@ -238,17 +238,23 @@ class AgentProcess:
                 async for resume_event in session.respond_to_elicitation(response):
                     await self._dispatch(resume_event, session)
         elif event.kind == "approval_required":
-            await self._handle_approval_request(event.data)
+            await self._handle_approval_request(event.data, session)
         elif event.kind == "session_id":
             pass
 
-    async def _handle_approval_request(self, data: dict) -> None:
+    async def _handle_approval_request(self, data: dict, session: AgentSession) -> None:
         """Resolve an approval_required event.
 
         Auto-approves if the task name is in the per-session always_approved
         set; otherwise asks the UI for a decision. Only POSTs the decision
         when the UI actually returns one (api/web UIs return ``{'defer': True}``
         and rely on the consumer to call the approve/reject HTTP routes).
+
+        After a decision is posted the execution resumes server-side, but the
+        SSE stream that delivered this event has already ended at the PAUSED
+        frame. The session therefore re-attaches to the execution's event
+        stream and dispatches the events produced after the decision —
+        otherwise the UI would sit idle while the workflow continues.
         """
         assert self.ui is not None
         execution_id = data.get("execution_id", "")
@@ -262,6 +268,7 @@ class AgentProcess:
                 approved=True,
                 reason=None,
             )
+            await self._stream_after_decision(session)
             return
 
         decision = await self.ui.display_approval_request(data)
@@ -275,6 +282,12 @@ class AgentProcess:
             approved=bool(decision.get("approved")),
             reason=decision.get("reason"),
         )
+        await self._stream_after_decision(session)
+
+    async def _stream_after_decision(self, session: AgentSession) -> None:
+        """Re-attach to the resumed execution and dispatch its events."""
+        async for resume_event in session.reattach():
+            await self._dispatch(resume_event, session)
 
     async def _run_server(self) -> None:
         from flux.agents.ui.api import ApiUI

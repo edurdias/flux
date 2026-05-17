@@ -3277,14 +3277,43 @@ class Server:
         async def execution_get(
             execution_id: str,
             detailed: bool = False,
+            mode: str = "sync",
             identity: FluxIdentity = Depends(require_permission("execution:*:read")),
         ):
-            """Get execution by ID."""
+            """Get execution by ID.
+
+            ``mode=stream`` attaches to the execution's live event stream
+            instead of returning a one-shot snapshot — used to follow an
+            execution after it resumes out of band (e.g. after an approval
+            decision posted to the approve/reject routes).
+            """
             try:
+                if mode not in ("sync", "stream"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync' or 'stream'.",
+                    )
+
                 logger.debug(f"Fetching execution: {execution_id}")
 
                 manager = ContextManager.create()
                 ctx = manager.get(execution_id)
+
+                if mode == "stream":
+                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+                    self._progress_buffers.setdefault(
+                        ctx.execution_id,
+                        asyncio.Queue(maxsize=10000),
+                    )
+                    return EventSourceResponse(
+                        self._stream_execution_events(ctx, manager, detailed),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
 
                 dto = ExecutionContextDTO.from_domain(ctx)
                 result = dto.summary() if not detailed else dto
@@ -3297,6 +3326,8 @@ class Server:
                     status_code=404,
                     detail=f"Execution '{execution_id}' not found",
                 )
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error retrieving execution: {str(e)}")
                 raise HTTPException(

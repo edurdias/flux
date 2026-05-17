@@ -45,6 +45,22 @@ def _make_process_with_mock_ui() -> AgentProcess:
     return proc
 
 
+async def _aiter(items=()):
+    for item in items:
+        yield item
+
+
+def _make_session(reattach_events=()) -> MagicMock:
+    """A session mock whose reattach() yields the given AgentEvents.
+
+    _handle_approval_request re-attaches to the execution stream after a
+    decision, so the session must expose an async-iterating reattach().
+    """
+    session = MagicMock()
+    session.reattach = lambda: _aiter(reattach_events)
+    return session
+
+
 @pytest.mark.asyncio
 async def test_dispatch_approval_request_calls_ui_then_posts_approve():
     proc = _make_process_with_mock_ui()
@@ -52,7 +68,7 @@ async def test_dispatch_approval_request_calls_ui_then_posts_approve():
         return_value={"approved": True, "reason": "lgtm", "always_approve": False},
     )
 
-    session = MagicMock()
+    session = _make_session()
     await proc._dispatch(_approval_event(), session)
 
     proc.ui.display_approval_request.assert_awaited_once()
@@ -71,7 +87,7 @@ async def test_dispatch_approval_request_posts_reject_when_ui_returns_false():
         return_value={"approved": False, "reason": "no good", "always_approve": False},
     )
 
-    session = MagicMock()
+    session = _make_session()
     await proc._dispatch(_approval_event(), session)
 
     proc.client.decide_approval.assert_awaited_once_with(
@@ -91,7 +107,7 @@ async def test_dispatch_approval_request_caches_always_approved_per_session():
         return_value={"approved": True, "reason": None, "always_approve": True},
     )
 
-    session = MagicMock()
+    session = _make_session()
     await proc._dispatch(_approval_event(call_id="deploy_1"), session)
     await proc._dispatch(_approval_event(call_id="deploy_2"), session)
 
@@ -102,13 +118,32 @@ async def test_dispatch_approval_request_caches_always_approved_per_session():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_approval_reattaches_to_stream_after_decision():
+    """After POSTing a decision the dispatcher re-attaches to the execution
+    stream and dispatches the events produced once the workflow resumes."""
+    proc = _make_process_with_mock_ui()
+    proc.ui.display_approval_request = AsyncMock(
+        return_value={"approved": True, "reason": None, "always_approve": False},
+    )
+    proc.ui.display_response = AsyncMock()
+
+    resumed = AgentEvent(kind="chat_response", data={"content": "resumed output"})
+    session = _make_session(reattach_events=[resumed])
+    await proc._dispatch(_approval_event(), session)
+
+    proc.client.decide_approval.assert_awaited_once()
+    # The event produced after the resume reached the UI.
+    proc.ui.display_response.assert_awaited_once_with("resumed output")
+
+
+@pytest.mark.asyncio
 async def test_dispatch_approval_request_skips_post_when_ui_defers():
     """A UI that returns ``{'defer': True}`` (api/web modes) means the
     decision will be made via another channel; the dispatcher must not POST."""
     proc = _make_process_with_mock_ui()
     proc.ui.display_approval_request = AsyncMock(return_value={"defer": True})
 
-    session = MagicMock()
+    session = _make_session()
     await proc._dispatch(_approval_event(), session)
 
     proc.client.decide_approval.assert_not_awaited()

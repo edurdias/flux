@@ -136,6 +136,31 @@ class FluxClient:
                     if is_terminal_state(data):
                         break
 
+    async def stream_execution(
+        self,
+        execution_id: str,
+    ) -> AsyncIterator[dict]:
+        """Attach to an execution's live event stream.
+
+        Used to follow an execution that resumed out of band — e.g. after an
+        approval decision posted via :meth:`decide_approval` — where there is
+        no resume SSE response to consume. Stops at the next terminal/PAUSED
+        frame, mirroring :meth:`resume`.
+        """
+        url = f"{self.server_url}/executions/{execution_id}?mode=stream"
+        async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
+            async with client.stream(
+                "GET",
+                url,
+                headers=self._build_headers(),
+            ) as response:
+                response.raise_for_status()
+
+                async for data in _iter_sse_data_frames(response.aiter_lines()):
+                    yield data
+                    if is_terminal_state(data):
+                        break
+
     async def ensure_workflow_registered(
         self,
         namespace: str = "agents",
