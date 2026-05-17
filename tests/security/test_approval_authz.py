@@ -91,7 +91,11 @@ def _with_auth(client_, verb: str):
     mock_auth.authenticate = _authenticate
 
     settings = Configuration.get().settings
-    original = settings.security.auth.api_keys.enabled
+    # auth.enabled is a stored field (not derived from the providers), so the
+    # master switch has to be flipped explicitly alongside a provider.
+    original_enabled = settings.security.auth.enabled
+    original_api_keys = settings.security.auth.api_keys.enabled
+    settings.security.auth.enabled = True
     settings.security.auth.api_keys.enabled = True
     try:
         with patch(
@@ -104,7 +108,8 @@ def _with_auth(client_, verb: str):
                 json={},
             )
     finally:
-        settings.security.auth.api_keys.enabled = original
+        settings.security.auth.enabled = original_enabled
+        settings.security.auth.api_keys.enabled = original_api_keys
 
 
 def test_approve_route_denies_unauthorized_identity(client):
