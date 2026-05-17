@@ -71,8 +71,10 @@ def test_save_does_not_demote_resuming_to_paused(isolated_db):
 
     fetched = cm.get(ctx.execution_id)
     assert fetched.state == ExecutionState.RESUMING
+    # A rejected state write also holds back the stale context's events, so
+    # the out-of-order WORKFLOW_PAUSED is not appended to the resuming log.
     paused_events = [e for e in fetched.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
-    assert len(paused_events) == 1
+    assert len(paused_events) == 0
 
 
 def test_save_does_not_demote_cancelling_to_paused(isolated_db):
