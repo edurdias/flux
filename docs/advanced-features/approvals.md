@@ -161,7 +161,7 @@ engine-level approval gate is skipped for those tool invocations.
 ## Migration from the old wrapper
 
 If your code uses `flux.tasks.ai.approval.requires_approval` (removed in
-v0.35.0), migrate to per-task `with_options`:
+v0.36.0), migrate to per-task `with_options`:
 
 ```diff
 -from flux.tasks.ai.approval import requires_approval
