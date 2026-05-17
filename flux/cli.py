@@ -1480,12 +1480,11 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
         # rows live under "entries".
         entries = history.get("entries", []) if isinstance(history, dict) else history
 
-        if not entries:
-            click.echo("No execution history found.")
-            return
-
         if format == "json":
+            # Always emit valid JSON, even when there is no history.
             click.echo(json.dumps(history, indent=2))
+        elif not entries:
+            click.echo("No execution history found.")
         else:
             click.echo(f"Execution history for schedule '{schedule_id}':")
             click.echo()
