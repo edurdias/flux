@@ -103,7 +103,10 @@ class TestExecutionApprovalsList:
         result = runner.invoke(cli, ["execution", "approvals"])
 
         assert result.exit_code == 0, result.output
-        assert "appr-abc" in result.output
+        # The table shows the full execution_id and task_call_id (the exact
+        # arguments approve/reject need), not the approval_id.
+        assert "exec-table-1" in result.output
+        assert "call-1" in result.output
         assert "default/release/deploy" in result.output
         assert "pending" in result.output
 
