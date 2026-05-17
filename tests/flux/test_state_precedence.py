@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import cast
 
+import pytest
+
 from flux.context_managers import ContextManager, DatabaseContextManager
 from flux.domain import ExecutionContext, ExecutionState
 from flux.domain.events import ExecutionEvent, ExecutionEventType
+from flux.errors import ExecutionError
 
 
 def _make_ctx(state: ExecutionState = ExecutionState.RUNNING) -> ExecutionContext:
@@ -34,9 +37,20 @@ def _set_db_state(execution_id: str, state: ExecutionState) -> None:
 # --- start_resuming -------------------------------------------------------
 
 
-def test_start_resuming_transitions_even_when_not_paused():
+def test_start_resuming_rejects_when_not_paused():
     ctx = _make_ctx(ExecutionState.RUNNING)
-    ctx.start_resuming()
+    with pytest.raises(ExecutionError):
+        ctx.start_resuming()
+    assert ctx.state == ExecutionState.RUNNING
+    assert not any(e.type == ExecutionEventType.WORKFLOW_RESUMING for e in ctx.events)
+
+
+def test_force_start_resuming_transitions_even_when_not_paused():
+    # The approval decide handler uses this path: an approval can be decided
+    # before the worker records WORKFLOW_PAUSED, so the resume must be queued
+    # regardless of the current state.
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    ctx.force_start_resuming()
     assert ctx.state == ExecutionState.RESUMING
     assert any(e.type == ExecutionEventType.WORKFLOW_RESUMING for e in ctx.events)
 

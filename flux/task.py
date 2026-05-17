@@ -251,13 +251,13 @@ class task:
         # Approval gate — evaluated after auth and the replay short-circuit.
         # ``task_id`` doubles as the approval ``task_call_id`` for the
         # initial call; each retry attempt is gated under its own id.
-        await self._approval_gate(ctx, task_id, full_name, args, kwargs)
+        gate_resumed = await self._approval_gate(ctx, task_id, full_name, args, kwargs)
 
         from flux._task_context import _CURRENT_TASK
 
         task_token = _CURRENT_TASK.set((task_id, full_name))
         try:
-            if not ctx.is_resuming and not ctx.has_resumed:
+            if gate_resumed or (not ctx.is_resuming and not ctx.has_resumed):
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_STARTED,
@@ -459,10 +459,14 @@ class task:
         full_name: str,
         args: tuple,
         kwargs: dict,
-    ) -> None:
+    ) -> bool:
         """Run the approval gate for one task attempt identified by ``call_id``.
 
-        Returns normally when approved or no approval is required. Raises
+        Returns ``True`` when the gate consumed a resume transition for this
+        task (an approval decided while the execution was suspended), so the
+        caller knows to still emit ``TASK_STARTED`` for the gated task even
+        though ``ctx`` is no longer ``is_resuming``. Returns ``False`` when
+        approved without resuming or when no approval is required. Raises
         ``ApprovalRejected`` on rejection, ``asyncio.CancelledError`` on
         cancellation, and ``PauseRequested`` (via ``ctx._await_approval``)
         while waiting for a decision. An unexpected gate failure — a
@@ -477,7 +481,7 @@ class task:
         every attempt is independently re-gated.
         """
         if self.requires_approval is False:
-            return
+            return False
 
         from flux.approvals import ApprovalManager, ApprovalRejected
 
@@ -491,7 +495,7 @@ class task:
                 verdict_required = await self._evaluate_approval_predicate(args, kwargs)
 
             if not verdict_required:
-                return
+                return False
 
             if existing is None:
                 from flux.context_managers import ContextManager
@@ -532,7 +536,12 @@ class task:
             raise
         except ApprovalRejected as ex:
             # Rejection is a terminal task failure that deliberately bypasses
-            # retry/fallback/rollback.
+            # retry/fallback/rollback. If the rejection arrived on a resumed
+            # execution, consume the resume transition first so workflow code
+            # that catches ``ApprovalRejected`` continues from RUNNING rather
+            # than a stuck RESUME_CLAIMED state.
+            if ctx.is_resuming:
+                ctx.resume()
             await self._record_gate_failure(ctx, call_id, full_name, ex)
             raise
         except Exception as ex:
@@ -554,6 +563,8 @@ class task:
         # resuming and emit their TASK_STARTED events.
         if ctx.is_resuming:
             ctx.resume()
+            return True
+        return False
 
     async def _record_gate_failure(
         self,

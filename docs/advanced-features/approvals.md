@@ -107,8 +107,8 @@ not. Cancellation handling at the workflow level takes over from there.
   `asyncio.gather(approve_a(), approve_b())` where both gate will only
   surface the first approval. Lifted by a follow-up spec on parallel-pause
   coordination.
-- **No timeouts.** Tasks pause forever until acted on. Wrap in
-  `tasks.timeout` if a deadline matters.
+- **No timeouts.** Tasks pause forever until acted on. Set a task
+  `timeout` (`@task.with_options(timeout=...)`) if a deadline matters.
 - **Single approver.** No N-of-M policies; no role-scoped approver lists.
 
 ## CLI
@@ -150,9 +150,13 @@ approval payload and surfaces it through the same UI channel as elicitations:
   the task name in a per-session set so subsequent calls auto-approve.
 - **Textual mode:** mounts a system message with the same `[a]/[r]/[A]`
   hint in the status bar; the keypress resolves the pending approval.
-- **API / Web modes:** the SSE stream emits an `approval_required` event
+- **API mode:** the SSE stream emits an `approval_required` event
   carrying the request payload; the consumer is expected to call the
   HTTP `approve`/`reject` routes directly.
+- **Web mode:** the bundled web client does not yet render an
+  `approval_required` prompt — a gated workflow pauses with no in-UI
+  decision path. Decide pending approvals via the CLI or HTTP routes
+  until the web client gains a handler.
 
 Setting `approval_mode="autonomous"` on `agent(...)` runs each tool in the
 batch as a non-gated `with_options(requires_approval=False)` variant, so the

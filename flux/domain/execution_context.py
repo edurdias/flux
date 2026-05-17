@@ -295,6 +295,27 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def start_resuming(self, input: Any | None = None) -> Self:
+        if self._state != ExecutionState.PAUSED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot start resuming: state is {self._state.value}, "
+                    f"expected {ExecutionState.PAUSED.value}"
+                ),
+            )
+        return self._record_resuming(input)
+
+    def force_start_resuming(self, input: Any | None = None) -> Self:
+        """Transition to RESUMING regardless of the current state.
+
+        An approval can be decided before the worker has recorded the
+        WORKFLOW_PAUSED transition, so the execution may still be RUNNING or
+        CLAIMED when the decide handler needs to queue the resume. Only the
+        approval decide path should use this; normal resumes go through
+        start_resuming(), which enforces the PAUSED precondition.
+        """
+        return self._record_resuming(input)
+
+    def _record_resuming(self, input: Any | None = None) -> Self:
         self._state = ExecutionState.RESUMING
         self.events.append(
             ExecutionEvent(

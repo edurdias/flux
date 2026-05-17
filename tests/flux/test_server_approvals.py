@@ -240,11 +240,10 @@ def test_post_approve_succeeds(client):
     assert body["status"] == "approved"
     assert body["reason"] == "lgtm"
     assert body["approver"]["subject"] == "anonymous"
-    # ``execution_state`` echoes whatever the ctx is in after the decide. We
-    # don't seed a paused ctx here, so ``start_resuming`` is a no-op and the
-    # state stays at its initial value. Real workflows reach this code in the
-    # PAUSED state and transition to RESUMING.
-    assert body["execution_state"] in ("PAUSED", "RESUMING", "CREATED")
+    # The decide handler calls ``force_start_resuming()`` unconditionally, so an
+    # approval decided before the worker records WORKFLOW_PAUSED still queues a
+    # resume. The seeded ctx therefore always transitions to RESUMING.
+    assert body["execution_state"] == "RESUMING"
 
 
 def test_post_reject_succeeds(client):

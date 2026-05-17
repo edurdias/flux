@@ -828,7 +828,10 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
     if not approvals:
         click.echo("(none)")
         return
-    headers = ["ID", "REQUESTED", "WORKFLOW/TASK", "EXECUTION", "STATUS"]
+    # EXECUTION and TASK CALL ID are shown in full: they are the exact
+    # arguments `flux execution approve|reject` require, so a truncated value
+    # would not be actionable.
+    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS"]
     click.echo("  ".join(headers))
     for a in approvals:
         wf_task = (
@@ -836,12 +839,12 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
             f"{a.get('workflow_name', '?')}/"
             f"{a.get('task_name', '?')}"
         )
-        approval_id = a.get("approval_id", "")
         execution_id = a.get("execution_id", "")
+        task_call_id = a.get("task_call_id", "")
         requested = (a.get("requested_at") or "")[:19]
         status = a.get("status", "?")
         click.echo(
-            f"{approval_id[:8]}…  {requested}  {wf_task}  {execution_id[:8]}…  {status}",
+            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}",
         )
 
 

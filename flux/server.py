@@ -1551,6 +1551,13 @@ class Server:
                         detail="Cannot resume a finished execution.",
                     )
 
+                if not ctx.is_paused:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Cannot resume an execution in state '{ctx.state.value}'; "
+                        "it is not paused.",
+                    )
+
                 ctx.start_resuming(input)
                 manager.save(ctx)
 
@@ -3695,7 +3702,7 @@ class Server:
                         else ExecutionEventType.TASK_REJECTED
                     )
                     decided_iso = updated.decided_at.isoformat() if updated.decided_at else None
-                    exec_ctx.start_resuming()
+                    exec_ctx.force_start_resuming()
                     exec_ctx.events.append(
                         ExecutionEvent(
                             type=event_type,
@@ -4667,6 +4674,13 @@ class Server:
                     raise HTTPException(
                         status_code=400,
                         detail="Cannot resume a finished execution.",
+                    )
+
+                if not ctx.is_paused:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Cannot resume an execution in state '{ctx.state.value}'; "
+                        "it is not paused.",
                     )
 
                 ctx.start_resuming(input)
