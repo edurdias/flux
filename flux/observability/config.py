@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,10 @@ class ObservabilityConfig(BaseModel):
     otlp_endpoint: str | None = Field(
         default=None,
         description="OTLP collector endpoint (e.g. http://localhost:4317)",
+    )
+    otlp_protocol: Literal["grpc", "http"] = Field(
+        default="grpc",
+        description="OTLP exporter protocol: 'grpc' or 'http' (HTTP/protobuf)",
     )
     prometheus_enabled: bool = Field(
         default=True,

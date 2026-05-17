@@ -24,6 +24,22 @@ class TestAuthConfig:
         )
         assert config.enabled is False
 
+    def test_auth_enabled_is_a_settable_field(self):
+        # enabled is a real field (so FLUX_SECURITY__AUTH__ENABLED is honoured),
+        # not a derived read-only property.
+        config = AuthConfig(enabled=True, api_keys=APIKeyAuthConfig(enabled=True))
+        assert config.enabled is True
+
+    def test_auth_enabled_without_provider_is_rejected(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="no auth provider"):
+            AuthConfig(enabled=True)
+
+    def test_auth_can_be_explicitly_disabled(self):
+        config = AuthConfig(enabled=False)
+        assert config.enabled is False
+
     def test_oidc_defaults(self):
         config = OIDCConfig()
         assert config.roles_claim == "roles"

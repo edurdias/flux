@@ -533,6 +533,9 @@ class ExecutionContextModel(Base):
     exec_token = Column(String, nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
+    # Set when the execution was dispatched by a schedule; lets schedule
+    # history be scoped to the originating schedule rather than the workflow.
+    schedule_id = Column(String, nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -550,6 +553,7 @@ class ExecutionContextModel(Base):
         Index("idx_execution_state", "state"),
         Index("idx_execution_worker_name", "worker_name"),
         Index("idx_execution_state_worker", "state", "worker_name"),
+        Index("idx_execution_schedule_id", "schedule_id"),
     )
 
     def __init__(
@@ -566,6 +570,7 @@ class ExecutionContextModel(Base):
         exec_token: str | None = None,
         scheduling_subject: str | None = None,
         scheduling_principal_issuer: str | None = None,
+        schedule_id: str | None = None,
     ):
         self.execution_id = execution_id
         self.workflow_id = workflow_id
@@ -579,6 +584,7 @@ class ExecutionContextModel(Base):
         self.exec_token = exec_token
         self.scheduling_subject = scheduling_subject
         self.scheduling_principal_issuer = scheduling_principal_issuer
+        self.schedule_id = schedule_id
 
     def to_plain(self) -> ExecutionContext:
         return ExecutionContext(

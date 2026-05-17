@@ -41,6 +41,19 @@ def test_build_messages_basic():
             {"role": "user", "content": "Hello"},
         ]
         assert kwargs["model"] == "gpt-4o"
+        # No max_tokens configured ⇒ not sent.
+        assert "max_completion_tokens" not in kwargs
+
+
+def test_build_messages_passes_max_tokens():
+    with patch("flux.tasks.ai.openai.AsyncOpenAI"):
+        from flux.tasks.ai.openai import build_openai_provider
+
+        _, formatter = build_openai_provider("gpt-4o", max_tokens=512)
+
+        _, kwargs = formatter.build_messages("sys", "Hello")
+
+        assert kwargs["max_completion_tokens"] == 512
 
 
 def test_build_messages_with_working_memory():

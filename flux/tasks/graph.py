@@ -26,12 +26,17 @@ class Graph:
         def __hash__(self):
             return hash(self.name)
 
+    # Name constants only — never store these in an instance's _nodes, or the
+    # mutable upstream/state would be shared across every Graph in the process.
     START = Node(name="START", action=default_action)
     END = Node(name="END", action=default_action)
 
     def __init__(self, name: str):
         self._name = name
-        self._nodes: dict[str, Graph.Node] = {"START": Graph.START, "END": Graph.END}
+        self._nodes: dict[str, Graph.Node] = {
+            "START": Graph.Node(name="START", action=default_action),
+            "END": Graph.Node(name="END", action=default_action),
+        }
 
     def start_with(self, node: str) -> Graph:
         self.add_edge(Graph.START.name, node)
@@ -90,7 +95,31 @@ class Graph:
         if len(visited) != len(self._nodes):
             raise ValueError("Not all nodes are connected.")
 
+        self.__detect_cycle()
+
         return self
+
+    def __detect_cycle(self) -> None:
+        # Colour-based DFS over downstream edges: a GREY node reached again
+        # means a back-edge, i.e. a cycle. Without this a cyclic graph would
+        # pass validation and blow up at runtime with RecursionError.
+        white, grey, black = 0, 1, 2
+        color: dict[str, int] = dict.fromkeys(self._nodes, white)
+
+        def visit(name: str) -> None:
+            color[name] = grey
+            for dnode in self.__get_downstream(self._nodes[name]):
+                if color[dnode.name] == grey:
+                    raise ValueError(
+                        f"Graph contains a cycle involving node '{dnode.name}'.",
+                    )
+                if color[dnode.name] == white:
+                    visit(dnode.name)
+            color[name] = black
+
+        for node_name in self._nodes:
+            if color[node_name] == white:
+                visit(node_name)
 
     @task.with_options(name="graph_{self._name}")
     async def __call__(self, input: Any | None = None):
@@ -100,7 +129,7 @@ class Graph:
 
     async def __execute_node(self, name: str, input: Any | None = None):
         node = self._nodes[name]
-        if self.__can_execute(node):
+        if await self.__can_execute(node):
             upstream_outputs = (
                 [input]
                 if name == Graph.START.name

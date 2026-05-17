@@ -1476,7 +1476,11 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
             response.raise_for_status()
             history = response.json()
 
-        if not history:
+        # The endpoint returns a ScheduleHistoryResponse object; the actual
+        # rows live under "entries".
+        entries = history.get("entries", []) if isinstance(history, dict) else history
+
+        if not entries:
             click.echo("No execution history found.")
             return
 
@@ -1485,24 +1489,17 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
         else:
             click.echo(f"Execution history for schedule '{schedule_id}':")
             click.echo()
-            for entry in history:
-                status_icon = (
-                    "✓"
-                    if entry["status"] == "completed"
-                    else "✗"
-                    if entry["status"] == "failed"
-                    else "⏸"
+            for entry in entries:
+                state = entry.get("state", "UNKNOWN")
+                status_icon = "✓" if state == "COMPLETED" else "✗" if state == "FAILED" else "⏸"
+                click.echo(
+                    f"{status_icon} {entry.get('execution_id', '?')} - {state}",
                 )
-                click.echo(f"{status_icon} {entry['scheduled_at']} - {entry['status'].upper()}")
 
-                if entry.get("execution_id"):
-                    click.echo(f"   Execution ID: {entry['execution_id']}")
                 if entry.get("started_at"):
                     click.echo(f"   Started: {entry['started_at']}")
                 if entry.get("completed_at"):
                     click.echo(f"   Completed: {entry['completed_at']}")
-                if entry.get("error_message"):
-                    click.echo(f"   Error: {entry['error_message']}")
                 click.echo()
 
     except httpx.HTTPStatusError as ex:

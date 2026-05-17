@@ -58,9 +58,14 @@ def _setup_providers_unlocked(config: ObservabilityConfig):
         readers.append(PrometheusMetricReader())
 
     if config.otlp_endpoint:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
-            OTLPMetricExporter,
-        )
+        if config.otlp_protocol == "http":
+            from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+                OTLPMetricExporter,
+            )
+        else:
+            from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+                OTLPMetricExporter,
+            )
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
         otlp_exporter = OTLPMetricExporter(endpoint=config.otlp_endpoint)
@@ -80,9 +85,14 @@ def _setup_providers_unlocked(config: ObservabilityConfig):
 
     span_exporters = []
     if config.otlp_endpoint:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
+        if config.otlp_protocol == "http":
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+        else:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter,
+            )
 
         span_exporters.append(OTLPSpanExporter(endpoint=config.otlp_endpoint))
 
@@ -97,9 +107,15 @@ def _setup_providers_unlocked(config: ObservabilityConfig):
     # Logging
     if config.otlp_endpoint:
         from opentelemetry._logs import set_logger_provider
-        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
-            OTLPLogExporter,
-        )
+
+        if config.otlp_protocol == "http":
+            from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+                OTLPLogExporter,
+            )
+        else:
+            from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+                OTLPLogExporter,
+            )
         from opentelemetry.sdk._logs import LoggerProvider
         from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
