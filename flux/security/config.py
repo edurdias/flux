@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from flux.config import EncryptionConfig
+
+logger = logging.getLogger(__name__)
 
 
 class _BaseConfig(BaseModel):
@@ -46,7 +49,13 @@ class AuthConfig(_BaseConfig):
     def _reconcile_enabled(self) -> AuthConfig:
         provider_enabled = self.oidc.enabled or self.api_keys.enabled
         if provider_enabled:
-            # Enabling a provider implies auth is on.
+            # Enabling a provider implies auth is on. Surface the override so a
+            # deliberate enabled=false isn't silently flipped back.
+            if not self.enabled:
+                logger.warning(
+                    "security.auth.enabled was false but an auth provider is "
+                    "enabled; forcing security.auth.enabled=true.",
+                )
             self.enabled = True
         elif self.enabled:
             raise ValueError(

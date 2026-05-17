@@ -67,7 +67,13 @@ class AnthropicFormatter(LLMFormatter):
 
     def apply_structured_output(self, response_format: Any, call_kwargs: dict) -> None:
         # Force a single tool call whose input_schema is the requested model;
-        # the API then guarantees schema-valid output.
+        # the API then guarantees schema-valid output. This commandeers the
+        # "tools"/"tool_choice" kwargs, so it is mutually exclusive with caller
+        # tool use — the agent loop guarantees this by only invoking us when no
+        # tools are configured. Assert it so a future caller change fails loud.
+        assert "tools" not in call_kwargs, (
+            "apply_structured_output cannot be combined with tool use"
+        )
         call_kwargs["tools"] = [
             {
                 "name": _STRUCTURED_TOOL_NAME,

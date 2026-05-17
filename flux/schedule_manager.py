@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import func
 
 from flux.domain.events import ExecutionEventType
 from flux.domain.schedule import Schedule
@@ -388,9 +389,26 @@ class DatabaseScheduleManager(ScheduleManager):
                 if not schedule:
                     raise ScheduleManagerError(f"Schedule with ID '{schedule_id}' not found")
 
-                # Only executions dispatched by this schedule
-                query = session.query(ExecutionContextModel).filter(
-                    ExecutionContextModel.schedule_id == schedule_id,
+                # Only executions dispatched by this schedule. The executions
+                # table has no timestamp column, so order by each execution's
+                # earliest event id (a monotonic autoincrement) DESC — newest
+                # runs first — instead of by the arbitrary execution_id string.
+                first_event = (
+                    session.query(
+                        ExecutionEventModel.execution_id.label("execution_id"),
+                        func.min(ExecutionEventModel.id).label("first_id"),
+                    )
+                    .group_by(ExecutionEventModel.execution_id)
+                    .subquery()
+                )
+
+                query = (
+                    session.query(ExecutionContextModel)
+                    .outerjoin(
+                        first_event,
+                        first_event.c.execution_id == ExecutionContextModel.execution_id,
+                    )
+                    .filter(ExecutionContextModel.schedule_id == schedule_id)
                 )
 
                 # Get total count
@@ -398,36 +416,45 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 # Apply pagination
                 executions = (
-                    query.order_by(ExecutionContextModel.execution_id)
-                    .offset(offset)
-                    .limit(limit)
-                    .all()
+                    query.order_by(first_event.c.first_id.desc()).offset(offset).limit(limit).all()
                 )
 
-                # Derive started/completed timestamps from the event log.
+                # Derive started/completed timestamps (and the failure reason)
+                # from the event log. Only the few event types needed are
+                # fetched, as plain columns rather than full ORM rows, so a
+                # page never loads a workflow's entire event history.
                 exec_ids = [ex.execution_id for ex in executions]
                 started_at: dict[str, str] = {}
                 completed_at: dict[str, str] = {}
+                error: dict[str, str] = {}
                 if exec_ids:
                     terminal_types = {
                         ExecutionEventType.WORKFLOW_COMPLETED,
                         ExecutionEventType.WORKFLOW_FAILED,
                         ExecutionEventType.WORKFLOW_CANCELLED,
                     }
-                    events = (
-                        session.query(ExecutionEventModel)
-                        .filter(ExecutionEventModel.execution_id.in_(exec_ids))
+                    relevant_types = {ExecutionEventType.WORKFLOW_STARTED, *terminal_types}
+                    rows = (
+                        session.query(
+                            ExecutionEventModel.execution_id,
+                            ExecutionEventModel.type,
+                            ExecutionEventModel.time,
+                            ExecutionEventModel.value,
+                        )
+                        .filter(
+                            ExecutionEventModel.execution_id.in_(exec_ids),
+                            ExecutionEventModel.type.in_(relevant_types),
+                        )
                         .order_by(ExecutionEventModel.id)
                         .all()
                     )
-                    for ev in events:
-                        if (
-                            ev.type == ExecutionEventType.WORKFLOW_STARTED
-                            and ev.execution_id not in started_at
-                        ):
-                            started_at[ev.execution_id] = ev.time.isoformat()
-                        elif ev.type in terminal_types:
-                            completed_at[ev.execution_id] = ev.time.isoformat()
+                    for ev_exec_id, ev_type, ev_time, ev_value in rows:
+                        if ev_type == ExecutionEventType.WORKFLOW_STARTED:
+                            started_at.setdefault(ev_exec_id, ev_time.isoformat())
+                        elif ev_type in terminal_types:
+                            completed_at[ev_exec_id] = ev_time.isoformat()
+                            if ev_type == ExecutionEventType.WORKFLOW_FAILED and ev_value:
+                                error[ev_exec_id] = str(ev_value)
 
                 # Return execution summaries
                 results = []
@@ -442,6 +469,7 @@ class DatabaseScheduleManager(ScheduleManager):
                             "worker_name": ex.worker_name,
                             "started_at": started_at.get(ex.execution_id),
                             "completed_at": completed_at.get(ex.execution_id),
+                            "error": error.get(ex.execution_id),
                         },
                     )
 

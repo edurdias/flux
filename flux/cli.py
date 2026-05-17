@@ -1499,6 +1499,8 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
                     click.echo(f"   Started: {entry['started_at']}")
                 if entry.get("completed_at"):
                     click.echo(f"   Completed: {entry['completed_at']}")
+                if entry.get("error"):
+                    click.echo(f"   Error: {entry['error']}")
                 click.echo()
 
     except httpx.HTTPStatusError as ex:

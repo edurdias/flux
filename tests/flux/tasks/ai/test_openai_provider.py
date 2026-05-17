@@ -353,7 +353,7 @@ def test_stream_yields_tokens():
     asyncio.run(run())
 
 
-def test_build_messages_with_response_format():
+def test_apply_structured_output_sets_response_format():
     with patch("flux.tasks.ai.openai.AsyncOpenAI"):
         from pydantic import BaseModel
 
@@ -365,8 +365,11 @@ def test_build_messages_with_response_format():
 
         _, formatter = build_openai_provider("gpt-4o", response_format=MyFormat)
 
-        messages, kwargs = formatter.build_messages("You are helpful.", "Hello")
+        # response_format is wired through the apply_structured_output hook
+        # (symmetric with the other providers), not build_messages.
+        _, kwargs = formatter.build_messages("You are helpful.", "Hello")
+        assert "response_format" not in kwargs
 
-        assert kwargs["model"] == "gpt-4o"
+        formatter.apply_structured_output(MyFormat, kwargs)
         assert kwargs["response_format"]["type"] == "json_schema"
         assert kwargs["response_format"]["json_schema"]["name"] == "MyFormat"
