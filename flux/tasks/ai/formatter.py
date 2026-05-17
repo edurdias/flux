@@ -55,3 +55,15 @@ class LLMFormatter(ABC):
         on_reasoning_token: Any,
     ) -> Any:
         raise NotImplementedError
+
+    def apply_structured_output(
+        self,
+        response_format: Any,
+        call_kwargs: dict,
+    ) -> None:
+        """Configure provider-native structured output, if supported.
+
+        Default is a no-op: providers without native enforcement rely on the
+        schema the agent loop appends to the prompt. Providers that can
+        enforce the schema at the API level override this method.
+        """

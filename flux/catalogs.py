@@ -596,7 +596,7 @@ class WorkflowCatalog(ABC):
         return None
 
     @staticmethod
-    def create() -> WorkflowCatalog:
+    def create() -> DatabaseWorkflowCatalog:
         return DatabaseWorkflowCatalog()
 
 

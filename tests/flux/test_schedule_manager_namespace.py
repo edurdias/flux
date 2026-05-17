@@ -24,9 +24,10 @@ def _reset_config_singleton():
     DatabaseRepository._engines.clear()
 
 
-def test_schedule_history_scoped_by_namespace(tmp_path, monkeypatch):
-    """Two workflows with the same short name in different namespaces must
-    not share execution history via the schedule manager's query path.
+def test_schedule_history_scoped_by_schedule(tmp_path, monkeypatch):
+    """Schedule history is scoped to the originating schedule: executions of
+    the same workflow that were not dispatched by this schedule (manual runs,
+    other schedules, same-named workflows in other namespaces) must not leak.
     """
     monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path}/sched.db")
     from flux.models import DatabaseRepository
@@ -72,7 +73,7 @@ def test_schedule_history_scoped_by_namespace(tmp_path, monkeypatch):
         s.flush()
         sched_id = sm.id
 
-        # Insert one execution for billing/process
+        # Execution dispatched by this schedule — the only one that should appear
         s.add(
             ExecutionContextModel(
                 execution_id="e_billing",
@@ -81,9 +82,21 @@ def test_schedule_history_scoped_by_namespace(tmp_path, monkeypatch):
                 workflow_name="process",
                 input=None,
                 state=ExecutionState.COMPLETED,
+                schedule_id=sched_id,
             ),
         )
-        # Insert one execution for analytics/process — this MUST NOT leak into the billing query
+        # A manual run of the same workflow — no schedule_id, MUST NOT leak in
+        s.add(
+            ExecutionContextModel(
+                execution_id="e_manual",
+                workflow_id=billing_wf.id,
+                workflow_namespace="billing",
+                workflow_name="process",
+                input=None,
+                state=ExecutionState.COMPLETED,
+            ),
+        )
+        # An execution of the same-named workflow in another namespace
         s.add(
             ExecutionContextModel(
                 execution_id="e_analytics",

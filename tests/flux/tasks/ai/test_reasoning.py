@@ -99,7 +99,17 @@ class TestOllamaReasoning:
     def test_reasoning_effort_adds_think_param(self):
         from flux.tasks.ai.ollama import OllamaFormatter
 
+        # A recognised effort level is passed through verbatim so models that
+        # support graded reasoning keep the distinction.
         formatter = OllamaFormatter("test-model", reasoning_effort="high")
+        wm = type("FakeWM", (), {"recall": lambda self: []})()
+        _, kwargs = formatter.build_messages("system", "question", wm)
+        assert kwargs.get("think") == "high"
+
+    def test_reasoning_effort_unknown_falls_back_to_bool(self):
+        from flux.tasks.ai.ollama import OllamaFormatter
+
+        formatter = OllamaFormatter("test-model", reasoning_effort="enabled")
         wm = type("FakeWM", (), {"recall": lambda self: []})()
         _, kwargs = formatter.build_messages("system", "question", wm)
         assert kwargs.get("think") is True

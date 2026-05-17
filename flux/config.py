@@ -77,7 +77,7 @@ class MCPConfig(BaseConfig):
         description="Default server URL to connect to",
     )
     transport: Literal["stdio", "streamable-http", "sse"] = Field(
-        default="sse",
+        default="streamable-http",
         description="Transport protocol for MCP (stdio, streamable-http, sse)",
     )
 
@@ -217,11 +217,11 @@ class FluxConfig(BaseSettings):
         3. pyproject.toml
         4. Default values
         """
-        # Try to load from flux.toml
-        config = cls._load_from_config()
+        # Lower precedence: pyproject.toml [tool.flux]
+        config = cls._load_from_pyproject()
 
-        # Try to load from pyproject.toml
-        config = {**config, **cls._load_from_pyproject()}
+        # Higher precedence: flux.toml overrides pyproject.toml
+        config = {**config, **cls._load_from_config()}
 
         # Pydantic-settings gives init kwargs higher priority than env vars.
         # To honour the documented precedence (env vars beat config files), drop

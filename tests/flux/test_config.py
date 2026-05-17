@@ -275,6 +275,25 @@ def test_shipped_flux_toml_does_not_hardcode_bootstrap_token():
     )
 
 
+def test_flux_config_flux_toml_overrides_pyproject():
+    """flux.toml must take precedence over pyproject.toml [tool.flux]."""
+    with patch.object(FluxConfig, "_load_from_config") as mock_flux_toml:
+        with patch.object(FluxConfig, "_load_from_pyproject") as mock_pyproject:
+            mock_flux_toml.return_value = {"log_level": "DEBUG"}
+            mock_pyproject.return_value = {"log_level": "ERROR"}
+
+            config = FluxConfig.load()
+
+            assert config.log_level == "DEBUG"
+
+
+def test_mcp_config_transport_default_matches_cli():
+    """MCPConfig.transport default must match the `flux start mcp` CLI default."""
+    from flux.config import MCPConfig
+
+    assert MCPConfig().transport == "streamable-http"
+
+
 @pytest.fixture
 def reset_configuration():
     """Fixture to reset the Configuration singleton before and after each test."""

@@ -5,6 +5,7 @@ import base64
 import importlib
 import platform
 import random
+import signal
 import sys
 import time
 from collections.abc import Awaitable
@@ -111,6 +112,19 @@ class Worker:
         logger.info("Worker starting up...")
         logger.debug(f"Worker name: {self.name}")
         logger.debug(f"Server URL: {self.base_url}")
+
+        # systemd/Docker/k8s stop containers with SIGTERM, not SIGINT. Route it
+        # through the same KeyboardInterrupt path so the worker drains and runs
+        # its shutdown finally-block instead of being hard-killed.
+        def _handle_sigterm(_signum, _frame):
+            logger.info("Worker received SIGTERM, shutting down...")
+            raise KeyboardInterrupt
+
+        try:
+            signal.signal(signal.SIGTERM, _handle_sigterm)
+        except ValueError:
+            # signal.signal only works on the main thread; ignore otherwise.
+            logger.debug("Could not install SIGTERM handler (not main thread)")
 
         obs_config = Configuration.get().settings.observability
         if obs_config.enabled:

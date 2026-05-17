@@ -5,8 +5,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+from flux.domain.events import ExecutionEventType
 from flux.domain.schedule import Schedule
-from flux.models import ScheduleModel, RepositoryFactory, ExecutionContextModel
+from flux.models import (
+    ScheduleModel,
+    RepositoryFactory,
+    ExecutionContextModel,
+    ExecutionEventModel,
+)
 from flux.errors import ExecutionError
 
 
@@ -360,8 +366,9 @@ class DatabaseScheduleManager(ScheduleManager):
         """
         Get execution history for a schedule.
 
-        Since executions aren't directly linked to schedules in the database,
-        this returns executions for the workflow associated with the schedule.
+        Executions are linked to their originating schedule at dispatch time
+        (``executions.schedule_id``), so history is scoped to this schedule
+        rather than every execution of the underlying workflow.
 
         Args:
             schedule_id: The schedule ID
@@ -381,17 +388,46 @@ class DatabaseScheduleManager(ScheduleManager):
                 if not schedule:
                     raise ScheduleManagerError(f"Schedule with ID '{schedule_id}' not found")
 
-                # Query executions for this workflow using the repository
+                # Only executions dispatched by this schedule
                 query = session.query(ExecutionContextModel).filter(
-                    ExecutionContextModel.workflow_namespace == schedule.workflow_namespace,
-                    ExecutionContextModel.workflow_name == schedule.workflow_name,
+                    ExecutionContextModel.schedule_id == schedule_id,
                 )
 
                 # Get total count
                 total = query.count()
 
                 # Apply pagination
-                executions = query.offset(offset).limit(limit).all()
+                executions = (
+                    query.order_by(ExecutionContextModel.execution_id)
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
+
+                # Derive started/completed timestamps from the event log.
+                exec_ids = [ex.execution_id for ex in executions]
+                started_at: dict[str, str] = {}
+                completed_at: dict[str, str] = {}
+                if exec_ids:
+                    terminal_types = {
+                        ExecutionEventType.WORKFLOW_COMPLETED,
+                        ExecutionEventType.WORKFLOW_FAILED,
+                        ExecutionEventType.WORKFLOW_CANCELLED,
+                    }
+                    events = (
+                        session.query(ExecutionEventModel)
+                        .filter(ExecutionEventModel.execution_id.in_(exec_ids))
+                        .order_by(ExecutionEventModel.id)
+                        .all()
+                    )
+                    for ev in events:
+                        if (
+                            ev.type == ExecutionEventType.WORKFLOW_STARTED
+                            and ev.execution_id not in started_at
+                        ):
+                            started_at[ev.execution_id] = ev.time.isoformat()
+                        elif ev.type in terminal_types:
+                            completed_at[ev.execution_id] = ev.time.isoformat()
 
                 # Return execution summaries
                 results = []
@@ -404,6 +440,8 @@ class DatabaseScheduleManager(ScheduleManager):
                             if hasattr(ex.state, "value")
                             else str(ex.state),
                             "worker_name": ex.worker_name,
+                            "started_at": started_at.get(ex.execution_id),
+                            "completed_at": completed_at.get(ex.execution_id),
                         },
                     )
 

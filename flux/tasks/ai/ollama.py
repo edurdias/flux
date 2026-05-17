@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
@@ -12,6 +13,8 @@ from flux.tasks.ai.tool_executor import (
     extract_tool_calls_from_content,
     strip_tool_calls_from_content,
 )
+
+logger = logging.getLogger("flux.tasks.ai.ollama")
 
 try:
     from ollama import AsyncClient
@@ -113,12 +116,22 @@ class OllamaFormatter(LLMFormatter):
             schema_json = json.dumps(self._response_format.model_json_schema())
             messages[-1]["content"] += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
             call_kwargs["format"] = "json"
+        elif self._response_format and self._tool_names:
+            logger.warning(
+                "Ollama: response_format is ignored when tools are in use; "
+                "the model output will not be constrained to the schema.",
+            )
 
         if self._tool_names:
             call_kwargs["tool_names"] = self._tool_names
 
         if self._reasoning_effort is not None:
-            call_kwargs["think"] = True
+            # Preserve effort granularity for models that accept a level;
+            # fall back to a boolean for models that only support on/off.
+            if self._reasoning_effort in ("low", "medium", "high"):
+                call_kwargs["think"] = self._reasoning_effort
+            else:
+                call_kwargs["think"] = True
 
         return messages, call_kwargs
 

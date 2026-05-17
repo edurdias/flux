@@ -18,6 +18,7 @@ from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
 from fastapi import Request
+from fastapi import Response
 from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -289,6 +290,29 @@ class ScheduleHistoryResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+def _inject_trace_context(data_payload: str) -> str:
+    """Add the current OTel trace context to an SSE JSON payload, if enabled.
+
+    Workers use this to continue the server-side trace; without it resumed and
+    cancelled executions would start a disconnected trace.
+    """
+    from flux.observability import is_enabled
+
+    if not is_enabled():
+        return data_payload
+
+    import json as _json
+
+    from flux.observability.tracing import inject_trace_context
+
+    try:
+        event_data = _json.loads(data_payload)
+        event_data["trace_context"] = inject_trace_context()
+        return _json.dumps(event_data)
+    except Exception:
+        return data_payload
 
 
 class Server:
@@ -969,6 +993,19 @@ class Server:
                 schedule.workflow_name,
                 schedule.input_data,
             )
+
+            # Link the execution to its schedule so history can be scoped to
+            # this schedule rather than every execution of the workflow.
+            sched_link_session = self._get_db_session()
+            try:
+                from flux.models import ExecutionContextModel as _ECM_SCHED
+
+                sched_exec_row = sched_link_session.get(_ECM_SCHED, ctx.execution_id)
+                if sched_exec_row:
+                    sched_exec_row.schedule_id = schedule.id
+                    sched_link_session.commit()
+            finally:
+                sched_link_session.close()
 
             if auth_config.enabled and sa_principal is not None:
                 from flux.security.execution_token import mint_execution_token
@@ -1917,19 +1954,7 @@ class Server:
                                         payload_dict["exec_token"] = exec_token_for_dispatch
                                     data_payload = to_json(payload_dict)
 
-                                    from flux.observability import is_enabled
-
-                                    if is_enabled():
-                                        import json as _json
-
-                                        from flux.observability.tracing import inject_trace_context
-
-                                        try:
-                                            event_data = _json.loads(data_payload)
-                                            event_data["trace_context"] = inject_trace_context()
-                                            data_payload = _json.dumps(event_data)
-                                        except Exception:
-                                            pass
+                                    data_payload = _inject_trace_context(data_payload)
 
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
@@ -1950,7 +1975,9 @@ class Server:
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_cancelled",
-                                        "data": to_json({"context": ctx}),
+                                        "data": _inject_trace_context(
+                                            to_json({"context": ctx}),
+                                        ),
                                     }
 
                                     logger.debug(
@@ -1991,7 +2018,9 @@ class Server:
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
-                                        "data": to_json(resume_payload_dict),
+                                        "data": _inject_trace_context(
+                                            to_json(resume_payload_dict),
+                                        ),
                                     }
 
                                     logger.debug(
@@ -3483,7 +3512,7 @@ class Server:
         # ===========================================
 
         @api.get("/health", response_model=HealthResponse)
-        async def health():
+        async def health(response: Response):
             """Health check endpoint."""
             try:
                 logger.debug("Health check requested")
@@ -3501,11 +3530,16 @@ class Server:
                     version=version,
                 )
 
+                # Status-code-only probes must fail when the DB is unreachable.
+                if not db_healthy:
+                    response.status_code = 503
+
                 logger.debug(f"Health check result: {status}")
                 return result
 
             except Exception as e:
                 logger.error(f"Health check failed: {str(e)}")
+                response.status_code = 503
                 return HealthResponse(
                     status="unhealthy",
                     database=False,
@@ -3555,6 +3589,8 @@ class Server:
                             execution_id=e["execution_id"],
                             workflow_name=e["workflow_name"],
                             state=e["state"],
+                            started_at=e.get("started_at"),
+                            completed_at=e.get("completed_at"),
                         )
                         for e in entries
                     ],
