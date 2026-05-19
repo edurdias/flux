@@ -146,9 +146,8 @@ When an agent's tool is gated, the harness pauses with the engine-level
 approval payload and surfaces it through the same UI channel as elicitations:
 
 - **Terminal mode:** prints the task name and pauses on
-  `[a] approve  [r] reject  [A] always approve`. The `[A]` answer caches
-  the task name in a per-session set so subsequent calls auto-approve.
-- **Textual mode:** mounts a system message with the same `[a]/[r]/[A]`
+  `[a] approve  [r] reject`; the keypress resolves the decision.
+- **Textual mode:** mounts a system message with the same `[a]/[r]`
   hint in the status bar; the keypress resolves the pending approval.
 - **API mode:** the SSE stream emits an `approval_required` event; the
   consumer posts the decision to `POST /approval/{task_call_id}?session=...`

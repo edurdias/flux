@@ -37,12 +37,12 @@ async def test_textual_ui_display_approval_request_returns_approve():
         await asyncio.sleep(0.01)
         msg = posted[0]
         assert isinstance(msg, ApprovalRequested)
-        msg.future.set_result({"approved": True, "reason": None, "always_approve": False})
+        msg.future.set_result({"approved": True, "reason": None})
 
     asyncio.create_task(_resolve_future_with_approve())
     result = await ui.display_approval_request(request)
 
-    assert result == {"approved": True, "reason": None, "always_approve": False}
+    assert result == {"approved": True, "reason": None}
     assert posted[0].request == request
 
 

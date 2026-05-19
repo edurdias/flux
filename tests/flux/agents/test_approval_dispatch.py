@@ -65,7 +65,7 @@ def _make_session(reattach_events=()) -> MagicMock:
 async def test_dispatch_approval_request_calls_ui_then_posts_approve():
     proc = _make_process_with_mock_ui()
     proc.ui.display_approval_request = AsyncMock(
-        return_value={"approved": True, "reason": "lgtm", "always_approve": False},
+        return_value={"approved": True, "reason": "lgtm"},
     )
 
     session = _make_session()
@@ -84,7 +84,7 @@ async def test_dispatch_approval_request_calls_ui_then_posts_approve():
 async def test_dispatch_approval_request_posts_reject_when_ui_returns_false():
     proc = _make_process_with_mock_ui()
     proc.ui.display_approval_request = AsyncMock(
-        return_value={"approved": False, "reason": "no good", "always_approve": False},
+        return_value={"approved": False, "reason": "no good"},
     )
 
     session = _make_session()
@@ -99,31 +99,12 @@ async def test_dispatch_approval_request_posts_reject_when_ui_returns_false():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_approval_request_caches_always_approved_per_session():
-    """When the UI returns always_approve=True for a task, subsequent requests
-    for the same task name auto-approve without prompting again."""
-    proc = _make_process_with_mock_ui()
-    proc.ui.display_approval_request = AsyncMock(
-        return_value={"approved": True, "reason": None, "always_approve": True},
-    )
-
-    session = _make_session()
-    await proc._dispatch(_approval_event(call_id="deploy_1"), session)
-    await proc._dispatch(_approval_event(call_id="deploy_2"), session)
-
-    # UI was prompted only once.
-    assert proc.ui.display_approval_request.await_count == 1
-    # Both decisions were POSTed as approved.
-    assert proc.client.decide_approval.await_count == 2
-
-
-@pytest.mark.asyncio
 async def test_dispatch_approval_reattaches_to_stream_after_decision():
     """After POSTing a decision the dispatcher re-attaches to the execution
     stream and dispatches the events produced once the workflow resumes."""
     proc = _make_process_with_mock_ui()
     proc.ui.display_approval_request = AsyncMock(
-        return_value={"approved": True, "reason": None, "always_approve": False},
+        return_value={"approved": True, "reason": None},
     )
     proc.ui.display_response = AsyncMock()
 
@@ -194,7 +175,7 @@ async def test_terminal_ui_display_approval_request_returns_approve(monkeypatch,
             "workflow_name": "release",
         },
     )
-    assert result == {"approved": True, "reason": None, "always_approve": False}
+    assert result == {"approved": True, "reason": None}
     out = capsys.readouterr().out
     assert "deploy" in out
     assert "approval" in out.lower()
@@ -218,11 +199,13 @@ async def test_terminal_ui_display_approval_request_returns_reject_with_reason(
             "workflow_name": "w",
         },
     )
-    assert result == {"approved": False, "reason": "too risky", "always_approve": False}
+    assert result == {"approved": False, "reason": "too risky"}
 
 
 @pytest.mark.asyncio
-async def test_terminal_ui_display_approval_request_always_approve(monkeypatch):
+async def test_terminal_ui_display_approval_request_capital_a_approves(monkeypatch):
+    """Capital 'A' is a plain approve — the old 'always approve' shortcut
+    was removed (engine-managed standing approval is tracked separately)."""
     from flux.agents.ui.terminal import TerminalUI
 
     monkeypatch.setattr("builtins.input", lambda *_: "A")
@@ -236,4 +219,4 @@ async def test_terminal_ui_display_approval_request_always_approve(monkeypatch):
             "workflow_name": "w",
         },
     )
-    assert result == {"approved": True, "reason": None, "always_approve": True}
+    assert result == {"approved": True, "reason": None}

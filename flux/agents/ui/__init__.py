@@ -52,7 +52,7 @@ class UI(ABC):
         """Render an approval prompt and return the operator's decision.
 
         Returns one of:
-          - {"approved": bool, "reason": str|None, "always_approve": bool}
+          - {"approved": bool, "reason": str|None}
             — the dispatcher will POST this decision to the Flux server.
           - {"defer": True}
             — the UI declines to decide here (api/web modes); the consumer

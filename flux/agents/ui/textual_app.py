@@ -289,18 +289,9 @@ class AgentApp(App):
                 return
 
         if self._approval_future is not None and not self._approval_future.done():
-            if event.key == "a":
+            if event.key in ("a", "A"):
                 self._approval_future.set_result(
-                    {"approved": True, "reason": None, "always_approve": False},
-                )
-                self._approval_future = None
-                self._approval_request = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-            if event.key == "A":
-                self._approval_future.set_result(
-                    {"approved": True, "reason": None, "always_approve": True},
+                    {"approved": True, "reason": None},
                 )
                 self._approval_future = None
                 self._approval_request = None
@@ -309,7 +300,7 @@ class AgentApp(App):
                 return
             if event.key in ("r", "R"):
                 self._approval_future.set_result(
-                    {"approved": False, "reason": None, "always_approve": False},
+                    {"approved": False, "reason": None},
                 )
                 self._approval_future = None
                 self._approval_request = None
@@ -490,7 +481,7 @@ class AgentApp(App):
         self._approval_request = message.request
         await self._stop_spinner()
         status = self.query_one("#status-bar", Static)
-        status.update("  [a] approve  │  [r] reject  │  [A] always approve")
+        status.update("  [a] approve  │  [r] reject")
 
     async def on_session_ended(self, message: SessionEnded) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)

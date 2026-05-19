@@ -188,20 +188,14 @@ class TerminalUI(UI):
             f"\n  {self._c(_YELLOW, '⚡')} Tool {self._c(_BOLD, task_name)} "
             f"{self._c(_DIM, f'(in {ns}/{wf})')} requires approval.",
         )
-        prompt = (
-            f"  {self._c(_DIM, '[a]')} approve  "
-            f"{self._c(_DIM, '[r]')} reject  "
-            f"{self._c(_DIM, '[A]')} always approve  > "
-        )
+        prompt = f"  {self._c(_DIM, '[a]')} approve  {self._c(_DIM, '[r]')} reject  > "
         while True:
             answer = (await asyncio.to_thread(input, prompt)).strip()
-            if answer == "A":
-                return {"approved": True, "reason": None, "always_approve": True}
-            if answer == "a":
-                return {"approved": True, "reason": None, "always_approve": False}
+            if answer in ("a", "A"):
+                return {"approved": True, "reason": None}
             if answer in ("r", "R"):
                 reason = (await asyncio.to_thread(input, "  Reason (optional): ")).strip()
-                return {"approved": False, "reason": reason or None, "always_approve": False}
+                return {"approved": False, "reason": reason or None}
             # Reject only on an explicit r/R — never default a rejection from
             # a stray Enter or typo.
-            print(f"  {self._c(_DIM, 'Please choose [a], [A], or [r].')}")
+            print(f"  {self._c(_DIM, 'Please choose [a] or [r].')}")

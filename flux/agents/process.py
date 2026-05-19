@@ -58,9 +58,6 @@ class AgentProcess:
         self.workflow_name = workflow_name
         self.client = FluxClient(server_url=server_url, token=token)
         self.ui: UI | None = _make_terminal_ui() if mode == "terminal" else None
-        # Per-session cache of task names the operator marked "always approve".
-        # Reset only by restarting the AgentProcess.
-        self._always_approved: set[str] = set()
 
     async def run(self) -> None:
         await self.client.ensure_workflow_registered(
@@ -245,10 +242,9 @@ class AgentProcess:
     async def _handle_approval_request(self, data: dict, session: AgentSession) -> None:
         """Resolve an approval_required event.
 
-        Auto-approves if the task name is in the per-session always_approved
-        set; otherwise asks the UI for a decision. Only POSTs the decision
-        when the UI actually returns one (api/web UIs return ``{'defer': True}``
-        and rely on the consumer to call the approve/reject HTTP routes).
+        Asks the UI for a decision and POSTs it. Only POSTs the decision when
+        the UI actually returns one (api/web UIs return ``{'defer': True}`` and
+        rely on the consumer to call the approve/reject HTTP routes).
 
         After a decision is posted the execution resumes server-side, but the
         SSE stream that delivered this event has already ended at the PAUSED
@@ -259,23 +255,10 @@ class AgentProcess:
         assert self.ui is not None
         execution_id = data.get("execution_id", "")
         task_call_id = data.get("task_call_id", "")
-        task_name = data.get("task_name", "")
-
-        if task_name in self._always_approved:
-            await self.client.decide_approval(
-                execution_id,
-                task_call_id,
-                approved=True,
-                reason=None,
-            )
-            await self._stream_after_decision(session)
-            return
 
         decision = await self.ui.display_approval_request(data)
         if decision.get("defer"):
             return
-        if decision.get("always_approve"):
-            self._always_approved.add(task_name)
         await self.client.decide_approval(
             execution_id,
             task_call_id,
