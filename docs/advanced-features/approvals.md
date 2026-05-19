@@ -150,13 +150,14 @@ approval payload and surfaces it through the same UI channel as elicitations:
   the task name in a per-session set so subsequent calls auto-approve.
 - **Textual mode:** mounts a system message with the same `[a]/[r]/[A]`
   hint in the status bar; the keypress resolves the pending approval.
-- **API mode:** the SSE stream emits an `approval_required` event
-  carrying the request payload; the consumer is expected to call the
-  HTTP `approve`/`reject` routes directly.
-- **Web mode:** the bundled web client does not yet render an
-  `approval_required` prompt — a gated workflow pauses with no in-UI
-  decision path. Decide pending approvals via the CLI or HTTP routes
-  until the web client gains a handler.
+- **API mode:** the SSE stream emits an `approval_required` event; the
+  consumer posts the decision to `POST /approval/{task_call_id}?session=...`
+  on the agent API, which decides the approval against the Flux server and
+  resumes the event stream with the events produced after the workflow
+  continues.
+- **Web mode:** the bundled web client renders an inline approve/reject
+  prompt (with an optional reason) when a gated tool pauses the workflow,
+  posts the decision, and resumes the chat in place.
 
 Setting `approval_mode="autonomous"` on `agent(...)` runs each tool in the
 batch as a non-gated `with_options(requires_approval=False)` variant, so the
