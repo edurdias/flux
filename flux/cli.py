@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 
@@ -562,7 +563,11 @@ def workflow_status(
             response.raise_for_status()
             result = response.json()
 
+            pending = _fetch_pending_approvals(client, base_url, execution_id)
+
         click.echo(to_json(result))
+        if pending:
+            click.echo(f"Blocked on {len(pending)} approval(s)", err=True)
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -754,7 +759,10 @@ def show_execution(execution_id: str, detailed: bool, server_url: str | None):
             response.raise_for_status()
             result = response.json()
 
+            pending = _fetch_pending_approvals(client, base_url, execution_id)
+
         click.echo(to_json(result))
+        _render_pending_approvals(pending)
 
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
@@ -763,6 +771,257 @@ def show_execution(execution_id: str, detailed: bool, server_url: str | None):
             click.echo(f"Error showing execution: {str(ex)}", err=True)
     except Exception as ex:
         click.echo(f"Error showing execution: {str(ex)}", err=True)
+
+
+# =============================================================================
+# Execution Approval Commands
+# =============================================================================
+
+
+def _fetch_pending_approvals(
+    client: httpx.Client,
+    base_url: str,
+    execution_id: str,
+) -> list[dict[str, Any]]:
+    """Fetch pending approvals for an execution.
+
+    Errors are caught and logged to stderr so the primary command output
+    (the JSON payload on stdout) is never blocked by an approval-side
+    failure. We narrow to the network/parse errors we actually expect —
+    bare ``except Exception`` would also swallow programming errors.
+    """
+    try:
+        resp = client.get(
+            f"{base_url}/executions/{execution_id}/approvals",
+            params={"status": "pending"},
+        )
+        resp.raise_for_status()
+        return resp.json().get("approvals", []) or []
+    except (httpx.HTTPError, json.JSONDecodeError) as ex:
+        click.echo(f"(approvals lookup failed: {ex})", err=True)
+        return []
+
+
+def _render_pending_approvals(pending: list[dict[str, Any]]) -> None:
+    """Render pending-approval info on stderr.
+
+    Stderr keeps stdout reserved for the primary JSON payload so callers
+    that pipe stdout to ``json.loads`` (e.g. E2E harness) keep working.
+    """
+    if not pending:
+        return
+    click.echo("", err=True)
+    click.echo("Pending approvals:", err=True)
+    for r in pending:
+        requested = (r.get("requested_at") or "")[:19]
+        click.echo(
+            f"  - {r.get('task_call_id', '?')}  "
+            f"{r.get('workflow_namespace', '?')}/"
+            f"{r.get('workflow_name', '?')}/"
+            f"{r.get('task_name', '?')}"
+            f"  (requested {requested})",
+            err=True,
+        )
+
+
+def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
+    if not approvals:
+        click.echo("(none)")
+        return
+    # EXECUTION and TASK CALL ID are shown in full: they are the exact
+    # arguments `flux execution approve|reject` require, so a truncated value
+    # would not be actionable.
+    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS"]
+    click.echo("  ".join(headers))
+    for a in approvals:
+        wf_task = (
+            f"{a.get('workflow_namespace', '?')}/"
+            f"{a.get('workflow_name', '?')}/"
+            f"{a.get('task_name', '?')}"
+        )
+        execution_id = a.get("execution_id", "")
+        task_call_id = a.get("task_call_id", "")
+        requested = (a.get("requested_at") or "")[:19]
+        status = a.get("status", "?")
+        click.echo(
+            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}",
+        )
+
+
+@execution.command("approvals")
+@click.option(
+    "--status",
+    default="pending",
+    type=click.Choice(["pending", "approved", "rejected", "cancelled", "all"]),
+    help="Filter by approval status.",
+)
+@click.option(
+    "--execution",
+    "execution_id",
+    default=None,
+    help="Scope to one execution.",
+)
+@click.option("--namespace", "workflow_namespace", default=None, help="Filter by namespace.")
+@click.option("--task", "task_name", default=None, help="Filter by task name.")
+@click.option(
+    "--workflow",
+    default=None,
+    help="Filter by workflow: '<name>' or '<namespace>/<name>'.",
+)
+@click.option("--age", default=None, help="Minimum age, e.g. '1h', '24h', '7d'.")
+@click.option("--limit", default=20, type=int)
+@click.option("--json", "as_json", is_flag=True, help="Output JSON.")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def execution_approvals(
+    status: str,
+    execution_id: str | None,
+    workflow_namespace: str | None,
+    task_name: str | None,
+    workflow: str | None,
+    age: str | None,
+    limit: int,
+    as_json: bool,
+    server_url: str | None,
+):
+    """List approval requests."""
+    try:
+        from flux.utils import parse_duration
+
+        base_url = server_url or get_server_url()
+
+        params: dict[str, Any] = {"status": status, "limit": limit}
+        if execution_id:
+            params["execution_id"] = execution_id
+        if workflow_namespace:
+            params["workflow_namespace"] = workflow_namespace
+        if task_name:
+            params["task_name"] = task_name
+        if workflow:
+            if "/" in workflow:
+                ns, wn = workflow.split("/", 1)
+                params["workflow_namespace"] = ns
+                params["workflow_name"] = wn
+            else:
+                params["workflow_name"] = workflow
+        if age:
+            td = parse_duration(age)
+            params["age_min"] = f"PT{int(td.total_seconds())}S"
+
+        with get_http_client() as client:
+            response = client.get(f"{base_url}/approvals", params=params)
+            response.raise_for_status()
+            result = response.json()
+
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+            return
+        _render_approvals_table(result.get("approvals", []))
+
+    except httpx.HTTPStatusError as ex:
+        click.echo(f"Error listing approvals: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
+    except Exception as ex:
+        click.echo(f"Error listing approvals: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
+
+
+def _post_decision(
+    execution_id: str,
+    task_call_id: str,
+    verb: Literal["approve", "reject"],
+    reason: str | None,
+    server_url: str | None,
+) -> dict[str, Any]:
+    base_url = server_url or get_server_url()
+    body = {"reason": reason} if reason else {}
+    with get_http_client() as client:
+        response = client.post(
+            f"{base_url}/executions/{execution_id}/approvals/{quote(task_call_id, safe='')}/{verb}",
+            json=body,
+        )
+        if response.status_code == 409:
+            return response.json()
+        response.raise_for_status()
+        return response.json()
+
+
+@execution.command("approve")
+@click.argument("execution_id")
+@click.argument("task_call_id")
+@click.option("--reason", default=None, help="Optional reason for the decision.")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def execution_approve(
+    execution_id: str,
+    task_call_id: str,
+    reason: str | None,
+    server_url: str | None,
+):
+    """Approve a pending approval request."""
+    try:
+        resp = _post_decision(execution_id, task_call_id, "approve", reason, server_url)
+        if resp.get("error"):
+            click.echo(
+                f"Error: {resp.get('error')} ({resp.get('current_status', '?')})",
+                err=True,
+            )
+            raise click.exceptions.Exit(1)
+        click.echo("Approved.")
+        click.echo(f"Execution {execution_id} → {resp.get('execution_state', 'unknown')}")
+    except click.exceptions.Exit:
+        raise
+    except httpx.HTTPStatusError as ex:
+        click.echo(f"Error approving: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
+    except Exception as ex:
+        click.echo(f"Error approving: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
+
+
+@execution.command("reject")
+@click.argument("execution_id")
+@click.argument("task_call_id")
+@click.option("--reason", default=None, help="Optional reason for the decision.")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def execution_reject(
+    execution_id: str,
+    task_call_id: str,
+    reason: str | None,
+    server_url: str | None,
+):
+    """Reject a pending approval request."""
+    try:
+        resp = _post_decision(execution_id, task_call_id, "reject", reason, server_url)
+        if resp.get("error"):
+            click.echo(
+                f"Error: {resp.get('error')} ({resp.get('current_status', '?')})",
+                err=True,
+            )
+            raise click.exceptions.Exit(1)
+        click.echo("Rejected.")
+        click.echo(f"Execution {execution_id} → {resp.get('execution_state', 'unknown')}")
+    except click.exceptions.Exit:
+        raise
+    except httpx.HTTPStatusError as ex:
+        click.echo(f"Error rejecting: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
+    except Exception as ex:
+        click.echo(f"Error rejecting: {str(ex)}", err=True)
+        raise click.exceptions.Exit(1)
 
 
 # =============================================================================

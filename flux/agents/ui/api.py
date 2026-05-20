@@ -146,6 +146,49 @@ class ApiUI:
 
             return EventSourceResponse(event_stream())
 
+        @self.app.post("/approval/{task_call_id:path}")
+        async def approval(
+            task_call_id: str,
+            body: dict = Body(...),
+            session: str = Query(...),
+            token: str = Depends(token_dep),
+        ):
+            approved = body.get("approved")
+            if not isinstance(approved, bool):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Approval decision requires a boolean 'approved' field.",
+                )
+            reason = body.get("reason")
+            # The gated task runs inside the agent execution; fall back to the
+            # session id when the client does not echo the event's execution_id.
+            execution_id = body.get("execution_id") or session
+            client = self._make_client(token)
+            agent_session = AgentSession(
+                client=client,
+                agent_name=self.agent_name,
+                session_id=session,
+                workflow_name=self.workflow_name,
+            )
+
+            async def event_stream() -> AsyncIterator[dict]:
+                try:
+                    await client.decide_approval(
+                        execution_id,
+                        task_call_id,
+                        approved=approved,
+                        reason=reason,
+                    )
+                    # The decide route resumes the workflow without an SSE
+                    # response of its own; re-attach to surface the events
+                    # produced after the decision.
+                    async for event in agent_session.reattach():
+                        yield {"data": json.dumps(_event_to_sse_payload(event))}
+                except Exception as exc:  # noqa: BLE001
+                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
+
+            return EventSourceResponse(event_stream())
+
         @self.app.get("/session/{session_id}")
         async def get_session(
             session_id: str,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from flux.agents.types import SessionEndOutput
 
@@ -46,3 +47,19 @@ class UI(ABC):
     @abstractmethod
     async def display_session_end(self, output: SessionEndOutput) -> None:
         raise NotImplementedError()
+
+    async def display_approval_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Render an approval prompt and return the operator's decision.
+
+        Returns one of:
+          - {"approved": bool, "reason": str|None}
+            — the dispatcher will POST this decision to the Flux server.
+          - {"defer": True}
+            — the UI declines to decide here (api/web modes); the consumer
+            of the SSE stream is expected to call the approve/reject HTTP
+            routes on the Flux server directly.
+
+        Default implementation defers, so non-interactive UIs that do not
+        override this method never auto-approve or auto-reject.
+        """
+        return {"defer": True}

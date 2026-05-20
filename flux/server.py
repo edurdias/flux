@@ -166,6 +166,16 @@ class RoleCloneRequest(BaseModel):
     new_name: str
 
 
+class ApprovalDecideRequest(BaseModel):
+    """Body for POST /executions/{id}/approvals/{call}/{approve|reject}.
+
+    The decision verb (approve/reject) is path-derived; only the optional reason
+    travels in the body.
+    """
+
+    reason: str | None = None
+
+
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -291,6 +301,16 @@ class ScheduleHistoryResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+def _has_any_workflow_read(permissions: set[str]) -> bool:
+    if "*" in permissions:
+        return True
+    for p in permissions:
+        parts = p.split(":")
+        if parts[0] == "workflow" and (parts[-1] == "read" or parts[-1] == "*"):
+            return True
+    return False
 
 
 def _inject_trace_context(data_payload: str) -> str:
@@ -597,10 +617,20 @@ class Server:
         ctx: ExecutionContext,
         manager: ContextManager,
         detailed: bool,
+        emit_initial: bool = False,
     ) -> AsyncIterator[dict]:
         event = self._execution_events[ctx.execution_id]
         progress_buffer = self._progress_buffers.get(ctx.execution_id)
         active_tasks: set[asyncio.Task] = set()
+        if emit_initial:
+            # Emit the current state immediately so a consumer attaching after
+            # the execution already finished still receives the terminal
+            # frame — the loop below exits at once when ctx.has_finished.
+            dto = ExecutionContextDTO.from_domain(ctx)
+            yield {
+                "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
+                "data": to_json(dto if detailed else dto.summary()),
+            }
         try:
             while not ctx.has_finished:
                 if progress_buffer:
@@ -1521,6 +1551,13 @@ class Server:
                         detail="Cannot resume a finished execution.",
                     )
 
+                if not ctx.is_paused:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Cannot resume an execution in state '{ctx.state.value}'; "
+                        "it is not paused.",
+                    )
+
                 ctx.start_resuming(input)
                 manager.save(ctx)
 
@@ -1660,8 +1697,15 @@ class Server:
                         detail="Cannot cancel a finished execution.",
                     )
 
-                ctx.start_cancel()
-                manager.save(ctx)
+                from flux.unit_of_work import UnitOfWork
+                from flux.approvals import ApprovalManager
+
+                with UnitOfWork() as uow:
+                    ApprovalManager().cancel_pending_for_execution(execution_id, uow=uow)
+                    ctx.start_cancel()
+                    manager.save(ctx, uow=uow)
+                    uow.commit()
+
                 self._execution_queue_times.pop(execution_id, None)
 
                 from flux.observability import get_metrics
@@ -3275,14 +3319,48 @@ class Server:
         async def execution_get(
             execution_id: str,
             detailed: bool = False,
+            mode: str = "sync",
             identity: FluxIdentity = Depends(require_permission("execution:*:read")),
         ):
-            """Get execution by ID."""
+            """Get execution by ID.
+
+            ``mode=stream`` attaches to the execution's live event stream
+            instead of returning a one-shot snapshot — used to follow an
+            execution after it resumes out of band (e.g. after an approval
+            decision posted to the approve/reject routes).
+            """
             try:
+                if mode not in ("sync", "stream"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid mode. Use 'sync' or 'stream'.",
+                    )
+
                 logger.debug(f"Fetching execution: {execution_id}")
 
                 manager = ContextManager.create()
                 ctx = manager.get(execution_id)
+
+                if mode == "stream":
+                    self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
+                    self._progress_buffers.setdefault(
+                        ctx.execution_id,
+                        asyncio.Queue(maxsize=10000),
+                    )
+                    return EventSourceResponse(
+                        self._stream_execution_events(
+                            ctx,
+                            manager,
+                            detailed,
+                            emit_initial=True,
+                        ),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
 
                 dto = ExecutionContextDTO.from_domain(ctx)
                 result = dto.summary() if not detailed else dto
@@ -3295,12 +3373,400 @@ class Server:
                     status_code=404,
                     detail=f"Execution '{execution_id}' not found",
                 )
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error retrieving execution: {str(e)}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"Error retrieving execution: {str(e)}",
                 )
+
+        # ===========================================
+        # Approval Endpoints (read-side)
+        # ===========================================
+
+        from flux.utils import parse_iso8601_duration
+
+        def _approval_to_dict(r) -> dict:
+            return {
+                "approval_id": r.id,
+                "execution_id": r.execution_id,
+                "task_call_id": r.task_call_id,
+                "workflow_namespace": r.workflow_namespace,
+                "workflow_name": r.workflow_name,
+                "task_name": r.task_name,
+                "status": r.status.value,
+                "requested_at": r.requested_at.isoformat() if r.requested_at else None,
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+                "approver": (
+                    {"subject": r.approver_subject, "provider": r.approver_provider}
+                    if r.approver_subject
+                    else None
+                ),
+                "reason": r.reason,
+            }
+
+        async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
+            if not auth_config.enabled:
+                return True
+            if auth_service is None:
+                return False
+            return await auth_service.is_authorized(
+                identity,
+                f"workflow:{ns}:{name}:read",
+            )
+
+        @api.get("/approvals")
+        async def list_approvals_cross_execution(
+            status: str | None = Query("pending"),
+            execution_id: str | None = Query(None),
+            workflow_namespace: str | None = Query(None),
+            workflow_name: str | None = Query(None),
+            task_name: str | None = Query(None),
+            age_min: str | None = Query(None),
+            limit: int = Query(20, ge=1, le=200),
+            offset: int = Query(0, ge=0),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+            from flux.models import ApprovalStatus
+
+            if status == "all":
+                parsed_status = None
+            elif status:
+                try:
+                    parsed_status = ApprovalStatus(status)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid status: {status}",
+                    )
+            else:
+                parsed_status = ApprovalStatus.PENDING
+
+            parsed_age = None
+            if age_min:
+                try:
+                    parsed_age = parse_iso8601_duration(age_min)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid age_min: {age_min}",
+                    )
+
+            has_broad_read = True
+            if auth_config.enabled and auth_service is not None:
+                permissions = await auth_service.resolve_permissions(identity)
+                has_broad_read = identity.has_permission("workflow:*:*:read", permissions)
+                if not has_broad_read and not _has_any_workflow_read(permissions):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "forbidden",
+                            "missing_permission": "workflow:*:*:read",
+                        },
+                    )
+
+            mgr = ApprovalManager()
+
+            if has_broad_read:
+                rows = mgr.list(
+                    status=parsed_status,
+                    execution_id=execution_id,
+                    workflow_namespace=workflow_namespace,
+                    workflow_name=workflow_name,
+                    task_name=task_name,
+                    age_min=parsed_age,
+                    limit=limit,
+                    offset=offset,
+                )
+                total = mgr.count(
+                    status=parsed_status,
+                    execution_id=execution_id,
+                    workflow_namespace=workflow_namespace,
+                    workflow_name=workflow_name,
+                    task_name=task_name,
+                    age_min=parsed_age,
+                )
+                return {
+                    "approvals": [_approval_to_dict(r) for r in rows],
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "auth_filtered": False,
+                }
+
+            # Scoped reader: resolve which workflows the caller may read
+            # *before* querying approvals, so the query stays bounded and
+            # paginates correctly. The distinct-workflows scan is bounded by
+            # the workflow catalog, not the approvals table.
+            candidate_workflows = mgr.distinct_workflows(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+            )
+            authorized_workflows = [
+                (ns, nm)
+                for ns, nm in candidate_workflows
+                if await _check_workflow_read(identity, ns, nm)
+            ]
+            rows = mgr.list(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+                workflows=authorized_workflows,
+                limit=limit,
+                offset=offset,
+            )
+            total = mgr.count(
+                status=parsed_status,
+                execution_id=execution_id,
+                workflow_namespace=workflow_namespace,
+                workflow_name=workflow_name,
+                task_name=task_name,
+                age_min=parsed_age,
+                workflows=authorized_workflows,
+            )
+            return {
+                "approvals": [_approval_to_dict(r) for r in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "auth_filtered": True,
+            }
+
+        @api.get("/executions/{execution_id}/approvals")
+        async def list_approvals_for_execution(
+            execution_id: str,
+            status: str | None = Query("pending"),
+            limit: int = Query(20, ge=1, le=200),
+            offset: int = Query(0, ge=0),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+            from flux.models import ApprovalStatus
+
+            try:
+                exec_ctx = ContextManager.create().get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            if status == "all":
+                parsed_status = None
+            elif status:
+                try:
+                    parsed_status = ApprovalStatus(status)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid status: {status}",
+                    )
+            else:
+                parsed_status = ApprovalStatus.PENDING
+
+            approval_mgr = ApprovalManager()
+            rows = approval_mgr.list(
+                status=parsed_status,
+                execution_id=execution_id,
+                limit=limit,
+                offset=offset,
+            )
+            total = approval_mgr.count(
+                status=parsed_status,
+                execution_id=execution_id,
+            )
+            return {
+                "approvals": [_approval_to_dict(r) for r in rows],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+
+        @api.get("/executions/{execution_id}/approvals/{task_call_id:path}")
+        async def get_one_approval(
+            execution_id: str,
+            task_call_id: str,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            from flux.approvals import ApprovalManager
+
+            try:
+                exec_ctx = ContextManager.create().get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            row = ApprovalManager().get_by_call(execution_id, task_call_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+            return _approval_to_dict(row)
+
+        async def _decide_approval(
+            execution_id: str,
+            task_call_id: str,
+            identity: FluxIdentity,
+            *,
+            approved: bool,
+            reason: str | None,
+        ):
+            """Shared implementation for the approve/reject POST routes.
+
+            Two-stage AuthZ:
+              1. ``workflow:<ns>:<wf>:read`` on the execution's workflow.
+              2. ``workflow:<ns>:<wf>:task:<task>:approve`` on the approval row's task.
+
+            The decide + WORKFLOW event append + RESUMING transition all run
+            inside a single ``UnitOfWork`` so a partial failure cannot leave the
+            row decided but the workflow still paused (or vice versa).
+            """
+            from flux.approvals import (
+                ApprovalAlreadyDecided,
+                ApprovalManager,
+            )
+            from flux.unit_of_work import UnitOfWork
+
+            cm = ContextManager.create()
+
+            try:
+                exec_ctx = cm.get(execution_id)
+            except ExecutionContextNotFoundError:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            if not await _check_workflow_read(
+                identity,
+                exec_ctx.workflow_namespace,
+                exec_ctx.workflow_name,
+            ):
+                raise HTTPException(status_code=403, detail={"error": "forbidden"})
+
+            mgr = ApprovalManager()
+            row = mgr.get_by_call(execution_id, task_call_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            required = (
+                f"workflow:{row.workflow_namespace}:{row.workflow_name}"
+                f":task:{row.task_name}:approve"
+            )
+            if auth_service is not None and auth_config.enabled:
+                if not await auth_service.is_authorized(identity, required):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "forbidden",
+                            "missing_permission": required,
+                        },
+                    )
+
+            approver_subject = identity.subject if identity is not None else "anonymous"
+            approver_provider = (
+                (identity.metadata or {}).get("issuer", "flux")
+                if identity is not None
+                else "anonymous"
+            )
+
+            try:
+                with UnitOfWork() as uow:
+                    updated = mgr.decide(
+                        execution_id,
+                        task_call_id,
+                        approver_subject=approver_subject,
+                        approver_provider=approver_provider,
+                        approved=approved,
+                        reason=reason,
+                        uow=uow,
+                    )
+                    event_type = (
+                        ExecutionEventType.TASK_APPROVED
+                        if approved
+                        else ExecutionEventType.TASK_REJECTED
+                    )
+                    decided_iso = updated.decided_at.isoformat() if updated.decided_at else None
+                    exec_ctx.force_start_resuming()
+                    exec_ctx.events.append(
+                        ExecutionEvent(
+                            type=event_type,
+                            source_id=task_call_id,
+                            name=updated.task_name,
+                            value={
+                                "approver": {
+                                    "subject": updated.approver_subject,
+                                    "provider": updated.approver_provider,
+                                },
+                                "reason": reason,
+                                "decided_at": decided_iso,
+                            },
+                        ),
+                    )
+                    cm.save(exec_ctx, uow=uow)
+                    uow.commit()
+            except ApprovalAlreadyDecided as e:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "already_decided",
+                        "current_status": e.current_status.value,
+                        "decided_at": (e.decided_at.isoformat() if e.decided_at else None),
+                    },
+                )
+
+            self._notify_next_worker()
+
+            payload = _approval_to_dict(updated)
+            payload["execution_state"] = exec_ctx.state.value
+            return payload
+
+        @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/approve")
+        async def approve_approval(
+            execution_id: str,
+            task_call_id: str,
+            body: ApprovalDecideRequest | None = Body(default=None),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            reason = body.reason if body is not None else None
+            return await _decide_approval(
+                execution_id,
+                task_call_id,
+                identity,
+                approved=True,
+                reason=reason,
+            )
+
+        @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/reject")
+        async def reject_approval(
+            execution_id: str,
+            task_call_id: str,
+            body: ApprovalDecideRequest | None = Body(default=None),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            reason = body.reason if body is not None else None
+            return await _decide_approval(
+                execution_id,
+                task_call_id,
+                identity,
+                approved=False,
+                reason=reason,
+            )
 
         @api.get(
             "/workflows/{namespace}/{workflow_name}/executions",
@@ -4208,6 +4674,13 @@ class Server:
                     raise HTTPException(
                         status_code=400,
                         detail="Cannot resume a finished execution.",
+                    )
+
+                if not ctx.is_paused:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Cannot resume an execution in state '{ctx.state.value}'; "
+                        "it is not paused.",
                     )
 
                 ctx.start_resuming(input)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func
 from sqlalchemy import or_
@@ -18,10 +19,53 @@ from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
 from flux.worker_registry import WorkerInfo
 
+if TYPE_CHECKING:
+    from flux.unit_of_work import UnitOfWork
+
+
+_NO_DEMOTE_TO_PAUSED_FROM = frozenset(
+    {
+        ExecutionState.RESUMING,
+        ExecutionState.CANCELLING,
+    },
+)
+_TERMINAL_STATES = frozenset(
+    {
+        ExecutionState.COMPLETED,
+        ExecutionState.FAILED,
+        ExecutionState.CANCELLED,
+    },
+)
+
+
+def _accept_state_write(new: ExecutionState, db: ExecutionState) -> bool:
+    """Decide whether an incoming save/update may overwrite the persisted state.
+
+    A persisted terminal state is final, and a persisted ``CANCELLING`` may
+    only advance to a terminal state. This prevents a stale checkpoint — for
+    example a worker still reporting ``RUNNING`` — from resurrecting a
+    finished workflow or silently losing an in-flight cancellation. When this
+    returns ``False`` the caller also holds back the row's output and event
+    writes, so a stale context cannot corrupt a terminal execution's output
+    or append misleading events.
+    """
+    if db in _TERMINAL_STATES:
+        return new == db
+    if db == ExecutionState.CANCELLING and new not in _TERMINAL_STATES:
+        return False
+    if new == ExecutionState.PAUSED and db in _NO_DEMOTE_TO_PAUSED_FROM:
+        return False
+    return True
+
 
 class ContextManager(ABC):
     @abstractmethod
-    def save(self, ctx: ExecutionContext) -> ExecutionContext:  # pragma: no cover
+    def save(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
     @abstractmethod
@@ -128,38 +172,66 @@ class DatabaseContextManager(ContextManager):
             )
             return result is not None
 
-    def save(self, ctx: ExecutionContext) -> ExecutionContext:
+    def save(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> ExecutionContext:
+        if uow is not None:
+            return self._save_with_session(ctx, uow.session, manage_transaction=False)
         with self.session() as session:
-            try:
-                model = session.get(
-                    ExecutionContextModel,
-                    ctx.execution_id,
-                )
-                if model:
-                    model.output = ctx.output
+            return self._save_with_session(ctx, session, manage_transaction=True)
+
+    def _save_with_session(
+        self,
+        ctx: ExecutionContext,
+        session: Session,
+        *,
+        manage_transaction: bool,
+    ) -> ExecutionContext:
+        try:
+            model = self._lock_for_write(session, ctx.execution_id)
+            if model:
+                if _accept_state_write(ctx.state, model.state):
                     model.state = ctx.state
+                    model.output = ctx.output
                     model.events.extend(self._get_additional_events(ctx, model))
-                else:
-                    session.add(ExecutionContextModel.from_plain(ctx))
+            else:
+                session.add(ExecutionContextModel.from_plain(ctx))
+            if manage_transaction:
                 session.commit()
-                return ctx
-            except IntegrityError:  # pragma: no cover
+            return ctx
+        except IntegrityError:  # pragma: no cover
+            if manage_transaction:
                 session.rollback()
-                raise
+            raise
 
     def update(self, ctx: ExecutionContext) -> ExecutionContext:
         with self.session() as session:
-            model = session.get(
-                ExecutionContextModel,
-                ctx.execution_id,
-            )
+            model = self._lock_for_write(session, ctx.execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(ctx.execution_id)
-            model.output = ctx.output
-            model.state = ctx.state
-            model.events.extend(self._get_additional_events(ctx, model))
+            if _accept_state_write(ctx.state, model.state):
+                model.state = ctx.state
+                model.output = ctx.output
+                model.events.extend(self._get_additional_events(ctx, model))
             session.commit()
             return ctx
+
+    @staticmethod
+    def _lock_for_write(
+        session: Session,
+        execution_id: str,
+    ) -> ExecutionContextModel | None:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ExecutionContextModel)
+            .where(ExecutionContextModel.execution_id == execution_id)
+            .with_for_update()
+        )
+        return session.execute(stmt).scalar_one_or_none()
 
     def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
         if workflow.affinity is not None:

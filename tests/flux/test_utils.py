@@ -6,10 +6,13 @@ from datetime import datetime
 from datetime import timedelta
 from enum import Enum
 
+import pytest
+
 from flux import ExecutionContext
 from flux.utils import FluxEncoder
 from flux.utils import is_hashable
 from flux.utils import make_hashable
+from flux.utils import parse_duration
 from flux.utils import to_json
 
 
@@ -71,3 +74,52 @@ def test_flux_encoder():
 def test_to_json():
     data = {"test": "value"}
     assert to_json(data) == json.dumps(data, indent=4, cls=FluxEncoder)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("30s", timedelta(seconds=30)),
+        ("5m", timedelta(minutes=5)),
+        ("1h", timedelta(hours=1)),
+        ("24h", timedelta(hours=24)),
+        ("7d", timedelta(days=7)),
+        ("2w", timedelta(weeks=2)),
+    ],
+)
+def test_parse_duration_supported_suffixes(raw, expected):
+    assert parse_duration(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "1", "1x", "h1", "-1h", "1.5h", "0s", "0h", "0d"])
+def test_parse_duration_rejects_invalid(raw):
+    with pytest.raises(ValueError):
+        parse_duration(raw)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("PT30S", timedelta(seconds=30)),
+        ("PT5M", timedelta(minutes=5)),
+        ("PT1H", timedelta(hours=1)),
+        ("PT1H30M", timedelta(hours=1, minutes=30)),
+        ("P7D", timedelta(days=7)),
+        ("P1DT2H3M4S", timedelta(days=1, hours=2, minutes=3, seconds=4)),
+    ],
+)
+def test_parse_iso8601_duration_supported(raw, expected):
+    from flux.utils import parse_iso8601_duration
+
+    assert parse_iso8601_duration(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "P", "PT", "1H", "PT0S", "P0D", "PT", "P1Y", "garbage"],
+)
+def test_parse_iso8601_duration_rejects_invalid(raw):
+    from flux.utils import parse_iso8601_duration
+
+    with pytest.raises(ValueError):
+        parse_iso8601_duration(raw)

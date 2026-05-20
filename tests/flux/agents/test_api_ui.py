@@ -64,6 +64,42 @@ def test_chat_rejects_missing_bearer():
     assert response.status_code == 401
 
 
+def test_chat_streams_approval_required_event_through_sse():
+    """When the workflow pauses for approval, the API SSE stream surfaces
+    the approval_required event so the JS client can render a prompt and
+    POST a decision via the Flux server's /executions/{id}/approvals routes."""
+    ui = _make_ui()
+    events = [
+        AgentEvent(kind="session_id", data={"id": "exec-app-1"}),
+        AgentEvent(
+            kind="approval_required",
+            data={
+                "execution_id": "exec-app-1",
+                "task_call_id": "deploy_1",
+                "task_name": "deploy",
+                "workflow_namespace": "default",
+                "workflow_name": "release",
+                "approval_id": "appr-1",
+                "requested_at": "2026-05-07T10:00:00",
+            },
+        ),
+    ]
+    with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/chat",
+            json={"message": ""},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
+    payloads = [json.loads(line[len("data: ") :]) for line in lines]
+    appr = next((p for p in payloads if p.get("type") == "approval_required"), None)
+    assert appr is not None
+    assert appr["task_call_id"] == "deploy_1"
+    assert appr["task_name"] == "deploy"
+
+
 def test_chat_new_session_streams_sse():
     ui = _make_ui()
     events = [
@@ -160,6 +196,106 @@ def test_elicitation_rejects_unknown_action():
     assert response.status_code == 400
     detail = response.json()["detail"]
     assert "accept" in detail and "decline" in detail and "cancel" in detail
+
+
+def test_approval_decision_posts_and_streams_resumed_events():
+    """POST /approval decides the approval against the Flux server, then
+    re-attaches to the execution stream so post-resume events are delivered."""
+    ui = _make_ui()
+    resumed = [AgentEvent(kind="token", data={"text": "resumed-after-approve"})]
+
+    async def _reattach(self):
+        for event in resumed:
+            yield event
+
+    mock_client = AsyncMock()
+    mock_client.decide_approval = AsyncMock(return_value={"status": "approved"})
+
+    with (
+        patch("flux.agents.ui.api.FluxClient", return_value=mock_client),
+        patch("flux.agents.session.AgentSession.reattach", _reattach),
+    ):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/approval/deploy_1?session=exec-1",
+            json={"execution_id": "exec-1", "approved": True, "reason": "lgtm"},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    assert "resumed-after-approve" in response.text
+    mock_client.decide_approval.assert_awaited_once()
+    call = mock_client.decide_approval.await_args
+    assert call.args == ("exec-1", "deploy_1")
+    assert call.kwargs["approved"] is True
+    assert call.kwargs["reason"] == "lgtm"
+
+
+def test_approval_reject_passes_decision_through():
+    ui = _make_ui()
+
+    async def _reattach(self):
+        yield AgentEvent(kind="token", data={"text": "ok"})
+
+    mock_client = AsyncMock()
+    mock_client.decide_approval = AsyncMock(return_value={"status": "rejected"})
+
+    with (
+        patch("flux.agents.ui.api.FluxClient", return_value=mock_client),
+        patch("flux.agents.session.AgentSession.reattach", _reattach),
+    ):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/approval/deploy_1?session=exec-1",
+            json={"execution_id": "exec-1", "approved": False},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    assert mock_client.decide_approval.await_args.kwargs["approved"] is False
+
+
+def test_approval_rejects_non_boolean_approved():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.post(
+        "/approval/deploy_1?session=exec-1",
+        json={"execution_id": "exec-1", "reason": "missing the flag"},
+        headers={"Authorization": "Bearer t"},
+    )
+    assert response.status_code == 400
+    assert "approved" in response.json()["detail"]
+
+
+def test_approval_rejects_missing_bearer():
+    ui = _make_ui()
+    client = TestClient(ui.app)
+    response = client.post(
+        "/approval/deploy_1?session=exec-1",
+        json={"execution_id": "exec-1", "approved": True},
+    )
+    assert response.status_code == 401
+
+
+def test_approval_stream_emits_error_on_exception():
+    ui = _make_ui()
+    mock_client = AsyncMock()
+    mock_client.decide_approval = AsyncMock(side_effect=RuntimeError("decide failed"))
+
+    with patch("flux.agents.ui.api.FluxClient", return_value=mock_client):
+        client = TestClient(ui.app)
+        response = client.post(
+            "/approval/deploy_1?session=exec-1",
+            json={"execution_id": "exec-1", "approved": True},
+            headers={"Authorization": "Bearer t"},
+        )
+    assert response.status_code == 200
+    payloads = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    error_frames = [p for p in payloads if p.get("type") == "error"]
+    assert len(error_frames) == 1
+    assert "decide failed" in error_frames[0]["message"]
 
 
 def test_get_session_returns_execution_state():

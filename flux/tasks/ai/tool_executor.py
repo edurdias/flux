@@ -240,7 +240,6 @@ async def execute_tools(
     tools: list[Any],
     iteration: int = 0,
     max_concurrent: int | None = None,
-    always_approved: set[str] | None = None,
     approval_mode: str = "default",
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
@@ -256,10 +255,11 @@ async def execute_tools(
         max_concurrent: Maximum number of tools to run concurrently.
             When ``None`` (the default) all tools run in parallel with no limit.
             Set to ``1`` for fully sequential execution.
-        always_approved: Set of tool names that have been permanently approved
-            by the user. Tools in this set skip the approval check.
-        approval_mode: When set to ``"autonomous"``, all approval checks are
-            skipped regardless of the tool's ``requires_approval`` flag.
+        approval_mode: When set to ``"autonomous"``, each tool in this batch
+            runs as a ``with_options(requires_approval=False)`` variant so the
+            engine-side approval gate is skipped. The override is scoped to
+            these tool invocations — it is not shared workflow state, so an
+            approval-gated task running concurrently is unaffected.
     """
     tool_map: dict[str, Callable] = {}
     for tool in tools:
@@ -293,35 +293,19 @@ async def execute_tools(
                 logger.debug("Tool '%s': dropping unknown args %s", name, unknown)
                 args = {k: v for k, v in args.items() if k in accepted}
 
-        _always_approved = always_approved if always_approved is not None else set()
-        if (
-            approval_mode != "autonomous"
-            and name not in _always_approved
-            and getattr(tool_fn, "requires_approval", False)
-        ):
-            from flux.tasks.pause import pause
-
-            approval = await pause(
-                f"tool_approval:{name}",
-                output={
-                    "type": "tool_approval",
-                    "tool": name,
-                    "arguments": args,
-                },
-            )
-            if not isinstance(approval, dict) or approval.get("approved") is not True:
-                return {
-                    "tool_call_id": call.get("id", name),
-                    "output": "Error: Tool call rejected by human.",
-                }
-            if approval.get("always_approve"):
-                _always_approved.add(name)
-
         try:
             call_id = call.get("id", name)
             effective_tool = tool_fn
-            if iteration > 0 and hasattr(tool_fn, "with_options"):
-                effective_tool = tool_fn.with_options(name=f"{name}_{iteration}")
+            if hasattr(tool_fn, "with_options"):
+                overrides: dict[str, Any] = {}
+                if iteration > 0:
+                    overrides["name"] = f"{name}_{iteration}"
+                if approval_mode == "autonomous":
+                    # Run a non-gated variant so this batch skips the approval
+                    # gate without touching shared workflow state.
+                    overrides["requires_approval"] = False
+                if overrides:
+                    effective_tool = tool_fn.with_options(**overrides)
             result = await effective_tool(**args)
             return {"tool_call_id": call_id, "output": _serialize_result(result)}
         except PauseRequested:

@@ -10,10 +10,11 @@ from flux.utils import get_func_args, make_hashable, maybe_awaitable
 
 
 import asyncio
+import inspect
 import time
 from functools import wraps
 from typing import Any, TypeVar
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -67,6 +68,7 @@ class _WithOptions:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -84,6 +86,7 @@ class _WithOptions:
                 cache=cache,
                 metadata=metadata,
                 auth_exempt=auth_exempt,
+                requires_approval=requires_approval,
             )
 
         return wrapper
@@ -108,6 +111,7 @@ class task:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -124,6 +128,7 @@ class task:
         self.cache = cache
         self.metadata = metadata
         self.auth_exempt = auth_exempt
+        self.requires_approval = requires_approval
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -215,7 +220,8 @@ class task:
         ]
 
         if len(finished) > 0:
-            value = finished[0].value
+            event = finished[0]
+            value = event.value
             if isinstance(value, OutputStorageReference):
                 reference = value
             else:
@@ -232,13 +238,26 @@ class task:
                         f"Failed to deserialize OutputStorageReference when replaying task '{full_name}' (task_id={task_id}). "
                         f"Original error: {ex}",
                     ) from ex
-            return self.output_storage.retrieve(reference)
+            retrieved = self.output_storage.retrieve(reference)
+            if event.type == ExecutionEventType.TASK_FAILED:
+                # Persisted failure — re-raise the stored exception so the
+                # workflow body sees the same exception it saw on the
+                # original run. Without this branch the replay path would
+                # return the exception object as if it were a successful
+                # output.
+                raise retrieved
+            return retrieved
+
+        # Approval gate — evaluated after auth and the replay short-circuit.
+        # ``task_id`` doubles as the approval ``task_call_id`` for the
+        # initial call; each retry attempt is gated under its own id.
+        gate_resumed = await self._approval_gate(ctx, task_id, full_name, args, kwargs)
 
         from flux._task_context import _CURRENT_TASK
 
         task_token = _CURRENT_TASK.set((task_id, full_name))
         try:
-            if not ctx.is_resuming and not ctx.has_resumed:
+            if gate_resumed or (not ctx.is_resuming and not ctx.has_resumed):
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_STARTED,
@@ -377,6 +396,7 @@ class task:
         cache: bool | None = None,
         metadata: bool | None = None,
         auth_exempt: bool | None = None,
+        requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -400,7 +420,178 @@ class task:
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
             auth_exempt=auth_exempt if auth_exempt is not None else self.auth_exempt,
+            requires_approval=(
+                requires_approval if requires_approval is not None else self.requires_approval
+            ),
         )
+
+    async def _evaluate_approval_predicate(self, args: tuple, kwargs: dict) -> bool:
+        """Evaluate the requires_approval spec for this call.
+
+        Static True/False short-circuit. Callables are bound against the wrapped
+        function's signature so the predicate sees the same parameter names the
+        task body does. Async callables are awaited.
+        """
+        spec = self.requires_approval
+        if spec is True:
+            return True
+        if spec is False or spec is None:
+            return False
+        # Only argument *binding* may fall back to raw args — a TypeError from
+        # the predicate body itself must propagate, not trigger a second
+        # invocation that could duplicate side effects.
+        try:
+            bound = inspect.signature(self._func).bind(*args, **kwargs)
+            bound.apply_defaults()
+        except TypeError:
+            call_args, call_kwargs = args, kwargs
+        else:
+            call_args, call_kwargs = bound.args, bound.kwargs
+        result = spec(*call_args, **call_kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(result)
+
+    async def _approval_gate(
+        self,
+        ctx: ExecutionContext,
+        call_id: str,
+        full_name: str,
+        args: tuple,
+        kwargs: dict,
+    ) -> bool:
+        """Run the approval gate for one task attempt identified by ``call_id``.
+
+        Returns ``True`` when the gate consumed a resume transition for this
+        task (an approval decided while the execution was suspended), so the
+        caller knows to still emit ``TASK_STARTED`` for the gated task even
+        though ``ctx`` is no longer ``is_resuming``. Returns ``False`` when
+        approved without resuming or when no approval is required. Raises
+        ``ApprovalRejected`` on rejection, ``asyncio.CancelledError`` on
+        cancellation, and ``PauseRequested`` (via ``ctx._await_approval``)
+        while waiting for a decision. An unexpected gate failure — a
+        predicate that raises, or an approval-store error — is recorded as a
+        ``TASK_FAILED`` event and re-raised as an ``ExecutionError``.
+
+        Determinism: the approval row keyed by ``call_id`` is the durable
+        record that this gate was triggered. It is looked up *before* the
+        predicate runs so replay honors the original verdict regardless of
+        whether the predicate is non-deterministic. The initial call uses
+        ``task_id`` as ``call_id``; each retry attempt uses a distinct id so
+        every attempt is independently re-gated.
+        """
+        if self.requires_approval is False:
+            return False
+
+        from flux.approvals import ApprovalManager, ApprovalRejected
+
+        try:
+            mgr = ApprovalManager()
+            existing = mgr.get_by_call(ctx.execution_id, call_id)
+
+            if existing is not None:
+                verdict_required = True
+            else:
+                verdict_required = await self._evaluate_approval_predicate(args, kwargs)
+
+            if not verdict_required:
+                return False
+
+            if existing is None:
+                from flux.context_managers import ContextManager
+                from flux.unit_of_work import UnitOfWork
+
+                cm = ContextManager.create()
+                with UnitOfWork() as uow:
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_AWAITING_APPROVAL,
+                            source_id=call_id,
+                            name=full_name,
+                            value={
+                                "task_call_id": call_id,
+                                "workflow_namespace": ctx.workflow_namespace,
+                                "workflow_name": ctx.workflow_name,
+                                "task_name": self.name,
+                            },
+                        ),
+                    )
+                    # Persist the execution context *before* the approval row
+                    # is flushed so the approval_requests.execution_id foreign
+                    # key has its target row (enforced on PostgreSQL).
+                    cm.save(ctx, uow=uow)
+                    mgr.create(
+                        execution_id=ctx.execution_id,
+                        task_call_id=call_id,
+                        workflow_namespace=ctx.workflow_namespace,
+                        workflow_name=ctx.workflow_name,
+                        task_name=self.name,
+                        uow=uow,
+                    )
+                    uow.commit()
+
+            verdict = ctx._await_approval(call_id)
+        except (PauseRequested, asyncio.CancelledError):
+            # Expected suspension / cancellation signals — propagate untouched.
+            raise
+        except ApprovalRejected as ex:
+            # Rejection is a terminal task failure that deliberately bypasses
+            # retry/fallback/rollback. If the rejection arrived on a resumed
+            # execution, consume the resume transition first so workflow code
+            # that catches ``ApprovalRejected`` continues from RUNNING rather
+            # than a stuck RESUME_CLAIMED state.
+            if ctx.is_resuming:
+                ctx.resume()
+            await self._record_gate_failure(ctx, call_id, full_name, ex)
+            raise
+        except Exception as ex:
+            # An unexpected gate failure — a requires_approval predicate that
+            # raised, or an approval-store error. The docs say predicate
+            # exceptions fail the task call, so route it through the same
+            # TASK_FAILED path instead of letting it escape the engine
+            # unrecorded.
+            wrapped = ex if isinstance(ex, ExecutionError) else ExecutionError(ex)
+            await self._record_gate_failure(ctx, call_id, full_name, wrapped)
+            raise wrapped
+
+        if verdict.cancelled:
+            raise asyncio.CancelledError()
+
+        # Approved. If this gate is the point a paused workflow resumed from,
+        # transition the context back to RUNNING — mirroring the pause()
+        # primitive — so subsequent task calls no longer see the execution as
+        # resuming and emit their TASK_STARTED events.
+        if ctx.is_resuming:
+            ctx.resume()
+            return True
+        return False
+
+    async def _record_gate_failure(
+        self,
+        ctx: ExecutionContext,
+        call_id: str,
+        full_name: str,
+        error: BaseException,
+    ) -> None:
+        """Persist a ``TASK_FAILED`` event for an approval-gate failure.
+
+        Idempotent: a replayed retry gate that re-derives the failure from the
+        approval row must not append a duplicate event.
+        """
+        already_failed = any(
+            e.source_id == call_id and e.type == ExecutionEventType.TASK_FAILED for e in ctx.events
+        )
+        if already_failed:
+            return
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_FAILED,
+                source_id=call_id,
+                name=full_name,
+                value=self.output_storage.store(call_id, error),
+            ),
+        )
+        await ctx.checkpoint()
 
     async def map(self, args):
         return await asyncio.gather(*(self(arg) for arg in args))
@@ -427,6 +618,11 @@ class task:
             )
             await ctx.checkpoint()
             raise ex
+
+        from flux.approvals import ApprovalRejected
+
+        if isinstance(ex, ApprovalRejected):
+            raise
 
         try:
             if self.retry_max_attempts > 0 and retry_attempts < self.retry_max_attempts:
@@ -456,19 +652,30 @@ class task:
                     kwargs,
                 )
 
+                # Compute the final exception once, store *that* via
+                # output_storage, then raise the same instance. Storing the
+                # wrapped exception (rather than the raw `ex`) keeps replay
+                # symmetric: the workflow body sees the same exception type
+                # on the original run and on every replay.
+                # RetryError is a subclass of ExecutionError but is wrapped
+                # again here to preserve the prior identity contract — the
+                # workflow body sees ExecutionError(RetryError(...)), not
+                # bare RetryError.
+                if isinstance(ex, RetryError):
+                    final = ExecutionError(ex)
+                elif isinstance(ex, ExecutionError):
+                    final = ex
+                else:
+                    final = ExecutionError(ex)
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_FAILED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=ex,
+                        value=self.output_storage.store(task_id, final),
                     ),
                 )
-                if isinstance(ex, RetryError):
-                    raise ExecutionError(ex)
-                if isinstance(ex, ExecutionError):
-                    raise ex
-                raise ExecutionError(ex)
+                raise final
 
         except RetryError as ex:
             output = await self.__handle_exception(
@@ -580,6 +787,18 @@ class task:
         current_delay = self.retry_delay
         while attempt < self.retry_max_attempts:
             attempt += 1
+
+            # Re-gate every retry attempt under its own approval id so each
+            # attempt is independently reconsidered. Raised PauseRequested /
+            # ApprovalRejected must propagate past the retry loop, so the
+            # gate is invoked outside the per-attempt try/except below.
+            await self._approval_gate(
+                ctx,
+                f"{task_id}~retry{attempt}",
+                task_full_name,
+                args,
+                kwargs,
+            )
 
             from flux.observability import get_metrics as _get_retry_metrics
 

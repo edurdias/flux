@@ -12,6 +12,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Input, Markdown, OptionList, Static
 
 from flux.agents.ui.textual_messages import (
+    ApprovalRequested,
     ElicitationRequested,
     ReasoningReceived,
     ReplyEnded,
@@ -161,6 +162,8 @@ class AgentApp(App):
         self._navigating_history: bool = False
         self._elicitation_future: asyncio.Future | None = None
         self._elicitation_url: str = ""
+        self._approval_future: asyncio.Future | None = None
+        self._approval_request: dict | None = None
         self._turn_count: int = 0
         self._session_start: float = time.monotonic()
         self._is_processing: bool = False
@@ -178,6 +181,8 @@ class AgentApp(App):
     def on_unmount(self) -> None:
         if self._elicitation_future and not self._elicitation_future.done():
             self._elicitation_future.cancel()
+        if self._approval_future and not self._approval_future.done():
+            self._approval_future.cancel()
         self._is_processing = False
         if self._spinner is not None:
             self._spinner.stop()
@@ -279,6 +284,26 @@ class AgentApp(App):
             if event.key in ("n", "N"):
                 self._elicitation_future.set_result("decline")
                 self._elicitation_future = None
+                self._update_status_bar()
+                event.prevent_default()
+                return
+
+        if self._approval_future is not None and not self._approval_future.done():
+            if event.key in ("a", "A"):
+                self._approval_future.set_result(
+                    {"approved": True, "reason": None},
+                )
+                self._approval_future = None
+                self._approval_request = None
+                self._update_status_bar()
+                event.prevent_default()
+                return
+            if event.key in ("r", "R"):
+                self._approval_future.set_result(
+                    {"approved": False, "reason": None},
+                )
+                self._approval_future = None
+                self._approval_request = None
                 self._update_status_bar()
                 event.prevent_default()
                 return
@@ -439,6 +464,24 @@ class AgentApp(App):
         await self._stop_spinner()
         status = self.query_one("#status-bar", Static)
         status.update("  [Y]es to authorize  │  [N]o to decline")
+
+    async def on_approval_requested(self, message: ApprovalRequested) -> None:
+        chat = self.query_one("#chat-view", VerticalScroll)
+        task_name = message.request.get("task_name", "<unknown>")
+        ns = message.request.get("workflow_namespace", "?")
+        wf = message.request.get("workflow_name", "?")
+        chat.mount(
+            Static(
+                f"  ⚡ Tool {task_name} (in {ns}/{wf}) requires approval.",
+                classes="system-message",
+            ),
+        )
+        self._auto_scroll()
+        self._approval_future = message.future
+        self._approval_request = message.request
+        await self._stop_spinner()
+        status = self.query_one("#status-bar", Static)
+        status.update("  [a] approve  │  [r] reject")
 
     async def on_session_ended(self, message: SessionEnded) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)

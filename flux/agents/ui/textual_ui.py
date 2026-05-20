@@ -8,6 +8,7 @@ from flux.agents.types import SessionEndOutput
 from flux.agents.ui import UI
 from flux.agents.ui.textual_app import AgentApp
 from flux.agents.ui.textual_messages import (
+    ApprovalRequested,
     ElicitationRequested,
     ReasoningReceived,
     ReplyEnded,
@@ -92,3 +93,11 @@ class TextualUI(UI):
 
     async def display_session_end(self, output: SessionEndOutput) -> None:
         self.app.post_message(SessionEnded(output.reason, output.turns))
+
+    async def display_approval_request(self, request: dict) -> dict:
+        future: asyncio.Future[dict] = asyncio.get_running_loop().create_future()
+        self.app.post_message(ApprovalRequested(request, future))
+        try:
+            return await future
+        except asyncio.CancelledError:
+            return {"defer": True}

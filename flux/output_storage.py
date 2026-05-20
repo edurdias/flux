@@ -135,12 +135,18 @@ class LocalFileStorage(OutputStorage):
         return self.__deserialize(content, reference.metadata["serializer"])
 
     def store(self, reference_id: str, value: Any) -> OutputStorageReference:
+        # Exceptions are not JSON-serializable. Persist them with dill
+        # regardless of the configured serializer so recording a task
+        # failure never fails on a JSON-backed storage backend. The chosen
+        # serializer is recorded in the reference metadata, so retrieve()
+        # round-trips it correctly.
+        serializer = "dill" if isinstance(value, BaseException) else self.serializer
         file_path = self._get_file_path(reference_id)
-        file_path.write_bytes(self.__serialize(value))
+        file_path.write_bytes(self.__serialize(value, serializer))
         return OutputStorageReference(
             storage_type="local_file",
             reference_id=reference_id,
-            metadata={"serializer": self.serializer},
+            metadata={"serializer": serializer},
         )
 
     def delete(self, reference: OutputStorageReference):  # pragma: no cover
@@ -155,8 +161,8 @@ class LocalFileStorage(OutputStorage):
     def _get_file_path(self, reference_id: str):
         return self.base_path / f"{reference_id}.{self.serializer}"
 
-    def __serialize(self, value: Any) -> bytes:
-        return json.dumps(value).encode("utf-8") if self.serializer == "json" else dill.dumps(value)
+    def __serialize(self, value: Any, serializer: str) -> bytes:
+        return json.dumps(value).encode("utf-8") if serializer == "json" else dill.dumps(value)
 
     def __deserialize(self, value: bytes, serializer: str) -> Any:
         _serializer = serializer or self.serializer
