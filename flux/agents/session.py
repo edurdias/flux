@@ -70,3 +70,18 @@ class AgentSession:
         ):
             for event in parse_event(raw):
                 yield event
+
+    async def reattach(self) -> AsyncIterator[AgentEvent]:
+        """Re-attach to the execution's event stream after an out-of-band
+        decision resumed it server-side.
+
+        Approval decisions are posted to the dedicated approve/reject routes,
+        which resume the workflow without returning an SSE response. This
+        re-opens the execution's event stream so events produced after the
+        decision are still delivered. Requires start() first.
+        """
+        if self.session_id is None:
+            raise RuntimeError("Session not started; call start() first")
+        async for raw in self.client.stream_execution(self.session_id):
+            for event in parse_event(raw):
+                yield event

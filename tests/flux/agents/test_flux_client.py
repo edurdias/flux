@@ -135,3 +135,73 @@ async def test_resume_posts_body_unwrapped_with_message():
     assert len(events) == 1
     assert events[0]["type"] == "TASK_PROGRESS"
     assert events[0]["value"]["token"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_posts_to_approve_route():
+    client = FluxClient(server_url="http://test", token="t")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["method"] = request.method
+        captured["body"] = json.loads(request.content) if request.content else {}
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"status": "approved"})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        result = await client.decide_approval(
+            "exec-1",
+            "deploy_42",
+            approved=True,
+            reason="lgtm",
+        )
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://test/executions/exec-1/approvals/deploy_42/approve"
+    assert captured["body"] == {"reason": "lgtm"}
+    assert captured["auth"] == "Bearer t"
+    assert result == {"status": "approved"}
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_reject_route_with_no_reason():
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["body"] = json.loads(request.content) if request.content else {}
+        return httpx.Response(200, json={"status": "rejected"})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        await client.decide_approval("exec-2", "call-2", approved=False, reason=None)
+
+    assert captured["url"].endswith("/executions/exec-2/approvals/call-2/reject")
+    assert captured["body"] == {}
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_409_returns_body_instead_of_raising():
+    """The race-loss case (CLI operator decided first) must not raise --- the
+    agent harness has no way to recover from an exception escaping _dispatch."""
+    client = FluxClient(server_url="http://test")
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "error": "already_decided",
+                "current_status": "approved",
+                "decided_at": "2026-05-08T01:00:00",
+            },
+        )
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        result = await client.decide_approval("exec-1", "call-1", approved=True)
+
+    assert result["error"] == "already_decided"
+    assert result["current_status"] == "approved"

@@ -5,7 +5,6 @@ import time
 
 
 from flux import task
-from flux.tasks.ai.approval import requires_approval
 from flux.tasks.ai.tool_executor import (
     build_tool_schemas,
     build_tools_preamble,
@@ -416,101 +415,14 @@ def test_execute_tools_single_call_unchanged():
 # --- tool approval tests ---
 
 
-@task
+@task.with_options(requires_approval=True)
 async def dangerous_tool(target: str) -> str:
     """Delete something dangerous."""
     return f"deleted:{target}"
 
 
-dangerous_tool_approved = requires_approval(dangerous_tool)
-
-
-def test_approval_tool_pauses_workflow():
-    from flux import ExecutionContext, workflow
-    from flux.domain.events import ExecutionEventType
-
-    @workflow
-    async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
-            [{"id": "c1", "name": "dangerous_tool", "arguments": {"target": "prod"}}],
-            [dangerous_tool_approved],
-        )
-        return results
-
-    ctx = test_wf.run()
-    assert ctx.is_paused
-
-    pause_events = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
-    assert len(pause_events) == 1
-    pause_output = pause_events[0].value["output"]
-    assert pause_output["type"] == "tool_approval"
-    assert pause_output["tool"] == "dangerous_tool"
-    assert pause_output["arguments"] == {"target": "prod"}
-
-
-def test_approval_tool_executes_after_approve():
-    from flux import ExecutionContext, workflow
-
-    @workflow
-    async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
-            [{"id": "c1", "name": "dangerous_tool", "arguments": {"target": "prod"}}],
-            [dangerous_tool_approved],
-        )
-        return results
-
-    ctx = test_wf.run()
-    assert ctx.is_paused
-
-    ctx = test_wf.resume(ctx.execution_id, {"approved": True})
-    assert ctx.has_succeeded
-    assert ctx.output[0]["output"] == "deleted:prod"
-
-
-def test_approval_tool_rejected_returns_error():
-    from flux import ExecutionContext, workflow
-
-    @workflow
-    async def test_wf(ctx: ExecutionContext):
-        results = await execute_tools(
-            [{"id": "c1", "name": "dangerous_tool", "arguments": {"target": "prod"}}],
-            [dangerous_tool_approved],
-        )
-        return results
-
-    ctx = test_wf.run()
-    assert ctx.is_paused
-
-    ctx = test_wf.resume(ctx.execution_id, {"approved": False})
-    assert ctx.has_succeeded
-    assert "rejected" in ctx.output[0]["output"].lower()
-
-
-def test_approval_always_approve_skips_subsequent():
-    from flux import ExecutionContext, workflow
-
-    @workflow
-    async def test_wf(ctx: ExecutionContext):
-        approved_set: set[str] = set()
-        r1 = await execute_tools(
-            [{"id": "c1", "name": "dangerous_tool", "arguments": {"target": "first"}}],
-            [dangerous_tool_approved],
-            always_approved=approved_set,
-        )
-        r2 = await execute_tools(
-            [{"id": "c2", "name": "dangerous_tool", "arguments": {"target": "second"}}],
-            [dangerous_tool_approved],
-            always_approved=approved_set,
-        )
-        return {"r1": r1, "r2": r2}
-
-    ctx = test_wf.run()
-    assert ctx.is_paused
-
-    ctx = test_wf.resume(ctx.execution_id, {"approved": True, "always_approve": True})
-    assert ctx.has_succeeded
-    assert ctx.output["r1"][0]["output"] == "deleted:first"
-    assert ctx.output["r2"][0]["output"] == "deleted:second"
+# Alias kept for readability of existing test names; the task itself is gated.
+dangerous_tool_approved = dangerous_tool
 
 
 def test_approval_autonomous_mode_skips_all():

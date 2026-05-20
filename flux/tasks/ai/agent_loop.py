@@ -179,8 +179,6 @@ async def run_agent_loop(
     )
     call_counter += 1
 
-    always_approved: set[str] = set()
-
     tool_call_count = 0
     tool_iteration = 0
     entered_tool_loop = False
@@ -223,7 +221,6 @@ async def run_agent_loop(
                 tools,
                 iteration=tool_iteration,
                 max_concurrent=max_concurrent_tools,
-                always_approved=always_approved,
                 approval_mode=approval_mode,
             )
         except PauseRequested:

@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any
 from collections.abc import AsyncIterable, AsyncIterator
+from urllib.parse import quote
 
 import httpx
 
@@ -136,6 +137,31 @@ class FluxClient:
                     if is_terminal_state(data):
                         break
 
+    async def stream_execution(
+        self,
+        execution_id: str,
+    ) -> AsyncIterator[dict]:
+        """Attach to an execution's live event stream.
+
+        Used to follow an execution that resumed out of band — e.g. after an
+        approval decision posted via :meth:`decide_approval` — where there is
+        no resume SSE response to consume. Stops at the next terminal/PAUSED
+        frame, mirroring :meth:`resume`.
+        """
+        url = f"{self.server_url}/executions/{execution_id}?mode=stream"
+        async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
+            async with client.stream(
+                "GET",
+                url,
+                headers=self._build_headers(),
+            ) as response:
+                response.raise_for_status()
+
+                async for data in _iter_sse_data_frames(response.aiter_lines()):
+                    yield data
+                    if is_terminal_state(data):
+                        break
+
     async def ensure_workflow_registered(
         self,
         namespace: str = "agents",
@@ -172,5 +198,39 @@ class FluxClient:
         url = f"{self.server_url}/executions/{execution_id}"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=self._build_headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def decide_approval(
+        self,
+        execution_id: str,
+        task_call_id: str,
+        *,
+        approved: bool,
+        reason: str | None = None,
+    ) -> dict:
+        """POST a decision to the Flux approval routes.
+
+        Wraps ``POST /executions/{id}/approvals/{call}/{approve|reject}`` so
+        agent-harness UIs can decide approvals against the same server
+        endpoint backing the ``flux execution approve/reject`` CLI commands.
+        """
+        verb = "approve" if approved else "reject"
+        url = (
+            f"{self.server_url}/executions/{execution_id}"
+            f"/approvals/{quote(task_call_id, safe='')}/{verb}"
+        )
+        body = {"reason": reason} if reason else {}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                json=body,
+                headers=self._build_headers(),
+            )
+            # 409 ``already_decided`` is the race-loss case: another approver
+            # (e.g. the CLI) won. Return the body so callers can treat it as
+            # benign instead of letting it kill the agent session.
+            if response.status_code == 409:
+                return response.json()
             response.raise_for_status()
             return response.json()

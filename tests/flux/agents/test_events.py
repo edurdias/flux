@@ -2,7 +2,44 @@
 
 from __future__ import annotations
 
-from flux.agents.events import AgentEvent, is_terminal_state, parse_event
+from flux.agents.events import (
+    AgentEvent,
+    KIND_APPROVAL_REQUIRED,
+    is_terminal_state,
+    parse_event,
+)
+
+
+def test_parses_approval_required_pause():
+    """A workflow paused with output.type=='approval_required' surfaces an
+    AgentEvent the harness UI can act on."""
+    raw = {
+        "execution_id": "exec-app-1",
+        "state": "PAUSED",
+        "output": {
+            "type": "approval_required",
+            "task_call_id": "deploy_42",
+            "task_name": "deploy",
+            "workflow_namespace": "billing",
+            "workflow_name": "release",
+            "execution_id": "exec-app-1",
+            "approval_id": "appr-abc",
+            "requested_at": "2026-05-07T10:00:00+00:00",
+        },
+    }
+    events = list(parse_event(raw))
+    # First event is session_id (any execution_id); second is approval_required.
+    kinds = [e.kind for e in events]
+    assert "session_id" in kinds
+    assert KIND_APPROVAL_REQUIRED in kinds
+    appr = next(e for e in events if e.kind == KIND_APPROVAL_REQUIRED)
+    assert appr.data["task_call_id"] == "deploy_42"
+    assert appr.data["task_name"] == "deploy"
+    assert appr.data["workflow_namespace"] == "billing"
+    assert appr.data["workflow_name"] == "release"
+    assert appr.data["execution_id"] == "exec-app-1"
+    assert appr.data["approval_id"] == "appr-abc"
+    assert appr.data["requested_at"] == "2026-05-07T10:00:00+00:00"
 
 
 def test_parses_session_id_event():

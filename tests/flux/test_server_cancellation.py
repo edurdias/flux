@@ -75,7 +75,11 @@ class TestServerCancellation:
         # Verify the context manager was called correctly
         mock_context_manager.get.assert_called_once_with("test-execution-id")
         ctx.start_cancel.assert_called_once()
-        mock_context_manager.save.assert_called_once_with(ctx)
+        # save is now called with uow parameter
+        assert mock_context_manager.save.call_count == 1
+        call_args = mock_context_manager.save.call_args
+        assert call_args[0][0] == ctx
+        assert "uow" in call_args[1]
 
     @patch("flux.server.ContextManager.create")
     def test_cancel_finished_workflow_fails(self, mock_create, test_client, mock_context_manager):
@@ -492,7 +496,11 @@ class TestHealthEndpoint:
         # Verify the context manager was called correctly
         assert mock_context_manager.get.call_count == 2
         ctx_running.start_cancel.assert_called_once()
-        mock_context_manager.save.assert_called_once_with(ctx_running)
+        # save is now called with uow parameter
+        assert mock_context_manager.save.call_count == 1
+        call_args = mock_context_manager.save.call_args
+        assert call_args[0][0] == ctx_running
+        assert "uow" in call_args[1]
 
 
 class TestAPIEdgeCases:

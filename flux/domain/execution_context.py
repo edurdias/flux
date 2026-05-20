@@ -295,17 +295,37 @@ class ExecutionContext(Generic[WorkflowInputType]):
         return self
 
     def start_resuming(self, input: Any | None = None) -> Self:
-        if self.is_paused:
-            self._state = ExecutionState.RESUMING
-            self.events.append(
-                ExecutionEvent(
-                    type=ExecutionEventType.WORKFLOW_RESUMING,
-                    source_id=self._current_worker,
-                    name=self.workflow_name,
-                    value=input,
-                    subject=None,
+        if self._state != ExecutionState.PAUSED:
+            raise ExecutionError(
+                message=(
+                    f"Cannot start resuming: state is {self._state.value}, "
+                    f"expected {ExecutionState.PAUSED.value}"
                 ),
             )
+        return self._record_resuming(input)
+
+    def force_start_resuming(self, input: Any | None = None) -> Self:
+        """Transition to RESUMING regardless of the current state.
+
+        An approval can be decided before the worker has recorded the
+        WORKFLOW_PAUSED transition, so the execution may still be RUNNING or
+        CLAIMED when the decide handler needs to queue the resume. Only the
+        approval decide path should use this; normal resumes go through
+        start_resuming(), which enforces the PAUSED precondition.
+        """
+        return self._record_resuming(input)
+
+    def _record_resuming(self, input: Any | None = None) -> Self:
+        self._state = ExecutionState.RESUMING
+        self.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.WORKFLOW_RESUMING,
+                source_id=self._current_worker,
+                name=self.workflow_name,
+                value=input,
+                subject=None,
+            ),
+        )
         return self
 
     def resume(self) -> Any:
@@ -416,6 +436,58 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def set_progress_callback(self, callback: Callable) -> Self:
         self._progress_callback = callback
         return self
+
+    def _await_approval(self, task_call_id: str):
+        """Suspension primitive for approval-gated task calls.
+
+        Reads the approval row state and either returns a verdict, raises
+        ``PauseRequested`` (workflow pauses), or raises ``ApprovalRejected``.
+
+        Symmetric with ``ctx.resume()`` / ``ctx.pause()`` — the row state
+        determines behaviour. First-call-vs-replay is implicit because the
+        engine simply re-checks whether the row has reached a terminal state.
+        """
+        from flux.approvals import (
+            ApprovalManager,
+            ApprovalRejected,
+            ApprovalVerdict,
+        )
+        from flux.errors import PauseRequested
+        from flux.models import ApprovalStatus
+
+        mgr = ApprovalManager()
+        row = mgr.get_by_call(self.execution_id, task_call_id)
+        if row is None:
+            raise PauseRequested(name=f"approval:{task_call_id}")
+        if row.status == ApprovalStatus.PENDING:
+            raise PauseRequested(
+                name=f"approval:{task_call_id}",
+                output={
+                    "type": "approval_required",
+                    "execution_id": self.execution_id,
+                    "task_call_id": task_call_id,
+                    "task_name": row.task_name,
+                    "workflow_namespace": row.workflow_namespace,
+                    "workflow_name": row.workflow_name,
+                    "approval_id": row.id,
+                    "requested_at": (row.requested_at.isoformat() if row.requested_at else None),
+                },
+            )
+        if row.status == ApprovalStatus.CANCELLED:
+            return ApprovalVerdict(approved=False, cancelled=True)
+        if row.status == ApprovalStatus.REJECTED:
+            raise ApprovalRejected(
+                task_name=f"{row.workflow_namespace}/{row.workflow_name}/{row.task_name}",
+                approver_subject=row.approver_subject,
+                approver_provider=row.approver_provider,
+                reason=row.reason,
+            )
+        return ApprovalVerdict(
+            approved=True,
+            approver_subject=row.approver_subject,
+            approver_provider=row.approver_provider,
+            reason=row.reason,
+        )
 
     @property
     def exec_token(self) -> str | None:

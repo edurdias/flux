@@ -427,6 +427,48 @@
                     scrollToBottom();
                     break;
                 }
+                case 'approval_required': {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'elicitation';
+                    const header = document.createElement('div');
+                    header.innerHTML = `⚡ Tool <strong></strong> requires approval <span class="msg"></span>`;
+                    header.querySelector('strong').textContent =
+                        event.task_name || event.task_call_id || 'task';
+                    const ns = event.workflow_namespace || '?';
+                    const wf = event.workflow_name || '?';
+                    header.querySelector('.msg').textContent = `(in ${ns}/${wf})`;
+                    div.appendChild(header);
+
+                    const reasonInput = document.createElement('input');
+                    reasonInput.type = 'text';
+                    reasonInput.placeholder = 'Reason (optional)';
+                    reasonInput.style.cssText = 'margin-top:8px;width:100%;box-sizing:border-box;';
+                    div.appendChild(reasonInput);
+
+                    const buttonRow = document.createElement('div');
+                    buttonRow.style.marginTop = '8px';
+                    [['Approve', true], ['Reject', false]].forEach(([label, approved]) => {
+                        const btn = document.createElement('button');
+                        btn.textContent = label;
+                        btn.style.marginRight = '6px';
+                        btn.addEventListener('click', () => {
+                            buttonRow.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+                            reasonInput.disabled = true;
+                            sendApprovalDecision(
+                                event.task_call_id,
+                                event.execution_id,
+                                approved,
+                                reasonInput.value.trim(),
+                            );
+                        });
+                        buttonRow.appendChild(btn);
+                    });
+                    div.appendChild(buttonRow);
+                    messagesEl.appendChild(div);
+                    scrollToBottom();
+                    break;
+                }
                 case 'session_end': {
                     hideSpinner();
                     const div = document.createElement('div');
@@ -468,6 +510,64 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ elicitation_id: elicitationId, action }),
+                });
+                if (!response.ok) {
+                    hideSpinner();
+                    const div = document.createElement('div');
+                    div.className = 'system-message';
+                    div.textContent = `Error: ${response.status} ${response.statusText}`;
+                    div.style.color = 'var(--error)';
+                    messagesEl.appendChild(div);
+                    busy = false;
+                    updateStatus();
+                    return;
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try { handleEvent(JSON.parse(line.slice(6))); } catch (e) {}
+                        }
+                    }
+                }
+            } catch (e) {
+                hideSpinner();
+                const div = document.createElement('div');
+                div.className = 'system-message';
+                div.textContent = `Connection error: ${e.message}`;
+                div.style.color = 'var(--error)';
+                messagesEl.appendChild(div);
+            }
+            hideSpinner();
+            finalizeThinking();
+            finalizeStream();
+            busy = false;
+            updateStatus();
+            inputEl.focus();
+        }
+
+        async function sendApprovalDecision(taskCallId, executionId, approved, reason) {
+            if (!taskCallId || !sessionId) return;
+            busy = true;
+            showSpinner('Working');
+            updateStatus();
+            try {
+                const url = `/approval/${encodeURIComponent(taskCallId)}?session=${encodeURIComponent(sessionId)}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        execution_id: executionId,
+                        approved,
+                        reason: reason || null,
+                    }),
                 });
                 if (!response.ok) {
                     hideSpinner();
