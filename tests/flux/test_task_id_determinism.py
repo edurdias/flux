@@ -118,6 +118,33 @@ def test_make_deterministic_handles_coroutines_by_value():
             c.close()
 
 
+def test_make_deterministic_handles_string_slots():
+    """__slots__ may be a bare string; it must not be iterated character-by-character."""
+
+    class Slotted:
+        __slots__ = "value"
+
+        def __init__(self, v):
+            self.value = v
+
+    assert make_deterministic(Slotted(1)) == make_deterministic(Slotted(1))
+    assert make_deterministic(Slotted(1)) != make_deterministic(Slotted(2))
+
+
+def test_make_deterministic_coroutine_key_includes_module():
+    """Coroutine keys are module-qualified so same-named functions in different
+    modules do not collide."""
+
+    async def greet(name):
+        return name
+
+    c = greet("x")
+    try:
+        assert __name__ in make_deterministic(c)["__call__"]
+    finally:
+        c.close()
+
+
 def test_make_deterministic_guard_raises_on_opaque_object():
     """Objects with no value-based representation fail loudly instead of
     silently producing an address-dependent id."""
