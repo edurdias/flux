@@ -6,11 +6,13 @@ from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
 from flux.output_storage import InlineOutputStorage, OutputStorage, OutputStorageReference
 from flux.secret_managers import SecretManager
-from flux.utils import get_func_args, make_hashable, maybe_awaitable
+from flux.utils import get_func_args, make_deterministic, maybe_awaitable
 
 
 import asyncio
+import hashlib
 import inspect
+import json
 import time
 from functools import wraps
 from typing import Any, TypeVar
@@ -137,11 +139,28 @@ class task:
             **kwargs,
         )
 
+    @staticmethod
+    def _compute_task_id(full_name: str, task_args: dict, args: tuple, kwargs: dict) -> str:
+        """Deterministic, cross-process-stable id for a task call.
+
+        This is the source_id the replay short-circuit matches on and the
+        approval gate's call_id, so it must be identical in every process. SHA256
+        over a canonical form — builtin hash() is per-process randomized (the
+        same defect was already fixed for event ids; see flux/domain/events.py).
+        """
+        canonical = json.dumps(
+            make_deterministic([full_name, task_args, args, kwargs]),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+        return f"{full_name}_{digest}"
+
     async def __call__(self, *args, **kwargs) -> Any:
         task_args = get_func_args(self._func, args)
         full_name = self.name.format(**task_args)
 
-        task_id = f"{full_name}_{abs(hash((full_name, make_hashable(task_args), make_hashable(args), make_hashable(kwargs))))}"
+        task_id = self._compute_task_id(full_name, task_args, args, kwargs)
 
         ctx = await ExecutionContext.get()
 
