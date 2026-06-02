@@ -111,7 +111,9 @@ def make_deterministic(item):
     elif isinstance(item, AsyncGeneratorType):
         frame, code = item.ag_frame, item.ag_code
     if code is not None:
-        fn_qualname = getattr(code, "co_qualname", code.co_name)
+        qual = getattr(code, "co_qualname", code.co_name)
+        module = frame.f_globals.get("__name__", "") if frame is not None else ""
+        fn_qualname = f"{module}.{qual}" if module else qual
         if frame is not None:
             try:
                 argcount = code.co_argcount + code.co_kwonlyargcount
@@ -146,7 +148,10 @@ def make_deterministic(item):
     if isinstance(obj_dict, dict):
         return {"__object__": qualname, "fields": make_deterministic(obj_dict)}
 
-    slot_names = [s for cls in type(item).__mro__ for s in getattr(cls, "__slots__", ())]
+    slot_names = []
+    for cls in type(item).__mro__:
+        slots = getattr(cls, "__slots__", ())
+        slot_names.extend((slots,) if isinstance(slots, str) else slots)
     if slot_names:
         slots = {s: getattr(item, s) for s in slot_names if hasattr(item, s)}
         return {"__object__": qualname, "fields": make_deterministic(slots)}
