@@ -44,3 +44,40 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.Lambda:
             if node.id not in allowed_names and node.id not in bound:
                 raise CodeValidationError(f"unknown name: {node.id}")
     return lam
+
+
+_SAFE_BUILTINS = {
+    n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
+    for n in (
+        "len", "range", "enumerate", "sum", "min", "max", "sorted",
+        "dict", "list", "set", "tuple", "str", "int", "float", "bool",
+        "abs", "zip", "any", "all", "round",
+    )
+}
+
+
+class _CallProxy:
+    """Call-only wrapper: exposes __call__ and nothing else."""
+
+    __slots__ = ("_fn",)
+
+    def __init__(self, fn):
+        object.__setattr__(self, "_fn", fn)
+
+    def __call__(self, *args, **kwargs):
+        return object.__getattribute__(self, "_fn")(*args, **kwargs)
+
+    def __getattr__(self, name):
+        raise AttributeError(name)
+
+    def __setattr__(self, name, value):
+        raise AttributeError(name)
+
+
+def build_sandbox_globals(bindings: dict) -> dict:
+    """Build eval globals: callables proxied, non-callables passed by value,
+    __builtins__ locked to the safe subset."""
+    g: dict = {"__builtins__": dict(_SAFE_BUILTINS)}
+    for name, value in bindings.items():
+        g[name] = _CallProxy(value) if callable(value) else value
+    return g
