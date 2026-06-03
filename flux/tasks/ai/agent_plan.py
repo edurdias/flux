@@ -33,6 +33,8 @@ class AgentStep:
     status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
     result: Any | None = None
     error: str | None = None
+    type: Literal["reasoning", "code"] = "reasoning"
+    code: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -42,6 +44,10 @@ class AgentStep:
             del d["result"]
         if d["error"] is None:
             del d["error"]
+        if d["type"] == "reasoning":
+            del d["type"]
+        if d["code"] is None:
+            del d["code"]
         return d
 
 
@@ -138,6 +144,8 @@ class AgentPlan:
                     status=s.get("status", "pending"),
                     result=s.get("result"),
                     error=s.get("error"),
+                    type=s.get("type", "reasoning"),
+                    code=s.get("code"),
                 ),
             )
         return cls(steps=steps)
