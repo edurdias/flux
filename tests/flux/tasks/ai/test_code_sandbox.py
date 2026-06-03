@@ -54,3 +54,31 @@ def test_build_sandbox_globals_locks_builtins():
     assert "open" not in g["__builtins__"]
     assert "len" in g["__builtins__"]
     assert isinstance(g["now"], _CallProxy)
+
+
+def test_run_code_step_returns_value():
+    import asyncio
+    from flux.tasks.ai.code_sandbox import run_code_step
+    out = asyncio.run(run_code_step("lambda: deps['x']", {"deps": {"x": 42}}, timeout=5))
+    assert out == 42
+
+
+def test_run_code_step_awaits_coroutine():
+    import asyncio
+    from flux.tasks.ai.code_sandbox import run_code_step
+
+    async def double(n):
+        return n * 2
+
+    out = asyncio.run(run_code_step("lambda: double(21)", {"double": double}, timeout=5))
+    assert out == 42
+
+
+def test_run_code_step_rejects_tampered_hash():
+    import asyncio
+    from flux.tasks.ai.code_sandbox import run_code_step, code_hash
+    good = "lambda: deps['x']"
+    with pytest.raises(Exception):
+        asyncio.run(run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash="deadbeef"))
+    out = asyncio.run(run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash=code_hash(good)))
+    assert out == 1

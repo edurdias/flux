@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import ast
+import asyncio
+import hashlib
+
+from flux.utils import maybe_awaitable
 
 
 class CodeValidationError(ValueError):
@@ -81,3 +85,28 @@ def build_sandbox_globals(bindings: dict) -> dict:
     for name, value in bindings.items():
         g[name] = _CallProxy(value) if callable(value) else value
     return g
+
+
+def code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
+
+
+async def run_code_step(
+    code: str,
+    bindings: dict,
+    *,
+    timeout: int,
+    expected_hash: str | None = None,
+) -> object:
+    """Validate, then evaluate a code-step lambda and run its result.
+
+    The lambda is re-validated here (defense in depth, identical to plan time).
+    `expected_hash` (when given) must match the code's hash before eval.
+    """
+    if expected_hash is not None and code_hash(code) != expected_hash:
+        raise CodeValidationError("code hash mismatch — refusing to execute")
+    allowed = set(bindings.keys())
+    validate_code(code, allowed)
+    g = build_sandbox_globals(bindings)
+    fn = eval(code, g)  # noqa: S307 — validated, locked builtins, proxied globals
+    return await asyncio.wait_for(maybe_awaitable(fn()), timeout=timeout)
