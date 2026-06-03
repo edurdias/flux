@@ -11,7 +11,7 @@ class CodeValidationError(ValueError):
 # no arithmetic (BinOp/UnaryOp), no iteration/comprehension, no FunctionDef.
 _ALLOWED_NODES = (
     ast.Expression, ast.Lambda, ast.arguments, ast.arg,
-    ast.Call, ast.keyword, ast.Name, ast.Load, ast.Attribute,
+    ast.Call, ast.keyword, ast.Name, ast.Load,
     ast.Subscript, ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set,
     ast.IfExp, ast.Compare, ast.BoolOp, ast.And, ast.Or,
     ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn,
@@ -40,9 +40,6 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.Lambda:
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODES):
             raise CodeValidationError(f"disallowed syntax: {type(node).__name__}")
-        if isinstance(node, ast.Attribute):
-            if node.attr.startswith("_"):
-                raise CodeValidationError(f"disallowed attribute: {node.attr}")
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             if node.id not in allowed_names and node.id not in bound:
                 raise CodeValidationError(f"unknown name: {node.id}")

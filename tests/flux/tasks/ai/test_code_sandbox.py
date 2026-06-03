@@ -26,6 +26,8 @@ def test_accepts_dispatch_lambda():
         "lambda: now.__globals__",
         "now()",
         "lambda: missing()",
+        'lambda: deps["x"].format(now())',   # str.format MRO-walk via attribute
+        "lambda: now().something",            # attribute access on call result
     ],
 )
 def test_rejects_unsafe(code):
