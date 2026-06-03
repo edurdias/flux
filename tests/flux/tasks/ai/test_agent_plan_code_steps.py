@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flux.tasks.ai.agent_plan import AgentStep, AgentPlan
+from flux.tasks.ai.agent_plan import AgentPlan, AgentStep, build_plan_tools
 
 
 def test_step_defaults_to_reasoning():
@@ -23,14 +23,11 @@ def test_code_step_roundtrips_through_dict():
 
 def test_agent_config_defaults_off():
     from flux.config import Configuration
+
     cfg = Configuration.get().settings.agent
     assert cfg.dynamic_code_steps_enabled is False
     assert cfg.dynamic_code_steps_agent_tools_enabled is False
     assert cfg.dynamic_code_step_timeout == 30
-
-
-import asyncio as _asyncio
-from flux.tasks.ai.agent_plan import build_plan_tools
 
 
 def _tool(tools, name):
@@ -67,7 +64,9 @@ def test_run_step_executes_code_and_records_result():
         )
         create = _tool(tools, "create_plan")
         run_step = _tool(tools, "run_step")
-        await create('[{"name":"a","description":"compute","type":"code","code":"lambda: answer()"},{"name":"b","description":"d"}]')
+        await create(
+            '[{"name":"a","description":"compute","type":"code","code":"lambda: answer()"},{"name":"b","description":"d"}]',
+        )
         return await run_step("a")
 
     ctx = wf.run()
@@ -79,6 +78,7 @@ def test_run_step_executes_code_and_records_result():
 
 def test_preamble_describes_code_steps_when_enabled():
     from flux.tasks.ai.agent_plan import build_plan_preamble
+
     text = build_plan_preamble(code_steps_enabled=True)
     assert "code" in text.lower()
     assert "lambda" in text.lower()
@@ -87,14 +87,27 @@ def test_preamble_describes_code_steps_when_enabled():
 
 def test_default_code_bindings_includes_builtins():
     from flux.tasks.ai.agent import _build_code_bindings
+
     b = _build_code_bindings(agents=[], tools_enabled=False)
-    for name in ("now", "uuid4", "parallel", "pipeline", "call", "Graph", "progress",
-                 "choice", "randint", "randrange", "sleep"):
+    for name in (
+        "now",
+        "uuid4",
+        "parallel",
+        "pipeline",
+        "call",
+        "Graph",
+        "progress",
+        "choice",
+        "randint",
+        "randrange",
+        "sleep",
+    ):
         assert name in b
     assert "delegate" not in b
 
 
 def test_code_bindings_includes_delegate_when_tools_enabled():
     from flux.tasks.ai.agent import _build_code_bindings
+
     b = _build_code_bindings(agents=[], tools_enabled=True)
     assert "delegate" in b

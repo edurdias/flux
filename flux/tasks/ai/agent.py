@@ -19,16 +19,35 @@ logger = logging.getLogger("flux.agent")
 
 def _build_code_bindings(agents: list, tools_enabled: bool) -> dict:
     from flux.tasks import (
-        Graph, call, choice, now, parallel, pipeline, progress,
-        randint, randrange, sleep, uuid4,
+        Graph,
+        call,
+        choice,
+        now,
+        parallel,
+        pipeline,
+        progress,
+        randint,
+        randrange,
+        sleep,
+        uuid4,
     )
+
     bindings = {
-        "now": now, "uuid4": uuid4, "choice": choice, "randint": randint,
-        "randrange": randrange, "parallel": parallel, "sleep": sleep,
-        "pipeline": pipeline, "call": call, "Graph": Graph, "progress": progress,
+        "now": now,
+        "uuid4": uuid4,
+        "choice": choice,
+        "randint": randint,
+        "randrange": randrange,
+        "parallel": parallel,
+        "sleep": sleep,
+        "pipeline": pipeline,
+        "call": call,
+        "Graph": Graph,
+        "progress": progress,
     }
     if tools_enabled:
         from flux.tasks.ai.delegation import build_delegate
+
         bindings["delegate"] = build_delegate(agents or [])
     return bindings
 

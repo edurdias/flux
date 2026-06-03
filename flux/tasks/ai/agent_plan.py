@@ -312,7 +312,9 @@ async def build_plan_tools(
                     step_code = s.get("code")
                     if step_type == "code":
                         if not code_cfg["enabled"]:
-                            return {"error": "Code steps are disabled (dynamic_code_steps_enabled=false)."}
+                            return {
+                                "error": "Code steps are disabled (dynamic_code_steps_enabled=false).",
+                            }
                         if not step_code:
                             return {"error": f"Step '{s['name']}' is type=code but has no code."}
                         try:
@@ -540,7 +542,8 @@ async def build_plan_tools(
         try:
             step.status = "in_progress"
             result = await runner(
-                step.code, bindings,
+                step.code,
+                bindings,
                 timeout=code_cfg["timeout"],
                 expected_hash=code_hash(step.code),
             )

@@ -15,15 +15,10 @@ import sys
 
 def test_code_hash_stable_across_processes():
     code = "lambda: side_effect()"
-    runner = (
-        "from flux.tasks.ai.code_sandbox import code_hash\n"
-        f"print(code_hash({code!r}))\n"
-    )
+    runner = f"from flux.tasks.ai.code_sandbox import code_hash\nprint(code_hash({code!r}))\n"
     outs = set()
     for seed in ("0", "1", "42"):
         env = {**os.environ, "PYTHONHASHSEED": seed}
-        out = subprocess.check_output(
-            [sys.executable, "-c", runner], env=env, text=True
-        ).strip()
+        out = subprocess.check_output([sys.executable, "-c", runner], env=env, text=True).strip()
         outs.add(out)
     assert len(outs) == 1, f"code_hash diverged across processes: {outs}"

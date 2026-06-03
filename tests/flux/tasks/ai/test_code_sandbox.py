@@ -9,7 +9,7 @@ ALLOWED = {"now", "parallel", "deps", "delegate"}
 
 def test_accepts_dispatch_lambda():
     validate_code("lambda: now()", ALLOWED)
-    validate_code('lambda: parallel(now(), now())', ALLOWED)
+    validate_code("lambda: parallel(now(), now())", ALLOWED)
     validate_code('lambda: deps["fetch"]', ALLOWED)
     validate_code('lambda: now() if deps["x"] else now()', ALLOWED)
 
@@ -26,8 +26,8 @@ def test_accepts_dispatch_lambda():
         "lambda: now.__globals__",
         "now()",
         "lambda: missing()",
-        'lambda: deps["x"].format(now())',   # str.format MRO-walk via attribute
-        "lambda: now().something",            # attribute access on call result
+        'lambda: deps["x"].format(now())',  # str.format MRO-walk via attribute
+        "lambda: now().something",  # attribute access on call result
     ],
 )
 def test_rejects_unsafe(code):
@@ -59,6 +59,7 @@ def test_build_sandbox_globals_locks_builtins():
 def test_run_code_step_returns_value():
     import asyncio
     from flux.tasks.ai.code_sandbox import run_code_step
+
     out = asyncio.run(run_code_step("lambda: deps['x']", {"deps": {"x": 42}}, timeout=5))
     assert out == 42
 
@@ -77,8 +78,11 @@ def test_run_code_step_awaits_coroutine():
 def test_run_code_step_rejects_tampered_hash():
     import asyncio
     from flux.tasks.ai.code_sandbox import run_code_step, code_hash
+
     good = "lambda: deps['x']"
     with pytest.raises(Exception):
         asyncio.run(run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash="deadbeef"))
-    out = asyncio.run(run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash=code_hash(good)))
+    out = asyncio.run(
+        run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash=code_hash(good)),
+    )
     assert out == 1

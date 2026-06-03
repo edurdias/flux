@@ -14,11 +14,33 @@ class CodeValidationError(ValueError):
 # Node types permitted anywhere in a code-step expression. Dispatch-only:
 # no arithmetic (BinOp/UnaryOp), no iteration/comprehension, no FunctionDef.
 _ALLOWED_NODES = (
-    ast.Expression, ast.Lambda, ast.arguments, ast.arg,
-    ast.Call, ast.keyword, ast.Name, ast.Load,
-    ast.Subscript, ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set,
-    ast.IfExp, ast.Compare, ast.BoolOp, ast.And, ast.Or,
-    ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn,
+    ast.Expression,
+    ast.Lambda,
+    ast.arguments,
+    ast.arg,
+    ast.Call,
+    ast.keyword,
+    ast.Name,
+    ast.Load,
+    ast.Subscript,
+    ast.Constant,
+    ast.List,
+    ast.Tuple,
+    ast.Dict,
+    ast.Set,
+    ast.IfExp,
+    ast.Compare,
+    ast.BoolOp,
+    ast.And,
+    ast.Or,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.In,
+    ast.NotIn,
     ast.Slice,
 )
 
@@ -53,9 +75,26 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.Lambda:
 _SAFE_BUILTINS = {
     n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
     for n in (
-        "len", "range", "enumerate", "sum", "min", "max", "sorted",
-        "dict", "list", "set", "tuple", "str", "int", "float", "bool",
-        "abs", "zip", "any", "all", "round",
+        "len",
+        "range",
+        "enumerate",
+        "sum",
+        "min",
+        "max",
+        "sorted",
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "abs",
+        "zip",
+        "any",
+        "all",
+        "round",
     )
 }
 
