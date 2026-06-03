@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger("flux.agent")
 
 
+def _build_code_bindings(agents: list, tools_enabled: bool) -> dict:
+    from flux.tasks import (
+        Graph, call, choice, now, parallel, pipeline, progress,
+        randint, randrange, sleep, uuid4,
+    )
+    bindings = {
+        "now": now, "uuid4": uuid4, "choice": choice, "randint": randint,
+        "randrange": randrange, "parallel": parallel, "sleep": sleep,
+        "pipeline": pipeline, "call": call, "Graph": Graph, "progress": progress,
+    }
+    if tools_enabled:
+        from flux.tasks.ai.delegation import build_delegate
+        bindings["delegate"] = build_delegate(agents or [])
+    return bindings
+
+
 async def agent(
     system_prompt: str,
     *,
@@ -108,14 +124,27 @@ async def agent(
 
     plan_summary_fn = None
     if planning:
+        from flux.config import Configuration
         from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
 
-        system_prompt = system_prompt + build_plan_preamble()
+        agent_cfg = Configuration.get().settings.agent
+
+        system_prompt = system_prompt + build_plan_preamble(
+            code_steps_enabled=agent_cfg.dynamic_code_steps_enabled,
+        )
         plan_tools, plan_summary_fn = await build_plan_tools(
             strict_dependencies=strict_dependencies,
             max_plan_steps=max_plan_steps,
             approve_plan=approve_plan,
             long_term_memory=long_term_memory,
+            code_config={
+                "enabled": agent_cfg.dynamic_code_steps_enabled,
+                "timeout": agent_cfg.dynamic_code_step_timeout,
+            },
+            code_bindings=_build_code_bindings(
+                agents=agents or [],
+                tools_enabled=agent_cfg.dynamic_code_steps_agent_tools_enabled,
+            ),
         )
         tools = (tools or []) + plan_tools
 

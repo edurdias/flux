@@ -83,3 +83,18 @@ def test_preamble_describes_code_steps_when_enabled():
     assert "code" in text.lower()
     assert "lambda" in text.lower()
     assert "lambda" not in build_plan_preamble(code_steps_enabled=False).lower()
+
+
+def test_default_code_bindings_includes_builtins():
+    from flux.tasks.ai.agent import _build_code_bindings
+    b = _build_code_bindings(agents=[], tools_enabled=False)
+    for name in ("now", "uuid4", "parallel", "pipeline", "call", "Graph", "progress",
+                 "choice", "randint", "randrange", "sleep"):
+        assert name in b
+    assert "delegate" not in b
+
+
+def test_code_bindings_includes_delegate_when_tools_enabled():
+    from flux.tasks.ai.agent import _build_code_bindings
+    b = _build_code_bindings(agents=[], tools_enabled=True)
+    assert "delegate" in b
