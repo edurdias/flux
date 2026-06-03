@@ -148,8 +148,13 @@ async def agent(
 
         agent_cfg = Configuration.get().settings.agent
 
+        code_bindings = _build_code_bindings(
+            agents=agents or [],
+            tools_enabled=agent_cfg.dynamic_code_steps_agent_tools_enabled,
+        )
         system_prompt = system_prompt + build_plan_preamble(
             code_steps_enabled=agent_cfg.dynamic_code_steps_enabled,
+            code_bindings=list(code_bindings),
         )
         plan_tools, plan_summary_fn = await build_plan_tools(
             strict_dependencies=strict_dependencies,
@@ -160,10 +165,7 @@ async def agent(
                 "enabled": agent_cfg.dynamic_code_steps_enabled,
                 "timeout": agent_cfg.dynamic_code_step_timeout,
             },
-            code_bindings=_build_code_bindings(
-                agents=agents or [],
-                tools_enabled=agent_cfg.dynamic_code_steps_agent_tools_enabled,
-            ),
+            code_bindings=code_bindings,
         )
         tools = (tools or []) + plan_tools
 

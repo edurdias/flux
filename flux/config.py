@@ -129,6 +129,7 @@ class AgentConfig(BaseConfig):
     )
     dynamic_code_step_timeout: int = Field(
         default=30,
+        gt=0,
         description="Timeout in seconds for dynamic code step execution",
     )
 

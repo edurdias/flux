@@ -51,8 +51,7 @@ def test_build_sandbox_globals_locks_builtins():
     from flux.tasks.ai.code_sandbox import build_sandbox_globals, _CallProxy
 
     g = build_sandbox_globals({"now": lambda: 1})
-    assert "open" not in g["__builtins__"]
-    assert "len" in g["__builtins__"]
+    assert g["__builtins__"] == {}
     assert isinstance(g["now"], _CallProxy)
 
 

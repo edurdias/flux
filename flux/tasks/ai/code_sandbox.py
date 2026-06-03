@@ -72,33 +72,6 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.Lambda:
     return lam
 
 
-_SAFE_BUILTINS = {
-    n: __builtins__[n] if isinstance(__builtins__, dict) else getattr(__builtins__, n)
-    for n in (
-        "len",
-        "range",
-        "enumerate",
-        "sum",
-        "min",
-        "max",
-        "sorted",
-        "dict",
-        "list",
-        "set",
-        "tuple",
-        "str",
-        "int",
-        "float",
-        "bool",
-        "abs",
-        "zip",
-        "any",
-        "all",
-        "round",
-    )
-}
-
-
 class _CallProxy:
     """Call-only wrapper: exposes __call__ and nothing else."""
 
@@ -119,13 +92,18 @@ class _CallProxy:
 
 def build_sandbox_globals(bindings: dict) -> dict:
     """Build eval globals: top-level callable bindings proxied, non-callables
-    passed by value, __builtins__ locked to the safe subset.
+    passed by value, __builtins__ emptied so no builtin is reachable.
+
+    The dispatch-only grammar rejects any bare name not in `bindings`, so no
+    builtin is callable from a code step regardless; __builtins__ is locked to
+    {} to make that explicit instead of shipping a subset the validator never
+    admits.
 
     Note: callables nested inside non-callable bindings (e.g. one stored in a
     deps dict) are NOT proxied. The caller controls `bindings` and is trusted;
     sanitize deps values before enabling tools that can produce live objects.
     """
-    g: dict = {"__builtins__": dict(_SAFE_BUILTINS)}
+    g: dict = {"__builtins__": {}}
     for name, value in bindings.items():
         g[name] = _CallProxy(value) if callable(value) else value
     return g

@@ -213,6 +213,47 @@ class PlanContext:
         return self.plan.summary()
 
 
+def _build_steps_from_payload(
+    payload: list,
+    *,
+    code_cfg: dict,
+    base_bindings: dict,
+) -> tuple[list[AgentStep] | None, dict | None]:
+    """Build AgentSteps from a create_plan payload, validating code steps.
+
+    Returns (steps, None) on success or (None, error) when a code step is
+    rejected. PlanValidationError from step-name validation propagates.
+    """
+    from flux.tasks.ai.code_sandbox import CodeValidationError, validate_code
+
+    new_steps = []
+    for s in payload:
+        _validate_step_name(s["name"])
+        step_type = s.get("type", "reasoning")
+        step_code = s.get("code")
+        if step_type == "code":
+            if not code_cfg["enabled"]:
+                return None, {
+                    "error": "Code steps are disabled (dynamic_code_steps_enabled=false).",
+                }
+            if not step_code:
+                return None, {"error": f"Step '{s['name']}' is type=code but has no code."}
+            try:
+                validate_code(step_code, set(base_bindings) | {"deps"})
+            except CodeValidationError as ex:
+                return None, {"error": f"Invalid code in step '{s['name']}': {ex}"}
+        new_steps.append(
+            AgentStep(
+                name=s["name"],
+                description=s.get("description", ""),
+                depends_on=s.get("depends_on", []),
+                type=step_type,
+                code=step_code,
+            ),
+        )
+    return new_steps, None
+
+
 async def build_plan_tools(
     *,
     strict_dependencies: bool = False,
@@ -267,31 +308,13 @@ async def build_plan_tools(
             raise PlanValidationError(
                 f"Plan has {len(parsed)} steps (max {max_plan_steps}). Use fewer, coarser steps.",
             )
-        from flux.tasks.ai.code_sandbox import CodeValidationError, validate_code
-
-        new_steps = []
-        for s in parsed:
-            _validate_step_name(s["name"])
-            step_type = s.get("type", "reasoning")
-            step_code = s.get("code")
-            if step_type == "code":
-                if not code_cfg["enabled"]:
-                    return {"error": "Code steps are disabled (dynamic_code_steps_enabled=false)."}
-                if not step_code:
-                    return {"error": f"Step '{s['name']}' is type=code but has no code."}
-                try:
-                    validate_code(step_code, set(base_bindings) | {"deps"})
-                except CodeValidationError as ex:
-                    return {"error": f"Invalid code in step '{s['name']}': {ex}"}
-            new_steps.append(
-                AgentStep(
-                    name=s["name"],
-                    description=s.get("description", ""),
-                    depends_on=s.get("depends_on", []),
-                    type=step_type,
-                    code=step_code,
-                ),
-            )
+        new_steps, code_error = _build_steps_from_payload(
+            parsed,
+            code_cfg=code_cfg,
+            base_bindings=base_bindings,
+        )
+        if code_error:
+            return code_error
 
         new_plan = AgentPlan(steps=new_steps)
         _validate_dependencies(new_plan)
@@ -305,31 +328,13 @@ async def build_plan_tools(
                 return {"error": "Plan was rejected during review."}
 
             if isinstance(resume_input, dict) and "steps" in resume_input:
-                new_steps = []
-                for s in resume_input["steps"]:
-                    _validate_step_name(s["name"])
-                    step_type = s.get("type", "reasoning")
-                    step_code = s.get("code")
-                    if step_type == "code":
-                        if not code_cfg["enabled"]:
-                            return {
-                                "error": "Code steps are disabled (dynamic_code_steps_enabled=false).",
-                            }
-                        if not step_code:
-                            return {"error": f"Step '{s['name']}' is type=code but has no code."}
-                        try:
-                            validate_code(step_code, set(base_bindings) | {"deps"})
-                        except CodeValidationError as ex:
-                            return {"error": f"Invalid code in step '{s['name']}': {ex}"}
-                    new_steps.append(
-                        AgentStep(
-                            name=s["name"],
-                            description=s.get("description", ""),
-                            depends_on=s.get("depends_on", []),
-                            type=step_type,
-                            code=step_code,
-                        ),
-                    )
+                new_steps, code_error = _build_steps_from_payload(
+                    resume_input["steps"],
+                    code_cfg=code_cfg,
+                    base_bindings=base_bindings,
+                )
+                if code_error:
+                    return code_error
                 new_plan = AgentPlan(steps=new_steps)
                 _validate_dependencies(new_plan)
                 if len(new_plan.steps) < 2:
@@ -519,7 +524,7 @@ async def build_plan_tools(
         """Execute a code-type step's lambda in the sandbox and record its result.
 
         Use this for steps with type "code". For reasoning steps, use
-        start_step / complete_step instead.
+        start_step / mark_step_done instead.
         """
         if ctx.plan is None:
             return {"error": "No plan exists. Call create_plan first."}
@@ -538,7 +543,7 @@ async def build_plan_tools(
         if not ctx.plan.dependencies_satisfied(step):
             return {"error": f"Step '{step_name}' has unmet dependencies."}
 
-        from flux.tasks.ai.code_sandbox import code_hash, run_code_step
+        from flux.tasks.ai.code_sandbox import run_code_step
 
         bindings = dict(base_bindings)
         bindings["deps"] = ctx.plan.dependency_results(step)
@@ -549,7 +554,6 @@ async def build_plan_tools(
                 step.code,
                 bindings,
                 timeout=code_cfg["timeout"],
-                expected_hash=code_hash(step.code),
             )
         except Exception as ex:  # noqa: BLE001 — surface failure to the agent
             step.status = "failed"
@@ -574,7 +578,10 @@ async def build_plan_tools(
     return tools, ctx.summary
 
 
-def build_plan_preamble(code_steps_enabled: bool = False) -> str:
+def build_plan_preamble(
+    code_steps_enabled: bool = False,
+    code_bindings: list[str] | None = None,
+) -> str:
     """Build system prompt section for agent planning."""
     preamble = """
 
@@ -626,9 +633,12 @@ Replanning:
 """
 
     if code_steps_enabled:
-        preamble += """
+        names = (
+            ", ".join(sorted(code_bindings)) if code_bindings else "the exposed flux built-in tasks"
+        )
+        preamble += f"""
 
-Each step has a type: 'reasoning' (default) or 'code'. For a 'code' step, set "type":"code" and "code" to a single Python lambda that DISPATCHES flux tasks — e.g. `lambda: pipeline(step_one, step_two, input=deps['fetch'])`. The lambda runs in a sandbox: it may call the exposed flux built-in tasks, `delegate(...)`, and read `deps['<dep_name>']`; it must RETURN a value or a flux task. No imports, loops, comprehensions, arithmetic, or attribute access. Execute code steps with run_step(name), not start_step/complete_step.
+Each step has a type: 'reasoning' (default) or 'code'. For a 'code' step, set "type":"code" and "code" to a single Python lambda that DISPATCHES flux tasks and RETURNS a value or a flux task — e.g. `lambda: parallel(now(), now())`, or read a dependency with `lambda: deps['fetch']`. Available names: {names}; plus `deps['<dep_name>']` for a dependency's result. Only calls, subscripts like deps['x'], literals, and ternaries are allowed — no imports, statements, loops, comprehensions, f-strings, arithmetic, or attribute access (the `.` operator). Execute code steps with run_step(name), not start_step/mark_step_done.
 """
 
     return preamble
