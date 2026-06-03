@@ -116,6 +116,23 @@ class SchedulingConfig(BaseConfig):
     )
 
 
+class AgentConfig(BaseConfig):
+    """Configuration for AI agents."""
+
+    dynamic_code_steps_enabled: bool = Field(
+        default=False,
+        description="Enable dynamic code step execution in agent planning",
+    )
+    dynamic_code_steps_agent_tools_enabled: bool = Field(
+        default=False,
+        description="Enable agent tools in dynamic code step execution",
+    )
+    dynamic_code_step_timeout: int = Field(
+        default=30,
+        description="Timeout in seconds for dynamic code step execution",
+    )
+
+
 class FluxConfig(BaseSettings):
     """Main configuration class for Flux framework."""
 
@@ -179,6 +196,7 @@ class FluxConfig(BaseSettings):
     )  # type: ignore[name-defined]
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     @field_validator("database_url")
