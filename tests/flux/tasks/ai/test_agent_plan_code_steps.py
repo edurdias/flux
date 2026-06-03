@@ -75,3 +75,11 @@ def test_run_step_executes_code_and_records_result():
     result = ctx.output
     assert result["status"] == "completed"
     assert result["result"] == 42
+
+
+def test_preamble_describes_code_steps_when_enabled():
+    from flux.tasks.ai.agent_plan import build_plan_preamble
+    text = build_plan_preamble(code_steps_enabled=True)
+    assert "code" in text.lower()
+    assert "lambda" in text.lower()
+    assert "lambda" not in build_plan_preamble(code_steps_enabled=False).lower()

@@ -565,9 +565,9 @@ async def build_plan_tools(
     ], ctx.summary
 
 
-def build_plan_preamble() -> str:
+def build_plan_preamble(code_steps_enabled: bool = False) -> str:
     """Build system prompt section for agent planning."""
-    return """
+    preamble = """
 
 You have planning capabilities. Use them when a task requires multiple
 coordinated steps that benefit from thinking ahead.
@@ -615,3 +615,11 @@ Replanning:
 - You do not need to complete every step. If the plan is no longer relevant,
   stop calling plan tools and respond directly.
 """
+
+    if code_steps_enabled:
+        preamble += """
+
+Each step has a type: 'reasoning' (default) or 'code'. For a 'code' step, set "type":"code" and "code" to a single Python lambda that DISPATCHES flux tasks — e.g. `lambda: pipeline(step_one, step_two, input=deps['fetch'])`. The lambda runs in a sandbox: it may call the exposed flux built-in tasks, `delegate(...)`, and read `deps['<dep_name>']`; it must RETURN a value or a flux task. No imports, loops, comprehensions, arithmetic, or attribute access. Execute code steps with run_step(name), not start_step/complete_step.
+"""
+
+    return preamble
