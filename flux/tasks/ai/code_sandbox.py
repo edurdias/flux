@@ -79,8 +79,13 @@ class _CallProxy:
 
 
 def build_sandbox_globals(bindings: dict) -> dict:
-    """Build eval globals: callables proxied, non-callables passed by value,
-    __builtins__ locked to the safe subset."""
+    """Build eval globals: top-level callable bindings proxied, non-callables
+    passed by value, __builtins__ locked to the safe subset.
+
+    Note: callables nested inside non-callable bindings (e.g. one stored in a
+    deps dict) are NOT proxied. The caller controls `bindings` and is trusted;
+    sanitize deps values before enabling tools that can produce live objects.
+    """
     g: dict = {"__builtins__": dict(_SAFE_BUILTINS)}
     for name, value in bindings.items():
         g[name] = _CallProxy(value) if callable(value) else value
