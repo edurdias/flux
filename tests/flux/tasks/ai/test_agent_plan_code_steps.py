@@ -27,3 +27,51 @@ def test_agent_config_defaults_off():
     assert cfg.dynamic_code_steps_enabled is False
     assert cfg.dynamic_code_steps_agent_tools_enabled is False
     assert cfg.dynamic_code_step_timeout == 30
+
+
+import asyncio as _asyncio
+from flux.tasks.ai.agent_plan import build_plan_tools
+
+
+def _tool(tools, name):
+    return next(t for t in tools if t.name == name)
+
+
+def test_create_plan_rejects_invalid_code():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"now": lambda: 1},
+        )
+        create = _tool(tools, "create_plan")
+        steps = '[{"name":"a","description":"d","type":"code","code":"lambda: __import__(\'os\')"},{"name":"b","description":"d"}]'
+        return await create(steps)
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    result = ctx.output
+    assert "error" in result and "code" in result["error"].lower()
+
+
+def test_run_step_executes_code_and_records_result():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": lambda: 42},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        await create('[{"name":"a","description":"compute","type":"code","code":"lambda: answer()"},{"name":"b","description":"d"}]')
+        return await run_step("a")
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    result = ctx.output
+    assert result["status"] == "completed"
+    assert result["result"] == 42

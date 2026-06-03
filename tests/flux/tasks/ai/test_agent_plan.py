@@ -499,7 +499,7 @@ def test_build_plan_tools_returns_tools_and_summary():
 
     ctx = test_wf.run()
     assert ctx.has_succeeded
-    assert ctx.output["count"] == 6
+    assert ctx.output["count"] == 7
     assert ctx.output["summary"] is None
 
 
@@ -520,6 +520,7 @@ def test_build_plan_tools_tool_names():
         "mark_step_failed",
         "get_plan",
         "get_ready_steps",
+        "run_step",
     }
 
 

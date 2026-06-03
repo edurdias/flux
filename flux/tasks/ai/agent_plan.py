@@ -219,6 +219,8 @@ async def build_plan_tools(
     max_plan_steps: int = 20,
     approve_plan: bool = False,
     long_term_memory: LongTermMemory | None = None,
+    code_config: dict | None = None,
+    code_bindings: dict | None = None,
 ) -> tuple[list[task], Callable[[], str | None]]:
     """Build planning tools and a summary function.
 
@@ -236,6 +238,9 @@ async def build_plan_tools(
     async def _persist() -> None:
         if long_term_memory and ctx.plan:
             await long_term_memory.memorize("_active_plan", ctx.plan.to_dict())
+
+    code_cfg = code_config or {"enabled": False, "timeout": 30}
+    base_bindings = dict(code_bindings or {})
 
     @task
     async def create_plan(steps: str) -> dict:
@@ -262,14 +267,29 @@ async def build_plan_tools(
             raise PlanValidationError(
                 f"Plan has {len(parsed)} steps (max {max_plan_steps}). Use fewer, coarser steps.",
             )
+        from flux.tasks.ai.code_sandbox import CodeValidationError, validate_code
+
         new_steps = []
         for s in parsed:
             _validate_step_name(s["name"])
+            step_type = s.get("type", "reasoning")
+            step_code = s.get("code")
+            if step_type == "code":
+                if not code_cfg["enabled"]:
+                    return {"error": "Code steps are disabled (dynamic_code_steps_enabled=false)."}
+                if not step_code:
+                    return {"error": f"Step '{s['name']}' is type=code but has no code."}
+                try:
+                    validate_code(step_code, set(base_bindings) | {"deps"})
+                except CodeValidationError as ex:
+                    return {"error": f"Invalid code in step '{s['name']}': {ex}"}
             new_steps.append(
                 AgentStep(
                     name=s["name"],
                     description=s.get("description", ""),
                     depends_on=s.get("depends_on", []),
+                    type=step_type,
+                    code=step_code,
                 ),
             )
 
@@ -288,11 +308,24 @@ async def build_plan_tools(
                 new_steps = []
                 for s in resume_input["steps"]:
                     _validate_step_name(s["name"])
+                    step_type = s.get("type", "reasoning")
+                    step_code = s.get("code")
+                    if step_type == "code":
+                        if not code_cfg["enabled"]:
+                            return {"error": "Code steps are disabled (dynamic_code_steps_enabled=false)."}
+                        if not step_code:
+                            return {"error": f"Step '{s['name']}' is type=code but has no code."}
+                        try:
+                            validate_code(step_code, set(base_bindings) | {"deps"})
+                        except CodeValidationError as ex:
+                            return {"error": f"Invalid code in step '{s['name']}': {ex}"}
                     new_steps.append(
                         AgentStep(
                             name=s["name"],
                             description=s.get("description", ""),
                             depends_on=s.get("depends_on", []),
+                            type=step_type,
+                            code=step_code,
                         ),
                     )
                 new_plan = AgentPlan(steps=new_steps)
@@ -479,6 +512,48 @@ async def build_plan_tools(
 
         return {"ready_steps": result}
 
+    @task
+    async def run_step(step_name: str) -> dict:
+        """Execute a code-type step's lambda in the sandbox and record its result.
+
+        Use this for steps with type "code". For reasoning steps, use
+        start_step / complete_step instead.
+        """
+        if ctx.plan is None:
+            return {"error": "No plan exists. Call create_plan first."}
+        step = ctx.plan.get_step(step_name)
+        if step is None:
+            available = ", ".join(s.name for s in ctx.plan.steps)
+            return {"error": f"Step '{step_name}' not found. Available: {available}"}
+        if step.type != "code" or not step.code:
+            return {"error": f"Step '{step_name}' is not a code step."}
+        if step.status == "completed":
+            return step.to_dict()
+        if not ctx.plan.dependencies_satisfied(step):
+            return {"error": f"Step '{step_name}' has unmet dependencies."}
+
+        from flux.tasks.ai.code_sandbox import code_hash, run_code_step
+
+        bindings = dict(base_bindings)
+        bindings["deps"] = ctx.plan.dependency_results(step)
+        runner = task.with_options(name=f"plan_step_{step.name}")(run_code_step)
+        try:
+            step.status = "in_progress"
+            result = await runner(
+                step.code, bindings,
+                timeout=code_cfg["timeout"],
+                expected_hash=code_hash(step.code),
+            )
+        except Exception as ex:  # noqa: BLE001 — surface failure to the agent
+            step.status = "failed"
+            step.error = str(ex)
+            await _persist()
+            return {"error": f"Code step '{step_name}' failed: {ex}"}
+        step.status = "completed"
+        step.result = result
+        await _persist()
+        return step.to_dict()
+
     return [
         create_plan,
         start_step,
@@ -486,6 +561,7 @@ async def build_plan_tools(
         mark_step_failed,
         get_plan,
         get_ready_steps,
+        run_step,
     ], ctx.summary
 
 
