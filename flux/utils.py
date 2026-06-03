@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 import sys
 import inspect
 import json
 import re
 import uuid
+from datetime import date
 from datetime import datetime
+from datetime import time
 from datetime import timedelta
+from decimal import Decimal
 from enum import Enum
 from importlib import import_module as imodule
 from importlib import util
 from pathlib import Path
+from types import AsyncGeneratorType
+from types import CoroutineType
 from types import GeneratorType
 from typing import Any
 from collections.abc import Callable
@@ -57,6 +63,104 @@ def is_hashable(obj) -> bool:
         return True
     except TypeError:
         return False
+
+
+def make_deterministic(item):
+    """Reduce *item* to a canonical, JSON-serialisable form for cross-process
+    identity hashing. Unlike make_hashable (which leans on per-process-randomized
+    hash()), dict/set ordering is normalised and objects are reduced to their
+    fields; opaque objects raise TypeError instead of degrading to an
+    address-dependent repr.
+    """
+    if item is None or isinstance(item, (bool, int, float, str)):
+        return item
+    if isinstance(item, complex):
+        return {"__complex__": [item.real, item.imag]}
+    if isinstance(item, (bytes, bytearray)):
+        return {"__bytes__": bytes(item).hex()}
+    if isinstance(item, Enum):
+        return make_deterministic(item.value)
+    if isinstance(item, dict):
+        pairs = [[make_deterministic(k), make_deterministic(v)] for k, v in item.items()]
+        pairs.sort(key=lambda kv: json.dumps(kv[0], sort_keys=True))
+        return {"__dict__": pairs}
+    if isinstance(item, (list, tuple)):
+        return [make_deterministic(i) for i in item]
+    if isinstance(item, (set, frozenset)):
+        elems = [make_deterministic(i) for i in item]
+        elems.sort(key=lambda e: json.dumps(e, sort_keys=True))
+        return {"__set__": elems}
+    if isinstance(item, (datetime, date, time)):
+        return item.isoformat()
+    if isinstance(item, timedelta):
+        return item.total_seconds()
+    if isinstance(item, Decimal):
+        return str(item)
+    if isinstance(item, uuid.UUID):
+        return str(item)
+    if isinstance(item, Path):
+        return str(item)
+
+    # Coroutines/generators (passed to parallel()/pipeline()): key by the
+    # function's qualified name plus its not-yet-started bound arguments.
+    frame, code = None, None
+    if isinstance(item, CoroutineType):
+        frame, code = item.cr_frame, item.cr_code
+    elif isinstance(item, GeneratorType):
+        frame, code = item.gi_frame, item.gi_code
+    elif isinstance(item, AsyncGeneratorType):
+        frame, code = item.ag_frame, item.ag_code
+    if code is not None:
+        qual = getattr(code, "co_qualname", code.co_name)
+        module = frame.f_globals.get("__name__", "") if frame is not None else ""
+        fn_qualname = f"{module}.{qual}" if module else qual
+        if frame is not None:
+            try:
+                argcount = code.co_argcount + code.co_kwonlyargcount
+                names = code.co_varnames[:argcount]
+                bound = {n: frame.f_locals[n] for n in names if n in frame.f_locals}
+                return {"__call__": fn_qualname, "args": make_deterministic(bound)}
+            except Exception:
+                pass
+        return {"__call__": fn_qualname}
+
+    qualname = f"{type(item).__module__}.{type(item).__qualname__}"
+
+    model_dump = getattr(item, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return {"__model__": qualname, "fields": make_deterministic(model_dump(mode="python"))}
+        except Exception:
+            pass
+
+    if dataclasses.is_dataclass(item) and not isinstance(item, type):
+        return {"__dataclass__": qualname, "fields": make_deterministic(dataclasses.asdict(item))}
+
+    if type(item).__name__ in ("DataFrame", "Series") and hasattr(item, "to_csv"):
+        return {"__pandas__": qualname, "csv": item.to_csv()}
+
+    if callable(item):
+        name = getattr(item, "__qualname__", None) or getattr(item, "__name__", None)
+        if name:
+            return {"__callable__": f"{getattr(item, '__module__', '')}.{name}"}
+
+    obj_dict = getattr(item, "__dict__", None)
+    if isinstance(obj_dict, dict):
+        return {"__object__": qualname, "fields": make_deterministic(obj_dict)}
+
+    slot_names = []
+    for cls in type(item).__mro__:
+        slots = getattr(cls, "__slots__", ())
+        slot_names.extend((slots,) if isinstance(slots, str) else slots)
+    if slot_names:
+        slots = {s: getattr(item, s) for s in slot_names if hasattr(item, s)}
+        return {"__object__": qualname, "fields": make_deterministic(slots)}
+
+    raise TypeError(
+        f"Cannot compute a deterministic task id for argument of type {qualname!r}. "
+        "Pass a value-based type (primitive, dict, list, set, dataclass, Pydantic "
+        "model, or an object with __dict__/__slots__) instead of an opaque object.",
+    )
 
 
 def to_json(obj):
