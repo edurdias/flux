@@ -106,8 +106,42 @@ def test_default_code_bindings_includes_builtins():
     assert "delegate" not in b
 
 
-def test_code_bindings_includes_delegate_when_tools_enabled():
+def test_code_bindings_delegate_requires_agents():
     from flux.tasks.ai.agent import _build_code_bindings
 
-    b = _build_code_bindings(agents=[], tools_enabled=True)
-    assert "delegate" in b
+    class _StubAgent:
+        name = "helper"
+        description = "a helper sub-agent"
+
+        def __call__(self, *a, **k):
+            return None
+
+    assert "delegate" not in _build_code_bindings(agents=[], tools_enabled=True)
+    assert "delegate" in _build_code_bindings(agents=[_StubAgent()], tools_enabled=True)
+
+
+def test_run_step_already_failed_returns_error_message():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": lambda: 42},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        mark_step_failed = _tool(tools, "mark_step_failed")
+        await create(
+            '[{"name":"a","description":"compute","type":"code","code":"lambda: answer()"},{"name":"b","description":"d"}]',
+        )
+        await mark_step_failed(step_name="a", reason="previous run failed")
+        result = await run_step("a")
+        return result
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    result = ctx.output
+    assert "error" in result
+    assert "already failed" in result["error"]
+    assert "Replan to retry" in result["error"]

@@ -531,6 +531,10 @@ async def build_plan_tools(
             return {"error": f"Step '{step_name}' is not a code step."}
         if step.status == "completed":
             return step.to_dict()
+        if step.status == "in_progress":
+            return step.to_dict()
+        if step.status == "failed":
+            return {"error": f"Step '{step_name}' already failed: {step.error}. Replan to retry."}
         if not ctx.plan.dependencies_satisfied(step):
             return {"error": f"Step '{step_name}' has unmet dependencies."}
 
@@ -557,15 +561,17 @@ async def build_plan_tools(
         await _persist()
         return step.to_dict()
 
-    return [
+    tools = [
         create_plan,
         start_step,
         mark_step_done,
         mark_step_failed,
         get_plan,
         get_ready_steps,
-        run_step,
-    ], ctx.summary
+    ]
+    if code_cfg["enabled"]:
+        tools.append(run_step)
+    return tools, ctx.summary
 
 
 def build_plan_preamble(code_steps_enabled: bool = False) -> str:

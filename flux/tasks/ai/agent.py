@@ -45,10 +45,10 @@ def _build_code_bindings(agents: list, tools_enabled: bool) -> dict:
         "Graph": Graph,
         "progress": progress,
     }
-    if tools_enabled:
+    if tools_enabled and agents:
         from flux.tasks.ai.delegation import build_delegate
 
-        bindings["delegate"] = build_delegate(agents or [])
+        bindings["delegate"] = build_delegate(agents)
     return bindings
 
 

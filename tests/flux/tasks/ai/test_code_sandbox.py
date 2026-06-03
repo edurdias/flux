@@ -75,6 +75,11 @@ def test_run_code_step_awaits_coroutine():
     assert out == 42
 
 
+def test_validate_code_rejects_builtin_not_in_bindings():
+    with pytest.raises(CodeValidationError):
+        validate_code("lambda: sum(range(9))", {"now"})
+
+
 def test_run_code_step_rejects_tampered_hash():
     import asyncio
     from flux.tasks.ai.code_sandbox import run_code_step, code_hash
