@@ -145,3 +145,167 @@ def test_run_step_already_failed_returns_error_message():
     assert "error" in result
     assert "already failed" in result["error"]
     assert "Replan to retry" in result["error"]
+
+
+def test_run_step_error_branches():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": lambda: 42},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        # distinct arg: run_step memoizes by (name, args), so reusing "calc"
+        # here would replay this no-plan result on the later real call.
+        out = {"no_plan": await run_step("ghost")}
+        await create(
+            '[{"name":"calc","description":"c","type":"code","code":"lambda: answer()"},'
+            '{"name":"think","description":"d"}]',
+        )
+        out["not_found"] = await run_step("missing")
+        out["non_code"] = await run_step("think")
+        out["ok"] = await run_step("calc")
+        out["completed_rerun"] = await run_step("calc")
+        return out
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    o = ctx.output
+    assert "No plan exists" in o["no_plan"]["error"]
+    assert "not found" in o["not_found"]["error"]
+    assert "not a code step" in o["non_code"]["error"]
+    assert o["ok"]["status"] == "completed" and o["ok"]["result"] == 42
+    assert o["completed_rerun"]["status"] == "completed"
+
+
+def test_run_step_unmet_dependencies():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": lambda: 42},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        await create(
+            '[{"name":"src","description":"d"},'
+            '{"name":"calc","description":"c","type":"code","code":"lambda: answer()","depends_on":["src"]}]',
+        )
+        return await run_step("calc")
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    assert "unmet dependencies" in ctx.output["error"]
+
+
+def test_run_step_blocked_by_active_reasoning_step():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": lambda: 42},
+        )
+        create = _tool(tools, "create_plan")
+        start = _tool(tools, "start_step")
+        run_step = _tool(tools, "run_step")
+        await create(
+            '[{"name":"think","description":"d"},'
+            '{"name":"calc","description":"c","type":"code","code":"lambda: answer()"}]',
+        )
+        await start("think")
+        return await run_step("calc")
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    assert "already in progress" in ctx.output["error"]
+
+
+def test_code_step_dependency_with_none_result_is_available():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"nothing": lambda: None},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        await create(
+            '[{"name":"src","description":"s","type":"code","code":"lambda: nothing()"},'
+            '{"name":"use","description":"u","type":"code","code":"lambda: deps[\'src\']","depends_on":["src"]}]',
+        )
+        await run_step("src")
+        return await run_step("use")
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    o = ctx.output
+    assert o["status"] == "completed"
+    assert o.get("result") is None
+
+
+def test_code_step_rejects_live_callable_dependency():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"getopen": lambda: open},
+        )
+        create = _tool(tools, "create_plan")
+        run_step = _tool(tools, "run_step")
+        await create(
+            '[{"name":"src","description":"s","type":"code","code":"lambda: getopen()"},'
+            '{"name":"use","description":"u","type":"code","code":"lambda: deps[\'src\']","depends_on":["src"]}]',
+        )
+        await run_step("src")
+        return await run_step("use")
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    assert "non-value dependency" in ctx.output["error"]
+
+
+def test_approve_plan_resume_rejects_invalid_code():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools(
+            approve_plan=True,
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"now": lambda: 1},
+        )
+        create = _tool(tools, "create_plan")
+        return await create('[{"name":"a","description":"d"},{"name":"b","description":"d"}]')
+
+    ctx = wf.run()
+    assert ctx.is_paused
+    modified = {
+        "steps": [
+            {"name": "a", "description": "d", "type": "code", "code": "lambda: __import__('os')"},
+            {"name": "b", "description": "d"},
+        ],
+    }
+    ctx = wf.resume(ctx.execution_id, modified)
+    assert ctx.has_succeeded
+    assert "error" in ctx.output and "code" in ctx.output["error"].lower()
+
+
+def test_agent_config_rejects_nonpositive_timeout():
+    import pytest
+    from pydantic import ValidationError
+
+    from flux.config import AgentConfig
+
+    with pytest.raises(ValidationError):
+        AgentConfig(dynamic_code_step_timeout=0)

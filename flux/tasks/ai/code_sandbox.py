@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import dataclasses
 import hashlib
 
 from flux.utils import maybe_awaitable
+
+_MAX_DEPS_DEPTH = 6
 
 
 class CodeValidationError(ValueError):
@@ -100,13 +103,45 @@ def build_sandbox_globals(bindings: dict) -> dict:
     admits.
 
     Note: callables nested inside non-callable bindings (e.g. one stored in a
-    deps dict) are NOT proxied. The caller controls `bindings` and is trusted;
-    sanitize deps values before enabling tools that can produce live objects.
+    deps dict) are NOT proxied. Callers must run deps through sanitize_deps so
+    no live callable reaches the sandbox via deps['a']['b'](...).
     """
     g: dict = {"__builtins__": {}}
     for name, value in bindings.items():
         g[name] = _CallProxy(value) if callable(value) else value
     return g
+
+
+def sanitize_deps(value: object, _depth: int = 0) -> object:
+    """Return a value-only deep copy of a dependency result for the sandbox.
+
+    Primitives pass through; list/tuple/set become lists and dict keeps its
+    keys, with every element sanitized recursively; objects exposing
+    model_dump() (Pydantic) or dataclass fields are dumped first. Anything else
+    — a callable, or an opaque object — raises CodeValidationError.
+
+    Value-only output serves two guarantees at once: generated code can never
+    reach a live callable smuggled in via deps (the dispatch grammar permits
+    deps['a']['b'](...)), and the result is deterministically serializable so
+    the host task_id stays stable across replay.
+    """
+    if _depth > _MAX_DEPS_DEPTH:
+        raise CodeValidationError("dependency value nested too deeply to sanitize")
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_deps(v, _depth + 1) for v in value]
+    if isinstance(value, dict):
+        return {k: sanitize_deps(v, _depth + 1) for k, v in value.items()}
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return sanitize_deps(dump(), _depth + 1)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return sanitize_deps(dataclasses.asdict(value), _depth + 1)
+    raise CodeValidationError(
+        f"dependency value of type {type(value).__name__} is not value-only; "
+        "code steps only receive primitive/JSON-like dependency results",
+    )
 
 
 def code_hash(code: str) -> str:

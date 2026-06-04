@@ -90,3 +90,64 @@ def test_run_code_step_rejects_tampered_hash():
         run_code_step(good, {"deps": {"x": 1}}, timeout=5, expected_hash=code_hash(good)),
     )
     assert out == 1
+
+
+def test_run_code_step_times_out():
+    import asyncio
+    from flux.tasks.ai.code_sandbox import run_code_step
+
+    async def slow():
+        await asyncio.sleep(3)
+        return 1
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(run_code_step("lambda: slow()", {"slow": slow}, timeout=1))
+
+
+def test_deps_attribute_walk_rejected_by_grammar():
+    with pytest.raises(CodeValidationError):
+        validate_code('lambda: deps["x"].secret', {"deps"})
+
+
+def test_sanitize_deps_passes_value_only_structures():
+    from flux.tasks.ai.code_sandbox import sanitize_deps
+
+    src = {"a": 1, "b": [1, "x", True, None], "c": {"d": 2.5}}
+    assert sanitize_deps(src) == src
+    assert sanitize_deps((1, 2)) == [1, 2]
+    assert sorted(sanitize_deps({1, 2, 3})) == [1, 2, 3]
+
+
+def test_sanitize_deps_dumps_pydantic_and_dataclass():
+    from dataclasses import dataclass
+    from pydantic import BaseModel
+    from flux.tasks.ai.code_sandbox import sanitize_deps
+
+    class M(BaseModel):
+        x: int
+        y: str
+
+    @dataclass
+    class D:
+        a: int
+        b: list
+
+    assert sanitize_deps(M(x=1, y="z")) == {"x": 1, "y": "z"}
+    assert sanitize_deps(D(a=1, b=[2, 3])) == {"a": 1, "b": [2, 3]}
+
+
+def test_sanitize_deps_rejects_nested_callable():
+    from flux.tasks.ai.code_sandbox import sanitize_deps
+
+    with pytest.raises(CodeValidationError):
+        sanitize_deps({"t": {"reader": open}})
+
+
+def test_sanitize_deps_rejects_opaque_object():
+    from flux.tasks.ai.code_sandbox import sanitize_deps
+
+    class Opaque:
+        pass
+
+    with pytest.raises(CodeValidationError):
+        sanitize_deps(Opaque())

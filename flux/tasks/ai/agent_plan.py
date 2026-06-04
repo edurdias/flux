@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -90,7 +91,7 @@ class AgentPlan:
         results = {}
         for dep_name in step.depends_on:
             dep = self.get_step(dep_name)
-            if dep and dep.result is not None:
+            if dep and dep.status == "completed":
                 results[dep_name] = dep.result
         return results
 
@@ -537,24 +538,42 @@ async def build_plan_tools(
         if step.status == "completed":
             return step.to_dict()
         if step.status == "in_progress":
-            return step.to_dict()
+            return {"error": f"Step '{step_name}' is already running."}
         if step.status == "failed":
             return {"error": f"Step '{step_name}' already failed: {step.error}. Replan to retry."}
+        active = ctx.plan.active_step()
+        if active and active.name != step_name:
+            return {
+                "error": f'Step "{active.name}" is already in progress. '
+                f"Complete or fail it before running a code step.",
+            }
         if not ctx.plan.dependencies_satisfied(step):
             return {"error": f"Step '{step_name}' has unmet dependencies."}
 
-        from flux.tasks.ai.code_sandbox import run_code_step
+        from flux.tasks.ai.code_sandbox import CodeValidationError, run_code_step, sanitize_deps
 
-        bindings = dict(base_bindings)
-        bindings["deps"] = ctx.plan.dependency_results(step)
-        runner = task.with_options(name=f"plan_step_{step.name}")(run_code_step)
+        try:
+            deps = sanitize_deps(ctx.plan.dependency_results(step))
+        except CodeValidationError as ex:
+            step.status = "failed"
+            step.error = str(ex)
+            await _persist()
+            return {"error": f"Code step '{step_name}' has a non-value dependency result: {ex}"}
+
+        timeout = code_cfg["timeout"]
+
+        async def _host(code: str, deps: dict) -> object:
+            sandbox = dict(base_bindings)
+            sandbox["deps"] = deps
+            return await run_code_step(code, sandbox, timeout=timeout)
+
+        runner = task.with_options(name=f"plan_step_{step.name}")(_host)
         try:
             step.status = "in_progress"
-            result = await runner(
-                step.code,
-                bindings,
-                timeout=code_cfg["timeout"],
-            )
+            result = await runner(step.code, deps)
+        except asyncio.CancelledError:
+            step.status = "pending"
+            raise
         except Exception as ex:  # noqa: BLE001 — surface failure to the agent
             step.status = "failed"
             step.error = str(ex)
