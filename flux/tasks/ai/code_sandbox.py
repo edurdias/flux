@@ -86,52 +86,6 @@ _ALLOWED_NODES = (
 )
 
 
-_SAFE_BUILTINS: frozenset[str] = frozenset(
-    {
-        "abs",
-        "all",
-        "any",
-        "bool",
-        "bytes",
-        "dict",
-        "divmod",
-        "enumerate",
-        "filter",
-        "float",
-        "frozenset",
-        "hash",
-        "int",
-        "isinstance",
-        "issubclass",
-        "iter",
-        "len",
-        "list",
-        "map",
-        "max",
-        "min",
-        "next",
-        "print",
-        "range",
-        "repr",
-        "reversed",
-        "round",
-        "set",
-        "slice",
-        "sorted",
-        "str",
-        "sum",
-        "tuple",
-        "type",
-        "zip",
-        "None",
-        "True",
-        "False",
-        "NotImplemented",
-        "Ellipsis",
-    },
-)
-
-
 def _collect_bound_names(tree: ast.AST) -> set[str]:
     """Names bound inside the function: params + every Store target."""
     bound: set[str] = set()
@@ -167,7 +121,7 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.AsyncFunctionDef:
         raise CodeValidationError("step must take exactly (deps, input)")
 
     bound = _collect_bound_names(fn)
-    allowed = set(allowed_names) | bound | _SAFE_BUILTINS
+    allowed = set(allowed_names) | bound
 
     for node in ast.walk(fn):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not fn:

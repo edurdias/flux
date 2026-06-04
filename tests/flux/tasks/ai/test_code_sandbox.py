@@ -10,7 +10,7 @@ GOOD = """
 async def step(deps, input):
     picked = [d for d in deps['fetch'] if d['score'] > 0.5]
     out = [await summarize(d) for d in picked]
-    return {'n': len(out), 'first': input}
+    return {'items': out, 'first': input}
 """
 
 
