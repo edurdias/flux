@@ -44,11 +44,38 @@ def test_accepts_control_flow_and_arithmetic():
         "async def step(deps):\n    return 1\n",
         "async def other(deps, input):\n    return 1\n",
         "async def step(deps, input):\n    try:\n        return 1\n    except Exception:\n        return 2\n",
+        # name-binding escape: Store target smuggles a forbidden name
+        "async def step(deps, input):\n    [__import__ for __import__ in []]\n    return __import__\n",
+        # __builtins__ reachable by name + subscript (no attribute access)
+        "async def step(deps, input):\n    return __builtins__['__import__']('os')\n",
+        # binding a denied non-dunder name via comprehension target
+        "async def step(deps, input):\n    [open for open in []]\n    return open\n",
+        # getattr would defeat the no-attribute-access model
+        "async def step(deps, input):\n    return getattr(deps, 'x')\n",
+        # decorator invokes a callable at definition time
+        "@parallel\nasync def step(deps, input):\n    return 1\n",
+        # default-arg expression
+        "async def step(deps, input=1):\n    return 1\n",
+        # positional-only args
+        "async def step(deps, input, /):\n    return 1\n",
+        # dunder name read
+        "async def step(deps, input):\n    return deps['x'].__class__\n",
     ],
 )
 def test_rejects(code):
     with pytest.raises(CodeValidationError):
         validate_code(code, ALLOWED)
+
+
+def test_denylist_does_not_block_normal_locals():
+    validate_code(
+        "async def step(deps, input):\n"
+        "    open_count = 0\n"
+        "    for x in deps['xs']:\n"
+        "        open_count = open_count + 1\n"
+        "    return open_count\n",
+        ALLOWED,
+    )
 
 
 def test_locals_and_loop_targets_resolve():

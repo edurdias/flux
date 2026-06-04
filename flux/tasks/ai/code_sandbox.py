@@ -86,6 +86,29 @@ _ALLOWED_NODES = (
 )
 
 
+_DENIED_NAMES = frozenset(
+    {
+        "eval",
+        "exec",
+        "compile",
+        "open",
+        "globals",
+        "locals",
+        "vars",
+        "getattr",
+        "setattr",
+        "delattr",
+        "breakpoint",
+        "memoryview",
+        "__import__",
+    },
+)
+
+
+def _is_denied_name(name: str) -> bool:
+    return name in _DENIED_NAMES or (name.startswith("__") and name.endswith("__"))
+
+
 def _collect_bound_names(tree: ast.AST) -> set[str]:
     """Names bound inside the function: params + every Store target."""
     bound: set[str] = set()
@@ -119,6 +142,10 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.AsyncFunctionDef:
     params = [a.arg for a in fn.args.args]
     if params != ["deps", "input"] or fn.args.vararg or fn.args.kwarg or fn.args.kwonlyargs:
         raise CodeValidationError("step must take exactly (deps, input)")
+    if fn.decorator_list:
+        raise CodeValidationError("decorators are not allowed on a code step")
+    if fn.args.defaults or fn.args.kw_defaults or fn.args.posonlyargs:
+        raise CodeValidationError("default or positional-only arguments are not allowed")
 
     bound = _collect_bound_names(fn)
     allowed = set(allowed_names) | bound
@@ -128,6 +155,10 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.AsyncFunctionDef:
             raise CodeValidationError("nested function definitions are not allowed")
         if not isinstance(node, _ALLOWED_NODES):
             raise CodeValidationError(f"disallowed syntax: {type(node).__name__}")
+        if isinstance(node, ast.Name) and _is_denied_name(node.id):
+            raise CodeValidationError(f"disallowed name: {node.id}")
+        if isinstance(node, ast.arg) and _is_denied_name(node.arg):
+            raise CodeValidationError(f"disallowed name: {node.arg}")
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             if node.id not in allowed:
                 raise CodeValidationError(f"unknown name: {node.id}")
