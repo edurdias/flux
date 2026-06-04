@@ -14,26 +14,63 @@ class CodeValidationError(ValueError):
     """Raised when a code-step lambda fails sandbox validation."""
 
 
-# Node types permitted anywhere in a code-step expression. Dispatch-only:
-# no arithmetic (BinOp/UnaryOp), no iteration/comprehension, no FunctionDef.
 _ALLOWED_NODES = (
-    ast.Expression,
-    ast.Lambda,
+    ast.Module,
+    ast.AsyncFunctionDef,
     ast.arguments,
     ast.arg,
+    ast.Assign,
+    ast.AugAssign,
+    ast.AnnAssign,
+    ast.Return,
+    ast.Expr,
+    ast.Pass,
+    ast.Break,
+    ast.Continue,
+    ast.For,
+    ast.While,
+    ast.If,
+    ast.IfExp,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.comprehension,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.BoolOp,
+    ast.Compare,
+    ast.Await,
     ast.Call,
     ast.keyword,
+    ast.Starred,
+    ast.Subscript,
+    ast.Slice,
     ast.Name,
     ast.Load,
-    ast.Subscript,
+    ast.Store,
     ast.Constant,
     ast.List,
     ast.Tuple,
     ast.Dict,
     ast.Set,
-    ast.IfExp,
-    ast.Compare,
-    ast.BoolOp,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.LShift,
+    ast.RShift,
+    ast.BitOr,
+    ast.BitAnd,
+    ast.BitXor,
+    ast.MatMult,
+    ast.UAdd,
+    ast.USub,
+    ast.Not,
+    ast.Invert,
     ast.And,
     ast.Or,
     ast.Eq,
@@ -42,37 +79,105 @@ _ALLOWED_NODES = (
     ast.LtE,
     ast.Gt,
     ast.GtE,
+    ast.Is,
+    ast.IsNot,
     ast.In,
     ast.NotIn,
-    ast.Slice,
 )
 
 
-def validate_code(code: str, allowed_names: set[str]) -> ast.Lambda:
-    """Parse and validate a code-step lambda. Returns the Lambda node.
+_SAFE_BUILTINS: frozenset[str] = frozenset(
+    {
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "bytes",
+        "dict",
+        "divmod",
+        "enumerate",
+        "filter",
+        "float",
+        "frozenset",
+        "hash",
+        "int",
+        "isinstance",
+        "issubclass",
+        "iter",
+        "len",
+        "list",
+        "map",
+        "max",
+        "min",
+        "next",
+        "print",
+        "range",
+        "repr",
+        "reversed",
+        "round",
+        "set",
+        "slice",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+        "type",
+        "zip",
+        "None",
+        "True",
+        "False",
+        "NotImplemented",
+        "Ellipsis",
+    },
+)
 
-    Raises CodeValidationError on any disallowed construct or free name.
+
+def _collect_bound_names(tree: ast.AST) -> set[str]:
+    """Names bound inside the function: params + every Store target."""
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+    return bound
+
+
+def validate_code(code: str, allowed_names: set[str]) -> ast.AsyncFunctionDef:
+    """Parse and validate a code step. Returns the `step` function node.
+
+    The source must be exactly one `async def step(deps, input)`. Raises
+    CodeValidationError on any disallowed construct or unknown free name.
     """
     try:
-        tree = ast.parse(code, mode="eval")
+        tree = ast.parse(code, mode="exec")
     except SyntaxError as ex:
         raise CodeValidationError(f"syntax error: {ex}") from ex
 
-    if not isinstance(tree.body, ast.Lambda):
-        raise CodeValidationError("code must be a single lambda expression")
+    body = tree.body
+    if len(body) != 1 or not isinstance(body[0], ast.AsyncFunctionDef):
+        raise CodeValidationError(
+            "code must be exactly one 'async def step(deps, input)' function",
+        )
+    fn = body[0]
+    if fn.name != "step":
+        raise CodeValidationError(f"function must be named 'step', got '{fn.name}'")
+    params = [a.arg for a in fn.args.args]
+    if params != ["deps", "input"] or fn.args.vararg or fn.args.kwarg or fn.args.kwonlyargs:
+        raise CodeValidationError("step must take exactly (deps, input)")
 
-    lam = tree.body
-    bound = {a.arg for a in lam.args.args}  # lambda params (usually none)
-    if lam.args.defaults or lam.args.kw_defaults:
-        raise CodeValidationError("lambda default arguments are not allowed")
+    bound = _collect_bound_names(fn)
+    allowed = set(allowed_names) | bound | _SAFE_BUILTINS
 
-    for node in ast.walk(tree):
+    for node in ast.walk(fn):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not fn:
+            raise CodeValidationError("nested function definitions are not allowed")
         if not isinstance(node, _ALLOWED_NODES):
             raise CodeValidationError(f"disallowed syntax: {type(node).__name__}")
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-            if node.id not in allowed_names and node.id not in bound:
+            if node.id not in allowed:
                 raise CodeValidationError(f"unknown name: {node.id}")
-    return lam
+    return fn
 
 
 class _CallProxy:

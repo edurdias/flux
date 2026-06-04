@@ -4,35 +4,62 @@ import pytest
 
 from flux.tasks.ai.code_sandbox import validate_code, CodeValidationError
 
-ALLOWED = {"now", "parallel", "deps", "delegate"}
+ALLOWED = {"now", "parallel", "summarize", "delegate"}
+
+GOOD = """
+async def step(deps, input):
+    picked = [d for d in deps['fetch'] if d['score'] > 0.5]
+    out = [await summarize(d) for d in picked]
+    return {'n': len(out), 'first': input}
+"""
 
 
-def test_accepts_dispatch_lambda():
-    validate_code("lambda: now()", ALLOWED)
-    validate_code("lambda: parallel(now(), now())", ALLOWED)
-    validate_code('lambda: deps["fetch"]', ALLOWED)
-    validate_code('lambda: now() if deps["x"] else now()', ALLOWED)
+def test_accepts_full_async_step():
+    validate_code(GOOD, ALLOWED)
+
+
+def test_accepts_control_flow_and_arithmetic():
+    validate_code(
+        "async def step(deps, input):\n"
+        "    total = 0\n"
+        "    for x in deps['nums']:\n"
+        "        if x > 0:\n"
+        "            total = total + x * 2\n"
+        "    return total\n",
+        ALLOWED,
+    )
 
 
 @pytest.mark.parametrize(
     "code",
     [
-        "lambda: __import__('os')",
-        "lambda: open('/etc/passwd')",
-        "lambda: (1).__class__",
-        "lambda: sum(range(10**18))",
-        "lambda: [0] * 10**9",
-        "lambda: [x for x in deps]",
-        "lambda: now.__globals__",
-        "now()",
-        "lambda: missing()",
-        'lambda: deps["x"].format(now())',  # str.format MRO-walk via attribute
-        "lambda: now().something",  # attribute access on call result
+        "async def step(deps, input):\n    return deps['x'].secret\n",
+        "async def step(deps, input):\n    return ('{0.__class__}').format(deps)\n",
+        "async def step(deps, input):\n    import os\n    return os\n",
+        "def helper():\n    return 1\nasync def step(deps, input):\n    return helper()\n",
+        "async def step(deps, input):\n    f = lambda: 1\n    return f()\n",
+        "async def step(deps, input):\n    return missing()\n",
+        "async def step(deps, input):\n    global x\n    return 1\n",
+        "x = 1\n",
+        "async def step(deps):\n    return 1\n",
+        "async def other(deps, input):\n    return 1\n",
+        "async def step(deps, input):\n    try:\n        return 1\n    except Exception:\n        return 2\n",
     ],
 )
-def test_rejects_unsafe(code):
+def test_rejects(code):
     with pytest.raises(CodeValidationError):
         validate_code(code, ALLOWED)
+
+
+def test_locals_and_loop_targets_resolve():
+    validate_code(
+        "async def step(deps, input):\n"
+        "    acc = [y for y in deps['xs']]\n"
+        "    for z in acc:\n"
+        "        acc = acc + [z]\n"
+        "    return acc\n",
+        ALLOWED,
+    )
 
 
 def test_callproxy_blocks_attribute_access():
