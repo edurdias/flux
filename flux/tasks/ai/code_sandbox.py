@@ -3,7 +3,10 @@ from __future__ import annotations
 import ast
 import builtins
 import dataclasses
+import datetime
 import hashlib
+import uuid
+from decimal import Decimal
 
 from flux.task import task
 
@@ -208,6 +211,12 @@ def sanitize_deps(value: object, _depth: int = 0) -> object:
         raise CodeValidationError("dependency value nested too deeply to sanitize")
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return str(value)
     if isinstance(value, (list, tuple, set)):
         return [sanitize_deps(v, _depth + 1) for v in value]
     if isinstance(value, dict):

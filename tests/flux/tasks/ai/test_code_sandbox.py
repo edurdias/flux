@@ -133,6 +133,19 @@ def test_sanitize_deps_rejects_opaque_object():
         sanitize_deps(Opaque())
 
 
+def test_sanitize_deps_allows_datetime_uuid_decimal():
+    import datetime
+    import uuid
+    from decimal import Decimal
+    from flux.tasks.ai.code_sandbox import sanitize_deps
+
+    assert sanitize_deps(datetime.datetime(2026, 1, 1)) == "2026-01-01T00:00:00"
+    u = uuid.uuid4()
+    assert sanitize_deps(u) == str(u)
+    assert sanitize_deps(Decimal("1.5")) == "1.5"
+    assert sanitize_deps({"t": datetime.date(2026, 1, 1)}) == {"t": "2026-01-01"}
+
+
 def test_safe_builtins_subset():
     from flux.tasks.ai.code_sandbox import _SAFE_BUILTINS
 
