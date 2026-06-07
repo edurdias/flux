@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import ast
-import asyncio
+import builtins
 import dataclasses
 import hashlib
 
-from flux.utils import maybe_awaitable
 
 _MAX_DEPS_DEPTH = 6
 
@@ -109,6 +108,31 @@ def _is_denied_name(name: str) -> bool:
     return name in _DENIED_NAMES or (name.startswith("__") and name.endswith("__"))
 
 
+_SAFE_BUILTIN_NAMES = (
+    "len",
+    "range",
+    "enumerate",
+    "sum",
+    "min",
+    "max",
+    "sorted",
+    "abs",
+    "zip",
+    "any",
+    "all",
+    "round",
+    "dict",
+    "list",
+    "set",
+    "tuple",
+    "str",
+    "int",
+    "float",
+    "bool",
+)
+_SAFE_BUILTINS = {n: getattr(builtins, n) for n in _SAFE_BUILTIN_NAMES}
+
+
 def _collect_bound_names(tree: ast.AST) -> set[str]:
     """Names bound inside the function: params + every Store target."""
     bound: set[str] = set()
@@ -165,43 +189,6 @@ def validate_code(code: str, allowed_names: set[str]) -> ast.AsyncFunctionDef:
     return fn
 
 
-class _CallProxy:
-    """Call-only wrapper: exposes __call__ and nothing else."""
-
-    __slots__ = ("_fn",)
-
-    def __init__(self, fn):
-        object.__setattr__(self, "_fn", fn)
-
-    def __call__(self, *args, **kwargs):
-        return object.__getattribute__(self, "_fn")(*args, **kwargs)
-
-    def __getattr__(self, name):
-        raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        raise AttributeError(name)
-
-
-def build_sandbox_globals(bindings: dict) -> dict:
-    """Build eval globals: top-level callable bindings proxied, non-callables
-    passed by value, __builtins__ emptied so no builtin is reachable.
-
-    The dispatch-only grammar rejects any bare name not in `bindings`, so no
-    builtin is callable from a code step regardless; __builtins__ is locked to
-    {} to make that explicit instead of shipping a subset the validator never
-    admits.
-
-    Note: callables nested inside non-callable bindings (e.g. one stored in a
-    deps dict) are NOT proxied. Callers must run deps through sanitize_deps so
-    no live callable reaches the sandbox via deps['a']['b'](...).
-    """
-    g: dict = {"__builtins__": {}}
-    for name, value in bindings.items():
-        g[name] = _CallProxy(value) if callable(value) else value
-    return g
-
-
 def sanitize_deps(value: object, _depth: int = 0) -> object:
     """Return a value-only deep copy of a dependency result for the sandbox.
 
@@ -236,24 +223,3 @@ def sanitize_deps(value: object, _depth: int = 0) -> object:
 
 def code_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
-
-
-async def run_code_step(
-    code: str,
-    bindings: dict,
-    *,
-    timeout: int,
-    expected_hash: str | None = None,
-) -> object:
-    """Validate, then evaluate a code-step lambda and run its result.
-
-    The lambda is re-validated here (defense in depth, identical to plan time).
-    `expected_hash` (when given) must match the code's hash before eval.
-    """
-    if expected_hash is not None and code_hash(code) != expected_hash:
-        raise CodeValidationError("code hash mismatch — refusing to execute")
-    allowed = set(bindings.keys())
-    validate_code(code, allowed)
-    g = build_sandbox_globals(bindings)
-    fn = eval(code, g)  # noqa: S307 — validated, locked builtins, proxied globals
-    return await asyncio.wait_for(maybe_awaitable(fn()), timeout=timeout)
