@@ -140,3 +140,46 @@ def test_safe_builtins_subset():
     assert "range" in _SAFE_BUILTINS
     for banned in ("open", "__import__", "eval", "exec", "getattr", "type", "compile"):
         assert banned not in _SAFE_BUILTINS
+
+
+def test_compile_runs_and_returns_value():
+    from flux import ExecutionContext, workflow
+    from flux.tasks.ai.code_sandbox import compile_code_step
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        async def double(n):
+            return n * 2
+
+        code = "async def step(deps, input):\n    return await double(deps['x']) + input\n"
+        runner = compile_code_step(code, {"double": double}, step_name="calc")
+        return await runner({"x": 21}, 0)
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output == 42
+
+
+def test_compile_uses_safe_builtins_and_blocks_others():
+    from flux.tasks.ai.code_sandbox import compile_code_step, CodeValidationError
+
+    compile_code_step(
+        "async def step(deps, input):\n    return len(deps['xs'])\n",
+        {},
+        step_name="ok",
+    )
+    with pytest.raises(CodeValidationError):
+        compile_code_step(
+            "async def step(deps, input):\n    return open('/x')\n",
+            {},
+            step_name="bad",
+        )
+
+
+def test_compile_task_name_includes_code_hash():
+    from flux.tasks.ai.code_sandbox import compile_code_step, code_hash
+
+    code = "async def step(deps, input):\n    return 1\n"
+    runner = compile_code_step(code, {}, step_name="s")
+    assert code_hash(code) in runner.name
+    assert runner.name.startswith("plan_step_s_")

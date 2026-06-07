@@ -5,6 +5,8 @@ import builtins
 import dataclasses
 import hashlib
 
+from flux.task import task
+
 
 _MAX_DEPS_DEPTH = 6
 
@@ -223,3 +225,21 @@ def sanitize_deps(value: object, _depth: int = 0) -> object:
 
 def code_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
+
+
+def compile_code_step(code: str, bindings: dict, *, step_name: str) -> task:
+    """Validate and compile an `async def step(deps, input)` into a flux task.
+
+    `bindings` are the exposed flux primitives (callables) made available as
+    module globals to the function; `deps`/`input` are supplied at call time.
+    The code hash is folded into the task name so re-authoring the body yields a
+    distinct task identity (no stale replay).
+    """
+    allowed = set(bindings) | {"deps", "input"} | set(_SAFE_BUILTIN_NAMES)
+    validate_code(code, allowed)
+
+    g: dict = {"__builtins__": dict(_SAFE_BUILTINS)}
+    g.update(bindings)
+    exec(compile(code, "<code-step>", "exec"), g)  # noqa: S102 — validated, locked builtins
+    fn = g["step"]
+    return task(fn, name=f"plan_step_{step_name}_{code_hash(code)}")
