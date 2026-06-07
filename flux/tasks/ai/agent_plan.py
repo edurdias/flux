@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
@@ -225,7 +224,11 @@ def _build_steps_from_payload(
     Returns (steps, None) on success or (None, error) when a code step is
     rejected. PlanValidationError from step-name validation propagates.
     """
-    from flux.tasks.ai.code_sandbox import CodeValidationError, validate_code
+    from flux.tasks.ai.code_sandbox import (
+        _SAFE_BUILTIN_NAMES,
+        CodeValidationError,
+        validate_code,
+    )
 
     new_steps = []
     for s in payload:
@@ -240,7 +243,10 @@ def _build_steps_from_payload(
             if not step_code:
                 return None, {"error": f"Step '{s['name']}' is type=code but has no code."}
             try:
-                validate_code(step_code, set(base_bindings) | {"deps"})
+                validate_code(
+                    step_code,
+                    set(base_bindings) | {"deps", "input"} | set(_SAFE_BUILTIN_NAMES),
+                )
             except CodeValidationError as ex:
                 return None, {"error": f"Invalid code in step '{s['name']}': {ex}"}
         new_steps.append(
@@ -520,70 +526,6 @@ async def build_plan_tools(
 
         return {"ready_steps": result}
 
-    @task
-    async def run_step(step_name: str) -> dict:
-        """Execute a code-type step's lambda in the sandbox and record its result.
-
-        Use this for steps with type "code". For reasoning steps, use
-        start_step / mark_step_done instead.
-        """
-        if ctx.plan is None:
-            return {"error": "No plan exists. Call create_plan first."}
-        step = ctx.plan.get_step(step_name)
-        if step is None:
-            available = ", ".join(s.name for s in ctx.plan.steps)
-            return {"error": f"Step '{step_name}' not found. Available: {available}"}
-        if step.type != "code" or not step.code:
-            return {"error": f"Step '{step_name}' is not a code step."}
-        if step.status == "completed":
-            return step.to_dict()
-        if step.status == "in_progress":
-            return {"error": f"Step '{step_name}' is already running."}
-        if step.status == "failed":
-            return {"error": f"Step '{step_name}' already failed: {step.error}. Replan to retry."}
-        active = ctx.plan.active_step()
-        if active and active.name != step_name:
-            return {
-                "error": f'Step "{active.name}" is already in progress. '
-                f"Complete or fail it before running a code step.",
-            }
-        if not ctx.plan.dependencies_satisfied(step):
-            return {"error": f"Step '{step_name}' has unmet dependencies."}
-
-        from flux.tasks.ai.code_sandbox import CodeValidationError, run_code_step, sanitize_deps
-
-        try:
-            deps = sanitize_deps(ctx.plan.dependency_results(step))
-        except CodeValidationError as ex:
-            step.status = "failed"
-            step.error = str(ex)
-            await _persist()
-            return {"error": f"Code step '{step_name}' has a non-value dependency result: {ex}"}
-
-        timeout = code_cfg["timeout"]
-
-        async def _host(code: str, deps: dict) -> object:
-            sandbox = dict(base_bindings)
-            sandbox["deps"] = deps
-            return await run_code_step(code, sandbox, timeout=timeout)
-
-        runner = task.with_options(name=f"plan_step_{step.name}")(_host)
-        try:
-            step.status = "in_progress"
-            result = await runner(step.code, deps)
-        except asyncio.CancelledError:
-            step.status = "pending"
-            raise
-        except Exception as ex:  # noqa: BLE001 — surface failure to the agent
-            step.status = "failed"
-            step.error = str(ex)
-            await _persist()
-            return {"error": f"Code step '{step_name}' failed: {ex}"}
-        step.status = "completed"
-        step.result = result
-        await _persist()
-        return step.to_dict()
-
     tools = [
         create_plan,
         start_step,
@@ -592,8 +534,6 @@ async def build_plan_tools(
         get_plan,
         get_ready_steps,
     ]
-    if code_cfg["enabled"]:
-        tools.append(run_step)
     return tools, ctx.summary
 
 
@@ -652,12 +592,28 @@ Replanning:
 """
 
     if code_steps_enabled:
-        names = (
-            ", ".join(sorted(code_bindings)) if code_bindings else "the exposed flux built-in tasks"
-        )
+        names = ", ".join(sorted(code_bindings)) if code_bindings else "the exposed flux tasks"
         preamble += f"""
 
-Each step has a type: 'reasoning' (default) or 'code'. For a 'code' step, set "type":"code" and "code" to a single Python lambda that DISPATCHES flux tasks and RETURNS a value or a flux task — e.g. `lambda: parallel(now(), now())`, or read a dependency with `lambda: deps['fetch']`. Available names: {names}; plus `deps['<dep_name>']` for a dependency's result. Only calls, subscripts like deps['x'], literals, and ternaries are allowed — no imports, statements, loops, comprehensions, f-strings, arithmetic, or attribute access (the `.` operator). Execute code steps with run_step(name), not start_step/mark_step_done.
+Some steps can be 'code' steps that run automatically. Set "type":"code" and
+"code" to a single async function exactly of the form:
+
+    async def step(deps, input):
+        ...
+        return <result>
+
+The function runs in a sandbox as soon as its dependencies are satisfied — you
+do NOT call a tool to run it. `deps` is a dict of this step's dependency results
+(deps['<dep_name>']); `input` is the original task input. You may use loops,
+conditionals, comprehensions, arithmetic, local variables, and `await` the
+available async tasks: {names}, plus delegate(...) when enabled.
+
+Hard rules: no imports; no attribute access (the '.' operator is forbidden — use
+subscripts like deps['x'] and comprehensions, not methods like list.append); the
+only callables are the listed tasks and these builtins: len, range, enumerate,
+sum, min, max, sorted, abs, zip, any, all, round, dict, list, set, tuple, str,
+int, float, bool. Return a value (it becomes the step's result). There is no CPU
+or memory limit, so avoid unbounded loops.
 """
 
     return preamble
