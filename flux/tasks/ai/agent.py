@@ -19,7 +19,6 @@ logger = logging.getLogger("flux.agent")
 
 def _build_code_bindings(agents: list, tools_enabled: bool) -> dict:
     from flux.tasks import (
-        Graph,
         call,
         choice,
         now,
@@ -42,7 +41,6 @@ def _build_code_bindings(agents: list, tools_enabled: bool) -> dict:
         "sleep": sleep,
         "pipeline": pipeline,
         "call": call,
-        "Graph": Graph,
         "progress": progress,
     }
     if tools_enabled and agents:

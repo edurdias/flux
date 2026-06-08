@@ -49,7 +49,7 @@ def _tool(tools, name):
     return next((t for t in tools if t.name == name), None)
 
 
-def test_default_code_bindings_includes_builtins():
+def test_default_code_bindings_excludes_graph():
     from flux.tasks.ai.agent import _build_code_bindings
 
     b = _build_code_bindings(agents=[], tools_enabled=False)
@@ -59,7 +59,6 @@ def test_default_code_bindings_includes_builtins():
         "parallel",
         "pipeline",
         "call",
-        "Graph",
         "progress",
         "choice",
         "randint",
@@ -67,6 +66,7 @@ def test_default_code_bindings_includes_builtins():
         "sleep",
     ):
         assert name in b
+    assert "Graph" not in b  # unusable: fluent builder needs attribute access
     assert "delegate" not in b
 
 
