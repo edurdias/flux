@@ -578,7 +578,10 @@ async def build_plan_tools(
                 runner = compile_code_step(step.code, base_bindings, step_name=step.name)
                 try:
                     step.status = "in_progress"
-                    step.result = await runner(deps, safe_input)
+                    step.result = await asyncio.wait_for(
+                        runner(deps, safe_input),
+                        timeout=code_cfg["timeout"],
+                    )
                     step.status = "completed"
                     ran.append(f'"{step.name}" ok')
                 except asyncio.CancelledError:

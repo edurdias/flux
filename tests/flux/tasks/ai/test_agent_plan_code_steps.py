@@ -13,6 +13,13 @@ async def _raise():
     raise RuntimeError("boom")
 
 
+async def _slow():
+    import asyncio
+
+    await asyncio.sleep(3)
+    return 1
+
+
 def test_step_defaults_to_reasoning():
     s = AgentStep(name="a", description="d")
     assert s.type == "reasoning"
@@ -290,4 +297,32 @@ def test_advance_records_failure():
     ctx = wf.run()
     assert ctx.has_succeeded
     steps = {s["name"]: s for s in ctx.output["plan"]["steps"]}
+    assert steps["a"]["status"] == "failed"
+
+
+def test_advance_times_out_slow_code_step():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _, advance = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 1},
+            code_bindings={"slow": _slow},
+        )
+        create = _tool(tools, "create_plan")
+        get_plan = _tool(tools, "get_plan")
+        a = "async def step(deps, input):\n    return await slow()\n"
+        steps = _json.dumps(
+            [
+                {"name": "a", "description": "x", "type": "code", "code": a},
+                {"name": "b", "description": "y"},
+            ],
+        )
+        await create(steps)
+        await advance()
+        return await get_plan()
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    steps = {s["name"]: s for s in ctx.output["steps"]}
     assert steps["a"]["status"] == "failed"
