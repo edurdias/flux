@@ -256,16 +256,16 @@ async def run_agent_loop(
 
         tool_result_messages = formatter.format_tool_results(response.tool_calls, results)
 
-        if plan_summary_fn:
-            summary = plan_summary_fn()
-            if summary and tool_result_messages:
-                last = tool_result_messages[-1]
-                if isinstance(last, dict) and isinstance(last.get("content"), str):
-                    last["content"] += f"\n\n{summary}"
-                else:
-                    tool_result_messages.append(
-                        formatter.format_user_message(summary),
-                    )
+        advance_summary = await plan_advance_fn() if plan_advance_fn is not None else None
+        summary = advance_summary or (plan_summary_fn() if plan_summary_fn else None)
+        if summary and tool_result_messages:
+            last = tool_result_messages[-1]
+            if isinstance(last, dict) and isinstance(last.get("content"), str):
+                last["content"] += f"\n\n{summary}"
+            else:
+                tool_result_messages.append(
+                    formatter.format_user_message(summary),
+                )
 
         messages.extend(tool_result_messages)
 
@@ -280,28 +280,24 @@ async def run_agent_loop(
         )
         call_counter += 1
 
-        if (
-            not response.tool_calls
-            and not response.text
-            and plan_summary_fn
-            and plan_summary_fn()
-            and tool_call_count < max_tool_calls
-        ):
-            summary = plan_summary_fn()
-            messages.append(formatter.format_assistant_message(response))
-            messages.append(
-                formatter.format_user_message(f"Continue working on your plan. {summary}"),
-            )
-            response = await _call_llm(
-                llm_task,
-                formatter,
-                messages,
-                call_kwargs,
-                working_memory,
-                stream,
-                call_counter,
-            )
-            call_counter += 1
+        if not response.tool_calls and not response.text and tool_call_count < max_tool_calls:
+            advance_summary = await plan_advance_fn() if plan_advance_fn is not None else None
+            summary = advance_summary or (plan_summary_fn() if plan_summary_fn else None)
+            if summary:
+                messages.append(formatter.format_assistant_message(response))
+                messages.append(
+                    formatter.format_user_message(f"Continue working on your plan. {summary}"),
+                )
+                response = await _call_llm(
+                    llm_task,
+                    formatter,
+                    messages,
+                    call_kwargs,
+                    working_memory,
+                    stream,
+                    call_counter,
+                )
+                call_counter += 1
 
     if response.tool_calls and tool_call_count >= max_tool_calls:
         messages.append(formatter.format_assistant_message(response))

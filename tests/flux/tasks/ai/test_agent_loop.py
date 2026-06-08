@@ -370,3 +370,59 @@ def test_multiple_tool_iterations():
     ctx = test_wf.run()
     assert ctx.has_succeeded, ctx.output
     assert "42" in ctx.output
+
+
+def test_loop_awaits_plan_advance_fn():
+    from flux.tasks.ai.agent_loop import run_agent_loop
+
+    calls = {"n": 0}
+    captured_messages: dict[str, Any] = {}
+
+    async def advance() -> str:
+        calls["n"] += 1
+        return 'Ran code steps: "a" ok.'
+
+    call_index = {"i": 0}
+
+    @task
+    async def capturing_llm(messages: list[dict], **kwargs: Any) -> LLMResponse:
+        idx = call_index["i"]
+        call_index["i"] += 1
+        captured_messages[f"call_{idx}"] = list(messages)
+        responses = [
+            LLMResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(id="call_1", name="search_web", arguments={"query": "flux"}),
+                ],
+            ),
+            LLMResponse(text="Done."),
+        ]
+        if idx < len(responses):
+            return responses[idx]
+        return LLMResponse(text="fallback")
+
+    formatter = MockFormatter()
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        return await run_agent_loop(
+            llm_task=capturing_llm,
+            formatter=formatter,
+            system_prompt="You are helpful.",
+            instruction="Do something with tools",
+            tools=[search_web],
+            tool_schemas=[{"name": "search_web", "parameters": {}}],
+            max_tool_calls=10,
+            plan_advance_fn=advance,
+        )
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded, ctx.output
+    assert calls["n"] >= 1
+
+    second_call_messages = captured_messages.get("call_1", [])
+    all_content = " ".join(
+        msg.get("content", "") or "" for msg in second_call_messages if isinstance(msg, dict)
+    )
+    assert "Ran code steps" in all_content
