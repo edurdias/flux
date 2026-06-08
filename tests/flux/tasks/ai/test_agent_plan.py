@@ -494,7 +494,7 @@ def test_build_plan_tools_returns_tools_and_summary():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         return {"count": len(tools), "summary": summary_fn()}
 
     ctx = test_wf.run()
@@ -508,7 +508,7 @@ def test_build_plan_tools_tool_names():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         return {t.func.__name__ for t in tools}
 
     ctx = test_wf.run()
@@ -530,7 +530,7 @@ def test_create_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         result = await create_plan_tool(
             steps=json.dumps(
@@ -560,7 +560,7 @@ def test_create_plan_invalid_name():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps([{"name": "Bad-Name", "description": "Invalid."}]),
@@ -577,7 +577,7 @@ def test_create_plan_circular_dependency():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
@@ -599,7 +599,7 @@ def test_create_plan_preserves_completed_on_replan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -642,7 +642,7 @@ def test_mark_step_done():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -665,7 +665,7 @@ def test_mark_step_done_no_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         return await mark_step_done_tool(step_name="a", result="Done.")
 
@@ -681,7 +681,7 @@ def test_mark_step_done_not_found():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -704,7 +704,7 @@ def test_mark_step_done_already_completed():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -730,7 +730,7 @@ def test_get_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
         await create_plan_tool(
@@ -750,7 +750,7 @@ def test_get_plan_no_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
         return await get_plan_tool()
 
@@ -768,7 +768,7 @@ def test_start_step():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
@@ -793,7 +793,7 @@ def test_start_step_no_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         return await start_step_tool(step_name="a")
 
@@ -808,7 +808,7 @@ def test_start_step_not_found():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
@@ -832,7 +832,7 @@ def test_start_step_already_in_progress():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
@@ -858,7 +858,7 @@ def test_start_step_deps_not_satisfied_warns():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
@@ -883,7 +883,7 @@ def test_start_step_strict_deps_blocks():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(strict_dependencies=True)
+        tools, _, _ = await build_plan_tools(strict_dependencies=True)
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         await create_plan_tool(
@@ -930,7 +930,7 @@ def test_mark_step_failed():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
@@ -958,7 +958,7 @@ def test_mark_step_failed_no_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         return await mark_step_failed_tool(step_name="a", reason="Error.")
 
@@ -973,7 +973,7 @@ def test_mark_step_failed_allows_from_pending():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         await create_plan_tool(
@@ -997,7 +997,7 @@ def test_mark_step_failed_already_completed():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
@@ -1023,7 +1023,7 @@ def test_mark_step_done_from_in_progress():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
@@ -1049,7 +1049,7 @@ def test_mark_step_done_from_pending_grace():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -1073,7 +1073,7 @@ def test_mark_step_done_rejects_failed():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
@@ -1102,7 +1102,7 @@ def test_create_plan_rejects_single_step():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps([{"name": "a", "description": "Do A."}]),
@@ -1118,7 +1118,7 @@ def test_create_plan_rejects_too_many_steps():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(max_plan_steps=5)
+        tools, _, _ = await build_plan_tools(max_plan_steps=5)
         create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(6)]
         return await create_plan_tool(steps=json.dumps(steps))
@@ -1133,7 +1133,7 @@ def test_create_plan_accepts_at_limit():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(max_plan_steps=5)
+        tools, _, _ = await build_plan_tools(max_plan_steps=5)
         create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(5)]
         return await create_plan_tool(steps=json.dumps(steps))
@@ -1148,7 +1148,7 @@ def test_create_plan_default_max_is_20():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         steps = [{"name": f"s{i}", "description": f"Step {i}."} for i in range(21)]
         return await create_plan_tool(steps=json.dumps(steps))
@@ -1166,7 +1166,7 @@ def test_get_ready_steps():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
@@ -1197,7 +1197,7 @@ def test_get_ready_steps_no_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
         return await get_ready_steps_tool()
 
@@ -1212,7 +1212,7 @@ def test_get_ready_steps_none_ready():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
         get_ready_steps_tool = next(t for t in tools if t.func.__name__ == "get_ready_steps")
@@ -1238,7 +1238,7 @@ def test_replan_warns_about_dropped_completed_steps():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -1271,7 +1271,7 @@ def test_replan_no_warning_when_steps_preserved():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
         await create_plan_tool(
@@ -1307,7 +1307,7 @@ def test_create_plan_pauses_for_approval():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(approve_plan=True)
+        tools, _, _ = await build_plan_tools(approve_plan=True)
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
@@ -1333,7 +1333,7 @@ def test_create_plan_resumes_with_approved_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools(approve_plan=True)
+        tools, summary_fn, _ = await build_plan_tools(approve_plan=True)
         create_plan_tool = tools[0]
         result = await create_plan_tool(
             steps=json.dumps(
@@ -1363,7 +1363,7 @@ def test_create_plan_resumes_with_modified_plan():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(approve_plan=True)
+        tools, _, _ = await build_plan_tools(approve_plan=True)
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
@@ -1395,7 +1395,7 @@ def test_create_plan_resumes_with_rejection():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools(approve_plan=True)
+        tools, summary_fn, _ = await build_plan_tools(approve_plan=True)
         create_plan_tool = tools[0]
         result = await create_plan_tool(
             steps=json.dumps(
@@ -1422,7 +1422,7 @@ def test_create_plan_no_pause_when_approval_disabled():
 
     @workflow
     async def test_wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(approve_plan=False)
+        tools, _, _ = await build_plan_tools(approve_plan=False)
         create_plan_tool = tools[0]
         return await create_plan_tool(
             steps=json.dumps(
@@ -1453,7 +1453,7 @@ def test_build_plan_tools_restores_from_ltm():
         ltm = LongTermMemory(provider=provider, agent="plan_wf", scope="_plan")
         phase = ctx.input or "setup"
         if phase == "setup":
-            tools, _ = await build_plan_tools(long_term_memory=ltm)
+            tools, _, _ = await build_plan_tools(long_term_memory=ltm)
             create_plan_tool = tools[0]
             mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
             await create_plan_tool(
@@ -1467,7 +1467,7 @@ def test_build_plan_tools_restores_from_ltm():
             await mark_step_done_tool(step_name="a", result="Done A.")
             return "setup done"
         else:
-            tools, summary_fn = await build_plan_tools(long_term_memory=ltm)
+            tools, summary_fn, _ = await build_plan_tools(long_term_memory=ltm)
             get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
             plan = await get_plan_tool()
             return {"plan": plan, "summary": summary_fn()}
@@ -1489,7 +1489,7 @@ def test_build_plan_tools_works_without_ltm():
 
     @workflow
     async def test_wf2(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         create_plan_tool = tools[0]
         await create_plan_tool(
             steps=json.dumps(

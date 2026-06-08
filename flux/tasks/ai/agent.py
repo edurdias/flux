@@ -142,6 +142,7 @@ async def agent(
         tools = (tools or []) + [build_delegate(agents)]
 
     plan_summary_fn = None
+    plan_advance_fn = None
     if planning:
         from flux.config import Configuration
         from flux.tasks.ai.agent_plan import build_plan_preamble, build_plan_tools
@@ -156,7 +157,7 @@ async def agent(
             code_steps_enabled=agent_cfg.dynamic_code_steps_enabled,
             code_bindings=list(code_bindings),
         )
-        plan_tools, plan_summary_fn = await build_plan_tools(
+        plan_tools, plan_summary_fn, plan_advance_fn = await build_plan_tools(
             strict_dependencies=strict_dependencies,
             max_plan_steps=max_plan_steps,
             approve_plan=approve_plan,
@@ -236,6 +237,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                plan_advance_fn=plan_advance_fn,
                 approval_mode=approval_mode,
                 on_complete=on_complete,
                 on_pause=on_pause,
@@ -276,6 +278,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                plan_advance_fn=plan_advance_fn,
                 approval_mode=approval_mode,
                 on_complete=on_complete,
                 on_pause=on_pause,
@@ -316,6 +319,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                plan_advance_fn=plan_advance_fn,
                 approval_mode=approval_mode,
                 on_complete=on_complete,
                 on_pause=on_pause,
@@ -356,6 +360,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
+                plan_advance_fn=plan_advance_fn,
                 approval_mode=approval_mode,
                 on_complete=on_complete,
                 on_pause=on_pause,

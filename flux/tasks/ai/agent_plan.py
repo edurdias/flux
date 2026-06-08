@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -269,12 +270,12 @@ async def build_plan_tools(
     long_term_memory: LongTermMemory | None = None,
     code_config: dict | None = None,
     code_bindings: dict | None = None,
-) -> tuple[list[task], Callable[[], str | None]]:
+) -> tuple[list[task], Callable[[], str | None], Callable[[], Any]]:
     """Build planning tools and a summary function.
 
     Returns:
-        A tuple of (tools, summary_fn). The tools and summary_fn share
-        the same PlanContext via closure.
+        A tuple of (tools, summary_fn, advance_fn). The tools, summary_fn, and
+        advance_fn share the same PlanContext via closure.
     """
     ctx = PlanContext()
 
@@ -534,7 +535,65 @@ async def build_plan_tools(
         get_plan,
         get_ready_steps,
     ]
-    return tools, ctx.summary
+
+    async def advance() -> str | None:
+        """Drive ready code steps to a fixpoint. Returns a summary or None."""
+        if ctx.plan is None or not code_cfg["enabled"]:
+            return None
+        from flux import ExecutionContext
+        from flux.tasks.ai.code_sandbox import (
+            CodeValidationError,
+            compile_code_step,
+            sanitize_deps,
+        )
+
+        execution_input = None
+        try:
+            exec_ctx = await ExecutionContext.get()
+            execution_input = exec_ctx.input
+        except Exception:  # noqa: BLE001 — input is best-effort context
+            execution_input = None
+
+        ran: list[str] = []
+        while True:
+            ready = [
+                s
+                for s in ctx.plan.steps
+                if s.type == "code"
+                and s.code
+                and s.status == "pending"
+                and ctx.plan.dependencies_satisfied(s)
+            ]
+            if not ready:
+                break
+            for step in ready:
+                try:
+                    deps = sanitize_deps(ctx.plan.dependency_results(step))
+                    safe_input = sanitize_deps(execution_input)
+                except CodeValidationError as ex:
+                    step.status = "failed"
+                    step.error = f"non-value dependency/input: {ex}"
+                    ran.append(f'"{step.name}" failed')
+                    continue
+                runner = compile_code_step(step.code, base_bindings, step_name=step.name)
+                try:
+                    step.status = "in_progress"
+                    step.result = await runner(deps, safe_input)
+                    step.status = "completed"
+                    ran.append(f'"{step.name}" ok')
+                except asyncio.CancelledError:
+                    step.status = "pending"
+                    raise
+                except Exception as ex:  # noqa: BLE001 — surface failure to the agent
+                    step.status = "failed"
+                    step.error = str(ex)
+                    ran.append(f'"{step.name}" failed: {ex}')
+            await _persist()
+        if not ran:
+            return None
+        return "Ran code steps: " + ", ".join(ran) + ". " + (ctx.summary() or "")
+
+    return tools, ctx.summary, advance
 
 
 def build_plan_preamble(

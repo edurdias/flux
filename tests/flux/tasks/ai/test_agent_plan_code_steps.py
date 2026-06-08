@@ -5,6 +5,14 @@ import json as _json
 from flux.tasks.ai.agent_plan import AgentPlan, AgentStep, build_plan_tools
 
 
+async def _answer():
+    return 42
+
+
+async def _raise():
+    raise RuntimeError("boom")
+
+
 def test_step_defaults_to_reasoning():
     s = AgentStep(name="a", description="d")
     assert s.type == "reasoning"
@@ -81,7 +89,7 @@ def test_approve_plan_resume_rejects_invalid_code():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(
+        tools, _, _ = await build_plan_tools(
             approve_plan=True,
             code_config={"enabled": True, "timeout": 5},
             code_bindings={"now": lambda: 1},
@@ -125,7 +133,7 @@ def test_create_plan_accepts_v2_code_step():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(
+        tools, _, _ = await build_plan_tools(
             code_config={"enabled": True, "timeout": 5},
             code_bindings={"answer": lambda: 42},
         )
@@ -148,7 +156,7 @@ def test_create_plan_rejects_invalid_v2_code():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(
+        tools, _, _ = await build_plan_tools(
             code_config={"enabled": True, "timeout": 5},
             code_bindings={"answer": lambda: 42},
         )
@@ -172,7 +180,7 @@ def test_run_step_tool_removed():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools(
+        tools, _, _ = await build_plan_tools(
             code_config={"enabled": True, "timeout": 5},
             code_bindings={"answer": lambda: 42},
         )
@@ -191,3 +199,95 @@ def test_preamble_describes_v2_contract_when_enabled():
     assert "attribute access" in text.lower()
     assert "now" in text and "parallel" in text
     assert "async def step" not in build_plan_preamble(code_steps_enabled=False)
+
+
+def test_advance_runs_ready_code_steps_to_fixpoint():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _, advance = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": _answer},
+        )
+        create = _tool(tools, "create_plan")
+        get_plan = _tool(tools, "get_plan")
+        a = "async def step(deps, input):\n    return await answer()\n"
+        b = "async def step(deps, input):\n    return deps['a'] + 1\n"
+        steps = _json.dumps(
+            [
+                {"name": "a", "description": "x", "type": "code", "code": a},
+                {"name": "b", "description": "y", "type": "code", "code": b, "depends_on": ["a"]},
+            ],
+        )
+        await create(steps)
+        summary = await advance()
+        return {"summary": summary, "plan": await get_plan()}
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    steps = {s["name"]: s for s in ctx.output["plan"]["steps"]}
+    assert steps["a"]["status"] == "completed" and steps["a"]["result"] == 42
+    assert steps["b"]["status"] == "completed" and steps["b"]["result"] == 43
+
+
+def test_advance_waits_on_reasoning_dependency():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _, advance = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"answer": _answer},
+        )
+        create = _tool(tools, "create_plan")
+        get_plan = _tool(tools, "get_plan")
+        c = "async def step(deps, input):\n    return deps['think']\n"
+        steps = _json.dumps(
+            [
+                {"name": "think", "description": "reason"},
+                {
+                    "name": "use",
+                    "description": "u",
+                    "type": "code",
+                    "code": c,
+                    "depends_on": ["think"],
+                },
+            ],
+        )
+        await create(steps)
+        await advance()
+        return await get_plan()
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    steps = {s["name"]: s for s in ctx.output["steps"]}
+    assert steps["use"]["status"] == "pending"
+
+
+def test_advance_records_failure():
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        tools, _, advance = await build_plan_tools(
+            code_config={"enabled": True, "timeout": 5},
+            code_bindings={"boom": _raise},
+        )
+        create = _tool(tools, "create_plan")
+        get_plan = _tool(tools, "get_plan")
+        a = "async def step(deps, input):\n    return await boom()\n"
+        steps = _json.dumps(
+            [
+                {"name": "a", "description": "x", "type": "code", "code": a},
+                {"name": "b", "description": "y"},
+            ],
+        )
+        await create(steps)
+        summary = await advance()
+        return {"summary": summary, "plan": await get_plan()}
+
+    ctx = wf.run()
+    assert ctx.has_succeeded
+    steps = {s["name"]: s for s in ctx.output["plan"]["steps"]}
+    assert steps["a"]["status"] == "failed"

@@ -27,7 +27,7 @@ def test_integration_create_plan_via_execute_tools():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
         result = await execute_tools(
             [
                 {
@@ -68,7 +68,7 @@ def test_integration_full_plan_lifecycle():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
 
         r1 = await execute_tools(
             [
@@ -165,7 +165,7 @@ def test_integration_mark_step_failed():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
 
         await execute_tools(
             [
@@ -235,7 +235,7 @@ def test_integration_get_ready_steps():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
 
         await execute_tools(
             [
@@ -319,7 +319,7 @@ def test_integration_replan_preserves_completed():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
 
         await execute_tools(
             [
@@ -389,7 +389,7 @@ def test_integration_mark_step_done_errors():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
 
         r1 = await execute_tools(
             [
@@ -446,7 +446,7 @@ def test_integration_validation_errors():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, _ = await build_plan_tools()
+        tools, _, _ = await build_plan_tools()
 
         r1 = await execute_tools(
             [
@@ -501,7 +501,7 @@ def test_integration_plan_summary_injection():
 
     @workflow
     async def wf(ctx: ExecutionContext):
-        tools, summary_fn = await build_plan_tools()
+        tools, summary_fn, _ = await build_plan_tools()
 
         assert summary_fn() is None
 

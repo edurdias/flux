@@ -124,6 +124,7 @@ async def run_agent_loop(
     max_concurrent_tools: int | None = None,
     stream: bool = False,
     plan_summary_fn: Any | None = None,
+    plan_advance_fn: Any | None = None,
     approval_mode: str = "default",
     on_complete: list[Any] | None = None,
     on_pause: list[Any] | None = None,
