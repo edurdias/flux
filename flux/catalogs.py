@@ -294,6 +294,30 @@ class WorkflowCatalog(ABC):
                 raised errors (invalid namespace, no workflow found) carry their own
                 messages unchanged.
         """
+        workflow_infos = self._parse_ast(source)
+        _enrich_workflow_metadata(source, workflow_infos)
+        return workflow_infos
+
+    def parse_static(self, source: bytes) -> list[WorkflowInfo]:
+        """Parse workflows from source WITHOUT executing the module.
+
+        Performs only static AST analysis (no ``exec``/``import``), so it is
+        safe to call on an untrusted upload *before* authorizing it. Metadata
+        that requires importing the module (e.g. the input JSON schema) is left
+        unpopulated until :meth:`enrich` runs.
+        """
+        return self._parse_ast(source)
+
+    def enrich(self, source: bytes, workflow_infos: list[WorkflowInfo]) -> None:
+        """Populate import-dependent metadata by executing the workflow source.
+
+        Importing the uploaded module runs its top-level code, so callers MUST
+        authorize the registration before invoking this.
+        """
+        _enrich_workflow_metadata(source, workflow_infos)
+
+    def _parse_ast(self, source: bytes) -> list[WorkflowInfo]:
+        """Static AST extraction shared by :meth:`parse` and :meth:`parse_static`."""
         try:
             tree = ast.parse(source)
         except SyntaxError:
@@ -381,8 +405,6 @@ class WorkflowCatalog(ABC):
 
             if not workflow_infos:
                 raise SyntaxError("No workflow found in the provided code.")
-
-            _enrich_workflow_metadata(source, workflow_infos)
 
             return workflow_infos
 

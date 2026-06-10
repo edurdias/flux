@@ -95,17 +95,16 @@ docker-clean: ## Clean up Docker resources
 	docker system prune -f
 
 # Code Quality
-lint: ## Run linting
-	poetry run pylint flux/
+lint: ## Run linting (ruff + mypy via pre-commit, matches CI)
+	poetry run pre-commit run --all-files
 
-format: ## Format code
-	poetry run black flux/ tests/
-	poetry run isort flux/ tests/
+format: ## Format code (ruff format + autofix)
+	poetry run ruff format flux/ tests/
+	poetry run ruff check --fix flux/ tests/
 
-check: ## Run all checks (lint, type check, tests)
-	poetry run pylint flux/
-	poetry run mypy flux/ || true
-	poetry run pytest tests/flux/test_*.py
+check: ## Run all checks (lint/format/type via pre-commit, then unit tests)
+	poetry run pre-commit run --all-files
+	poetry run pytest tests/ --ignore=tests/e2e
 
 coverage: ## Run tests with coverage
 	poetry run pytest tests/ --cov=flux --cov-report=html --cov-report=term-missing
