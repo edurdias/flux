@@ -33,8 +33,12 @@ following in mind:
 - **Enable authentication.** Authentication is **disabled by default** for local
   development. In any shared or networked deployment, set
   `[flux.security.auth] enabled = true` (or `FLUX_SECURITY__AUTH__ENABLED=true`)
-  and configure a provider (OIDC or API keys). With auth disabled, all requests
-  are treated as an anonymous admin.
+  and configure a provider (OIDC or API keys). With auth disabled, read-only
+  requests are served anonymously, but state-changing requests (POST/PUT/PATCH/
+  DELETE) are refused unless you also set
+  `FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS=true`. That opt-out is intended only for
+  trusted local development; when it is enabled, anonymous callers are treated as
+  admin.
 - **Registration is privileged.** Registering a workflow causes its module code
   to be executed (for schema extraction and on workers). Restrict the
   `workflow:<namespace>:*:register` permission to trusted operators.
