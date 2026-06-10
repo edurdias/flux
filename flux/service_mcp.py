@@ -269,7 +269,11 @@ class ProxyBackedMCPServer(ServiceMCPServer):
             from fastmcp.server.dependencies import get_http_headers
 
             headers = get_http_headers()
-        except Exception:
+        except Exception as ex:
+            # Expected outside an HTTP request context (e.g. stdio transport);
+            # log so a genuine failure to read auth headers is observable rather
+            # than silently forwarding no credentials.
+            logger.debug(f"Could not read incoming HTTP headers to forward auth: {ex}")
             return {}
         forwarded: dict[str, str] = {}
         for key in ("authorization", "x-api-key"):

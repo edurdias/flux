@@ -383,7 +383,7 @@ class WorkerResourcesModel(Base):
     disk_total = Column(BigInteger, nullable=False)
     disk_free = Column(BigInteger, nullable=False)
 
-    worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=False, index=True)
     worker = relationship("WorkerModel", back_populates="resources", uselist=False)
 
     gpus = relationship("WorkerResourcesGPUModel", back_populates="resources")
@@ -414,7 +414,7 @@ class WorkerPackageModel(Base):
     name = Column(String, nullable=False)
     version = Column(String, nullable=False)
 
-    worker_name = Column(String, ForeignKey("workers.name"), nullable=False)
+    worker_name = Column(String, ForeignKey("workers.name"), nullable=False, index=True)
     worker = relationship("WorkerModel", back_populates="packages")
 
     def __init__(self, name: str, version: str):
@@ -524,9 +524,9 @@ class ExecutionContextModel(Base):
         unique=True,
         nullable=False,
     )
-    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False)
-    workflow_namespace = Column(String(64), nullable=False, default="default")
-    workflow_name = Column(String, nullable=False)
+    workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False, index=True)
+    workflow_namespace = Column(String(64), nullable=False, default="default", index=True)
+    workflow_name = Column(String, nullable=False, index=True)
     input = Column(PickleType(pickler=dill), nullable=True)
     output = Column(PickleType(pickler=dill), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
@@ -655,6 +655,7 @@ class ExecutionEventModel(Base):
         String,
         ForeignKey("executions.execution_id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
 
     id = Column(

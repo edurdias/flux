@@ -137,6 +137,20 @@ class FluxConfig(BaseSettings):
     )
     server_port: int = Field(default=8000, description="Port for the server")
     server_host: str = Field(default="localhost", description="Host for the server")
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description=(
+            "Allowed CORS origins. '*' permits any origin; browsers reject '*' "
+            "together with credentials, so credentials are forced off for wildcard."
+        ),
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        description=(
+            "Allow credentials (cookies/Authorization) in CORS requests. Ignored "
+            "(treated as False) when cors_allow_origins contains '*'."
+        ),
+    )
     home: str = Field(default=".flux", description="Home directory for Flux")
     cache_path: str = Field(default=".cache", description="Path for cache directory")
     local_storage_path: str = Field(default=".data", description="Path for local storage directory")
