@@ -44,6 +44,17 @@ class AuthConfig(_BaseConfig):
             "on; when on, at least one provider (oidc/api_keys) must be enabled."
         ),
     )
+    allow_anonymous: bool = Field(
+        default=False,
+        description=(
+            "When auth is disabled, this must be set true to permit anonymous "
+            "state-changing requests (POST/PUT/PATCH/DELETE). Defaults to false "
+            "so a server started without authentication will not perform "
+            "privileged operations until anonymous access is explicitly accepted "
+            "(FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS=true) or auth is enabled. "
+            "Has no effect when auth is enabled."
+        ),
+    )
 
     @model_validator(mode="after")
     def _reconcile_enabled(self) -> AuthConfig:
