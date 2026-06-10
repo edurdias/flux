@@ -96,6 +96,15 @@ markers = [
     "ollama: marks tests requiring a running Ollama instance with a compatible model",
 ]
 
+[tool.coverage.run]
+source = ["flux"]
+
+[tool.coverage.report]
+# Fail the suite if total coverage regresses below this threshold. Lives here
+# (rather than in the CI workflow) so it applies to every `--cov` invocation and
+# does not require editing protected workflow files to adjust.
+fail_under = 65
+
 # Custom commands for workflow management
 [tool.poe.tasks]
 test-workflows = { script = "scripts.ci:test_workflows" }
