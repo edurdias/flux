@@ -70,7 +70,7 @@ If your task involves *running* a workflow (rather than editing the framework):
 
 - **Don't add `Co-Authored-By:` lines** to commits or PR descriptions on this repo.
 - **Don't bypass pre-commit** with `--no-verify`. If a hook fails, fix the underlying issue or update the hook config in `.pre-commit-config.yaml` deliberately.
-- **Don't downgrade Python.** The project is Python 3.14; the `pyupgrade` hook still runs `--py39-plus` for syntactic conservatism, but runtime targets 3.14 features.
+- **Don't raise or lower the Python floor casually.** The project supports Python 3.12+ (CI tests 3.12-3.14); the `pyupgrade` hook runs `--py312-plus`. New code must stay 3.12-compatible -- don't use 3.13+ features.
 - **Don't introduce `uv`.** The repo uses Poetry exclusively; `uv.lock` is gitignored to keep this unambiguous.
 - **Don't add inline comments that restate the code.** Reserve comments for *why* something is non-obvious (e.g. workarounds for cross-DB FK enforcement, race-condition fixes, security guards). The existing codebase models this well — match its tone.
 - **Don't add backwards-compat shims for removed APIs** unless you have a concrete external caller in mind. Internal refactors should remove the old path, not deprecate it.
