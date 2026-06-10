@@ -555,6 +555,7 @@ def cli(tmp_path_factory):
         "FLUX_WORKERS__SERVER_URL": E2E_SERVER_URL,
         "FLUX_WORKERS__BOOTSTRAP_TOKEN": "e2e-test-bootstrap-token",
         "FLUX_SECURITY__AUTH__ENABLED": "false",
+        "FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS": "true",
         "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY": "e2e-test-encryption-key",
     }
 

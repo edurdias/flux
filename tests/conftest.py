@@ -20,7 +20,13 @@ from flux.models import DatabaseRepository
 def _seed_required_config():
     Configuration.get().override(
         workers={"bootstrap_token": "test-bootstrap-token"},
-        security={"encryption": {"encryption_key": "test-encryption-key"}},
+        security={
+            "encryption": {"encryption_key": "test-encryption-key"},
+            # Auth is disabled in most tests; permit anonymous mutations so the
+            # secure-default middleware doesn't block them. Tests that exercise
+            # the deny path override this explicitly.
+            "auth": {"allow_anonymous": True},
+        },
     )
     yield
     Configuration.get().reset()
