@@ -70,7 +70,7 @@ def verify(data: bytes) -> bytes:
         return data
     if key is None:
         raise IntegrityError("Signed data found but no encryption key is configured.")
-    body = data[len(_MAGIC):]
+    body = data[len(_MAGIC) :]
     tag, payload = body[:_DIGEST_SIZE], body[_DIGEST_SIZE:]
     expected = hmac.new(key, payload, hashlib.sha256).digest()
     if not hmac.compare_digest(tag, expected):
