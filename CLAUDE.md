@@ -8,7 +8,7 @@ See also `AGENT.md` for tool-agnostic agentic-development conventions (PR flow, 
 
 Flux (`flux-core` on PyPI) is a Python distributed workflow orchestration engine. Workflows and tasks are defined as `async` functions decorated with `@workflow` / `@task`; the runtime persists every state transition as an `ExecutionEvent`, so executions can be paused, resumed, replayed deterministically, and dispatched across worker nodes.
 
-- **Python 3.14** (set in `pyproject.toml`; CI matrix is 3.14 only). The pre-commit `pyupgrade` hook still targets `--py39-plus`, but new code should assume 3.14 features (PEP 695, etc.).
+- **Python 3.12+** (set in `pyproject.toml`; CI unit matrix covers 3.12–3.14). The pre-commit `pyupgrade` hook targets `--py312-plus`; new code must stay 3.12-compatible (PEP 695 syntax is fine; 3.13+ features such as PEP 696 type-parameter defaults are not).
 - **Poetry** for dependency management and the `flux` console-script entry point. `uv.lock` is gitignored — do not introduce uv.
 - **Optional extras**: `postgresql`, `observability`, `ai` (Ollama / OpenAI / Anthropic / Gemini). Default install gives SQLite + no telemetry + no LLM providers.
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.36.1"
+version = "0.37.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -10,7 +10,7 @@ readme = "README.md"
 packages = [{ include = "flux" }]
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = "^3.12"
 pydantic = "^2.9.2"
 pyyaml = "^6.0"
 sqlalchemy = "^2.0.35"
@@ -48,7 +48,7 @@ slowapi = "^0.1.9"
 [tool.poetry.group.dev.dependencies]
 pandas = "^2.2.3"
 numpy = "^2.1.1"
-faiss-cpu = {version = "^1.12.0", python = ">=3.14,<3.15"}
+faiss-cpu = {version = "^1.12.0", python = ">=3.12,<3.15"}
 pyright = "^1.1.384"
 pylint = "^3.3.1"
 bandit = "^1.7.10"
