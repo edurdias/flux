@@ -1123,10 +1123,17 @@ class Server:
         api.add_middleware(SlowAPIMiddleware)
         api.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+        _cors_origins = Configuration.get().settings.cors_allow_origins
+        _cors_credentials = Configuration.get().settings.cors_allow_credentials
+        # Browsers reject `Access-Control-Allow-Origin: *` together with
+        # credentials, and the combination is a CSRF footgun — force credentials
+        # off whenever origins are wildcarded.
+        if "*" in _cors_origins:
+            _cors_credentials = False
         api.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
+            allow_origins=_cors_origins,
+            allow_credentials=_cors_credentials,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -1201,7 +1208,9 @@ class Server:
             try:
                 logger.debug(f"Processing workflow file: {file.filename}")
                 catalog = WorkflowCatalog.create()
-                workflows = catalog.parse(source)
+                # Static parse first — never execute uploaded code before the
+                # caller is authorized to register in the target namespace(s).
+                workflows = catalog.parse_static(source)
 
                 if auth_service is not None and auth_config.enabled:
                     for wf in workflows:
@@ -1211,6 +1220,9 @@ class Server:
                                 status_code=403,
                                 detail=f"Permission denied: requires '{required}'",
                             )
+
+                # Authorized: now it is safe to import the module for metadata.
+                catalog.enrich(source, workflows)
 
                 result = catalog.save(workflows)
                 logger.debug(f"Saved workflows: {[w.qualified_name for w in workflows]}")

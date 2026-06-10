@@ -597,3 +597,40 @@ async def main(ctx):
     infos = catalog.parse(source)
     main_info = next(i for i in infos if i.name == "main")
     assert main_info.metadata["nested_workflows"] == [["default", "nested_helper"]]
+
+
+def test_parse_static_does_not_execute_module_code():
+    """Security regression: parse_static must not import/exec uploaded source.
+
+    The server authorizes registration *between* parse_static() and enrich(), so
+    parse_static must extract namespaces via static AST analysis only. If it ever
+    executes module-level code, an unauthorized upload could run code on the
+    server before the permission check (see workflows_save in server.py).
+    """
+    marker = "FLUX_PARSE_STATIC_SIDE_EFFECT"
+    source = b"""
+import os
+
+from flux import ExecutionContext
+from flux.workflow import workflow
+
+os.environ["FLUX_PARSE_STATIC_SIDE_EFFECT"] = "executed"
+
+
+@workflow.with_options(namespace="billing")
+async def my_wf(ctx: ExecutionContext):
+    return 1
+"""
+    os.environ.pop(marker, None)
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+
+    # Static parse: namespaces extracted, NO module execution.
+    infos = catalog.parse_static(source)
+    assert [i.name for i in infos] == ["my_wf"]
+    assert infos[0].namespace == "billing"
+    assert os.environ.get(marker) is None, "parse_static must not execute module code"
+
+    # enrich(): now the module is imported and the side effect runs.
+    catalog.enrich(source, infos)
+    assert os.environ.get(marker) == "executed"
+    os.environ.pop(marker, None)
