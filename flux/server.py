@@ -1138,6 +1138,33 @@ class Server:
             allow_headers=["*"],
         )
 
+        _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+        @api.middleware("http")
+        async def _enforce_anonymous_policy(request: Request, call_next):
+            # Secure default: when authentication is disabled, refuse anonymous
+            # state-changing requests unless the operator has explicitly accepted
+            # anonymous access. Read-only requests (and all requests when auth is
+            # enabled) are unaffected; per-route checks still apply in that case.
+            auth = Configuration.get().settings.security.auth
+            if (
+                not auth.enabled
+                and not auth.allow_anonymous
+                and request.method in _MUTATING_METHODS
+            ):
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "detail": (
+                            "Anonymous state-changing requests are disabled. Enable "
+                            "authentication, or set "
+                            "FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS=true to explicitly "
+                            "permit anonymous access."
+                        ),
+                    },
+                )
+            return await call_next(request)
+
         auth_config = Configuration.get().settings.security.auth
         from flux.security.principals import PrincipalRegistry
 

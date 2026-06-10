@@ -10,6 +10,7 @@ from typing import Any
 import dill
 
 from flux.config import Configuration
+from flux.security.integrity import sign, verify
 
 
 @dataclass
@@ -162,8 +163,13 @@ class LocalFileStorage(OutputStorage):
         return self.base_path / f"{reference_id}.{self.serializer}"
 
     def __serialize(self, value: Any, serializer: str) -> bytes:
-        return json.dumps(value).encode("utf-8") if serializer == "json" else dill.dumps(value)
+        if serializer == "json":
+            return json.dumps(value).encode("utf-8")
+        # dill executes code on load, so sign the bytes for integrity.
+        return sign(dill.dumps(value))
 
     def __deserialize(self, value: bytes, serializer: str) -> Any:
         _serializer = serializer or self.serializer
-        return json.loads(value) if _serializer == "json" else dill.loads(value)
+        if _serializer == "json":
+            return json.loads(value)
+        return dill.loads(verify(value))
