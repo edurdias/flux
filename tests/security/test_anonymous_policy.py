@@ -7,7 +7,6 @@ must be refused unless the operator explicitly opts in via
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from flux.config import Configuration

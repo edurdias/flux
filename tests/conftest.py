@@ -10,10 +10,18 @@ tests/examples/, and any future test directories.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
-from flux.config import Configuration
-from flux.models import DatabaseRepository
+# Auth is disabled in the unit suite, and the secure-default middleware blocks
+# anonymous state-changing requests unless this is set. Setting it in the
+# environment (not just via Configuration.override) ensures it survives the
+# tests that reset the config singleton and rebuild it from env.
+os.environ.setdefault("FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS", "true")
+
+from flux.config import Configuration  # noqa: E402
+from flux.models import DatabaseRepository  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
