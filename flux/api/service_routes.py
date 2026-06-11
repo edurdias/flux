@@ -21,7 +21,7 @@ from sse_starlette import EventSourceResponse
 
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
-from flux.errors import WorkflowNotFoundError
+from flux.errors import ExecutionContextNotFoundError, WorkflowNotFoundError
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -603,9 +603,9 @@ class ServiceRoutesMixin:
                         )
 
                 manager = ContextManager.create()
-                ctx = manager.get(execution_id)
-
-                if ctx is None:
+                try:
+                    ctx = manager.get(execution_id)
+                except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
                         detail=f"Execution context with ID {execution_id} not found.",
@@ -752,8 +752,9 @@ class ServiceRoutesMixin:
                         )
 
                 manager = ContextManager.create()
-                context = manager.get(execution_id)
-                if context is None:
+                try:
+                    context = manager.get(execution_id)
+                except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
                         detail=f"Execution '{execution_id}' not found",

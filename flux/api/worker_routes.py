@@ -554,8 +554,9 @@ class WorkerRoutesMixin:
             if not execution_id:
                 raise HTTPException(status_code=400, detail="'execution_id' is required")
 
-            ctx = ContextManager.create().get(execution_id)
-            if ctx is None:
+            try:
+                ctx = ContextManager.create().get(execution_id)
+            except ExecutionContextNotFoundError:
                 raise HTTPException(status_code=404, detail="Execution not found")
             if ctx.current_worker != name:
                 raise HTTPException(
