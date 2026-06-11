@@ -32,7 +32,7 @@ fastmcp = "^2.5.1"
 psycopg2-binary = {version = "^2.9.0", optional = true}
 croniter = "^3.0.3"
 types-croniter = "^6.0.0.20250809"
-textual = "^1.0.0"
+textual = ">=1,<9"
 opentelemetry-api = {version = "^1.28", optional = true}
 opentelemetry-sdk = {version = "^1.28", optional = true}
 opentelemetry-exporter-otlp = {version = "^1.28", optional = true}
