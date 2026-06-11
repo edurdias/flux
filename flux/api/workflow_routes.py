@@ -21,7 +21,11 @@ from sse_starlette import EventSourceResponse
 
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
-from flux.errors import WorkerNotFoundError, WorkflowNotFoundError
+from flux.errors import (
+    ExecutionContextNotFoundError,
+    WorkerNotFoundError,
+    WorkflowNotFoundError,
+)
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -363,9 +367,9 @@ class WorkflowRoutesMixin:
 
                 manager = ContextManager.create()
 
-                ctx = manager.get(execution_id)
-
-                if ctx is None:
+                try:
+                    ctx = manager.get(execution_id)
+                except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
                         detail=f"Execution context with ID {execution_id} not found.",
@@ -530,6 +534,13 @@ class WorkflowRoutesMixin:
                 result = dto.summary() if not detailed else dto
                 logger.debug(f"Status for {execution_id}: {context.state.value}")
                 return result
+            except ExecutionContextNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Execution context with ID {execution_id} not found.",
+                )
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error inspecting workflow: {str(e)}")
 
@@ -567,7 +578,13 @@ class WorkflowRoutesMixin:
                     )
 
                 manager = ContextManager.create()
-                ctx = manager.get(execution_id)
+                try:
+                    ctx = manager.get(execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution context with ID {execution_id} not found.",
+                    )
 
                 if ctx.has_finished:
                     raise HTTPException(
