@@ -196,7 +196,7 @@ class DatabaseContextManager(ContextManager):
                 if _accept_state_write(ctx.state, model.state):
                     model.state = ctx.state
                     model.output = ctx.output
-                    model.events.extend(self._get_additional_events(ctx, model))
+                    session.add_all(self._get_additional_events(ctx, session))
             else:
                 session.add(ExecutionContextModel.from_plain(ctx))
             if manage_transaction:
@@ -215,7 +215,7 @@ class DatabaseContextManager(ContextManager):
             if _accept_state_write(ctx.state, model.state):
                 model.state = ctx.state
                 model.output = ctx.output
-                model.events.extend(self._get_additional_events(ctx, model))
+                session.add_all(self._get_additional_events(ctx, session))
             session.commit()
             return ctx
 
@@ -302,7 +302,7 @@ class DatabaseContextManager(ContextManager):
                 ctx.schedule(worker)
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
-                model.events.extend(self._get_additional_events(ctx, model))
+                session.add_all(self._get_additional_events(ctx, session))
                 session.commit()
                 return ctx
 
@@ -394,7 +394,7 @@ class DatabaseContextManager(ContextManager):
             ctx.resume_schedule(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
-            model.events.extend(self._get_additional_events(ctx, model))
+            session.add_all(self._get_additional_events(ctx, session))
             session.commit()
 
             from flux.domain.events import ExecutionEventType
@@ -459,7 +459,7 @@ class DatabaseContextManager(ContextManager):
             ctx.claim(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
-            model.events.extend(self._get_additional_events(ctx, model))
+            session.add_all(self._get_additional_events(ctx, session))
             session.commit()
             return ctx
 
@@ -490,7 +490,7 @@ class DatabaseContextManager(ContextManager):
             ctx.resume_claim(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
-            model.events.extend(self._get_additional_events(ctx, model))
+            session.add_all(self._get_additional_events(ctx, session))
             session.commit()
 
             from flux.domain.events import ExecutionEventType
@@ -592,13 +592,28 @@ class DatabaseContextManager(ContextManager):
     def _get_additional_events(
         self,
         ctx: ExecutionContext,
-        model: ExecutionContextModel,
-    ):
-        existing_events = [(e.event_id, e.type) for e in model.events]
+        session: Session,
+    ) -> list[ExecutionEventModel]:
+        # Project only (event_id, type) rather than loading the full event rows
+        # (each carries a dill-pickled ``value``), and test membership against a
+        # set. This keeps each checkpoint O(new events) instead of
+        # O(existing × new) and avoids deserializing the entire event history on
+        # every save. The execution_id filter rides the FK index.
+        from sqlalchemy import select
+
+        existing = {
+            (event_id, event_type)
+            for event_id, event_type in session.execute(
+                select(
+                    ExecutionEventModel.event_id,
+                    ExecutionEventModel.type,
+                ).where(ExecutionEventModel.execution_id == ctx.execution_id),
+            ).all()
+        }
         return [
             ExecutionEventModel.from_plain(ctx.execution_id, e)
             for e in ctx.events
-            if (e.id, e.type) not in existing_events
+            if (e.id, e.type) not in existing
         ]
 
     def list(
