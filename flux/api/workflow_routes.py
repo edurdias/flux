@@ -530,6 +530,20 @@ class WorkflowRoutesMixin:
 
                 manager = ContextManager.create()
                 context = manager.get(execution_id)
+                # The permission check above covers the *URL's* workflow only;
+                # without this ownership check a caller could read another
+                # workflow's execution state by passing its execution ID here.
+                if (
+                    context.workflow_namespace != namespace
+                    or context.workflow_name != workflow_name
+                ):
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Execution {execution_id} does not belong to "
+                            f"workflow {namespace}/{workflow_name}."
+                        ),
+                    )
                 dto = ExecutionContextDTO.from_domain(context)
                 result = dto.summary() if not detailed else dto
                 logger.debug(f"Status for {execution_id}: {context.state.value}")
@@ -584,6 +598,18 @@ class WorkflowRoutesMixin:
                     raise HTTPException(
                         status_code=404,
                         detail=f"Execution context with ID {execution_id} not found.",
+                    )
+
+                # Authorization above is scoped to the URL's workflow; verify the
+                # execution actually belongs to it so an execution ID can't be
+                # used to cancel a different workflow's run.
+                if ctx.workflow_namespace != namespace or ctx.workflow_name != workflow_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=(
+                            f"Execution {execution_id} does not belong to "
+                            f"workflow {namespace}/{workflow_name}."
+                        ),
                     )
 
                 if ctx.has_finished:
