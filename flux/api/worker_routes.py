@@ -256,7 +256,10 @@ class WorkerRoutesMixin:
                                         "data": "",
                                     }
 
-                                ctx = context_manager.next_execution(worker)
+                                ctx = await asyncio.to_thread(
+                                    context_manager.next_execution,
+                                    worker,
+                                )
                                 if ctx:
                                     _exec_ns = ctx.workflow_namespace
                                     workflow = WorkflowCatalog.create().get(
@@ -301,7 +304,10 @@ class WorkerRoutesMixin:
                                     )
                                     continue
 
-                                ctx = context_manager.next_cancellation(worker)
+                                ctx = await asyncio.to_thread(
+                                    context_manager.next_cancellation,
+                                    worker,
+                                )
                                 if ctx:
                                     logger.debug(
                                         f"Sending cancellation to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
@@ -320,7 +326,7 @@ class WorkerRoutesMixin:
                                     )
                                     continue
 
-                                ctx = context_manager.next_resume(worker)
+                                ctx = await asyncio.to_thread(context_manager.next_resume, worker)
                                 if ctx:
                                     _resume_ns = ctx.workflow_namespace
                                     workflow = WorkflowCatalog.create().get(
@@ -433,7 +439,7 @@ class WorkerRoutesMixin:
                 context_manager = ContextManager.create()
 
                 try:
-                    current = context_manager.get(execution_id)
+                    current = await asyncio.to_thread(context_manager.get, execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -443,11 +449,15 @@ class WorkerRoutesMixin:
                 from flux.errors import ExecutionError
 
                 if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
-                    ctx = context_manager.claim(execution_id, worker)
+                    ctx = await asyncio.to_thread(context_manager.claim, execution_id, worker)
                     is_resume_claim = False
                 elif current.state == ExecutionState.RESUME_SCHEDULED:
                     try:
-                        ctx = context_manager.claim_resume(execution_id, worker)
+                        ctx = await asyncio.to_thread(
+                            context_manager.claim_resume,
+                            execution_id,
+                            worker,
+                        )
                     except ExecutionError as e:
                         raise HTTPException(status_code=409, detail=str(e))
                     is_resume_claim = True
@@ -502,7 +512,7 @@ class WorkerRoutesMixin:
                 domain_ctx = context.to_domain()
 
                 try:
-                    ctx = context_manager.update(domain_ctx)
+                    ctx = await asyncio.to_thread(context_manager.update, domain_ctx)
                 except ExecutionContextNotFoundError:
                     logger.warning(f"Execution context not found: {execution_id}")
                     raise HTTPException(status_code=404, detail="Execution context not found.")
