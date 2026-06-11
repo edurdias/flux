@@ -155,7 +155,7 @@ class PrincipalCreateRequest(BaseModel):
     type: str
     external_issuer: str | None = None
     display_name: str | None = None
-    roles: list[str] = []
+    roles: list[str] = Field(default_factory=list)
 
 
 class PrincipalUpdateRequest(BaseModel):
