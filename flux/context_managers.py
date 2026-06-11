@@ -594,6 +594,11 @@ class DatabaseContextManager(ContextManager):
         ctx: ExecutionContext,
         session: Session,
     ) -> list[ExecutionEventModel]:
+        # Nothing to reconcile when the incoming context carries no events;
+        # skip the round-trip entirely.
+        if not ctx.events:
+            return []
+
         # Project only (event_id, type) rather than loading the full event rows
         # (each carries a dill-pickled ``value``), and test membership against a
         # set. This keeps each checkpoint O(new events) instead of
