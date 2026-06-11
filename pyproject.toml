@@ -30,7 +30,7 @@ gputil = "^1.4.0"
 types-setuptools = "^80.7.0.20250516"
 fastmcp = "^2.5.1"
 psycopg2-binary = {version = "^2.9.0", optional = true}
-croniter = "^3.0.3"
+croniter = ">=3.0.3,<7.0.0"
 types-croniter = "^6.0.0.20250809"
 textual = "^1.0.0"
 opentelemetry-api = {version = "^1.28", optional = true}
