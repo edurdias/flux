@@ -91,6 +91,9 @@ class TestServerCancellation:
         ctx = MagicMock(spec=ExecutionContext)
         ctx.has_finished = True
         ctx.execution_id = "test-execution-id"
+        # Must match the URL's workflow, else the ownership check returns 404 first.
+        ctx.workflow_namespace = "default"
+        ctx.workflow_name = "test-workflow"
 
         # Set up the mock to return our context
         mock_context_manager.get.return_value = ctx
