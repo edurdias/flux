@@ -23,7 +23,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import JSON
-from sqlalchemy import PickleType
+from sqlalchemy import LargeBinary
 from sqlalchemy import String
 from sqlalchemy import TEXT
 from sqlalchemy import TypeDecorator
@@ -288,6 +288,44 @@ class Base64Type(TypeDecorator):
         return None
 
 
+class SignedPickleType(TypeDecorator):
+    """A ``PickleType`` whose payload is HMAC-signed for integrity (strict).
+
+    ``dill`` executes arbitrary code on load, so runtime execution data
+    (execution input/output, event values, schedule input) is signed with the
+    configured encryption key on write and verified before unpickling on read.
+    When an encryption key is configured, reading an unsigned or tampered row
+    raises ``IntegrityError`` (see ``flux.security.integrity``) — rows written
+    before integrity protection was enabled are treated as unreadable by design.
+    Without an encryption key, signing/verification are no-ops, preserving the
+    prior plain-``dill`` behavior.
+
+    ``impl`` is ``LargeBinary`` so the column stays a BLOB, matching the
+    ``PickleType`` it replaces (no schema change).
+    """
+
+    impl = LargeBinary
+    cache_ok = True
+
+    def __init__(self):
+        super().__init__()
+        self.protocol = dill.HIGHEST_PROTOCOL
+
+    def process_bind_param(self, value: Any, dialect: Any) -> bytes | None:
+        if value is None:
+            return None
+        from flux.security.integrity import sign
+
+        return sign(dill.dumps(value, protocol=self.protocol))
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        from flux.security.integrity import verify
+
+        return dill.loads(verify(bytes(value)))
+
+
 class SecretModel(Base):
     __tablename__ = "secrets"
 
@@ -527,8 +565,8 @@ class ExecutionContextModel(Base):
     workflow_id = Column(String, ForeignKey("workflows.id"), nullable=False, index=True)
     workflow_namespace = Column(String(64), nullable=False, default="default", index=True)
     workflow_name = Column(String, nullable=False, index=True)
-    input = Column(PickleType(pickler=dill), nullable=True)
-    output = Column(PickleType(pickler=dill), nullable=True)
+    input = Column(SignedPickleType(), nullable=True)
+    output = Column(SignedPickleType(), nullable=True)
     state = Column(SqlEnum(ExecutionState), nullable=False)
     worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
     exec_token = Column(String, nullable=True)
@@ -667,7 +705,7 @@ class ExecutionEventModel(Base):
     event_id = Column(String, nullable=False)
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
-    value = Column(PickleType(pickler=dill), nullable=True)
+    value = Column(SignedPickleType(), nullable=True)
     time = Column(DateTime, nullable=False)
     subject = Column(String, nullable=True)
     execution = relationship(
@@ -791,7 +829,7 @@ class ScheduleModel(Base):
     next_run_at = Column(DateTime, nullable=True)
 
     # Optional input for scheduled executions
-    input_data = Column(PickleType(pickler=dill), nullable=True)
+    input_data = Column(SignedPickleType(), nullable=True)
 
     # Service account to run scheduled executions as (required when auth is enabled)
     run_as_service_account = Column(String, nullable=True)
