@@ -52,6 +52,29 @@ if TYPE_CHECKING:
 
 
 class WorkerRoutesMixin:
+    def _build_dispatch_payload(self: Server, ctx) -> dict:  # type: ignore[misc]
+        """Assemble the SSE payload for dispatching/resuming an execution.
+
+        Performs the workflow-source load and exec-token lookup — both blocking
+        DB reads — so callers invoke it via ``asyncio.to_thread`` to keep the
+        worker SSE stream and the event loop unblocked.
+        """
+        from flux.models import ExecutionContextModel
+
+        workflow = WorkflowCatalog.create().get(ctx.workflow_namespace, ctx.workflow_name)
+        # source travels base64-encoded on the wire; the worker decodes it.
+        workflow.source = base64.b64encode(workflow.source).decode("utf-8")  # type: ignore[assignment]
+        payload: dict = {"workflow": workflow, "context": ctx}
+        session = self._get_db_session()
+        try:
+            exec_row = session.get(ExecutionContextModel, ctx.execution_id)
+            exec_token = exec_row.exec_token if exec_row else None
+        finally:
+            session.close()
+        if exec_token:
+            payload["exec_token"] = exec_token
+        return payload
+
     def _register_worker_routes(  # type: ignore[misc]
         self: Server,
         api,
@@ -256,40 +279,21 @@ class WorkerRoutesMixin:
                                         "data": "",
                                     }
 
-                                ctx = context_manager.next_execution(worker)
+                                ctx = await asyncio.to_thread(
+                                    context_manager.next_execution,
+                                    worker,
+                                )
                                 if ctx:
-                                    _exec_ns = ctx.workflow_namespace
-                                    workflow = WorkflowCatalog.create().get(
-                                        _exec_ns,
-                                        ctx.workflow_name,
-                                    )
-                                    workflow.source = base64.b64encode(workflow.source).decode(
-                                        "utf-8",
+                                    payload_dict = await asyncio.to_thread(
+                                        self._build_dispatch_payload,
+                                        ctx,
                                     )
 
                                     logger.debug(
                                         f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
 
-                                    payload_dict = {"workflow": workflow, "context": ctx}
-                                    exec_model_session = self._get_db_session()
-                                    try:
-                                        from flux.models import ExecutionContextModel as _ECM
-
-                                        exec_row = exec_model_session.get(
-                                            _ECM,
-                                            ctx.execution_id,
-                                        )
-                                        exec_token_for_dispatch = (
-                                            exec_row.exec_token if exec_row else None
-                                        )
-                                    finally:
-                                        exec_model_session.close()
-                                    if exec_token_for_dispatch:
-                                        payload_dict["exec_token"] = exec_token_for_dispatch
-                                    data_payload = to_json(payload_dict)
-
-                                    data_payload = _inject_trace_context(data_payload)
+                                    data_payload = _inject_trace_context(to_json(payload_dict))
 
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
@@ -301,7 +305,10 @@ class WorkerRoutesMixin:
                                     )
                                     continue
 
-                                ctx = context_manager.next_cancellation(worker)
+                                ctx = await asyncio.to_thread(
+                                    context_manager.next_cancellation,
+                                    worker,
+                                )
                                 if ctx:
                                     logger.debug(
                                         f"Sending cancellation to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
@@ -320,36 +327,15 @@ class WorkerRoutesMixin:
                                     )
                                     continue
 
-                                ctx = context_manager.next_resume(worker)
+                                ctx = await asyncio.to_thread(context_manager.next_resume, worker)
                                 if ctx:
-                                    _resume_ns = ctx.workflow_namespace
-                                    workflow = WorkflowCatalog.create().get(
-                                        _resume_ns,
-                                        ctx.workflow_name,
-                                    )
-                                    workflow.source = base64.b64encode(workflow.source).decode(
-                                        "utf-8",
+                                    resume_payload_dict = await asyncio.to_thread(
+                                        self._build_dispatch_payload,
+                                        ctx,
                                     )
                                     logger.debug(
                                         f"Sending resume to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
-
-                                    resume_payload_dict = {"workflow": workflow, "context": ctx}
-                                    resume_model_session = self._get_db_session()
-                                    try:
-                                        from flux.models import ExecutionContextModel as _ECM2
-
-                                        resume_exec_row = resume_model_session.get(
-                                            _ECM2,
-                                            ctx.execution_id,
-                                        )
-                                        resume_exec_token = (
-                                            resume_exec_row.exec_token if resume_exec_row else None
-                                        )
-                                    finally:
-                                        resume_model_session.close()
-                                    if resume_exec_token:
-                                        resume_payload_dict["exec_token"] = resume_exec_token
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
@@ -433,7 +419,7 @@ class WorkerRoutesMixin:
                 context_manager = ContextManager.create()
 
                 try:
-                    current = context_manager.get(execution_id)
+                    current = await asyncio.to_thread(context_manager.get, execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -443,11 +429,15 @@ class WorkerRoutesMixin:
                 from flux.errors import ExecutionError
 
                 if current.state in (ExecutionState.CREATED, ExecutionState.SCHEDULED):
-                    ctx = context_manager.claim(execution_id, worker)
+                    ctx = await asyncio.to_thread(context_manager.claim, execution_id, worker)
                     is_resume_claim = False
                 elif current.state == ExecutionState.RESUME_SCHEDULED:
                     try:
-                        ctx = context_manager.claim_resume(execution_id, worker)
+                        ctx = await asyncio.to_thread(
+                            context_manager.claim_resume,
+                            execution_id,
+                            worker,
+                        )
                     except ExecutionError as e:
                         raise HTTPException(status_code=409, detail=str(e))
                     is_resume_claim = True
@@ -502,7 +492,7 @@ class WorkerRoutesMixin:
                 domain_ctx = context.to_domain()
 
                 try:
-                    ctx = context_manager.update(domain_ctx)
+                    ctx = await asyncio.to_thread(context_manager.update, domain_ctx)
                 except ExecutionContextNotFoundError:
                     logger.warning(f"Execution context not found: {execution_id}")
                     raise HTTPException(status_code=404, detail="Execution context not found.")
