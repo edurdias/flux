@@ -75,7 +75,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-lint-deps
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
@@ -117,7 +117,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-poetry-dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
@@ -163,7 +163,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-e2e-deps
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
@@ -178,4 +178,4 @@ jobs:
 
     - name: Run E2E tests
       run: |
-        poetry run pytest tests/e2e/ -m "not ollama" -v
+        poetry run pytest tests/e2e/ -m "not ollama and not network" -v
