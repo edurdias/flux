@@ -69,8 +69,20 @@ jobs:
         name: dist
         path: dist/
 
+    - name: Check whether this version is already on PyPI
+      id: version-exists
+      run: |
+        VERSION=$(grep -m 1 'version = ' pyproject.toml | sed 's/version = //g' | sed 's/"//g' | tr -d ' ')
+        if curl -fsSL "https://pypi.org/pypi/flux-core/${VERSION}/json" -o /dev/null; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "flux-core ${VERSION} already on PyPI - skipping publish (expected for merges that don't bump, e.g. Dependabot)."
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "flux-core ${VERSION} not yet on PyPI - will publish."
+        fi
+
     - name: Publish to PyPI
-      if: github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main' && steps.version-exists.outputs.exists == 'false'
       run: |
         poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
         poetry publish --no-interaction
