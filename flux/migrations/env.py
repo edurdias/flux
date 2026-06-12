@@ -11,6 +11,10 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# The security models live outside flux.models and register on Base only when
+# imported; without this, target_metadata misses roles/api_keys/principals/
+# principal_roles and autogenerate would propose dropping them.
+import flux.security.models  # noqa: F401
 from flux.models import Base
 
 config = context.config

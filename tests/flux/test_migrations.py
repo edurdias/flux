@@ -5,6 +5,11 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine, inspect
 
+# Register the security models (roles/api_keys/principals/principal_roles) on
+# Base — they live outside flux.models, and the parity test below must compare
+# the migration output against the *complete* metadata. The e2e suite caught a
+# baseline missing these tables precisely because this import was absent.
+import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
@@ -67,9 +72,18 @@ def test_baseline_creates_same_tables_as_metadata(tmp_path):
     """The baseline (fresh path) schema must match the ORM metadata exactly."""
     engine = _engine(tmp_path, "schema.db")
     run_migrations(engine)
-    actual = set(inspect(engine).get_table_names()) - {"alembic_version"}
+    insp = inspect(engine)
+    actual = set(insp.get_table_names()) - {"alembic_version"}
     expected = set(Base.metadata.tables.keys())
     assert actual == expected
+    # The security tables are the ones most easily missed (registered on Base
+    # from flux.security, not flux.models).
+    assert {"roles", "api_keys", "principals", "principal_roles"} <= actual
+    # Column-level parity, not just table names.
+    for table in sorted(expected):
+        migrated_cols = {c["name"] for c in insp.get_columns(table)}
+        model_cols = {c.name for c in Base.metadata.tables[table].columns}
+        assert migrated_cols == model_cols, f"column mismatch in {table}"
 
 
 @pytest.mark.parametrize("missing", ["idx_execution_state", "idx_schedule_status_next_run"])

@@ -21,12 +21,28 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-import flux.models  # noqa: F401  (referenced by custom column types below)
-
 revision: str = "0001_baseline"
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+class _LegacyText(sa.types.TypeDecorator):
+    """Frozen DDL snapshot of EncryptedType/Base64Type at baseline time.
+
+    The live application types are TypeDecorators whose DDL could drift with
+    future model changes; referencing them here would break this migration's
+    immutability contract. On disk they are TEXT on PostgreSQL and VARCHAR on
+    SQLite — this pins exactly that.
+    """
+
+    impl = sa.String
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(sa.TEXT())
+        return dialect.type_descriptor(sa.String())
 
 
 def upgrade() -> None:
@@ -67,9 +83,37 @@ def upgrade() -> None:
         sa.UniqueConstraint("name"),
     )
     op.create_table(
+        "principals",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("type", sa.String(), nullable=False),
+        sa.Column("subject", sa.String(), nullable=False),
+        sa.Column("external_issuer", sa.String(), nullable=False),
+        sa.Column("display_name", sa.String(), nullable=True),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column("metadata", sa.JSON(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("last_seen_at", sa.DateTime(), nullable=True),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("id"),
+        sa.UniqueConstraint("subject", "external_issuer", name="uix_principal_subject_issuer"),
+    )
+    op.create_table(
+        "roles",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("permissions", sa.JSON(), nullable=False),
+        sa.Column("built_in", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("id"),
+        sa.UniqueConstraint("name"),
+    )
+    op.create_table(
         "secrets",
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("value", flux.models.EncryptedType(), nullable=False),
+        sa.Column("value", _LegacyText(), nullable=False),
         sa.PrimaryKeyConstraint("name"),
         sa.UniqueConstraint("name"),
     )
@@ -91,7 +135,7 @@ def upgrade() -> None:
         "workers",
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("session_token", sa.String(), nullable=False),
-        sa.Column("labels", flux.models.Base64Type(), nullable=True),
+        sa.Column("labels", _LegacyText(), nullable=True),
         sa.PrimaryKeyConstraint("name"),
         sa.UniqueConstraint("name"),
     )
@@ -101,11 +145,11 @@ def upgrade() -> None:
         sa.Column("namespace", sa.String(length=64), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
-        sa.Column("imports", flux.models.Base64Type(), nullable=True),
-        sa.Column("source", flux.models.Base64Type(), nullable=False),
-        sa.Column("requests", flux.models.Base64Type(), nullable=True),
-        sa.Column("affinity", flux.models.Base64Type(), nullable=True),
-        sa.Column("wf_metadata", flux.models.Base64Type(), nullable=True),
+        sa.Column("imports", _LegacyText(), nullable=True),
+        sa.Column("source", _LegacyText(), nullable=False),
+        sa.Column("requests", _LegacyText(), nullable=True),
+        sa.Column("affinity", _LegacyText(), nullable=True),
+        sa.Column("wf_metadata", _LegacyText(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("id"),
         sa.UniqueConstraint(
@@ -117,13 +161,31 @@ def upgrade() -> None:
     )
     op.create_index("ix_workflow_namespace_name", "workflows", ["namespace", "name"], unique=False)
     op.create_table(
+        "api_keys",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("principal_id", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("key_hash", sa.String(), nullable=False),
+        sa.Column("key_prefix", sa.String(), nullable=False),
+        sa.Column("expires_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["principal_id"],
+            ["principals.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("id"),
+        sa.UniqueConstraint("key_hash", name="uix_api_key_hash"),
+        sa.UniqueConstraint("principal_id", "name", name="uix_api_key_principal_name"),
+    )
+    op.create_table(
         "executions",
         sa.Column("execution_id", sa.String(), nullable=False),
         sa.Column("workflow_id", sa.String(), nullable=False),
         sa.Column("workflow_namespace", sa.String(length=64), nullable=False),
         sa.Column("workflow_name", sa.String(), nullable=False),
-        sa.Column("input", flux.models.SignedPickleType(), nullable=True),
-        sa.Column("output", flux.models.SignedPickleType(), nullable=True),
+        sa.Column("input", sa.LargeBinary(), nullable=True),
+        sa.Column("output", sa.LargeBinary(), nullable=True),
         sa.Column(
             "state",
             sa.Enum(
@@ -182,6 +244,18 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_table(
+        "principal_roles",
+        sa.Column("principal_id", sa.String(), nullable=False),
+        sa.Column("role_name", sa.String(), nullable=False),
+        sa.Column("assigned_at", sa.DateTime(), nullable=False),
+        sa.Column("assigned_by", sa.String(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["principal_id"],
+            ["principals.id"],
+        ),
+        sa.PrimaryKeyConstraint("principal_id", "role_name"),
+    )
+    op.create_table(
         "schedules",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("workflow_id", sa.String(), nullable=False),
@@ -189,7 +263,7 @@ def upgrade() -> None:
         sa.Column("workflow_name", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("description", sa.String(), nullable=True),
-        sa.Column("schedule_config", flux.models.Base64Type(), nullable=False),
+        sa.Column("schedule_config", _LegacyText(), nullable=False),
         sa.Column(
             "schedule_type",
             sa.Enum("CRON", "INTERVAL", "ONCE", name="scheduletype"),
@@ -204,7 +278,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.Column("last_run_at", sa.DateTime(), nullable=True),
         sa.Column("next_run_at", sa.DateTime(), nullable=True),
-        sa.Column("input_data", flux.models.SignedPickleType(), nullable=True),
+        sa.Column("input_data", sa.LargeBinary(), nullable=True),
         sa.Column("run_as_service_account", sa.String(), nullable=True),
         sa.Column("run_count", sa.Integer(), nullable=False),
         sa.Column("failure_count", sa.Integer(), nullable=False),
@@ -407,7 +481,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("value", flux.models.SignedPickleType(), nullable=True),
+        sa.Column("value", sa.LargeBinary(), nullable=True),
         sa.Column("time", sa.DateTime(), nullable=False),
         sa.Column("subject", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["execution_id"], ["executions.execution_id"], ondelete="CASCADE"),
@@ -461,6 +535,7 @@ def downgrade() -> None:
     op.drop_index("idx_schedule_status", table_name="schedules")
     op.drop_index("idx_schedule_next_run_at", table_name="schedules")
     op.drop_table("schedules")
+    op.drop_table("principal_roles")
     op.drop_index(op.f("ix_executions_workflow_namespace"), table_name="executions")
     op.drop_index(op.f("ix_executions_workflow_name"), table_name="executions")
     op.drop_index(op.f("ix_executions_workflow_id"), table_name="executions")
@@ -469,11 +544,14 @@ def downgrade() -> None:
     op.drop_index("idx_execution_state", table_name="executions")
     op.drop_index("idx_execution_schedule_id", table_name="executions")
     op.drop_table("executions")
+    op.drop_table("api_keys")
     op.drop_index("ix_workflow_namespace_name", table_name="workflows")
     op.drop_table("workflows")
     op.drop_table("workers")
     op.drop_table("services")
     op.drop_table("secrets")
+    op.drop_table("roles")
+    op.drop_table("principals")
     op.drop_table("configs")
     op.drop_table("agents")
     # ### end Alembic commands ###
