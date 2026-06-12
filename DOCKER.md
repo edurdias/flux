@@ -82,9 +82,19 @@ docker-compose down
 
 ## Build Arguments
 
-- `PYTHON_IMAGE_VERSION`: Python version (default: 3.12)
+- `PYTHON_IMAGE_VERSION`: Python image tag (default: 3.12-slim; supports digest pinning, see below)
 - `FLUX_VERSION`: flux-core package version (default: latest)
 - `EXTRA_PACKAGES`: Additional pip packages to install
+
+## Production hardening
+
+The image and compose file follow these conventions; keep them in mind when deploying:
+
+- **Non-root user**: the container runs as the `flux` user (UID 1000). `/app` (which holds `.flux`, `.cache` and `.storage`) is owned by this user; if you bind-mount these paths, make sure the host directories are writable by UID 1000.
+- **Healthcheck**: the image ships a mode-aware `HEALTHCHECK`. In `server` mode it probes `GET /health` (returns 503 when the database is unreachable); in `worker`/`mcp` mode the flux process is PID 1, so container liveness already reflects process liveness and the check reports healthy.
+- **Use `--init` (or tini)**: workflows can spawn subprocesses; run containers with `docker run --init …` (or `init: true` in compose) so zombie processes are reaped.
+- **Pin the base image by digest**: builds default to `python:3.12-slim`. For reproducible production builds, pass a digest, e.g. `docker build --build-arg PYTHON_IMAGE_VERSION=3.12-slim@sha256:<digest> -t flux .` (resolve the digest with `docker buildx imagetools inspect python:3.12-slim`).
+- **The bundled `docker-compose.yml` is DEVELOPMENT-ONLY**: it ships well-known credentials (Keycloak `admin`/`admin`, PostgreSQL `flux`/`flux`) and a default bootstrap token/encryption key. Override `FLUX_BOOTSTRAP_TOKEN` and `FLUX_ENCRYPTION_KEY`, or better, provision real secrets out-of-band for anything beyond local development.
 
 ## Authentication Dev Environment
 

@@ -1,9 +1,12 @@
-ARG PYTHON_IMAGE_VERSION=3.12
+# Pinned to the 3.12 minor version. For reproducible production builds, pin to a
+# digest instead, e.g. PYTHON_IMAGE_VERSION=3.12-slim@sha256:<digest>
+# (resolve with: docker buildx imagetools inspect python:3.12-slim)
+ARG PYTHON_IMAGE_VERSION=3.12-slim
 ARG FLUX_VERSION=latest
 # Extra packages to install (e.g. "flux-core[observability]" for OpenTelemetry support)
 ARG EXTRA_PACKAGES=""
 
-FROM python:${PYTHON_IMAGE_VERSION}-slim AS runtime
+FROM python:${PYTHON_IMAGE_VERSION} AS runtime
 
 ARG FLUX_VERSION
 ARG EXTRA_PACKAGES
@@ -25,12 +28,17 @@ RUN if [ -n "${EXTRA_PACKAGES}" ]; then \
         pip install --no-cache-dir ${EXTRA_PACKAGES}; \
     fi
 
+# Create non-root user
+RUN useradd --create-home --uid 1000 flux
+
 # Copy configuration file
 COPY flux.toml ./
 
-# Create flux directories
-RUN mkdir -p .flux/.workflows && \
-    touch .flux/.workflows/__init__.py
+# Create flux directories (home, cache and local storage are relative to /app)
+# and hand the working directory to the non-root user
+RUN mkdir -p .flux/.workflows .cache .storage && \
+    touch .flux/.workflows/__init__.py && \
+    chown -R flux:flux /app
 
 # Set environment variables for configuration
 ENV FLUX_MODE=server
@@ -67,5 +75,20 @@ elif [ "$FLUX_MODE" = "mcp" ]; then\n\
 else\n\
     exec flux start server --host $FLUX_HOST --port $FLUX_PORT\n\
 fi' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+# Create healthcheck script (mode-aware: only the server exposes HTTP).
+# Worker and MCP modes run flux as PID 1, so the container exiting already
+# signals process death; report healthy while the container is running.
+RUN echo '#!/bin/sh\n\
+if [ "$FLUX_MODE" != "worker" ] && [ "$FLUX_MODE" != "mcp" ]; then\n\
+    URL="http://127.0.0.1:${FLUX_PORT:-8000}/health"\n\
+    exec python -c "import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=5)" "$URL"\n\
+fi\n\
+exit 0' > /healthcheck.sh && chmod +x /healthcheck.sh
+
+USER flux
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD ["/healthcheck.sh"]
 
 ENTRYPOINT ["/entrypoint.sh"]
