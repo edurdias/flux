@@ -9,9 +9,9 @@ jobs:
   version-check:
     runs-on: ubuntu-latest
     # Dependabot PRs never bump the project version; exempt them so their
-    # dependency updates still run lint/unit/e2e. The publish job on main
-    # independently skips versions that already exist on PyPI, so merging an
-    # unbumped PR cannot break the build.
+    # dependency updates still run lint/unit/e2e. When an unbumped PR merges,
+    # the publish workflow on main detects the already-released version and
+    # auto-bumps a minor before building and publishing.
     if: github.actor != 'dependabot[bot]'
     steps:
     - uses: actions/checkout@v6
