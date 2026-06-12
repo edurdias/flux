@@ -686,11 +686,12 @@ class Server(
                         try:
                             await self._trigger_scheduled_workflow(schedule, current_time)
                         except Exception as e:
+                            # The trigger path already recorded the failure before
+                            # re-raising; recording here would double-count it.
                             logger.error(
                                 f"Failed to trigger schedule '{schedule.name}': {str(e)}",
                                 exc_info=True,
                             )
-                            schedule.mark_failure()
 
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
@@ -707,6 +708,7 @@ class Server(
             f"Triggering scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
         )
 
+        schedule_manager = create_schedule_manager()
         try:
             from flux.security.auth_service import AuthService
 
@@ -720,7 +722,7 @@ class Server(
                     logger.error(
                         f"Schedule '{schedule.name}': no service account configured, skipping",
                     )
-                    schedule.mark_failure()
+                    schedule_manager.record_failure(schedule.id)
                     return
 
                 from flux.security.principals import PrincipalRegistry
@@ -736,7 +738,7 @@ class Server(
                     logger.error(
                         f"Schedule '{schedule.name}': SA principal '{sa_name}' not found or disabled, skipping",
                     )
-                    schedule.mark_failure()
+                    schedule_manager.record_failure(schedule.id)
                     return
 
                 from flux.security.identity import FluxIdentity
@@ -762,7 +764,7 @@ class Server(
                     logger.error(
                         f"Schedule '{schedule.name}': workflow '{schedule.workflow_name}' not found: {e}",
                     )
-                    schedule.mark_failure()
+                    schedule_manager.record_failure(schedule.id)
                     return
 
                 auth_result = await db_auth_service.authorize(
@@ -776,7 +778,7 @@ class Server(
                         f"Schedule '{schedule.name}': SA '{sa_principal.subject}' lacks permissions: "
                         f"{auth_result.missing_permissions}",
                     )
-                    schedule.mark_failure()
+                    schedule_manager.record_failure(schedule.id)
                     return
 
             _sched_ns = schedule.workflow_namespace
@@ -816,8 +818,9 @@ class Server(
             finally:
                 sched_link_session.close()
 
-            # Update schedule tracking
-            schedule.mark_run(scheduled_time)
+            # Persist the run: advances next_run_at and run stats in the DB so the
+            # schedule is no longer due (mutating the detached object alone is lost).
+            schedule_manager.record_run(schedule.id, scheduled_time)
 
             logger.info(
                 f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",
@@ -830,7 +833,7 @@ class Server(
                 m.record_schedule_trigger(schedule.name, "success")
 
         except Exception as e:
-            schedule.mark_failure()
+            schedule_manager.record_failure(schedule.id)
             logger.error(f"Failed to trigger scheduled workflow: {str(e)}", exc_info=True)
 
             from flux.observability import get_metrics

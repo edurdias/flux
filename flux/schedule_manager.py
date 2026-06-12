@@ -15,6 +15,9 @@ from flux.models import (
     ExecutionEventModel,
 )
 from flux.errors import ExecutionError
+from flux.utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class ScheduleManagerError(ExecutionError):
@@ -97,6 +100,16 @@ class ScheduleManager(ABC):
         limit: int | None = None,
     ) -> list[ScheduleModel]:
         """Get schedules that are due to run"""
+        pass
+
+    @abstractmethod
+    def record_run(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist a successful trigger: advance next_run_at and run stats."""
+        pass
+
+    @abstractmethod
+    def record_failure(self, schedule_id: str) -> None:
+        """Persist a failed trigger: increment the failure count."""
         pass
 
     @abstractmethod
@@ -353,6 +366,55 @@ class DatabaseScheduleManager(ScheduleManager):
 
         except Exception as e:
             raise ScheduleManagerError(f"Failed to get due schedules: {str(e)}", e)
+
+    def record_run(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist a successful trigger against the stored schedule row.
+
+        ``get_due_schedules`` returns detached objects, so mutating those never
+        reaches the database; this loads the row in a fresh session and applies
+        ``mark_run`` (last_run_at, run_count, next_run_at) there. Without the
+        persisted ``next_run_at`` advance, a due schedule would re-fire on every
+        scheduler poll.
+
+        Never raises: stats/next-run recording must not break the dispatch loop;
+        failures are logged instead.
+        """
+        try:
+            with self._repository.session() as session:
+                model = session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
+                if model is None:
+                    logger.warning(
+                        f"Schedule '{schedule_id}' disappeared before its run could be recorded",
+                    )
+                    return
+                model.mark_run(run_time)
+                session.commit()
+        except Exception:
+            logger.error(
+                f"Failed to record run for schedule '{schedule_id}'",
+                exc_info=True,
+            )
+
+    def record_failure(self, schedule_id: str) -> None:
+        """Persist a failed trigger (failure_count) for the stored schedule row.
+
+        Never raises — see ``record_run``.
+        """
+        try:
+            with self._repository.session() as session:
+                model = session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
+                if model is None:
+                    logger.warning(
+                        f"Schedule '{schedule_id}' disappeared before its failure could be recorded",
+                    )
+                    return
+                model.mark_failure()
+                session.commit()
+        except Exception:
+            logger.error(
+                f"Failed to record failure for schedule '{schedule_id}'",
+                exc_info=True,
+            )
 
     def health_check(self) -> bool:
         """Check database connectivity"""
