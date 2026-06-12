@@ -792,6 +792,8 @@
       
         
       
+        
+      
     
     
     
@@ -1050,6 +1052,34 @@
     
   
     AI Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../database-migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migrations
   
 
     
@@ -2083,7 +2113,7 @@
 </code></pre></div>
 <h2 id="upgrade-notes">Upgrade Notes<a class="headerlink" href="#upgrade-notes" title="Permanent link">&para;</a></h2>
 <ul>
-<li>This release adds the <code>mcp_enabled</code> column to the <code>services</code> table. Existing deployments must recreate their database or manually add the column (<code>ALTER TABLE services ADD COLUMN mcp_enabled BOOLEAN NOT NULL DEFAULT 0</code>). There is no automatic migration.</li>
+<li>This release adds the <code>mcp_enabled</code> column to the <code>services</code> table. On versions with Flux's schema migrations (Alembic) the column is applied automatically on startup — see <a href="../database-migrations/">Database Migrations</a>.</li>
 </ul>
 
 
