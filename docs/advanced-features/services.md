@@ -530,4 +530,4 @@ flux service add billing-api --workflow billing/receipt
 
 ## Upgrade Notes
 
-- This release adds the `mcp_enabled` column to the `services` table. Existing deployments must recreate their database or manually add the column (`ALTER TABLE services ADD COLUMN mcp_enabled BOOLEAN NOT NULL DEFAULT 0`). There is no automatic migration.
+- This release adds the `mcp_enabled` column to the `services` table. On versions with Flux's schema migrations (Alembic) the column is applied automatically on startup — see [Database Migrations](database-migrations.md).

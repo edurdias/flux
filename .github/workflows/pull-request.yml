@@ -150,6 +150,57 @@ jobs:
         path: htmlcov/
         retention-days: 14
 
+  migrations-postgres:
+    needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flux_test_user
+          POSTGRES_PASSWORD: flux_test_password
+          POSTGRES_DB: flux_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flux_test_user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction --extras postgresql
+
+    # Validates the migration runner against real PostgreSQL: fresh-DB chain,
+    # the legacy (pre-Alembic) stamp-and-upgrade path with index backfill, and
+    # idempotent re-runs against a populated database.
+    - name: Run migration tests against PostgreSQL
+      env:
+        FLUX_DATABASE_URL: postgresql://flux_test_user:flux_test_password@localhost:5432/flux_test
+        FLUX_DATABASE_TYPE: postgresql
+        FLUX_WORKERS__BOOTSTRAP_TOKEN: ci-token
+        FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY: ci-encryption-key-0000000000000000
+      run: |
+        poetry run pytest tests/flux/test_migrations_postgresql.py -m postgresql -v
+
   e2e:
     needs: [version-check]
     # Run when version-check succeeded OR was skipped (Dependabot exemption).
