@@ -8,6 +8,11 @@ on:
 jobs:
   version-check:
     runs-on: ubuntu-latest
+    # Dependabot PRs never bump the project version; exempt them so their
+    # dependency updates still run lint/unit/e2e. The publish job on main
+    # independently skips versions that already exist on PyPI, so merging an
+    # unbumped PR cannot break the build.
+    if: github.actor != 'dependabot[bot]'
     steps:
     - uses: actions/checkout@v6
       with:
@@ -56,6 +61,8 @@ jobs:
 
   lint:
     needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -94,6 +101,8 @@ jobs:
 
   unit:
     needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -143,6 +152,8 @@ jobs:
 
   e2e:
     needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
