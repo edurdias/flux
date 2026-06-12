@@ -40,17 +40,29 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _configure_and_run(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        # batch mode lets SQLite emulate ALTER TABLE operations.
+        render_as_batch=connection.dialect.name == "sqlite",
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    # The runner pins a connection (the one holding the PostgreSQL advisory
+    # lock); reuse it so migrations run in that same session rather than opening
+    # a second, unguarded connection.
+    connection = config.attributes.get("connection", None)
+    if connection is not None:
+        _configure_and_run(connection)
+        return
+
     engine = _get_engine()
     with engine.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            # batch mode lets SQLite emulate ALTER TABLE operations.
-            render_as_batch=connection.dialect.name == "sqlite",
-        )
-        with context.begin_transaction():
-            context.run_migrations()
+        _configure_and_run(connection)
 
 
 if context.is_offline_mode():

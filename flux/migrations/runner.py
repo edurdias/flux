@@ -71,6 +71,10 @@ def run_migrations(engine: Engine) -> None:
                 "SELECT pg_advisory_lock(%(key)s)",
                 {"key": _MIGRATION_LOCK_KEY},
             )
+        # Pin Alembic to *this* connection so the migration runs in the same
+        # session that holds the advisory lock (env.py reuses it) rather than
+        # opening a second, unguarded connection.
+        cfg.attributes["connection"] = connection
         try:
             legacy = _is_legacy_schema(connection)
             if legacy:
