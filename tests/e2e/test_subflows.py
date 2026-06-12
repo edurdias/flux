@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
+# Both tests run examples that call the live GitHub API from the worker.
+# Unauthenticated requests are limited to 60/hour/IP, which makes them flaky
+# on shared CI runners (and unreachable from some sandboxes), so they are
+# excluded from CI via the network marker.
+pytestmark = pytest.mark.network
+
 
 def test_subflows_github_stars(cli):
     cli.register("examples/subflows.py")

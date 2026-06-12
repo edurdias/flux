@@ -9,7 +9,7 @@ jobs:
   version-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -58,10 +58,10 @@ jobs:
     needs: [version-check]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: "3.12"
         cache: 'pip'
@@ -75,7 +75,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-lint-deps
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
@@ -100,10 +100,10 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
@@ -117,7 +117,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-poetry-dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
@@ -135,7 +135,7 @@ jobs:
         poetry run pytest tests/ --ignore=tests/e2e --cov=flux --cov-report=xml --cov-report=html --cov-report=term
 
     - name: Archive coverage results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report-${{ matrix.python-version }}
         path: htmlcov/
@@ -146,10 +146,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: "3.12"
         cache: 'pip'
@@ -163,7 +163,7 @@ jobs:
 
     - name: Load cached venv
       id: cached-e2e-deps
-      uses: actions/cache@v3
+      uses: actions/cache@v5
       with:
         path: .venv
         key: venv-${{ runner.os }}-3.12-${{ hashFiles('**/poetry.lock') }}
@@ -178,4 +178,4 @@ jobs:
 
     - name: Run E2E tests
       run: |
-        poetry run pytest tests/e2e/ -m "not ollama" -v
+        poetry run pytest tests/e2e/ -m "not ollama and not network" -v
