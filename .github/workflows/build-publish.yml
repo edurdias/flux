@@ -5,6 +5,15 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Allow manual triggering
 
+# The build job may push an automatic version-bump commit to main.
+permissions:
+  contents: write
+
+# Serialize main builds so two merges can't race on the auto-bump.
+concurrency:
+  group: build-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -60,6 +69,35 @@ jobs:
         path: htmlcov/
         retention-days: 14
 
+    - name: Check whether this version is already on PyPI
+      id: version-exists
+      run: |
+        VERSION=$(poetry version -s)
+        if curl -fsSL "https://pypi.org/pypi/flux-core/${VERSION}/json" -o /dev/null; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "flux-core ${VERSION} already on PyPI - an unbumped merge (e.g. Dependabot); will auto-bump."
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "flux-core ${VERSION} not yet on PyPI."
+        fi
+
+    # Unbumped merges (Dependabot's grouped updates don't touch the version)
+    # get an automatic minor bump committed back to main, after tests passed
+    # and before the wheel is built. Pushes made with GITHUB_TOKEN do not
+    # retrigger workflows, so this cannot loop; the concurrency group above
+    # prevents two merges racing on the bump.
+    - name: Auto-bump minor version for unbumped merge
+      if: github.ref == 'refs/heads/main' && steps.version-exists.outputs.exists == 'true'
+      run: |
+        poetry version minor
+        NEW_VERSION=$(poetry version -s)
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add pyproject.toml
+        git commit -m "Bump version to ${NEW_VERSION}"
+        git push origin HEAD:main
+        echo "Auto-bumped to ${NEW_VERSION}"
+
     - name: Build package
       run: poetry build
 
@@ -69,20 +107,8 @@ jobs:
         name: dist
         path: dist/
 
-    - name: Check whether this version is already on PyPI
-      id: version-exists
-      run: |
-        VERSION=$(grep -m 1 'version = ' pyproject.toml | sed 's/version = //g' | sed 's/"//g' | tr -d ' ')
-        if curl -fsSL "https://pypi.org/pypi/flux-core/${VERSION}/json" -o /dev/null; then
-          echo "exists=true" >> "$GITHUB_OUTPUT"
-          echo "flux-core ${VERSION} already on PyPI - skipping publish (expected for merges that don't bump, e.g. Dependabot)."
-        else
-          echo "exists=false" >> "$GITHUB_OUTPUT"
-          echo "flux-core ${VERSION} not yet on PyPI - will publish."
-        fi
-
     - name: Publish to PyPI
-      if: github.ref == 'refs/heads/main' && steps.version-exists.outputs.exists == 'false'
+      if: github.ref == 'refs/heads/main'
       run: |
         poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
         poetry publish --no-interaction
