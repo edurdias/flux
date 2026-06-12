@@ -463,15 +463,19 @@ class TestSchedulerAuthIntegration:
         mock_registry_instance.find.return_value = None
         mock_registry_cls = MagicMock(return_value=mock_registry_instance)
 
+        mock_manager = MagicMock()
         with (
             patch("flux.security.principals.PrincipalRegistry", mock_registry_cls),
+            patch("flux.server.create_schedule_manager", return_value=mock_manager),
             patch("flux.server.Configuration") as mock_cfg,
         ):
             mock_auth = mock_cfg.get.return_value.settings.security.auth
             mock_auth.enabled = True
 
             await server._trigger_scheduled_workflow(schedule, None)
-            schedule.mark_failure.assert_called_once()
+            # Failures are persisted through the manager (detached-object
+            # mutations are lost), so the skip must record via record_failure.
+            mock_manager.record_failure.assert_called_once_with(schedule.id)
 
     @pytest.mark.asyncio
     async def test_trigger_skips_when_principal_disabled(self):
@@ -494,15 +498,19 @@ class TestSchedulerAuthIntegration:
         mock_registry_instance.find.return_value = disabled_principal
         mock_registry_cls = MagicMock(return_value=mock_registry_instance)
 
+        mock_manager = MagicMock()
         with (
             patch("flux.security.principals.PrincipalRegistry", mock_registry_cls),
+            patch("flux.server.create_schedule_manager", return_value=mock_manager),
             patch("flux.server.Configuration") as mock_cfg,
         ):
             mock_auth = mock_cfg.get.return_value.settings.security.auth
             mock_auth.enabled = True
 
             await server._trigger_scheduled_workflow(schedule, None)
-            schedule.mark_failure.assert_called_once()
+            # Failures are persisted through the manager (detached-object
+            # mutations are lost), so the skip must record via record_failure.
+            mock_manager.record_failure.assert_called_once_with(schedule.id)
 
 
 class TestOldAuthIsAuthorizedTestUpdated:
