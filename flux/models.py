@@ -59,8 +59,13 @@ class DatabaseRepository(ABC):
         config = Configuration.get().settings
         engine_key = (type(self), config.database_url)
         if engine_key not in DatabaseRepository._engines:
-            DatabaseRepository._engines[engine_key] = self._create_engine()
-            Base.metadata.create_all(DatabaseRepository._engines[engine_key])
+            engine = self._create_engine()
+            # Bring the schema to head via Alembic (fresh DBs run the full
+            # chain; pre-Alembic DBs are stamped at baseline then upgraded).
+            from flux.migrations.runner import run_migrations
+
+            run_migrations(engine)
+            DatabaseRepository._engines[engine_key] = engine
         self._engine = DatabaseRepository._engines[engine_key]
 
     @abstractmethod

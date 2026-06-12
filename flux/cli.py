@@ -2637,6 +2637,48 @@ def _get_auth_token() -> str | None:
     return None
 
 
+@cli.group("db")
+def db_group():
+    """Database schema / migration commands."""
+    pass
+
+
+def _migration_engine():
+    from flux.models import RepositoryFactory
+
+    return RepositoryFactory.create_repository()._create_engine()
+
+
+@db_group.command("upgrade")
+def db_upgrade():
+    """Migrate the database to the latest schema revision."""
+    from flux.migrations.runner import current_revision, run_migrations
+
+    engine = _migration_engine()
+    run_migrations(engine)
+    click.echo(f"Database is at revision: {current_revision(engine)}")
+
+
+@db_group.command("current")
+def db_current():
+    """Show the database's current schema revision."""
+    from flux.migrations.runner import current_revision
+
+    rev = current_revision(_migration_engine())
+    click.echo(rev or "none (database is unmanaged or empty)")
+
+
+@db_group.command("history")
+def db_history():
+    """List the migration revisions, newest first."""
+    from flux.migrations.runner import _alembic_config
+    from alembic.script import ScriptDirectory
+
+    cfg = _alembic_config(_migration_engine())
+    for script in ScriptDirectory.from_config(cfg).walk_revisions():
+        click.echo(f"{script.revision}  {script.doc.splitlines()[0] if script.doc else ''}")
+
+
 from flux.cli_auth import auth, principals, roles  # noqa: E402
 
 cli.add_command(auth)

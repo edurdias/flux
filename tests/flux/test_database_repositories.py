@@ -10,6 +10,14 @@ from flux.errors import PostgreSQLConnectionError
 # Import fixtures
 
 
+@pytest.fixture(autouse=True)
+def _stub_migrations():
+    """These tests mock the engine; the real Alembic runner can't operate on a
+    MagicMock. Schema migration itself is covered by test_migrations.py."""
+    with patch("flux.migrations.runner.run_migrations"):
+        yield
+
+
 class TestRepositoryFactory:
     """Test repository factory pattern."""
 
