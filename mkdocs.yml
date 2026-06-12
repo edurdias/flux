@@ -91,6 +91,7 @@ nav:
       - Agent Harness: advanced-features/agent-harness.md
       - MCP Client: advanced-features/mcp-client.md
       - AI Memory: advanced-features/ai-memory.md
+      - Database Migrations: advanced-features/database-migrations.md
     # - Output Storage: advanced-features/output-storage.md
     # - Secrets Management: advanced-features/secrets-management.md
   # - Examples:

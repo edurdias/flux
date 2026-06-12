@@ -45,6 +45,6 @@ Non-terminal `*` matches exactly one segment; terminal `*` matches any number of
 
 ## Upgrade notes
 
-- This release requires dropping and recreating your Flux database. There is no automatic migration.
+- This release predates Flux's schema migrations. On versions with migrations (Alembic), upgrading is automatic — see [Database Migrations](database-migrations.md); no manual drop/recreate is needed.
 - Existing permission grants must use the 4-segment form. Grants such as `workflow:hello_world:run` must become `workflow:default:hello_world:run`.
 - The built-in TUI console is disabled in this release.
