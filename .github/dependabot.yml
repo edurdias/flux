@@ -1,25 +1,32 @@
 version: 2
 updates:
-  # Python dependencies (Poetry)
+  # Python dependencies (Poetry).
+  # All version updates — majors included — arrive as ONE grouped monthly PR
+  # to keep the PR list quiet. GitHub's security updates (Dependabot alerts)
+  # are not governed by this schedule and still arrive promptly when a
+  # vulnerability affects us.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 1
     groups:
-      # Batch low-risk patch/minor bumps to reduce PR noise.
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
+      python-deps:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
 
-  # GitHub Actions
+  # GitHub Actions — same policy: one grouped monthly PR.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 1
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "github-actions"

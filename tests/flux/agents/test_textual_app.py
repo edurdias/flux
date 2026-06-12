@@ -106,7 +106,9 @@ async def test_session_info_updates_status_bar():
         app.post_message(SessionInfoReceived("exec-abc123def456", "my-agent"))
         await pilot.pause()
         status = app.query_one("#status-bar", Static)
-        rendered = str(status.renderable)
+        # Static.renderable was removed in textual >= 3; render() is the
+        # stable public accessor for the widget's current content.
+        rendered = str(status.render())
         assert "my-agent" in rendered
         assert "exec-abc123def456" in rendered
 
