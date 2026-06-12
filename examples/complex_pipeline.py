@@ -21,7 +21,9 @@ async def load_data(file_name: str) -> pd.DataFrame:
 
 @task
 async def split_data(df: pd.DataFrame) -> list[pd.DataFrame]:
-    return np.array_split(df, 5)
+    # np.array_split on a DataFrame returns plain ndarrays under pandas >= 3;
+    # split by positions instead so the chunks stay DataFrames.
+    return [df.iloc[ix] for ix in np.array_split(np.arange(len(df)), 5)]
 
 
 @task
