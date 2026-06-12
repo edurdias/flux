@@ -36,7 +36,7 @@ COPY flux.toml ./
 
 # Create flux directories (home, cache and local storage are relative to /app)
 # and hand the working directory to the non-root user
-RUN mkdir -p .flux/.workflows .cache .storage && \
+RUN mkdir -p .flux/.workflows .flux/.cache .flux/.storage && \
     touch .flux/.workflows/__init__.py && \
     chown -R flux:flux /app
 
