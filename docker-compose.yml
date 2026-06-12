@@ -1,13 +1,28 @@
+# =============================================================================
+# DEVELOPMENT-ONLY compose stack — do NOT use in production.
+#
+# This file ships with insecure development defaults:
+#   - Keycloak admin console credentials: admin / admin
+#   - PostgreSQL credentials: flux / flux
+#   - A shared, well-known bootstrap token and encryption key (overridable via
+#     the FLUX_BOOTSTRAP_TOKEN and FLUX_ENCRYPTION_KEY environment variables)
+#
+# For production, provision unique secrets out-of-band and see the
+# "Production hardening" section in DOCKER.md.
+# =============================================================================
 version: '3.8'
 
 services:
   flux-server:
     build: .
+    init: true
     container_name: flux-server
     environment:
       - FLUX_MODE=server
       - FLUX_HOST=0.0.0.0
       - FLUX_PORT=8000
+      - FLUX_WORKERS__BOOTSTRAP_TOKEN=${FLUX_BOOTSTRAP_TOKEN:-dev-only-bootstrap-token}
+      - FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=${FLUX_ENCRYPTION_KEY:-dev-only-encryption-key}
     ports:
       - "8000:8000"
     volumes:
@@ -18,11 +33,13 @@ services:
 
   flux-worker-1:
     build: .
+    init: true
     container_name: flux-worker-1
     environment:
       - FLUX_MODE=worker
       - FLUX_WORKER_NAME=worker-1
       - FLUX_SERVER_URL=http://flux-server:8000
+      - FLUX_WORKERS__BOOTSTRAP_TOKEN=${FLUX_BOOTSTRAP_TOKEN:-dev-only-bootstrap-token}
     depends_on:
       - flux-server
     volumes:
@@ -32,11 +49,13 @@ services:
 
   flux-worker-2:
     build: .
+    init: true
     container_name: flux-worker-2
     environment:
       - FLUX_MODE=worker
       - FLUX_WORKER_NAME=worker-2
       - FLUX_SERVER_URL=http://flux-server:8000
+      - FLUX_WORKERS__BOOTSTRAP_TOKEN=${FLUX_BOOTSTRAP_TOKEN:-dev-only-bootstrap-token}
     depends_on:
       - flux-server
     volumes:
