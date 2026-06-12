@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.45.0"
+version = "0.46.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -94,6 +94,7 @@ markers = [
     "slow: marks tests as slow running",
     "e2e: marks end-to-end tests requiring server + worker processes",
     "ollama: marks tests requiring a running Ollama instance with a compatible model",
+    "network: marks tests that call live external services (rate-limit flaky in CI)",
 ]
 
 [tool.coverage.run]
