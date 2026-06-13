@@ -214,8 +214,7 @@ class WorkerRoutesMixin:
             """Receive heartbeat pong from a worker."""
             try:
                 self._verify_worker_identity(identity, name)
-                self._worker_last_pong[name] = time.monotonic()
-                self._worker_stale_since.pop(name, None)
+                await self._record_heartbeat(name)
                 logger.debug(f"Pong received from worker {name}")
                 return {"status": "ok"}
             except HTTPException:
@@ -241,9 +240,8 @@ class WorkerRoutesMixin:
                 self._worker_evicted[name] = eviction_event
                 if name not in self._worker_names:
                     self._worker_names.append(name)
-                self._worker_last_pong[name] = time.monotonic()
-                self._worker_stale_since.pop(name, None)
                 self._worker_offline_since.pop(name, None)
+                await self._record_heartbeat(name)
                 gen = self._worker_connection_gen.get(name, 0) + 1
                 self._worker_connection_gen[name] = gen
                 if name in self._worker_cache:

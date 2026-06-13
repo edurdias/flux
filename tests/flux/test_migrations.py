@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0002_backfill_indexes"
+HEAD = "0003_worker_last_seen"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to
@@ -84,6 +84,23 @@ def test_baseline_creates_same_tables_as_metadata(tmp_path):
         migrated_cols = {c["name"] for c in insp.get_columns(table)}
         model_cols = {c.name for c in Base.metadata.tables[table].columns}
         assert migrated_cols == model_cols, f"column mismatch in {table}"
+
+
+def test_legacy_database_gains_worker_last_seen_at(tmp_path):
+    """A pre-0003 database missing workers.last_seen_at gains it on upgrade."""
+    engine = _engine(tmp_path, "no_last_seen.db")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE workers DROP COLUMN last_seen_at")
+
+    cols = {c["name"] for c in inspect(engine).get_columns("workers")}
+    assert "last_seen_at" not in cols
+
+    run_migrations(engine)
+
+    cols = {c["name"] for c in inspect(engine).get_columns("workers")}
+    assert "last_seen_at" in cols
+    assert current_revision(engine) == HEAD
 
 
 @pytest.mark.parametrize("missing", ["idx_execution_state", "idx_schedule_status_next_run"])

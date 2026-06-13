@@ -250,6 +250,89 @@ class TestServerHeartbeatReaper:
         assert mock_manager.unclaim.call_count == 2
 
 
+class TestServerOrphanReclaim:
+    """Tests for the cross-replica orphan reclamation sweep."""
+
+    @pytest.fixture
+    def server(self):
+        with patch("flux.server.Configuration") as mock_conf:
+            settings = MagicMock()
+            settings.scheduling.poll_interval = 30.0
+            settings.workers.heartbeat_interval = 2
+            settings.workers.heartbeat_timeout = 5
+            settings.workers.offline_ttl = 10
+            settings.workers.eviction_grace_period = 10
+            settings.observability.enabled = False
+            mock_conf.get.return_value.settings = settings
+            s = Server(host="localhost", port=8000)
+        return s
+
+    @pytest.mark.asyncio
+    async def test_reclaims_executions_for_globally_stale_worker(self, server):
+        """A worker stale in the persisted store but not connected here is reclaimed."""
+        mock_registry = MagicMock()
+        mock_registry.find_stale.return_value = ["dead-worker"]
+
+        mock_manager = MagicMock()
+        ctx = MagicMock()
+        ctx.execution_id = "exec-1"
+        mock_manager.find_by_worker.return_value = [ctx]
+
+        with (
+            patch("flux.worker_registry.WorkerRegistry.create", return_value=mock_registry),
+            patch("flux.server.ContextManager") as mock_cm,
+        ):
+            mock_cm.create.return_value = mock_manager
+            await server._reclaim_orphaned_executions()
+
+        mock_manager.find_by_worker.assert_called_once_with("dead-worker")
+        mock_manager.unclaim.assert_called_once_with("exec-1")
+
+    @pytest.mark.asyncio
+    async def test_skips_workers_connected_to_this_replica(self, server):
+        """A stale-persisted worker still connected to this replica is left alone."""
+        server._worker_names.append("local-worker")
+        mock_registry = MagicMock()
+        mock_registry.find_stale.return_value = ["local-worker"]
+
+        mock_manager = MagicMock()
+
+        with (
+            patch("flux.worker_registry.WorkerRegistry.create", return_value=mock_registry),
+            patch("flux.server.ContextManager") as mock_cm,
+        ):
+            mock_cm.create.return_value = mock_manager
+            await server._reclaim_orphaned_executions()
+
+        mock_manager.find_by_worker.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_stale_workers_is_noop(self, server):
+        mock_registry = MagicMock()
+        mock_registry.find_stale.return_value = []
+
+        mock_manager = MagicMock()
+
+        with (
+            patch("flux.worker_registry.WorkerRegistry.create", return_value=mock_registry),
+            patch("flux.server.ContextManager") as mock_cm,
+        ):
+            mock_cm.create.return_value = mock_manager
+            await server._reclaim_orphaned_executions()
+
+        mock_manager.find_by_worker.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_query_failure_is_swallowed(self, server):
+        """A failure querying stale workers must not crash the reaper loop."""
+        mock_registry = MagicMock()
+        mock_registry.find_stale.side_effect = RuntimeError("db down")
+
+        with patch("flux.worker_registry.WorkerRegistry.create", return_value=mock_registry):
+            # Should not raise.
+            await server._reclaim_orphaned_executions()
+
+
 class TestWorkerCache:
     """Tests for the in-memory worker cache."""
 
