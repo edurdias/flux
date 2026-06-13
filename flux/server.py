@@ -38,7 +38,7 @@ from flux.api.schedule_routes import ScheduleRoutesMixin
 from flux.api.execution_routes import ExecutionRoutesMixin
 from flux.api.service_routes import ServiceRoutesMixin
 from flux.api.rbac_routes import RbacRoutesMixin
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # Re-exported for backward compatibility (these were defined here before the
 # route modules were extracted). flux.api.schemas is the source of truth.
@@ -521,6 +521,27 @@ class Server(
                 pass
             logger.info("Heartbeat reaper stopped")
 
+    def _persist_worker_heartbeat(self, name: str) -> None:
+        from flux.worker_registry import WorkerRegistry
+
+        WorkerRegistry.create().record_heartbeat(name)
+
+    async def _record_heartbeat(self, name: str) -> None:
+        """Record a worker heartbeat: in-memory fast-path + persisted timestamp.
+
+        The in-memory ``_worker_last_pong`` drives this replica's round-robin
+        and local stale tracking; the persisted ``last_seen_at`` gives every
+        replica's reaper a global view of liveness so orphaned executions can
+        be reclaimed when the replica a worker was attached to dies. Persisting
+        runs off the event loop and never fails the request.
+        """
+        self._worker_last_pong[name] = time.monotonic()
+        self._worker_stale_since.pop(name, None)
+        try:
+            await asyncio.to_thread(self._persist_worker_heartbeat, name)
+        except Exception as e:
+            logger.debug(f"Failed to persist heartbeat for worker {name}: {e}")
+
     def _disconnect_worker(self, name: str, reason: str = "disconnect") -> None:
         """Remove a worker from the connected set and mark it offline in cache."""
         self._worker_events.pop(name, None)
@@ -614,6 +635,40 @@ class Server(
 
         self._work_available.set()
 
+    async def _reclaim_orphaned_executions(self) -> None:
+        """Reclaim executions stranded by a dead replica (cross-replica sweep).
+
+        The local stale/evict path above only sees workers attached to *this*
+        replica. If the replica a worker was attached to dies, no local reaper
+        knows the worker is gone. This sweep reads the persisted ``last_seen_at``
+        so any surviving replica can detect a globally-stale worker — one no
+        replica has heard from for the full stale-plus-grace window — and
+        reclaim its executions.
+
+        Workers connected to this replica are skipped (the local path owns them).
+        ``unclaim`` converges idempotently, so it is safe if several replicas
+        run this sweep concurrently for the same orphan.
+        """
+        deadline_seconds = self.heartbeat_timeout + self.eviction_grace_period
+        threshold = datetime.now(timezone.utc) - timedelta(seconds=deadline_seconds)
+        try:
+            from flux.worker_registry import WorkerRegistry
+
+            registry = WorkerRegistry.create()
+            stale = await asyncio.to_thread(registry.find_stale, threshold)
+        except Exception as e:
+            logger.debug(f"Orphan reclaim sweep failed to query stale workers: {e}")
+            return
+
+        locally_connected = set(self._worker_names)
+        for name in stale:
+            if name in locally_connected:
+                continue
+            try:
+                await asyncio.to_thread(self._unclaim_worker_executions, name)
+            except Exception as e:
+                logger.warning(f"Failed to reclaim executions for orphaned worker {name}: {e}")
+
     async def _run_heartbeat_reaper(self):
         """Background task: two-phase eviction (stale → grace → evict) and offline cache pruning."""
         try:
@@ -652,6 +707,8 @@ class Server(
                     )
                     self._disconnect_worker(name, reason="evicted")
                     self._unclaim_worker_executions(name)
+
+                await self._reclaim_orphaned_executions()
 
                 expired = [
                     name

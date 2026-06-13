@@ -477,6 +477,11 @@ class WorkerModel(Base):
     )
     session_token = Column(String, nullable=False, default=lambda: uuid4().hex)
     labels = Column(Base64Type(), nullable=True)
+    # Wall-clock UTC timestamp of the worker's last heartbeat. Persisted (rather
+    # than tracked in per-process memory) so that any server replica's reaper
+    # sees a global view of worker liveness and can reclaim orphaned executions
+    # when the replica a worker was attached to dies.
+    last_seen_at = Column(DateTime, nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")

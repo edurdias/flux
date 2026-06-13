@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -94,6 +96,21 @@ class WorkerRegistry(ABC):
     def list(self) -> list[WorkerInfo]:  # pragma: no cover
         raise NotImplementedError()
 
+    @abstractmethod
+    def record_heartbeat(self, name: str) -> None:  # pragma: no cover
+        """Persist ``name``'s heartbeat as the current wall-clock UTC time."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def find_stale(self, threshold: datetime) -> Sequence[str]:  # pragma: no cover
+        """Names of workers whose last heartbeat predates ``threshold``.
+
+        Workers that have never reported a heartbeat (NULL ``last_seen_at``)
+        are excluded, so freshly-registered workers are not swept before they
+        first connect.
+        """
+        raise NotImplementedError()
+
     @staticmethod
     def create() -> WorkerRegistry:
         return DatabaseWorkerRegistry()
@@ -155,6 +172,33 @@ class DatabaseWorkerRegistry(WorkerRegistry):
         with self.session() as session:
             workers = session.query(WorkerModel).all()
             return [self._to_info(worker) for worker in workers]
+
+    def record_heartbeat(self, name: str) -> None:
+        from flux.models import WorkerModel
+
+        now = datetime.now(timezone.utc)
+        with self.session() as session:
+            # Targeted UPDATE — cheap enough to run on every pong, and avoids
+            # loading the worker's runtime/packages/resources relationships.
+            session.query(WorkerModel).filter(WorkerModel.name == name).update(
+                {WorkerModel.last_seen_at: now},
+                synchronize_session=False,
+            )
+            session.commit()
+
+    def find_stale(self, threshold: datetime) -> Sequence[str]:
+        from flux.models import WorkerModel
+
+        with self.session() as session:
+            rows = (
+                session.query(WorkerModel.name)
+                .filter(
+                    WorkerModel.last_seen_at.isnot(None),
+                    WorkerModel.last_seen_at < threshold,
+                )
+                .all()
+            )
+            return [row[0] for row in rows]
 
     def _from_info(self, name, runtime, packages, resources, labels=None):
         # Import here to avoid circular imports
