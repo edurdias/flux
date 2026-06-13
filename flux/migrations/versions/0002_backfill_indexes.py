@@ -69,12 +69,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    existing_tables = set(inspector.get_table_names())
-    for table, name, _columns in _INDEXES:
-        if table not in existing_tables:
-            continue
-        present = {ix["name"] for ix in inspector.get_indexes(table)}
-        if name in present:
-            op.drop_index(name, table_name=table)
+    # Intentionally a no-op: upgrade() only creates indexes that are missing,
+    # so on a fresh database these indexes belong to the baseline (0001), not to
+    # this revision. Dropping them by name here would remove baseline,
+    # performance-critical indexes from databases that always had them.
+    pass

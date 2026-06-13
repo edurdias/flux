@@ -57,6 +57,7 @@ def test_pg_fresh_database_migrates_to_head():
     finally:
         engine.dispose()
         _drop_schema(admin, schema)
+        admin.dispose()
 
 
 def test_pg_legacy_database_is_stamped_and_backfilled():
@@ -80,6 +81,7 @@ def test_pg_legacy_database_is_stamped_and_backfilled():
     finally:
         engine.dispose()
         _drop_schema(admin, schema)
+        admin.dispose()
 
 
 def test_pg_migration_is_idempotent():
@@ -91,3 +93,4 @@ def test_pg_migration_is_idempotent():
     finally:
         engine.dispose()
         _drop_schema(admin, schema)
+        admin.dispose()

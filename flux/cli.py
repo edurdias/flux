@@ -2644,9 +2644,16 @@ def db_group():
 
 
 def _migration_engine():
-    from flux.models import RepositoryFactory
+    # Build the engine WITHOUT constructing a DatabaseRepository: its __init__
+    # runs migrations as a side effect, which would make read-only commands like
+    # `flux db current` silently upgrade the database. __new__ skips __init__;
+    # _create_engine reads only from configuration.
+    from flux.config import Configuration
+    from flux.models import PostgreSQLRepository, SQLiteRepository
 
-    return RepositoryFactory.create_repository()._create_engine()
+    settings = Configuration.get().settings
+    cls = PostgreSQLRepository if settings.database_type == "postgresql" else SQLiteRepository
+    return cls.__new__(cls)._create_engine()
 
 
 @db_group.command("upgrade")
