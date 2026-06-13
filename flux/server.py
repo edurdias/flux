@@ -665,7 +665,11 @@ class Server(
             if name in locally_connected:
                 continue
             try:
-                await asyncio.to_thread(self._unclaim_worker_executions, name)
+                # Called directly on the event loop (not via to_thread) because
+                # it sets asyncio.Events (_execution_events, _work_available),
+                # which are not thread-safe. This mirrors the local eviction
+                # path, which also invokes it synchronously.
+                self._unclaim_worker_executions(name)
             except Exception as e:
                 logger.warning(f"Failed to reclaim executions for orphaned worker {name}: {e}")
 
