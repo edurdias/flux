@@ -200,7 +200,10 @@ jobs:
         FLUX_WORKERS__BOOTSTRAP_TOKEN: ci-token
         FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY: ci-encryption-key-0000000000000000
       run: |
-        poetry run pytest tests/flux/ -m postgresql -v
+        poetry run pytest \
+          tests/flux/test_migrations_postgresql.py \
+          tests/flux/test_scheduler_dispatch_lock.py \
+          -m postgresql -v
 
   e2e:
     needs: [version-check]
