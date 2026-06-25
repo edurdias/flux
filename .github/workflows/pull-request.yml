@@ -189,17 +189,21 @@ jobs:
     - name: Install dependencies
       run: poetry install --no-interaction --extras postgresql
 
-    # Validates the migration runner against real PostgreSQL: fresh-DB chain,
-    # the legacy (pre-Alembic) stamp-and-upgrade path with index backfill, and
-    # idempotent re-runs against a populated database.
-    - name: Run migration tests against PostgreSQL
+    # Validates PostgreSQL-only behaviors against a real server: the migration
+    # runner (fresh-DB chain, legacy stamp-and-upgrade with index backfill,
+    # idempotent re-runs) and the scheduler dispatch advisory lock (exclusive
+    # acquisition across connections).
+    - name: Run PostgreSQL-only tests
       env:
         FLUX_DATABASE_URL: postgresql://flux_test_user:flux_test_password@localhost:5432/flux_test
         FLUX_DATABASE_TYPE: postgresql
         FLUX_WORKERS__BOOTSTRAP_TOKEN: ci-token
         FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY: ci-encryption-key-0000000000000000
       run: |
-        poetry run pytest tests/flux/test_migrations_postgresql.py -m postgresql -v
+        poetry run pytest \
+          tests/flux/test_migrations_postgresql.py \
+          tests/flux/test_scheduler_dispatch_lock.py \
+          -m postgresql -v
 
   e2e:
     needs: [version-check]

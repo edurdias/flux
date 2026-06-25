@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +20,11 @@ from flux.errors import ExecutionError
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
+
+# Session-scoped PostgreSQL advisory-lock key for the scheduler dispatch
+# singleton. Distinct from the migration lock (0x464C5558, "FLUX"); this adds a
+# trailing "S" ("FLUXS") so the two never collide.
+_SCHEDULER_LOCK_KEY = 0x464C555853
 
 
 class ScheduleManagerError(ExecutionError):
@@ -101,6 +108,15 @@ class ScheduleManager(ABC):
     ) -> list[ScheduleModel]:
         """Get schedules that are due to run"""
         pass
+
+    @abstractmethod
+    def dispatch_lock(self) -> AbstractContextManager[bool]:
+        """Cross-replica lock guarding one scheduler dispatch cycle.
+
+        A context manager yielding True if this replica may dispatch due
+        schedules this cycle, False if another replica already holds the lock.
+        """
+        raise NotImplementedError()
 
     @abstractmethod
     def record_run(self, schedule_id: str, run_time: datetime) -> None:
@@ -366,6 +382,50 @@ class DatabaseScheduleManager(ScheduleManager):
 
         except Exception as e:
             raise ScheduleManagerError(f"Failed to get due schedules: {str(e)}", e)
+
+    @contextmanager
+    def dispatch_lock(self) -> Iterator[bool]:
+        """Hold a cross-replica dispatch lock for one scheduler cycle.
+
+        Yields True if this replica may dispatch due schedules this cycle, or
+        False if another replica already holds the lock (so the caller skips
+        the cycle). Wrapping a whole cycle — ``get_due_schedules`` through the
+        ``record_run`` that advances ``next_run_at`` — in this lock guarantees
+        no two replicas can both see the same schedule as due and dispatch it.
+
+        On PostgreSQL this is a session-scoped ``pg_try_advisory_lock`` held on
+        a dedicated connection for the duration of the ``with`` block and
+        released on exit; if the holding replica dies mid-cycle, its connection
+        drops and PostgreSQL releases the lock automatically. SQLite is
+        single-node, so there is only ever one dispatcher and it yields True.
+        """
+        engine = self._repository._engine
+        if engine.dialect.name != "postgresql":
+            yield True
+            return
+
+        connection = engine.connect()
+        try:
+            acquired = bool(
+                connection.exec_driver_sql(
+                    "SELECT pg_try_advisory_lock(%(key)s)",
+                    {"key": _SCHEDULER_LOCK_KEY},
+                ).scalar(),
+            )
+            # End the transaction exec_driver_sql autobegan; the advisory lock
+            # is session-scoped and survives the commit (see PR #108 review).
+            connection.commit()
+            try:
+                yield acquired
+            finally:
+                if acquired:
+                    connection.exec_driver_sql(
+                        "SELECT pg_advisory_unlock(%(key)s)",
+                        {"key": _SCHEDULER_LOCK_KEY},
+                    )
+                    connection.commit()
+        finally:
+            connection.close()
 
     def record_run(self, schedule_id: str, run_time: datetime) -> None:
         """Persist a successful trigger against the stored schedule row.
