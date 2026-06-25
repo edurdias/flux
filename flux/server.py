@@ -735,24 +735,38 @@ class Server(
                 try:
                     await asyncio.sleep(self.poll_interval)
 
-                    # Get due schedules
-                    current_time = datetime.now(timezone.utc)
-                    due_schedules = schedule_manager.get_due_schedules(current_time=current_time)
-
-                    if due_schedules:
-                        logger.info(f"Found {len(due_schedules)} due schedule(s)")
-
-                    # Trigger each due schedule
-                    for schedule in due_schedules:
-                        try:
-                            await self._trigger_scheduled_workflow(schedule, current_time)
-                        except Exception as e:
-                            # The trigger path already recorded the failure before
-                            # re-raising; recording here would double-count it.
-                            logger.error(
-                                f"Failed to trigger schedule '{schedule.name}': {str(e)}",
-                                exc_info=True,
+                    # Only one replica dispatches per cycle. The lock spans the
+                    # whole cycle — reading due schedules through the record_run
+                    # that advances next_run_at — so replicas can't double-fire
+                    # the same schedule. Skipped cycles cost a single try-lock.
+                    with schedule_manager.dispatch_lock() as is_dispatcher:
+                        if not is_dispatcher:
+                            logger.debug(
+                                "Another replica holds the scheduler dispatch lock; "
+                                "skipping this cycle",
                             )
+                            continue
+
+                        # Get due schedules
+                        current_time = datetime.now(timezone.utc)
+                        due_schedules = schedule_manager.get_due_schedules(
+                            current_time=current_time,
+                        )
+
+                        if due_schedules:
+                            logger.info(f"Found {len(due_schedules)} due schedule(s)")
+
+                        # Trigger each due schedule
+                        for schedule in due_schedules:
+                            try:
+                                await self._trigger_scheduled_workflow(schedule, current_time)
+                            except Exception as e:
+                                # The trigger path already recorded the failure before
+                                # re-raising; recording here would double-count it.
+                                logger.error(
+                                    f"Failed to trigger schedule '{schedule.name}': {str(e)}",
+                                    exc_info=True,
+                                )
 
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
