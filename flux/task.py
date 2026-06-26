@@ -521,24 +521,31 @@ class task:
                 from flux.unit_of_work import UnitOfWork
 
                 cm = ContextManager.create()
+                awaiting_event = ExecutionEvent(
+                    type=ExecutionEventType.TASK_AWAITING_APPROVAL,
+                    source_id=call_id,
+                    name=full_name,
+                    value={
+                        "task_call_id": call_id,
+                        "workflow_namespace": ctx.workflow_namespace,
+                        "workflow_name": ctx.workflow_name,
+                        "task_name": self.name,
+                    },
+                )
                 with UnitOfWork() as uow:
-                    ctx.events.append(
-                        ExecutionEvent(
-                            type=ExecutionEventType.TASK_AWAITING_APPROVAL,
-                            source_id=call_id,
-                            name=full_name,
-                            value={
-                                "task_call_id": call_id,
-                                "workflow_namespace": ctx.workflow_namespace,
-                                "workflow_name": ctx.workflow_name,
-                                "task_name": self.name,
-                            },
-                        ),
-                    )
+                    ctx.events.append(awaiting_event)
                     # Persist the execution context *before* the approval row
                     # is flushed so the approval_requests.execution_id foreign
-                    # key has its target row (enforced on PostgreSQL).
-                    cm.save(ctx, uow=uow)
+                    # key has its target row (enforced on PostgreSQL). If a
+                    # concurrent cancel already moved the execution to
+                    # CANCELLING (or a terminal state), the state write is
+                    # rejected — drop the in-memory awaiting event (so the
+                    # cancellation checkpoint doesn't persist it), skip creating
+                    # a PENDING approval on a no-longer-pausable execution, and
+                    # unwind the task so the cancellation flow proceeds.
+                    if not cm.save_checked(ctx, uow=uow):
+                        ctx.events.remove(awaiting_event)
+                        raise asyncio.CancelledError()
                     mgr.create(
                         execution_id=ctx.execution_id,
                         task_call_id=call_id,

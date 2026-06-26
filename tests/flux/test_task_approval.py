@@ -549,3 +549,44 @@ def test_retry_attempt_is_independently_re_gated(isolated_db):
     pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
     assert len(pending) == 1
     assert pending[0].task_call_id.endswith("~retry1")
+
+
+def test_gate_skips_create_when_execution_already_cancelling(isolated_db):
+    """#73: a concurrent cancel that moved the execution to CANCELLING must not
+    leave the gate stranding a brand-new PENDING approval row.
+
+    The worker's in-memory ctx still reads RUNNING, but the persisted row is
+    already CANCELLING (the cancel handler won the FOR UPDATE race). The gate's
+    state write is rejected, so it must abort instead of creating an approval.
+    """
+    import asyncio
+
+    from flux.context_managers import ContextManager
+    from flux.domain import ExecutionState
+    from flux.models import ExecutionContextModel
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated() -> str:
+        return "done"
+
+    ctx = _build_test_ctx()
+    ctx._state = ExecutionState.RUNNING
+    ContextManager.create().save(ctx)
+
+    cm = ContextManager.create()
+    with cm.session() as session:
+        row = session.get(ExecutionContextModel, ctx.execution_id)
+        assert row is not None
+        row.state = ExecutionState.CANCELLING
+        session.commit()
+
+    call_id = "call-cancelling-1"
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(gated._approval_gate(ctx, call_id, "default.test.gated", (), {}))
+
+    assert ApprovalManager().get_by_call(ctx.execution_id, call_id) is None
+    # The in-memory awaiting event is dropped so a later cancellation
+    # checkpoint reusing this ctx does not persist a misleading event.
+    from flux.domain.events import ExecutionEventType
+
+    assert not any(e.type == ExecutionEventType.TASK_AWAITING_APPROVAL for e in ctx.events)
