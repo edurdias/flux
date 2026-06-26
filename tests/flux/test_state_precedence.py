@@ -211,3 +211,31 @@ def test_update_does_not_demote_cancelling_to_paused(isolated_db):
 
     fetched = cm.get(ctx.execution_id)
     assert fetched.state == ExecutionState.CANCELLING
+
+
+# --- save_checked signals rejected writes ---------------------------------
+
+
+def test_save_checked_returns_true_on_accepted_write(isolated_db):
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    assert cm.save_checked(ctx) is True
+
+
+def test_save_checked_returns_false_when_demote_to_paused_rejected(isolated_db):
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    cm.save(ctx)
+    _set_db_state(ctx.execution_id, ExecutionState.CANCELLING)
+
+    ctx.pause("wf", "stale", output=None)
+    assert cm.save_checked(ctx) is False
+
+
+def test_save_checked_returns_false_over_cancelling(isolated_db):
+    ctx = _make_ctx(ExecutionState.RUNNING)
+    cm = ContextManager.create()
+    cm.save(ctx)
+    _set_db_state(ctx.execution_id, ExecutionState.CANCELLING)
+
+    assert cm.save_checked(ctx) is False

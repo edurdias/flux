@@ -69,6 +69,22 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def save_checked(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> bool:  # pragma: no cover
+        """Like ``save`` but report whether the state write was applied.
+
+        Returns ``False`` when ``_accept_state_write`` rejected the write
+        because a concurrent terminal/cancelling transition already won the
+        row. Callers chaining dependent writes (e.g. the approval gate
+        creating a row) use this to abort instead of stranding orphans.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
     def get(self, execution_id: str | None) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -178,6 +194,15 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
     ) -> ExecutionContext:
+        self.save_checked(ctx, uow=uow)
+        return ctx
+
+    def save_checked(
+        self,
+        ctx: ExecutionContext,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> bool:
         if uow is not None:
             return self._save_with_session(ctx, uow.session, manage_transaction=False)
         with self.session() as session:
@@ -189,19 +214,21 @@ class DatabaseContextManager(ContextManager):
         session: Session,
         *,
         manage_transaction: bool,
-    ) -> ExecutionContext:
+    ) -> bool:
         try:
             model = self._lock_for_write(session, ctx.execution_id)
             if model:
-                if _accept_state_write(ctx.state, model.state):
+                accepted = _accept_state_write(ctx.state, model.state)
+                if accepted:
                     model.state = ctx.state
                     model.output = ctx.output
                     session.add_all(self._get_additional_events(ctx, session))
             else:
+                accepted = True
                 session.add(ExecutionContextModel.from_plain(ctx))
             if manage_transaction:
                 session.commit()
-            return ctx
+            return accepted
         except IntegrityError:  # pragma: no cover
             if manage_transaction:
                 session.rollback()
