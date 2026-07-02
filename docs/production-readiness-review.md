@@ -10,7 +10,7 @@ Flux has a well-factored core — event-sourced `ExecutionContext`, pessimistic 
 2. **Durability is per-task full-context checkpointing.** Every task completion re-ships the entire event history (O(K²) payload over a K-task workflow), checkpoints are fire-and-forget with no retry and no HTTP timeout, and there is no retention story for `execution_events`.
 3. **Every execution — including every agent LLM/tool step — pays full durable-workflow cost.** A trivial 1-task workflow costs ≥6 persisted events, 5 locking DB transactions, and ~5 HTTP hops. An agent loop multiplies that per iteration. There is no transient/ephemeral execution mode — but the seam for one already exists and is clean (see §6).
 
-The recommended sequencing: fix the P0 correctness/robustness items (§7), replace polling dispatch with event-driven dispatch, then add a `durability="transient"` execution mode that reuses the existing checkpoint-callable seam. Transient mode is the single highest-leverage change for the AI-mesh use case: it removes ~all DB work from the hot path and converts an agent hop from ~5 round-trips + 5 transactions to 1 relay round-trip.
+The recommended sequencing: fix the P0 correctness/robustness items (§8), replace polling dispatch with event-driven dispatch (§7), then add a `durability="transient"` execution mode that reuses the existing checkpoint-callable seam. Transient mode is the single highest-leverage change for the AI-mesh use case: it removes ~all DB work from the hot path and converts an agent hop from ~5 round-trips + 5 transactions to 1 relay round-trip.
 
 ---
 
@@ -229,7 +229,128 @@ At 1,000 sustained agent requests/sec with 3 transient hops each: today's model 
 
 ---
 
-## 7. Prioritized roadmap
+## 7. Proposed solution — target architecture, stack, and dependencies
+
+This section turns the fix directions above into one coherent design. The guiding principle: **PostgreSQL stays the only required piece of infrastructure**, the FastAPI/uvicorn/SQLAlchemy stack is kept, and scale comes from changing *access patterns* (push instead of poll, deltas instead of full snapshots, memory instead of rows for transient work) rather than from new middleware.
+
+### 7.1 Target architecture
+
+```
+                       ┌───────────────────────── control plane ─────────────────────────┐
+   clients             │  server replica 1..R (FastAPI + uvicorn, sticky SSE routing)    │
+     │                 │                                                                 │
+     │ run/sync ──────▶│  ┌──────────────┐   assign    ┌────────────────────────────┐    │
+     │ run/async       │  │  Dispatcher  │────────────▶│ per-worker outbound queues │    │
+     │ (durable or     │  │ (1 task/rep.)│             │  (existing SSE streams)    │    │
+     │  transient)     │  └──────┬───────┘             └─────────────┬──────────────┘    │
+     │                 │         │ batch claim                       │ push frames       │
+     │                 │         ▼ (SKIP LOCKED)                     │                    │
+     │                 │  ┌─────────────────┐    LISTEN/NOTIFY  ┌────┴───────────────┐   │
+     │                 │  │   PostgreSQL    │◀═════════════════▶│ Transient registry │   │
+     │                 │  │ durable source  │  (wakeups only,   │ (in-memory, TTL,   │   │
+     │                 │  │ of truth + WAL  │   R listeners)    │  sync-wait futures)│   │
+     │                 │  └─────────────────┘                   └────────────────────┘   │
+     └────────────────▶│  retention job · reaper · scheduler (advisory-lock singletons)  │
+                       └──────────────────────────────┬──────────────────────────────────┘
+                                                      │ SSE (dispatch) / HTTP (results,
+                                                      │ delta checkpoints, heartbeats)
+                       ┌───────────────────────────── ▼ ── data plane ───────────────────┐
+                       │  worker 1..W (capacity slots, drain, delta-checkpoint buffer)   │
+                       │   ├─ in-process executor (async workflows, trusted)             │
+                       │   ├─ subprocess pool (isolation="process", wall-clock kill)     │
+                       │   └─ mesh fast path: transient sub-calls run in-process when    │
+                       │      the target workflow is locally loadable                    │
+                       └──────────────────────────────────────────────────────────────────┘
+```
+
+Key inversion vs today: **the per-worker server-side poll loops disappear.** Each replica runs exactly one dispatcher task; DB load scales with `replicas × work rate`, not `workers × 2/sec`. Workers' SSE handlers become passive consumers of an in-memory queue.
+
+### 7.2 Component designs
+
+**Dispatcher (replaces the per-worker poll, fixes S1/S3/S6).** One asyncio task per replica. It holds an in-memory view of locally connected workers — labels, resource capabilities, advertised `max_concurrent_executions`, current in-flight count (from dispatch/complete accounting, replacing the `GROUP BY` aggregate). Wakeup sources: a `LISTEN flux_work` notification (fired by a trigger or by the enqueue transaction), a local enqueue, a worker slot freeing up, or a 10–30s fallback tick. On wakeup it claims a **batch** of `CREATED`/`RESUME_SCHEDULED`/`CANCELLING` rows with one `FOR UPDATE SKIP LOCKED LIMIT n` query, matches them against local free slots in memory (label/resource matching moves out of SQL row iteration), flips them to `SCHEDULED` with `worker_name` and a bumped `claim_generation` in one transaction, and pushes dispatch frames onto the target workers' queues. Unmatched rows are released for other replicas. `SKIP LOCKED` makes concurrent dispatchers on other replicas coordination-free. NOTIFY delivery is best-effort by design — notifications are pure wakeups; the DB rows are the truth and the fallback tick covers missed signals. The worker's claim POST is kept as a cheap PK-targeted ack (`CLAIMED`), no scan.
+
+**Checkpoint pipeline v2 (fixes D1/D2/D3).** Add a per-execution monotonic `seq` to events and a `claim_generation` column to executions. The worker keeps a per-execution outbound buffer and high-water mark of the last *acknowledged* seq; each checkpoint POST carries only `events[acked+1:]`, the current state, and the claim generation. The server appends, acks the new high-water mark, and **rejects stale generations** (a fenced-out partitioned worker gets a 409 and aborts its copy). Coalescing applies to *sends*, never to buffered events. Retries use capped exponential backoff (tenacity); terminal checkpoints must succeed before the execution is considered delivered, within the drain deadline. On resync (worker restart, 409, unknown seq) the worker falls back to one full-context POST — today's behavior becomes the recovery path instead of the hot path. All worker HTTP calls get explicit timeouts and a 401 → re-register → retry-once wrapper.
+
+**Transient execution plane (§6, fixes the mesh cost).** A `TransientExecutionRegistry` per replica: `execution_id → {future, worker, deadline}` with a TTL sweeper. `POST /workflows/{ns}/{name}/run/sync` with `durability=transient` skips the `executions` insert entirely, registers the future, and hands the dispatch frame straight to the dispatcher's matching stage (same worker-selection code path, no DB). The worker runs it with the no-op checkpoint and POSTs one result message; the registry completes the future and the held-open request returns. Worker death, disconnect, or TTL expiry fails the future with a structured error — the caller retries (at-most-once). Because both the SSE stream and the sync waiter live on the same replica, no cross-replica channel is needed in phase 1 (sticky routing); phase 2 can add a NOTIFY-relayed result path or the optional Redis backend for replica-crossing calls. `call()` and `workflow_agent()` pass `durability` through; when the target workflow is loadable on the calling worker (module cache), the sub-call executes in-process and never leaves the worker — the true mesh path.
+
+**Worker runtime v2 (fixes W1–W4).** Registration advertises `max_concurrent_executions`; the dispatcher never exceeds a worker's free slots, giving real backpressure (mesh callers get a fast "no capacity" failure instead of a queue). Shutdown gains a drain phase: deregister-from-dispatch → await running executions up to `drain_timeout` → flush terminal checkpoints. The module cache key gains a source hash and an LRU cap with `sys.modules` eviction. A new per-workflow option `isolation="process"` routes execution to a small `concurrent.futures.ProcessPoolExecutor`: the child runs `asyncio.run(wfunc(ctx))`, streams events back over a pipe, and can be killed on a wall-clock deadline — the mitigation for untrusted/CPU-bound code and the `exec()` trust boundary (SEC4), with no new dependency.
+
+**Data layer.** Pool size, overflow, and a dedicated DB `ThreadPoolExecutor` (sized ≤ pool) become config knobs and replace the default 32-thread loop executor. Index `workers.last_seen_at`; batch heartbeat updates per replica (`UPDATE … WHERE name = ANY(…)` every interval). A retention job (advisory-lock singleton, like the scheduler) deletes terminal executions/events past `retention_days` in batches; `execution_events` optionally moves to native monthly partitioning via an Alembic migration for high-volume installs. Status reads get a summary query that skips event hydration.
+
+**Security hardening.** slowapi default limits on `/workers/register` and auth-bearing routes (with `X-Forwarded-For` key function); worker API keys minted with expiry + a refresh endpoint; principal GC tied to worker pruning; execution-token TTL down to hours; startup validation of `encryption_key`/`execution_token_secret`; optional in-app TLS via uvicorn's `ssl_certfile`/`ssl_keyfile` passthrough plus documented terminate-at-ingress guidance; global body-size middleware; `worker_name` dropped from metric labels; `/ready` endpoint separate from `/health`.
+
+### 7.3 Stack decisions
+
+| Layer | Decision | Rationale |
+|---|---|---|
+| Language/runtime | **Keep** Python 3.12 + asyncio; add optional `uvloop` | No rewrite; uvloop is a drop-in ~2× event-loop win for SSE-heavy replicas and workers on Linux |
+| HTTP/app server | **Keep** FastAPI + uvicorn (single process per replica, scale by replicas) | SSE + in-memory dispatcher state make process-per-replica the natural unit; `--limit-concurrency` guards the connection plane |
+| Durable store & queue | **Keep** PostgreSQL as the only required infra; `SKIP LOCKED` batch claims + `LISTEN/NOTIFY` wakeups | Postgres-as-queue at batch granularity is a proven pattern; avoids operating a broker; transactional with execution state |
+| DB driver | **Migrate `psycopg2` → `psycopg` v3** (`postgresql+psycopg` dialect) | One driver serves sync SQLAlchemy *and* the async `LISTEN` connection; psycopg2 has no async path |
+| ORM | **Keep** sync SQLAlchemy behind a right-sized executor; async SQLAlchemy only if profiling demands it later | Sizing + push dispatch removes the pressure that would justify an async migration's risk |
+| Signal plane | **LISTEN/NOTIFY first**; optional Redis backend behind a small `SignalPlane` interface | R listeners (replicas), not W (workers); payloads are wakeups only, so the 8 KB/non-durable limits don't bite |
+| Isolation | stdlib subprocess pool (`isolation="process"`) | No dependency; real kill semantics; container/K8s handles the outer boundary |
+| Message broker (Kafka/RabbitMQ/NATS) | **Explicit non-goal** | Dispatch needs transactional consistency with execution rows, not throughput a broker adds; a broker would double the ops burden for every Flux install |
+
+### 7.4 New dependencies
+
+| Dependency | Where | Required? | Purpose |
+|---|---|---|---|
+| `psycopg[binary,pool] >= 3.2` | `postgresql` extra (replaces `psycopg2`) | Yes, for multi-node | Async `LISTEN/NOTIFY` listener + unified sync/async driver |
+| `tenacity >= 9` | core | Yes | Checkpoint/claim/result retry policies with capped backoff and jitter |
+| `uvloop >= 0.21` | new `performance` extra | Optional | Event-loop throughput for server replicas and workers (Linux/macOS) |
+| `redis >= 5` | new `mesh-redis` extra | Optional | Alternative signal plane + cross-replica transient result relay beyond LISTEN/NOTIFY scale |
+
+Everything else in the design — subprocess isolation, delta checkpoints, capacity slots, retention, rate limiting (slowapi already present), body-size middleware — uses the stdlib or existing dependencies.
+
+### 7.5 Configuration surface added
+
+```toml
+[flux.dispatch]
+batch_size = 64            # rows claimed per dispatcher wakeup
+fallback_interval = 15     # safety-net tick (s); replaces the 0.5s per-worker poll
+max_connected_workers = 2000   # per replica; excess registrations get 503
+
+[flux.workers]
+max_concurrent_executions = 16 # advertised capacity; dispatcher never exceeds free slots
+drain_timeout = 60             # graceful-shutdown drain deadline (s)
+default_timeout = 30           # worker HTTP timeout — no longer 0/None
+
+[flux.database]
+pool_size = 20                 # sized with executor_threads; executor <= pool
+max_overflow = 20
+executor_threads = 16          # dedicated DB thread pool (replaces default loop executor)
+
+[flux.retention]
+enabled = true
+retention_days = 30            # terminal executions + events
+sweep_interval = 3600
+
+[flux.transient]
+result_ttl = 120               # seconds a transient result/future may wait
+```
+
+### 7.6 Capacity model after the changes
+
+At 5,000 workers across 3 replicas (~1,700 SSE connections each — comfortable for uvicorn with mostly-idle streams):
+
+| Load source | Today | Proposed |
+|---|---|---|
+| Idle dispatch queries | ~50–60k/s (5–6 per worker per 0.5s) | ~0.2/s (one fallback tick per replica per 15s) |
+| Dispatch under load | thundering herd × full match stack per worker | `work_rate / batch_size` batch claims, herd eliminated |
+| Heartbeat writes | ~500 single-row commits/s | ~0.3 batched statements/s |
+| K-task workflow checkpoint bytes | O(K²) | O(K) (deltas; full snapshot only on resync) |
+| Transient agent hop | 6 events, 5 locking txns, ~5 HTTP hops | 0 DB txns, 3 in-memory messages (0 when same-worker in-process) |
+
+The DB write load becomes proportional to durable execution throughput alone — which is exactly what a durable store should be paying for.
+
+### 7.7 Rollout path
+
+Each step is independently shippable and backward-compatible: (1) driver swap psycopg2→psycopg3 and pool/executor knobs — no behavior change; (2) checkpoint v2 with protocol negotiation (workers advertise delta support at registration; server accepts both, full-snapshot remains the recovery path); (3) dispatcher behind a feature flag, per-worker poll kept as fallback for one release, then removed; (4) capacity slots + drain; (5) retention job; (6) transient mode (new surface, additive); (7) subprocess isolation (opt-in per workflow). Steps 1–2 are P0-aligned, 3–5 deliver the thousands-of-workers target, 6–7 deliver the mesh.
+
+---
+
+## 8. Prioritized roadmap
 
 **P0 — correctness & safety (before any scale push)**
 
