@@ -138,8 +138,15 @@ class Dispatcher:
         """
         import psycopg
 
-        # psycopg accepts postgresql:// URIs; strip any SQLAlchemy dialect tag.
-        dsn = self._database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        from flux.models import normalize_postgresql_url
+
+        # psycopg accepts postgresql:// URIs; normalize legacy dialect tags
+        # (postgresql+psycopg2://) first, then strip the driver marker.
+        dsn = normalize_postgresql_url(self._database_url).replace(
+            "postgresql+psycopg://",
+            "postgresql://",
+            1,
+        )
         backoff = 1.0
         while True:
             try:
