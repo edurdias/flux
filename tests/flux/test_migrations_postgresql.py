@@ -15,9 +15,10 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from flux.migrations.runner import current_revision, run_migrations
-from flux.models import Base
+from flux.models import Base, normalize_postgresql_url
 
 _DB_URL = os.environ.get("FLUX_DATABASE_URL", "")
+_ENGINE_URL = normalize_postgresql_url(_DB_URL)
 
 pytestmark = [
     pytest.mark.postgresql,
@@ -34,10 +35,10 @@ _BACKFILL_INDEX = "ix_executions_workflow_id"
 def _fresh_schema_engine():
     """An engine pointed at a brand-new, empty PostgreSQL schema (search_path)."""
     schema = f"mig_test_{uuid.uuid4().hex[:12]}"
-    admin = create_engine(_DB_URL)
+    admin = create_engine(_ENGINE_URL)
     with admin.begin() as conn:
         conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    engine = create_engine(_DB_URL, connect_args={"options": f"-csearch_path={schema}"})
+    engine = create_engine(_ENGINE_URL, connect_args={"options": f"-csearch_path={schema}"})
     return engine, schema, admin
 
 

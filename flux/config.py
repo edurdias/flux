@@ -245,7 +245,7 @@ class FluxConfig(BaseSettings):
         """Auto-infer database type from URL if not explicitly set"""
         if v == "sqlite":  # Default case
             database_url = info.data.get("database_url", "")
-            if database_url.startswith("postgresql://"):
+            if database_url.startswith(("postgresql://", "postgresql+")):
                 return "postgresql"
         return v
 

@@ -35,7 +35,10 @@ types-setuptools = ">=80.7.0.20250516,<83.0.0.0"
 # (OpenAPI provider SSRF, OAuth confused-deputy, Gemini CLI) are in features
 # Flux does not use; they resolve with the 3.x migration.
 fastmcp = ">=2.14.2,<3.0.0"
-psycopg2-binary = {version = "^2.9.0", optional = true}
+# psycopg v3: one driver for both sync SQLAlchemy engines and the async
+# LISTEN/NOTIFY listener the event-driven dispatcher needs (psycopg2 has no
+# async path). URLs stay `postgresql://`; the dialect is normalized in code.
+psycopg = {version = "^3.2", extras = ["binary", "pool"], optional = true}
 croniter = "^6.2.2"
 types-croniter = "^6.0.0.20250809"
 textual = "^8.2.7"
@@ -157,7 +160,7 @@ help = "Run E2E tests excluding Ollama/AI examples"
 cmd = "poetry run pytest tests/e2e/ -m 'not ollama' -v"
 
 [tool.poetry.extras]
-postgresql = ["psycopg2-binary"]
+postgresql = ["psycopg"]
 observability = [
     "opentelemetry-api",
     "opentelemetry-sdk",
