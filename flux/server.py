@@ -686,6 +686,41 @@ class Server(
                 except RuntimeError:
                     logger.warning(f"Cannot revoke API key for {name}: no event loop")
 
+    def _gc_worker_principal(self, name: str) -> None:
+        """Disable a pruned worker's principal and revoke its API keys.
+
+        Runs as a fire-and-forget task off the reaper. Registration re-enables
+        the principal if the worker ever returns, so this is reversible.
+        """
+        from flux.security.dependencies import _get_auth_service
+        from flux.security.principals import PrincipalRegistry
+
+        auth_service = _get_auth_service()
+        if auth_service is None:
+            return
+
+        async def _gc():
+            try:
+
+                def _find_and_disable():
+                    registry = PrincipalRegistry(session_factory=self._get_db_session)
+                    principal = registry.find(subject=name, external_issuer="flux")
+                    if principal and principal.enabled:
+                        registry.set_enabled(principal.id, False)
+                    return principal
+
+                principal = await asyncio.to_thread(_find_and_disable)
+                if principal:
+                    await auth_service.revoke_all_api_keys(principal.id)
+                    logger.info(f"Disabled principal and revoked keys for pruned worker {name}")
+            except Exception as e:
+                logger.warning(f"Principal GC for pruned worker {name} failed: {e}")
+
+        try:
+            asyncio.create_task(_gc())
+        except RuntimeError:
+            logger.warning(f"Cannot GC principal for {name}: no event loop")
+
     def _unclaim_worker_executions(self, worker_name: str) -> None:
         """Recover all executions assigned to an evicted worker.
 
@@ -820,6 +855,11 @@ class Server(
                 for name in expired:
                     self._worker_offline_since.pop(name, None)
                     self._worker_cache.pop(name, None)
+                    # Credential GC: a pruned worker's principal would otherwise
+                    # accumulate forever (one service-account row per unique
+                    # worker name). Disable it and revoke its keys; a genuine
+                    # comeback re-registers and re-enables the same principal.
+                    self._gc_worker_principal(name)
                     logger.debug(f"Pruned offline worker {name} (exceeded {self.offline_ttl}s TTL)")
         except asyncio.CancelledError:
             logger.info("Heartbeat reaper stopped")

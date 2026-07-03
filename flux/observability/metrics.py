@@ -255,30 +255,32 @@ class FluxMetrics:
                 {"workflow_namespace": namespace, "workflow_name": workflow_name},
             )
 
+    # Worker names (and schedule names) are caller-controlled and unbounded, so
+    # they must not become metric labels: thousands of churning workers would
+    # blow up time-series cardinality in Prometheus/OTel — a memory-DoS vector.
+    # The signatures keep the name parameter for call-site context/logging.
+
     def record_worker_registered(self, worker_name: str):
-        self.worker_registrations.add(1, {"worker_name": worker_name})
+        self.worker_registrations.add(1)
 
     def record_worker_connected(self, worker_name: str):
         self.workers_active.add(1)
 
     def record_worker_disconnected(self, worker_name: str, reason: str):
-        self.worker_disconnections.add(1, {"worker_name": worker_name, "reason": reason})
+        self.worker_disconnections.add(1, {"reason": reason})
         self.workers_active.add(-1)
 
     def record_worker_execution_started(self, worker_name: str):
-        self.worker_executions_active.add(1, {"worker_name": worker_name})
+        self.worker_executions_active.add(1)
 
     def record_worker_execution_ended(self, worker_name: str):
-        self.worker_executions_active.add(-1, {"worker_name": worker_name})
+        self.worker_executions_active.add(-1)
 
     def record_worker_auth_event(self, worker_name: str, event: str):
-        self.worker_auth_events.add(
-            1,
-            {"worker_name": worker_name, "event": event},
-        )
+        self.worker_auth_events.add(1, {"event": event})
 
     def record_schedule_trigger(self, schedule_name: str, outcome: str):
-        self.schedule_triggers.add(1, {"schedule_name": schedule_name, "outcome": outcome})
+        self.schedule_triggers.add(1, {"outcome": outcome})
 
     def record_http_request(self, method: str, endpoint: str, status_code: int, duration: float):
         endpoint = _normalize_path(endpoint)

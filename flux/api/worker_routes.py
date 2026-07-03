@@ -140,9 +140,15 @@ class WorkerRoutesMixin:
                     if "worker" not in existing_roles:
                         principal_registry.assign_role(principal.id, "worker")
                     await auth_service.revoke_all_api_keys(principal.id)
+                    from datetime import timedelta
+
+                    key_ttl = auth_config.api_keys.worker_key_ttl
                     api_key = await auth_service.create_api_key(
                         principal.id,
                         key_name=f"worker-{registration.name}",
+                        # Expiring keys rotate themselves: workers re-register
+                        # on the first 401 after expiry and get a fresh key.
+                        expires=timedelta(seconds=key_ttl) if key_ttl else None,
                     )
                     result.session_token = api_key
 
@@ -600,10 +606,14 @@ class WorkerRoutesMixin:
                     # a full fleet gets assigned now.
                     self._notify_next_worker()
 
-                # Notify any waiting sync/stream endpoint
+                # Notify any waiting sync/stream endpoint — locally, and on
+                # other replicas via NOTIFY when the state is one a caller
+                # blocks on (the waiter re-reads the row either way).
                 event = self._execution_events.get(execution_id)
                 if event:
                     event.set()
+                if self._dispatcher is not None and (ctx.has_finished or ctx.is_paused):
+                    self._dispatcher.notify_execution_update(execution_id)
 
                 return ctx.summary()
             except HTTPException:
@@ -734,7 +744,13 @@ class WorkerRoutesMixin:
             status: Literal["online", "offline"] | None = Query(None),
             identity: FluxIdentity = Depends(get_identity),
         ):
-            """List workers from in-memory cache. Optional ?status=online|offline filter.
+            """List workers fleet-wide. Optional ?status=online|offline filter.
+
+            Reads the workers table rather than this replica's in-memory cache,
+            so every replica returns the same, complete fleet view; liveness is
+            derived from the persisted heartbeat (a worker is online while its
+            last_seen_at is within heartbeat_timeout + eviction grace, matching
+            the reaper's staleness window).
 
             Worker visibility is intentionally unpermissioned — any authenticated user
             may discover available workers. Sensitive details are not exposed.
@@ -742,18 +758,32 @@ class WorkerRoutesMixin:
             try:
                 logger.debug(f"Listing workers (filter={status})")
 
-                if status == "online":
-                    result = [
-                        self._worker_cache[n] for n in self._worker_names if n in self._worker_cache
-                    ]
-                elif status == "offline":
-                    result = [
-                        self._worker_cache[n]
-                        for n in self._worker_offline_since
-                        if n in self._worker_cache
-                    ]
-                else:
-                    result = list(self._worker_cache.values())
+                registry = WorkerRegistry.create()
+                infos = await asyncio.to_thread(registry.list)
+
+                from datetime import datetime, timedelta, timezone
+
+                threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+                    seconds=self.heartbeat_timeout + self.eviction_grace_period,
+                )
+
+                def _status(info) -> str:
+                    last_seen = getattr(info, "last_seen_at", None)
+                    return (
+                        "online" if last_seen is not None and last_seen >= threshold else "offline"
+                    )
+
+                result = []
+                for info in infos:
+                    worker_status = _status(info)
+                    if status is not None and worker_status != status:
+                        continue
+                    cached = self._worker_cache.get(info.name)
+                    if cached is not None:
+                        cached.status = worker_status
+                        result.append(cached)
+                    else:
+                        result.append(WorkerResponse(name=info.name, status=worker_status))
 
                 logger.debug(f"Found {len(result)} workers")
                 return result

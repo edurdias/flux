@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 EXECUTION_TOKEN_ISSUER = "flux-server"
 EXECUTION_TOKEN_SCOPE = "execution"
 
-_DEFAULT_EXECUTION_TOKEN_TTL = 604800
+_DEFAULT_EXECUTION_TOKEN_TTL = 86400
 
 _ephemeral_secret: str | None = None
 
