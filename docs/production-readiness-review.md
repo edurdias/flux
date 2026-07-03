@@ -223,6 +223,35 @@ Also accept a per-invocation override on the run endpoint (`POST /workflows/{ns}
 
 **Prerequisites from the rest of this review.** Transient mode shifts pressure from the DB to the worker fleet, so W1 (per-worker concurrency cap + advertised capacity → backpressure with a `429`-style "mesh busy" signal), D2 (HTTP timeouts), and S1 (event-driven dispatch) are prerequisites, not nice-to-haves. Multi-replica relay needs sticky routing or a cross-replica result channel (S4).
 
+### Implemented (phase 1, revised) — measured
+
+Implemented with one deliberate revision to the design above: instead of
+skipping persistence entirely, a transient execution **keeps the outer
+lifecycle** — execution row, dispatch/claim, `WORKFLOW_*` events, terminal
+state, visible in `flux execution list` like any run — and removes the
+task-level durability: the worker suppresses every intermediate checkpoint
+and the single terminal checkpoint carries no `TASK_*` events. This keeps
+auditability, cancellation, fencing, and reaper recovery intact, works in
+both dispatch modes, and reduces the feature to worker-side checkpoint
+suppression driven by a flag in the dispatch payload.
+
+Measured on real workers (same fleet, 8-task workflow, 150 sync calls):
+
+| | durable | transient |
+|---|---:|---:|
+| persisted event rows per execution | 19.9 | **4.0** |
+| p50 latency | 534 ms | 526 ms |
+| throughput | 18.2/s | 19.0/s |
+
+Latency is unchanged because intermediate checkpoints were already
+asynchronous and coalesced; the win is storage and payload traffic — an
+agent loop's per-step LLM/tool payloads never reach the database. Pause and
+approvals are hard errors on transient runs (they need replayable task
+history); schedules are rejected at decoration time. Replay-on-retry
+re-executes tasks from scratch (no task history), i.e. at-least-once for
+side effects. The same-worker in-process fast path remains the phase-2
+follow-up.
+
 ### Sizing sanity check
 
 At 1,000 sustained agent requests/sec with 3 transient hops each: today's model would be ~15,000 locking DB transactions/sec plus O(K²) checkpoint traffic — not feasible. The transient model is ~4,000 in-memory HTTP/SSE messages/sec spread across replicas and workers, with the DB touched only by durable workflows. That is an achievable target for a FastAPI/uvicorn fleet once S1/S2 land.

@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from flux import ExecutionContext
 from flux.domain import ExecutionState
-from flux.domain import ResourceRequest
 from flux.errors import ExecutionContextNotFoundError, ExecutionError, StaleClaimError
 from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
@@ -316,16 +315,9 @@ class DatabaseContextManager(ContextManager):
         return session.execute(stmt).scalar_one_or_none()
 
     def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
-        if workflow.affinity is not None:
-            if not ResourceRequest.matches_labels(worker.labels, workflow.affinity):
-                return False
-        if workflow.requests is not None:
-            requests = ResourceRequest(**(workflow.requests or {}))
-            if worker.resources is None:
-                return False
-            if not requests.matches_worker(worker.resources, worker.packages):
-                return False
-        return True
+        from flux.domain.resource_request import worker_matches
+
+        return worker_matches(worker, workflow.requests, workflow.affinity)
 
     def _next_matching_execution(
         self,
