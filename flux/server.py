@@ -923,6 +923,42 @@ class Server(
     # End Scheduler Methods
     # ===========================================
 
+    @staticmethod
+    def _validate_security_config(settings) -> None:
+        """Fail fast on security misconfiguration instead of erroring mid-traffic.
+
+        With auth enabled, a missing execution-token secret used to surface only
+        when the first worker token was minted, and a missing encryption key when
+        the first secret was stored. Debug mode is exempt (execution-token secrets
+        are auto-generated ephemerally there).
+        """
+        security = settings.security
+        if security.auth.enabled and not settings.debug:
+            problems = []
+            if not security.execution_token_secret:
+                problems.append(
+                    "[flux.security] execution_token_secret is required when auth is "
+                    "enabled (FLUX_SECURITY__EXECUTION_TOKEN_SECRET)",
+                )
+            if not security.encryption.encryption_key:
+                problems.append(
+                    "[flux.security.encryption] encryption_key is required when auth "
+                    "is enabled: without it the secrets store is unusable and at-rest "
+                    "pickle payloads are unsigned "
+                    "(FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY)",
+                )
+            if problems:
+                raise RuntimeError(
+                    "Refusing to start with incomplete security configuration:\n- "
+                    + "\n- ".join(problems),
+                )
+        elif not security.encryption.encryption_key and not settings.debug:
+            logger.critical(
+                "No encryption key configured: the secrets store is unavailable and "
+                "at-rest pickle integrity signing is DISABLED. Set "
+                "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY before production use.",
+            )
+
     def _create_api(self) -> FastAPI:
         from contextlib import asynccontextmanager
 
@@ -936,6 +972,7 @@ class Server(
             from flux.security.bootstrap_token import resolve_or_generate
 
             startup_settings = Configuration.get().settings
+            self._validate_security_config(startup_settings)
             token, _ = resolve_or_generate(
                 home=startup_settings.home,
                 configured=startup_settings.workers.bootstrap_token,
