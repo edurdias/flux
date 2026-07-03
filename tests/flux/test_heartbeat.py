@@ -432,6 +432,9 @@ class TestWorkerReconnect:
         mock_settings.workers.bootstrap_token = "test-token"
         mock_settings.workers.server_url = "http://localhost:8000"
         mock_settings.workers.default_timeout = 0
+        mock_settings.workers.http_timeout = 0
+        mock_settings.workers.checkpoint_retry_max_delay = 30
+        mock_settings.workers.terminal_checkpoint_deadline = 300
         mock_settings.workers.reconnect_max_delay = 4
         mock_settings.workers.module_cache_ttl = 300
 
