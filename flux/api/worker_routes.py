@@ -269,6 +269,61 @@ class WorkerRoutesMixin:
                     f"Worker {name} registered for round-robin (total: {len(self._worker_names)})",
                 )
 
+                self._worker_info[name] = worker
+                dispatch_mode = Configuration.get().settings.dispatch.mode
+                if dispatch_mode == "event":
+                    # A reconnect supersedes any previous stream for this worker:
+                    # release frames the old queue never delivered, then install
+                    # the new queue the dispatcher will feed.
+                    self._drain_worker_queue(name)
+                    frame_queue: asyncio.Queue = asyncio.Queue()
+                    self._worker_queues[name] = frame_queue
+                    # New capacity — let the dispatcher assign any pending work.
+                    self._work_available.set()
+
+                    async def consume_dispatch_queue():
+                        last_ping_time = time.monotonic()
+                        try:
+                            while True:
+                                if eviction_event.is_set():
+                                    logger.info(f"Worker {name} evicted by reaper, closing SSE")
+                                    return
+
+                                now = time.monotonic()
+                                if (now - last_ping_time) >= self.heartbeat_interval:
+                                    last_ping_time = now
+                                    yield {"event": "ping", "data": ""}
+
+                                try:
+                                    item = await asyncio.wait_for(frame_queue.get(), timeout=1.0)
+                                except TimeoutError:
+                                    continue
+                                logger.debug(
+                                    f"Sending {item.kind} to worker {name}: {item.execution_id}",
+                                )
+                                yield item.frame
+                        finally:
+                            if self._worker_connection_gen.get(name) == gen:
+                                self._disconnect_worker(name)
+                                logger.info(
+                                    f"Worker {name} disconnected "
+                                    f"(remaining: {len(self._worker_names)})",
+                                )
+                            else:
+                                logger.debug(
+                                    f"Stale SSE for {name} closed (superseded by newer connection)",
+                                )
+
+                    return EventSourceResponse(
+                        consume_dispatch_queue(),
+                        media_type="text/event-stream",
+                        headers={
+                            "Content-Type": "text/event-stream",
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                        },
+                    )
+
                 async def check_for_new_executions():
                     fallback_interval = 0.5
                     last_ping_time = time.monotonic()

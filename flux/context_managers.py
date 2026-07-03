@@ -118,6 +118,36 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def next_executions_batch(
+        self,
+        workers: list[WorkerInfo],
+        limit: int,
+    ) -> list[tuple[ExecutionContext, str]]:  # pragma: no cover
+        """Claim up to ``limit`` pending executions and assign them across workers.
+
+        Event-dispatch counterpart of ``next_execution``: one transaction claims
+        a batch and spreads it over the eligible least-loaded workers. Returns
+        ``(context, worker_name)`` pairs.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def next_cancellations_batch(
+        self,
+        worker_names: list[str],
+        limit: int,
+    ) -> list[ExecutionContext]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def next_resumes_batch(
+        self,
+        workers: list[WorkerInfo],
+        limit: int,
+    ) -> list[tuple[ExecutionContext, str]]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         raise NotImplementedError()
 
@@ -446,6 +476,152 @@ class DatabaseContextManager(ContextManager):
                     )
 
             return ctx
+
+    def _worker_load_map(self, session: Session, worker_names: list[str]) -> dict[str, int]:
+        """Active-execution counts for the given workers, one aggregate query."""
+        active_states = [
+            ExecutionState.RUNNING,
+            ExecutionState.CLAIMED,
+            ExecutionState.SCHEDULED,
+        ]
+        rows = (
+            session.query(
+                ExecutionContextModel.worker_name,
+                func.count(ExecutionContextModel.execution_id),
+            )
+            .filter(
+                ExecutionContextModel.state.in_(active_states),
+                ExecutionContextModel.worker_name.in_(worker_names),
+            )
+            .group_by(ExecutionContextModel.worker_name)
+            .all()
+        )
+        loads = {name: 0 for name in worker_names}
+        loads.update(dict(rows))
+        return loads
+
+    def next_executions_batch(
+        self,
+        workers: list[WorkerInfo],
+        limit: int,
+    ) -> list[tuple[ExecutionContext, str]]:
+        """Claim up to ``limit`` pending executions and assign them across workers.
+
+        One transaction per call: rows are locked with ``SKIP LOCKED`` (so
+        concurrent dispatchers on other replicas pass over each other's
+        claims), matched against each worker's labels/resources, and assigned
+        to the least-loaded eligible worker. The load aggregate runs once per
+        batch — not once per worker per poll tick as in ``next_execution``.
+        Unmatched rows keep state CREATED and their locks release at commit.
+        """
+        if not workers or limit <= 0:
+            return []
+        assignments: list[tuple[ExecutionContext, str]] = []
+        with self.session() as session:
+            loads = self._worker_load_map(session, [w.name for w in workers])
+            query = (
+                session.query(ExecutionContextModel, WorkflowModel)
+                .join(WorkflowModel)
+                .filter(ExecutionContextModel.state == ExecutionState.CREATED)
+                .with_for_update(skip_locked=True, of=ExecutionContextModel)
+                .limit(limit)
+            )
+            for model, workflow in query:
+                eligible = [w for w in workers if self._worker_matches_workflow(w, workflow)]
+                if not eligible:
+                    continue
+                worker = min(eligible, key=lambda w: loads.get(w.name, 0))
+                ctx = model.to_plain()
+                ctx.schedule(worker)
+                model.state = ctx.state
+                model.worker_name = ctx.current_worker
+                session.add_all(self._get_additional_events(ctx, session))
+                loads[worker.name] = loads.get(worker.name, 0) + 1
+                assignments.append((ctx, worker.name))
+            session.commit()
+        return assignments
+
+    def next_cancellations_batch(
+        self,
+        worker_names: list[str],
+        limit: int,
+    ) -> list[ExecutionContext]:
+        """Pending cancellations for the given workers.
+
+        Read-only like ``next_cancellation``; the state flips when the worker
+        checkpoints the cancelled context, so re-delivery on later wakeups is
+        possible and workers treat cancellation events idempotently.
+        """
+        if not worker_names or limit <= 0:
+            return []
+        with self.session() as session:
+            models = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.CANCELLING,
+                    ExecutionContextModel.worker_name.in_(worker_names),
+                )
+                .with_for_update(skip_locked=True)
+                .limit(limit)
+                .all()
+            )
+            return [model.to_plain() for model in models]
+
+    def next_resumes_batch(
+        self,
+        workers: list[WorkerInfo],
+        limit: int,
+    ) -> list[tuple[ExecutionContext, str]]:
+        """Schedule pending resumes: sticky ones to their original worker,
+        unassigned ones to the least-loaded matching worker."""
+        if not workers or limit <= 0:
+            return []
+        by_name = {w.name: w for w in workers}
+        assignments: list[tuple[ExecutionContext, str]] = []
+        with self.session() as session:
+            loads = self._worker_load_map(session, list(by_name))
+
+            def _assign(model, worker: WorkerInfo):
+                ctx = model.to_plain()
+                ctx.resume_schedule(worker)
+                model.state = ctx.state
+                model.worker_name = ctx.current_worker
+                session.add_all(self._get_additional_events(ctx, session))
+                loads[worker.name] = loads.get(worker.name, 0) + 1
+                assignments.append((ctx, worker.name))
+
+            sticky = (
+                session.query(ExecutionContextModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.RESUMING,
+                    ExecutionContextModel.worker_name.in_(list(by_name)),
+                )
+                .with_for_update(skip_locked=True)
+                .limit(limit)
+            )
+            for model in sticky:
+                _assign(model, by_name[model.worker_name])
+
+            remaining = limit - len(assignments)
+            if remaining > 0:
+                unassigned = (
+                    session.query(ExecutionContextModel, WorkflowModel)
+                    .join(WorkflowModel)
+                    .filter(
+                        ExecutionContextModel.state == ExecutionState.RESUMING,
+                        ExecutionContextModel.worker_name.is_(None),
+                    )
+                    .with_for_update(skip_locked=True, of=ExecutionContextModel)
+                    .limit(remaining)
+                )
+                for model, workflow in unassigned:
+                    eligible = [w for w in workers if self._worker_matches_workflow(w, workflow)]
+                    if not eligible:
+                        continue
+                    _assign(model, min(eligible, key=lambda w: loads.get(w.name, 0)))
+
+            session.commit()
+        return assignments
 
     def claim(self, execution_id: str, worker: WorkerInfo) -> ExecutionContext:
         with self.session() as session:
