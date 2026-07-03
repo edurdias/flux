@@ -322,8 +322,9 @@ max_overflow = 20
 executor_threads = 16          # dedicated DB thread pool (replaces default loop executor)
 
 [flux.retention]
-enabled = true
-retention_days = 30            # terminal executions + events
+enabled = true                 # shipped default is false: enabling deletion is
+                               # an explicit production choice, never an upgrade side effect
+retention_days = 30            # terminal executions + events (age since last event)
 sweep_interval = 3600
 
 [flux.transient]
