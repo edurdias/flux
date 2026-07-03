@@ -21,7 +21,10 @@ from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
+from fastapi import Request
 from sse_starlette import EventSourceResponse
+
+from flux.config import Configuration
 
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
@@ -84,8 +87,17 @@ class WorkerRoutesMixin:
         principal_registry,
         limiter,
     ):
+        # The bootstrap token is a shared secret validated on every registration;
+        # without a rate limit it is online-brute-forceable at full request rate.
+        register_rate_limit = Configuration.get().settings.workers.register_rate_limit
+
+        def _register_limited(fn):
+            return limiter.limit(register_rate_limit)(fn) if register_rate_limit else fn
+
         @api.post("/workers/register")
+        @_register_limited
         async def workers_register(
+            request: Request,
             registration: WorkerRegistration = Body(...),
             authorization: str = Header(None),
         ):
