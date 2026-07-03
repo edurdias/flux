@@ -768,6 +768,15 @@ class WorkerRoutesMixin:
                 )
 
                 def _status(info) -> str:
+                    # This replica knows its own connections authoritatively —
+                    # and immediately (a locally-disconnected worker must not
+                    # read "online" for the rest of its heartbeat window). The
+                    # persisted-heartbeat fallback covers workers attached to
+                    # OTHER replicas, which this process cannot see directly.
+                    if info.name in self._worker_names:
+                        return "online"
+                    if info.name in self._worker_offline_since:
+                        return "offline"
                     last_seen = getattr(info, "last_seen_at", None)
                     return (
                         "online" if last_seen is not None and last_seen >= threshold else "offline"
