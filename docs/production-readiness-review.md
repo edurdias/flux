@@ -135,7 +135,7 @@ Only the SSE connect path recovers from 401/403 by re-registering (`flux/worker.
 
 ### W4 (Medium) — Module cache staleness and leaks
 
-Cache key is `namespace:name:version` with a 300s TTL (`flux/worker.py:540-597`): re-registering different source under the same version serves stale code for up to 5 minutes, and `sys.modules` entries for old versions are never freed (unbounded growth on version churn). **Fix:** include a source hash in the cache key; add an LRU size cap and evict `sys.modules` alongside.
+Cache key is `namespace:name:version` with a 300s TTL (`flux/worker.py:540-597`): re-registering different source under the same version serves stale code for up to 5 minutes, and `sys.modules` entries for old versions are never freed (unbounded growth on version churn). **Fix:** include a source hash in the cache key; add an LRU size cap and evict `sys.modules` alongside. **Status: fixed** — the cache key and the synthetic module name both carry a 12-hex-char source hash (changed source recompiles immediately, and each source variant owns its own `sys.modules` entry), and the cache is an LRU bounded by `[flux.workers] module_cache_max_size` (default 64, 0 = unbounded) that evicts the `sys.modules` entry with the cache entry.
 
 ---
 
@@ -437,7 +437,7 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 14. `durability="transient"`: no-op checkpoint + in-memory transient registry + server-relayed sync execution (§6, phase 1).
 15. `call()`/`workflow_agent()` transient passthrough; sticky same-worker in-process execution (§6, phase 2).
-16. Subprocess isolation mode for untrusted/CPU-bound workflows (W1); module-cache source-hash keys + LRU (W4).
+16. Subprocess isolation mode for untrusted/CPU-bound workflows (W1); module-cache source-hash keys + LRU (W4, **done**).
 17. Production deployment guide: PostgreSQL-only for fleets, replica topology, probes (`/ready`), pool sizing, security checklist.
 
 ---
@@ -446,7 +446,7 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 - **2026-07-03 — PostgreSQL-only for multi-node.** Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.
 - **2026-07-03 — Transient semantics: at-most-once at the workflow level.** Transient executions are never re-dispatched by the server; worker death or TTL expiry returns a structured error and the caller retries. Task-level retry/fallback/rollback inside a transient run is unchanged (in-memory event mechanics are kept, only persistence is skipped). Pause, approval gates, and schedules on transient workflows are hard errors.
-- **2026-07-03 — Dependency posture.** fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release).
+- **2026-07-03 — Dependency posture.** fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release). **Superseded 2026-07-03:** fastmcp migrated to 3.x (floor 3.2.0) — the 3.x meta-package kept the 2.x import layout, so the migration reduced to the floor bump plus replacing one private-attribute access (`FastMCP._tool_manager.get_tool` → the public `FastMCP.get_tool`). All previously-accepted 3.2.0-only advisories are now cleared.
 
 ---
 

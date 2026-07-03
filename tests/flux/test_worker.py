@@ -564,40 +564,62 @@ def test_workflow_definition_default_namespace():
 def test_module_cache_key_includes_namespace():
     from flux.worker import _make_module_cache_key, _make_module_name
 
-    key_a = _make_module_cache_key("billing", "process", 1)
-    key_b = _make_module_cache_key("analytics", "process", 1)
+    key_a = _make_module_cache_key("billing", "process", 1, "abc")
+    key_b = _make_module_cache_key("analytics", "process", 1, "abc")
     assert key_a != key_b
 
-    name_a = _make_module_name("billing", "process", 1)
-    name_b = _make_module_name("analytics", "process", 1)
+    name_a = _make_module_name("billing", "process", 1, "abc")
+    name_b = _make_module_name("analytics", "process", 1, "abc")
     assert name_a != name_b
     assert "billing" in name_a
     assert "analytics" in name_b
+
+
+def test_module_cache_key_includes_source_hash():
+    """Same-version re-registration with different source must miss the cache."""
+    from flux.worker import _hash_source, _make_module_cache_key, _make_module_name
+
+    hash_a = _hash_source("cHJpbnQoMSk=")
+    hash_b = _hash_source("cHJpbnQoMik=")
+    assert hash_a != hash_b
+
+    assert _make_module_cache_key("default", "wf", 1, hash_a) != _make_module_cache_key(
+        "default",
+        "wf",
+        1,
+        hash_b,
+    )
+    assert _make_module_name("default", "wf", 1, hash_a) != _make_module_name(
+        "default",
+        "wf",
+        1,
+        hash_b,
+    )
 
 
 def test_module_name_no_underscore_collision():
     """foo_bar/baz and foo/bar_baz must produce distinct module names."""
     from flux.worker import _make_module_name
 
-    name_a = _make_module_name("foo_bar", "baz", 1)
-    name_b = _make_module_name("foo", "bar_baz", 1)
+    name_a = _make_module_name("foo_bar", "baz", 1, "abc")
+    name_b = _make_module_name("foo", "bar_baz", 1, "abc")
     assert name_a != name_b
-    assert name_a == "flux_workflow__foo_bar__baz__v1"
-    assert name_b == "flux_workflow__foo__bar_baz__v1"
+    assert name_a == "flux_workflow__foo_bar__baz__v1__habc"
+    assert name_b == "flux_workflow__foo__bar_baz__v1__habc"
 
 
 def test_module_name_sanitizes_hyphens():
     """Hyphens in namespace/name must be replaced with underscores."""
     from flux.worker import _make_module_name
 
-    name = _make_module_name("foo-bar", "my-workflow", 2)
-    assert name == "flux_workflow__foo_bar__my_workflow__v2"
+    name = _make_module_name("foo-bar", "my-workflow", 2, "abc")
+    assert name == "flux_workflow__foo_bar__my_workflow__v2__habc"
     assert "-" not in name
 
 
 def test_module_name_is_valid_python_identifier():
     """The module name must be a valid Python identifier."""
-    from flux.worker import _make_module_name
+    from flux.worker import _hash_source, _make_module_name
 
-    name = _make_module_name("billing", "invoice", 1)
+    name = _make_module_name("billing", "invoice", 1, _hash_source("aGk="))
     assert name.isidentifier()

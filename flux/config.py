@@ -78,6 +78,14 @@ class WorkersConfig(BaseConfig):
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",
     )
+    module_cache_max_size: int = Field(
+        default=64,
+        description=(
+            "Maximum number of compiled workflow modules kept in the cache; "
+            "the least-recently-used entry is evicted beyond this "
+            "(0 = unbounded, the legacy behavior)"
+        ),
+    )
     max_concurrent_executions: int = Field(
         default=16,
         description=(

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import importlib
 import platform
 import random
 import signal
 import sys
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable
 from types import ModuleType
 from collections.abc import Callable
@@ -27,14 +29,24 @@ from flux import workflow
 logger = get_logger(__name__)
 
 
-def _make_module_cache_key(namespace: str, name: str, version: int) -> str:
-    return f"{namespace}:{name}:{version}"
+def _hash_source(source: str) -> str:
+    """Short digest of the (base64-encoded) workflow source as shipped."""
+    return hashlib.sha256(source.encode()).hexdigest()[:12]
 
 
-def _make_module_name(namespace: str, name: str, version: int) -> str:
+def _make_module_cache_key(namespace: str, name: str, version: int, source_hash: str) -> str:
+    # Keyed by source hash so a same-version re-registration (delete +
+    # register, catalog overwrite) recompiles immediately instead of serving
+    # the previous source for up to module_cache_ttl seconds.
+    return f"{namespace}:{name}:{version}:{source_hash}"
+
+
+def _make_module_name(namespace: str, name: str, version: int, source_hash: str) -> str:
+    # The hash suffix keeps sys.modules entries per source variant, so
+    # evicting one cache entry can never remove a newer variant's module.
     safe_namespace = namespace.replace("-", "_")
     safe_name = name.replace("-", "_")
-    return f"flux_workflow__{safe_namespace}__{safe_name}__v{version}"
+    return f"flux_workflow__{safe_namespace}__{safe_name}__v{version}__h{source_hash}"
 
 
 class WorkflowDefinition(BaseModel):
@@ -133,8 +145,9 @@ class Worker:
         self._progress_queues: dict[str, asyncio.Queue] = {}
         self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
-        self._module_cache: dict[str, tuple[ModuleType, float]] = {}
+        self._module_cache: OrderedDict[str, tuple[ModuleType, float]] = OrderedDict()
         self._module_cache_ttl = config.module_cache_ttl
+        self._module_cache_max_size = config.module_cache_max_size
         self._max_concurrent = config.max_concurrent_executions
         self._drain_timeout = config.drain_timeout
         self._draining = False
@@ -638,10 +651,12 @@ class Worker:
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
 
+        source_hash = _hash_source(request.workflow.source)
         cache_key = _make_module_cache_key(
             request.workflow.namespace,
             request.workflow.name,
             request.workflow.version,
+            source_hash,
         )
         module = None
         wfunc = None
@@ -654,6 +669,7 @@ class Worker:
             request.workflow.namespace,
             request.workflow.name,
             request.workflow.version,
+            source_hash,
         )
 
         if self._module_cache_ttl > 0:
@@ -662,6 +678,7 @@ class Worker:
                 cached_module, cached_at = cached
                 if time.monotonic() - cached_at < self._module_cache_ttl:
                     module = cached_module
+                    self._module_cache.move_to_end(cache_key)
                     logger.debug(f"Module cache hit for {cache_key}")
                     if m:
                         m.record_module_cache("hit")
@@ -677,8 +694,8 @@ class Worker:
             logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
 
             # Drop any stale module under this name before exec'ing the new
-            # source. Otherwise a re-registered version executes against the
-            # previous version's globals dict still pinned in sys.modules.
+            # source (only possible after TTL expiry of this exact variant —
+            # the name includes the source hash).
             sys.modules.pop(module_name, None)
 
             logger.debug(f"Creating module: {module_name}")
@@ -691,6 +708,12 @@ class Worker:
 
             if self._module_cache_ttl > 0:
                 self._module_cache[cache_key] = (module, time.monotonic())
+                while (
+                    self._module_cache_max_size > 0
+                    and len(self._module_cache) > self._module_cache_max_size
+                ):
+                    _, (evicted, _) = self._module_cache.popitem(last=False)
+                    sys.modules.pop(evicted.__name__, None)
 
         ctx = request.context
         self._setup_progress(ctx)
