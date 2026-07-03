@@ -68,6 +68,7 @@ class WorkerInfo:
         session_token: str | None = None,
         labels: dict[str, str] | None = None,
         max_concurrent_executions: int | None = None,
+        last_seen_at: datetime | None = None,
     ):
         self.name = name
         self.runtime = runtime
@@ -77,6 +78,8 @@ class WorkerInfo:
         self.labels = labels or {}
         # Advertised capacity; None/0 means unlimited (legacy workers).
         self.max_concurrent_executions = max_concurrent_executions
+        # Persisted heartbeat timestamp; None until the first pong lands.
+        self.last_seen_at = last_seen_at
 
 
 class WorkerRegistry(ABC):
@@ -310,4 +313,5 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             session_token=model.session_token,
             labels=model.labels if model.labels else {},
             max_concurrent_executions=model.max_concurrent_executions,
+            last_seen_at=model.last_seen_at,
         )

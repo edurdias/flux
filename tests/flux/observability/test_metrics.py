@@ -112,7 +112,9 @@ class TestFluxMetrics:
         registrations = self._get_metric(reader, "flux_worker_registrations_total")
         assert registrations is not None
         dp = registrations.data.data_points[0]
-        assert dp.attributes["worker_name"] == "worker-1"
+        # Worker names are caller-controlled and must NOT be metric labels
+        # (unbounded cardinality); the counter is aggregate-only.
+        assert "worker_name" not in dp.attributes
         assert dp.value == 1
 
     def test_record_worker_connected(self):
@@ -129,7 +131,7 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_worker_disconnections_total")
         assert metric is not None
         dp = metric.data.data_points[0]
-        assert dp.attributes["worker_name"] == "worker-1"
+        assert "worker_name" not in dp.attributes
         assert dp.attributes["reason"] == "evicted"
         assert dp.value == 1
 
@@ -148,7 +150,7 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_worker_auth_events_total")
         assert metric is not None
         dp = metric.data.data_points[0]
-        assert dp.attributes["worker_name"] == "worker-1"
+        assert "worker_name" not in dp.attributes
         assert dp.attributes["event"] == "principal_provisioned"
         assert dp.value == 1
 
@@ -159,7 +161,7 @@ class TestFluxMetrics:
         metric = self._get_metric(reader, "flux_schedule_triggers_total")
         assert metric is not None
         dp = metric.data.data_points[0]
-        assert dp.attributes["schedule_name"] == "nightly"
+        assert "schedule_name" not in dp.attributes
         assert dp.attributes["outcome"] == "success"
 
     def test_record_http_request(self):

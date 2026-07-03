@@ -31,6 +31,15 @@ class OIDCConfig(_BaseConfig):
 
 class APIKeyAuthConfig(_BaseConfig):
     enabled: bool = False
+    worker_key_ttl: int = Field(
+        default=604800,
+        description=(
+            "Lifetime in seconds of API keys minted for workers at "
+            "registration (default 7 days; 0 = never expire). Workers "
+            "re-register automatically on 401, so expiry rotates keys "
+            "without operator action."
+        ),
+    )
 
 
 class AuthConfig(_BaseConfig):
@@ -91,8 +100,12 @@ class SecurityConfig(_BaseConfig):
         description="HMAC secret for signing execution tokens. Required in production.",
     )
     execution_token_ttl: int = Field(
-        default=604800,
-        description="Execution token TTL in seconds (default: 7 days).",
+        default=86400,
+        description=(
+            "Execution token TTL in seconds (default: 24 hours). The token is "
+            "scoped to a single execution and minted fresh on every dispatch "
+            "and resume, so it only needs to outlive one continuous run."
+        ),
     )
 
     model_config = {"arbitrary_types_allowed": True}

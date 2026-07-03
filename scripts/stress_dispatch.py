@@ -124,10 +124,16 @@ class Fleet:
                 self.dispatch_latencies.append(time.monotonic() - self.enqueue_time)
             ctx = ExecutionContext.from_json(cr.json())
             ctx.start(name).complete(name, "done")
+            # Echo the fencing token like a real worker, so the stress run
+            # exercises the claim-generation check on every checkpoint.
+            ck_headers = dict(headers)
+            generation = cr.headers.get("X-Flux-Claim-Generation")
+            if generation is not None:
+                ck_headers["X-Flux-Claim-Generation"] = generation
             ck = await client.post(
                 f"{SERVER}/workers/{name}/checkpoint/{eid}",
                 json=ctx.to_dict(),
-                headers=headers,
+                headers=ck_headers,
             )
             if ck.status_code == 200:
                 self.completed += 1
