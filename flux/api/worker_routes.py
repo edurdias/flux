@@ -119,6 +119,7 @@ class WorkerRoutesMixin:
                     registration.packages,
                     registration.resources,
                     labels=registration.labels,
+                    max_concurrent_executions=registration.max_concurrent_executions,
                 )
 
                 if auth_service is not None and auth_config.api_keys.enabled:
@@ -565,6 +566,10 @@ class WorkerRoutesMixin:
 
                 if ctx.has_finished:
                     self._execution_queue_times.pop(execution_id, None)
+                    # A finished execution frees one of the worker's capacity
+                    # slots — wake dispatch so any work that was held back by
+                    # a full fleet gets assigned now.
+                    self._notify_next_worker()
 
                 # Notify any waiting sync/stream endpoint
                 event = self._execution_events.get(execution_id)

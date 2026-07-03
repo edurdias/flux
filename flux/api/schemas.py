@@ -55,6 +55,8 @@ class WorkerRegistration(BaseModel):
     packages: list[dict[str, str]]
     resources: WorkerResourcesModel
     labels: dict[str, str] = Field(default_factory=dict)
+    # Advertised capacity; None/0 means unlimited (legacy workers).
+    max_concurrent_executions: int | None = None
 
 
 class SecretRequest(BaseModel):

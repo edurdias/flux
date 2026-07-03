@@ -499,6 +499,9 @@ class WorkerModel(Base):
     # when the replica a worker was attached to dies. Indexed because the reaper
     # filters on it every heartbeat interval on every replica.
     last_seen_at = Column(DateTime, nullable=True, index=True)
+    # Capacity advertised at registration; dispatch never assigns beyond it.
+    # NULL/0 means unlimited (legacy workers that predate the field).
+    max_concurrent_executions = Column(Integer, nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")
@@ -517,12 +520,14 @@ class WorkerModel(Base):
         packages: list[WorkerPackageModel] | None = None,
         resources: WorkerResourcesModel | None = None,
         labels: dict[str, str] | None = None,
+        max_concurrent_executions: int | None = None,
     ):
         self.name = name
         self.runtime = runtime
         self.packages = packages or []
         self.resources = resources
         self.labels = labels or {}
+        self.max_concurrent_executions = max_concurrent_executions
 
 
 class WorkflowModel(Base):
