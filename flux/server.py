@@ -134,8 +134,10 @@ class Server(
         # the database (SKIP LOCKED) and LISTEN/NOTIFY wakeups.
         self._worker_queues: dict[str, asyncio.Queue] = {}
         self._worker_info: dict[str, object] = {}
+        self._pending_heartbeats: set[str] = set()
         self._dispatch_mode = Configuration.get().settings.dispatch.mode
         self._dispatcher = None
+        self._reaper_task: asyncio.Task | None = None
 
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
@@ -569,12 +571,16 @@ class Server(
 
     async def _stop_reaper(self):
         """Stop the heartbeat reaper task."""
-        if hasattr(self, "_reaper_task") and self._reaper_task:
+        if self._reaper_task:
             self._reaper_task.cancel()
             try:
                 await self._reaper_task
             except asyncio.CancelledError:
                 pass
+            self._reaper_task = None
+            # Persist any pongs buffered since the last tick so the fleet's
+            # liveness view stays fresh across a server restart.
+            await self._flush_heartbeats()
             logger.info("Heartbeat reaper stopped")
 
     def _persist_worker_heartbeat(self, name: str) -> None:
@@ -588,15 +594,38 @@ class Server(
         The in-memory ``_worker_last_pong`` drives this replica's round-robin
         and local stale tracking; the persisted ``last_seen_at`` gives every
         replica's reaper a global view of liveness so orphaned executions can
-        be reclaimed when the replica a worker was attached to dies. Persisting
-        runs off the event loop and never fails the request.
+        be reclaimed when the replica a worker was attached to dies.
+
+        While the reaper is running, persistence is batched: pongs buffer in
+        memory and the reaper tick flushes them as ONE statement per interval
+        — at fleet scale this replaces one commit per worker per interval.
+        The persist delay is at most one heartbeat interval, well inside the
+        cross-replica staleness threshold (heartbeat_timeout + grace). Without
+        a reaper (embedded/test use) each heartbeat persists immediately.
         """
         self._worker_last_pong[name] = time.monotonic()
         self._worker_stale_since.pop(name, None)
+        if self._reaper_task is not None and not self._reaper_task.done():
+            self._pending_heartbeats.add(name)
+            return
         try:
             await asyncio.to_thread(self._persist_worker_heartbeat, name)
         except Exception as e:
             logger.debug(f"Failed to persist heartbeat for worker {name}: {e}")
+
+    async def _flush_heartbeats(self) -> None:
+        """Persist all buffered pongs in one batched UPDATE."""
+        if not self._pending_heartbeats:
+            return
+        names = list(self._pending_heartbeats)
+        self._pending_heartbeats.clear()
+        try:
+            from flux.worker_registry import WorkerRegistry
+
+            registry = WorkerRegistry.create()
+            await asyncio.to_thread(registry.record_heartbeats, names)
+        except Exception as e:
+            logger.debug(f"Failed to persist {len(names)} heartbeat(s): {e}")
 
     def _disconnect_worker(self, name: str, reason: str = "disconnect") -> None:
         """Remove a worker from the connected set and mark it offline in cache."""
@@ -737,6 +766,10 @@ class Server(
             while True:
                 await asyncio.sleep(self.heartbeat_interval)
                 now = time.monotonic()
+
+                # Persist the interval's buffered pongs first, so cross-replica
+                # staleness views are as fresh as possible before we sweep.
+                await self._flush_heartbeats()
 
                 for name, last_pong in list(self._worker_last_pong.items()):
                     if (now - last_pong) > self.heartbeat_timeout:

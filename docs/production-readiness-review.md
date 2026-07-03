@@ -369,8 +369,12 @@ connection errors) and median dispatch reaches 2 minutes. Poll mode degrades
 superlinearly with fleet size (throughput 6.6 → 2.5/s, median 32 → 117 s
 from 200 → 500 workers); event mode holds (19.7 → 16.6/s, first dispatch
 sub-second at both sizes). Event mode's remaining idle load (~0.4
-transactions/worker/sec) is heartbeat pongs — the P1 "batch heartbeat
-writes" item.
+transactions/worker/sec) was heartbeat pongs — the P1 "batch heartbeat
+writes" item, since landed: with pongs buffered and flushed as one UPDATE
+per reaper tick, measured idle load dropped to **45 tx/s @ 200 workers and
+101 tx/s @ 500** (~half). The residual ~0.18 tx/worker/sec tracks the
+per-request auth/permission resolution on worker endpoints — a future
+candidate for role-resolution caching.
 
 ### 7.7 Rollout path
 

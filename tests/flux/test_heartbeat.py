@@ -520,3 +520,55 @@ class TestWorkerReconnect:
         ):
             # Should not raise
             await worker._send_pong()
+
+
+class TestHeartbeatBatching:
+    """Pongs buffer in memory while the reaper runs; the tick flushes one batch."""
+
+    @pytest.fixture
+    def server(self):
+        with patch("flux.server.Configuration") as mock_conf:
+            settings = MagicMock()
+            settings.scheduling.poll_interval = 30.0
+            settings.workers.heartbeat_interval = 2
+            settings.workers.heartbeat_timeout = 5
+            settings.workers.offline_ttl = 10
+            settings.workers.eviction_grace_period = 10
+            settings.observability.enabled = False
+            mock_conf.get.return_value.settings = settings
+            s = Server(host="localhost", port=8000)
+        return s
+
+    @pytest.mark.asyncio
+    async def test_pong_buffers_while_reaper_active(self, server):
+        server._reaper_task = MagicMock()
+        server._reaper_task.done.return_value = False
+        with patch.object(server, "_persist_worker_heartbeat") as persist:
+            await server._record_heartbeat("w1")
+        persist.assert_not_called()
+        assert server._pending_heartbeats == {"w1"}
+        assert "w1" in server._worker_last_pong
+
+    @pytest.mark.asyncio
+    async def test_pong_persists_immediately_without_reaper(self, server):
+        assert server._reaper_task is None
+        with patch.object(server, "_persist_worker_heartbeat") as persist:
+            await server._record_heartbeat("w1")
+        persist.assert_called_once_with("w1")
+        assert server._pending_heartbeats == set()
+
+    @pytest.mark.asyncio
+    async def test_flush_persists_batch_and_clears(self, server):
+        server._pending_heartbeats = {"w1", "w2"}
+        with patch("flux.worker_registry.WorkerRegistry.create") as create:
+            registry = create.return_value
+            await server._flush_heartbeats()
+        registry.record_heartbeats.assert_called_once()
+        assert sorted(registry.record_heartbeats.call_args[0][0]) == ["w1", "w2"]
+        assert server._pending_heartbeats == set()
+
+    @pytest.mark.asyncio
+    async def test_flush_is_noop_when_empty(self, server):
+        with patch("flux.worker_registry.WorkerRegistry.create") as create:
+            await server._flush_heartbeats()
+        create.assert_not_called()

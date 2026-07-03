@@ -85,6 +85,22 @@ def test_record_heartbeat_unknown_worker_is_noop(registry):
     registry.record_heartbeat("does-not-exist")
 
 
+def test_record_heartbeats_batch_updates_all_named_workers(registry):
+    for name in ("b1", "b2", "b3"):
+        _register(registry, name)
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    registry.record_heartbeats(["b1", "b2"])
+
+    assert _last_seen_at(registry, "b1") >= before - timedelta(seconds=1)
+    assert _last_seen_at(registry, "b2") >= before - timedelta(seconds=1)
+    assert _last_seen_at(registry, "b3") is None  # not in the batch
+
+
+def test_record_heartbeats_empty_is_noop(registry):
+    registry.record_heartbeats([])
+
+
 def test_find_stale_returns_workers_past_threshold(registry):
     _register(registry, "old")
     _register(registry, "fresh")
