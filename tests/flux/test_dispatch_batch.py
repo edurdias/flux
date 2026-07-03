@@ -230,3 +230,75 @@ def test_batch_with_no_workers_is_a_noop(clean_env):
     assert cm.next_cancellations_batch([], limit=10) == []
     assert cm.next_resumes_batch([], limit=10) == []
     assert _states(cm)[e.execution_id][0] == ExecutionState.CREATED
+
+
+def _register_capped_worker(registry, name, capacity, labels=None):
+    registry.register(
+        name=name,
+        runtime=_make_runtime(),
+        packages=[],
+        resources=_make_resources(),
+        labels=labels,
+        max_concurrent_executions=capacity,
+    )
+    return registry.get(name)
+
+
+def test_batch_never_exceeds_worker_capacity(clean_env):
+    cm, registry = clean_env
+    w1 = _register_capped_worker(registry, "w1", capacity=2)
+    wf_id = _create_workflow("plain")
+    for _ in range(5):
+        _create_execution(cm, wf_id, name="plain")
+
+    assignments = cm.next_executions_batch([w1], limit=10)
+
+    assert len(assignments) == 2
+    states = _states(cm)
+    created = [s for s, _ in states.values() if s == ExecutionState.CREATED]
+    assert len(created) == 3  # held back, not lost
+
+
+def test_batch_overflows_to_worker_with_free_slots(clean_env):
+    cm, registry = clean_env
+    capped = _register_capped_worker(registry, "capped", capacity=1)
+    roomy = _register_capped_worker(registry, "roomy", capacity=10)
+    wf_id = _create_workflow("plain")
+    for _ in range(4):
+        _create_execution(cm, wf_id, name="plain")
+
+    assignments = cm.next_executions_batch([capped, roomy], limit=10)
+
+    per_worker: dict[str, int] = {}
+    for _, worker_name in assignments:
+        per_worker[worker_name] = per_worker.get(worker_name, 0) + 1
+    assert len(assignments) == 4
+    assert per_worker["capped"] == 1
+    assert per_worker["roomy"] == 3
+
+
+def test_poll_path_respects_capacity(clean_env):
+    cm, registry = clean_env
+    w1 = _register_capped_worker(registry, "w1", capacity=1)
+    wf_id = _create_workflow("plain")
+
+    busy = _create_execution(cm, wf_id, name="plain")
+    _force_state(busy.execution_id, ExecutionState.RUNNING, worker_name="w1")
+    _create_execution(cm, wf_id, name="plain")
+
+    # w1 is at capacity: the legacy poll query must not hand it more work.
+    assert cm.next_execution(w1) is None
+
+    _force_state(busy.execution_id, ExecutionState.COMPLETED, worker_name="w1")
+    assert cm.next_execution(w1) is not None
+
+
+def test_unlimited_capacity_workers_keep_legacy_behavior(clean_env):
+    cm, registry = clean_env
+    w1 = _register_worker(registry, "w1")  # no capacity advertised -> unlimited
+    wf_id = _create_workflow("plain")
+    for _ in range(3):
+        _create_execution(cm, wf_id, name="plain")
+
+    assignments = cm.next_executions_batch([w1], limit=10)
+    assert len(assignments) == 3
