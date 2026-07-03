@@ -27,7 +27,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0003_worker_last_seen"
+HEAD = "0004_worker_last_seen_index"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
