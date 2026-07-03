@@ -26,6 +26,8 @@ def make_worker() -> Worker:
     worker._progress_flushers = {}
     worker._module_cache = {}
     worker._module_cache_ttl = 0
+    worker._draining = False
+    worker._drain_timeout = 5
     return worker
 
 
@@ -208,3 +210,86 @@ async def test_authorized_post_returns_non_auth_errors_unchanged():
 async def _wait_for_ack(box):
     while box.acked < box.generation:
         await asyncio.sleep(0.005)
+
+
+@pytest.mark.asyncio
+async def test_drain_waits_for_running_executions():
+    """Drain lets in-flight executions finish instead of cancelling them."""
+    worker = make_worker()
+    finished = []
+
+    async def wf():
+        await asyncio.sleep(0.05)
+        finished.append(True)
+
+    worker._running_workflows["e1"] = asyncio.create_task(wf())
+    await worker._drain()
+    assert finished == [True]
+
+
+@pytest.mark.asyncio
+async def test_drain_cancels_past_deadline():
+    """Executions still running at the drain deadline are cancelled."""
+    worker = make_worker()
+    worker._drain_timeout = 0.05
+    cancelled = []
+
+    async def stuck():
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    worker._running_workflows["e1"] = asyncio.create_task(stuck())
+    await worker._drain()
+    assert cancelled == [True]
+
+
+@pytest.mark.asyncio
+async def test_drain_flushes_outstanding_checkpoint_senders():
+    """Terminal checkpoints still in flight get a final delivery window."""
+    from flux.worker import _CheckpointOutbox
+
+    worker = make_worker()
+    delivered = []
+
+    async def sender():
+        await asyncio.sleep(0.05)
+        delivered.append(True)
+
+    box = _CheckpointOutbox()
+    box.sender = asyncio.create_task(sender())
+    worker._checkpoint_outboxes["e1"] = box
+    await worker._drain()
+    assert delivered == [True]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_handler_declines_work_while_draining():
+    """A dispatch that races the drain window is not claimed."""
+    worker = make_worker()
+    worker._draining = True
+    worker._authorized_post = AsyncMock()
+
+    evt = MagicMock()
+    evt.json.return_value = {
+        "workflow": {
+            "id": "wf-1",
+            "namespace": "default",
+            "name": "wf",
+            "version": 1,
+            "source": "",
+        },
+        "context": {
+            "workflow_id": "wf-1",
+            "workflow_namespace": "default",
+            "workflow_name": "wf",
+            "execution_id": "exec-drain",
+            "input": None,
+            "state": "SCHEDULED",
+            "events": [],
+        },
+    }
+    await worker._handle_execution_scheduled("http://localhost:19000/workers/x", evt)
+    worker._authorized_post.assert_not_called()

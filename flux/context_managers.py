@@ -390,6 +390,11 @@ class DatabaseContextManager(ContextManager):
         if worker.name not in load_map:
             load_map[worker.name] = 0
 
+        # A worker at its advertised capacity never takes new work, regardless
+        # of how loaded the rest of the fleet is.
+        if not self._has_free_slot(worker, load_map):
+            return False
+
         if len(load_map) <= 1:
             return True
 
@@ -477,6 +482,18 @@ class DatabaseContextManager(ContextManager):
 
             return ctx
 
+    @staticmethod
+    def _has_free_slot(worker: WorkerInfo, loads: dict[str, int]) -> bool:
+        """Whether the worker's advertised capacity admits one more execution.
+
+        ``max_concurrent_executions`` of None or 0 means unlimited (legacy
+        workers that predate the field).
+        """
+        cap = getattr(worker, "max_concurrent_executions", None)
+        if not cap:
+            return True
+        return loads.get(worker.name, 0) < cap
+
     def _worker_load_map(self, session: Session, worker_names: list[str]) -> dict[str, int]:
         """Active-execution counts for the given workers, one aggregate query."""
         active_states = [
@@ -527,7 +544,11 @@ class DatabaseContextManager(ContextManager):
                 .limit(limit)
             )
             for model, workflow in query:
-                eligible = [w for w in workers if self._worker_matches_workflow(w, workflow)]
+                eligible = [
+                    w
+                    for w in workers
+                    if self._has_free_slot(w, loads) and self._worker_matches_workflow(w, workflow)
+                ]
                 if not eligible:
                     continue
                 worker = min(eligible, key=lambda w: loads.get(w.name, 0))
@@ -615,7 +636,12 @@ class DatabaseContextManager(ContextManager):
                     .limit(remaining)
                 )
                 for model, workflow in unassigned:
-                    eligible = [w for w in workers if self._worker_matches_workflow(w, workflow)]
+                    eligible = [
+                        w
+                        for w in workers
+                        if self._has_free_slot(w, loads)
+                        and self._worker_matches_workflow(w, workflow)
+                    ]
                     if not eligible:
                         continue
                     _assign(model, min(eligible, key=lambda w: loads.get(w.name, 0)))

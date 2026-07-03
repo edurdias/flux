@@ -78,6 +78,21 @@ class WorkersConfig(BaseConfig):
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",
     )
+    max_concurrent_executions: int = Field(
+        default=16,
+        description=(
+            "Capacity the worker advertises at registration: the server never "
+            "assigns more than this many concurrent executions to it "
+            "(0 = unlimited, the legacy behavior)"
+        ),
+    )
+    drain_timeout: int = Field(
+        default=60,
+        description=(
+            "Seconds a stopping worker waits for running executions to finish "
+            "before cancelling them (0 = cancel immediately)"
+        ),
+    )
     register_rate_limit: str = Field(
         default="30/minute",
         description=(

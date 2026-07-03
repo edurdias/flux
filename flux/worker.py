@@ -128,6 +128,9 @@ class Worker:
         self._reconnect_max_delay = config.reconnect_max_delay
         self._module_cache: dict[str, tuple[ModuleType, float]] = {}
         self._module_cache_ttl = config.module_cache_ttl
+        self._max_concurrent = config.max_concurrent_executions
+        self._drain_timeout = config.drain_timeout
+        self._draining = False
         self._registered = False
         self.session_token: str | None = None
 
@@ -172,7 +175,10 @@ class Worker:
         main_task = asyncio.current_task()
 
         def _request_shutdown(signame: str) -> None:
-            logger.info(f"Worker received {signame}, shutting down...")
+            if self._draining:
+                logger.info(f"Worker received {signame} again, aborting drain...")
+            else:
+                logger.info(f"Worker received {signame}, draining before shutdown...")
             if main_task is not None:
                 main_task.cancel()
 
@@ -185,36 +191,79 @@ class Worker:
                 logger.debug(f"Could not install {sig.name} handler via event loop")
 
         backoff = 1
-        while True:
-            try:
-                if not self._registered:
-                    await self._register()
-                else:
-                    logger.info("Reconnecting with existing session...")
-
+        try:
+            while True:
                 try:
-                    await self._connect()
-                except httpx.HTTPStatusError as e:
-                    if e.response.status_code in (401, 403) and self._registered:
-                        logger.warning("Session token rejected, re-registering...")
-                        self._registered = False
+                    if not self._registered:
                         await self._register()
-                        await self._connect()
                     else:
-                        raise
+                        logger.info("Reconnecting with existing session...")
 
-                logger.info("SSE connection closed, reconnecting...")
-                backoff = 1
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                jitter = backoff * (0.5 + random.random())
-                delay = min(jitter, self._reconnect_max_delay)
-                logger.warning(
-                    f"Connection lost ({type(e).__name__}: {e}). Reconnecting in {delay:.1f}s...",
+                    try:
+                        await self._connect()
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403) and self._registered:
+                            logger.warning("Session token rejected, re-registering...")
+                            self._registered = False
+                            await self._register()
+                            await self._connect()
+                        else:
+                            raise
+
+                    logger.info("SSE connection closed, reconnecting...")
+                    backoff = 1
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    jitter = backoff * (0.5 + random.random())
+                    delay = min(jitter, self._reconnect_max_delay)
+                    logger.warning(
+                        f"Connection lost ({type(e).__name__}: {e}). Reconnecting in {delay:.1f}s...",
+                    )
+                    await asyncio.sleep(delay)
+                    backoff = min(backoff * 2, self._reconnect_max_delay)
+        except asyncio.CancelledError:
+            # First stop signal: the SSE stream is closed (no new work arrives),
+            # so drain what is already running. A second signal cancels again,
+            # which interrupts the drain's awaits and exits immediately.
+            self._draining = True
+            await self._drain()
+
+    async def _drain(self):
+        """Let running executions finish, then flush their checkpoints.
+
+        Bounded by ``drain_timeout``: executions still running at the deadline
+        are cancelled (which checkpoints them as CANCELLED, best-effort), and
+        outstanding checkpoint senders get a short final window so terminal
+        states reach the server instead of waiting on the ~60s reaper path.
+        """
+        running = [t for t in self._running_workflows.values() if not t.done()]
+        if running:
+            if self._drain_timeout > 0:
+                logger.info(
+                    f"Draining {len(running)} running execution(s) "
+                    f"(timeout {self._drain_timeout}s)...",
                 )
-                await asyncio.sleep(delay)
-                backoff = min(backoff * 2, self._reconnect_max_delay)
+                _, pending = await asyncio.wait(running, timeout=self._drain_timeout)
+            else:
+                pending = set(running)
+            if pending:
+                logger.warning(
+                    f"Drain deadline reached; cancelling {len(pending)} execution(s)",
+                )
+                for task in pending:
+                    task.cancel()
+                await asyncio.wait(pending, timeout=30)
+
+        senders = [
+            box.sender
+            for box in self._checkpoint_outboxes.values()
+            if box.sender and not box.sender.done()
+        ]
+        if senders:
+            logger.info(f"Flushing {len(senders)} outstanding checkpoint sender(s)...")
+            await asyncio.wait(senders, timeout=30)
+        logger.info("Drain complete")
 
     async def _register(self):
         try:
@@ -237,6 +286,7 @@ class Worker:
                 "resources": resources,
                 "packages": packages,
                 "labels": self.labels,
+                "max_concurrent_executions": self._max_concurrent or None,
             }
 
             logger.debug("Sending registration request to server...")
@@ -467,6 +517,13 @@ class Worker:
                     "flux.worker.name": self.name,
                 },
             )
+
+        if self._draining:
+            logger.info(
+                f"Draining; not claiming execution {request.context.execution_id} "
+                f"(will be re-dispatched)",
+            )
+            return
 
         try:
             with span_cm as span:
