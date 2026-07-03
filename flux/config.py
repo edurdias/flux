@@ -39,6 +39,21 @@ class WorkersConfig(BaseConfig):
         description="Default server URL to connect to",
     )
     default_timeout: int = Field(default=0, description="Default task timeout in seconds")
+    http_timeout: int = Field(
+        default=30,
+        description="Timeout in seconds for worker HTTP calls to the server (0 disables)",
+    )
+    checkpoint_retry_max_delay: int = Field(
+        default=30,
+        description="Backoff cap in seconds between checkpoint send retries",
+    )
+    terminal_checkpoint_deadline: int = Field(
+        default=300,
+        description=(
+            "Max seconds to keep retrying a terminal (finished-state) checkpoint "
+            "before giving up and leaving the execution to the server reaper"
+        ),
+    )
     retry_attempts: int = Field(default=3, description="Default number of retry attempts")
     retry_delay: int = Field(default=1, description="Default delay between retries in seconds")
     retry_backoff: int = Field(default=2, description="Default backoff multiplier for retries")
