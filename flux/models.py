@@ -107,6 +107,21 @@ class SQLiteRepository(DatabaseRepository):
         return engine
 
 
+def normalize_postgresql_url(url: str) -> str:
+    """Pin PostgreSQL URLs to the psycopg (v3) dialect.
+
+    SQLAlchemy resolves a bare ``postgresql://`` to psycopg2, which is no
+    longer shipped. Configs keep the driverless form (and legacy
+    ``postgresql+psycopg2://`` values keep working); the driver choice is
+    made here, in one place.
+    """
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if url.startswith("postgresql+psycopg2://"):
+        return url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+    return url
+
+
 class PostgreSQLRepository(DatabaseRepository):
     def _create_engine(self) -> Engine:
         try:
@@ -115,6 +130,7 @@ class PostgreSQLRepository(DatabaseRepository):
 
             # Validate URL format
             self._validate_postgresql_url(url)
+            url = normalize_postgresql_url(url)
 
             # PostgreSQL-specific engine configuration
             engine_kwargs = {
@@ -157,7 +173,7 @@ class PostgreSQLRepository(DatabaseRepository):
 
     def _validate_postgresql_url(self, url: str) -> None:
         """Validate PostgreSQL URL format"""
-        if not url.startswith("postgresql://"):
+        if not url.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+psycopg2://")):
             raise ValueError("PostgreSQL URL must start with 'postgresql://'")
 
         # Additional validation for required components

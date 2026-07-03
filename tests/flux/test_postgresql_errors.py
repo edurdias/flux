@@ -68,7 +68,7 @@ class TestPostgreSQLRepositoryErrorHandling:
     def test_import_error_handling(self, mock_postgresql_config):
         """Test handling of missing PostgreSQL driver."""
         with patch("flux.models.create_engine") as mock_create:
-            mock_create.side_effect = ImportError("No module named 'psycopg2'")
+            mock_create.side_effect = ImportError("No module named 'psycopg'")
 
             with pytest.raises(PostgreSQLConnectionError) as exc_info:
                 PostgreSQLRepository()
@@ -190,7 +190,7 @@ class TestErrorMessageQuality:
     def test_driver_installation_message_helpful(self, mock_postgresql_config):
         """Test driver installation error message is helpful."""
         with patch("flux.models.create_engine") as mock_create:
-            mock_create.side_effect = ImportError("No module named 'psycopg2'")
+            mock_create.side_effect = ImportError("No module named 'psycopg'")
 
             with pytest.raises(PostgreSQLConnectionError) as exc_info:
                 PostgreSQLRepository()

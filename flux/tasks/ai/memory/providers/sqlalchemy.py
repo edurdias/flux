@@ -38,7 +38,9 @@ class SqlAlchemyProvider:
 
     def _get_engine(self) -> Engine:
         if self._engine is None:
-            self._engine = create_engine(self._url)
+            from flux.models import normalize_postgresql_url
+
+            self._engine = create_engine(normalize_postgresql_url(self._url))
             _metadata.create_all(self._engine)
         return self._engine
 

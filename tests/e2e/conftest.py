@@ -551,7 +551,9 @@ def cli(tmp_path_factory):
     env = {
         **os.environ,
         "FLUX_SERVER_PORT": str(E2E_PORT),
-        "FLUX_DATABASE_URL": f"sqlite:///{db_path}",
+        # Default is a throwaway SQLite file; export FLUX_E2E_DATABASE_URL to run
+        # the whole suite against another backend (e.g. a scratch PostgreSQL DB).
+        "FLUX_DATABASE_URL": os.environ.get("FLUX_E2E_DATABASE_URL", f"sqlite:///{db_path}"),
         "FLUX_WORKERS__SERVER_URL": E2E_SERVER_URL,
         "FLUX_WORKERS__BOOTSTRAP_TOKEN": "e2e-test-bootstrap-token",
         "FLUX_SECURITY__AUTH__ENABLED": "false",
