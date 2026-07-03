@@ -78,6 +78,26 @@ class WorkflowExecutionRequest(BaseModel):
         )
 
 
+class _CheckpointOutbox:
+    """Per-execution checkpoint sender state.
+
+    Checkpoints are cumulative full-context snapshots, so the newest snapshot
+    supersedes any unsent older one — coalescing to ``latest`` is lossless.
+    A single sender task per execution serializes sends; in-flight sends are
+    never cancelled, and failures are retried with capped backoff until the
+    snapshot is delivered or superseded.
+    """
+
+    def __init__(self):
+        self.latest: ExecutionContext | None = None
+        self.generation = 0  # bumped on every new snapshot
+        self.acked = 0  # highest generation successfully sent
+        self.wakeup = asyncio.Event()
+        self.sender: asyncio.Task | None = None
+        self.delivered = asyncio.Event()  # set once a terminal snapshot is acked
+        self.closed = False  # handler ended; sender exits after catching up
+
+
 class Worker:
     def __init__(self, name: str, server_url: str, labels: dict[str, str] | None = None):
         self.name = name
@@ -97,9 +117,12 @@ class Worker:
             )
         self.bootstrap_token = bootstrap_token
         self.base_url = f"{server_url or config.server_url}/workers"
-        self.client = httpx.AsyncClient(timeout=config.default_timeout or None)
+        self.client = httpx.AsyncClient(timeout=config.http_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
-        self._pending_checkpoints: dict[str, asyncio.Task] = {}
+        self._checkpoint_outboxes: dict[str, _CheckpointOutbox] = {}
+        self._checkpoint_retry_max_delay: float = config.checkpoint_retry_max_delay
+        self._terminal_checkpoint_deadline: float = config.terminal_checkpoint_deadline
+        self._reauth_lock = asyncio.Lock()
         self._progress_queues: dict[str, asyncio.Queue] = {}
         self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
@@ -257,7 +280,7 @@ class Worker:
                     async for evt in es.aiter_sse():
                         if evt.event == "execution_scheduled":
                             asyncio.create_task(
-                                self._handle_execution_scheduled(base_url, headers, evt),
+                                self._handle_execution_scheduled(base_url, evt),
                                 name=f"handle_execution_scheduled_{evt.id}",
                             )
                         elif evt.event == "execution_cancelled":
@@ -285,9 +308,8 @@ class Worker:
     async def _send_pong(self):
         """Respond to server ping with a pong."""
         base_url = f"{self.base_url}/{self.name}"
-        headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
-            await self.client.post(f"{base_url}/pong", headers=headers)
+            await self._authorized_post(f"{base_url}/pong")
             logger.debug("Pong sent")
         except Exception as e:
             logger.debug(f"Failed to send pong: {e}")
@@ -361,13 +383,11 @@ class Worker:
                 )
 
                 base_url = f"{self.base_url}/{self.name}"
-                headers = {"Authorization": f"Bearer {self.session_token}"}
 
                 logger.debug(f"Claiming resumed execution: {request.context.execution_id}")
                 try:
-                    response = await self.client.post(
+                    response = await self._authorized_post(
                         f"{base_url}/claim/{request.context.execution_id}",
-                        headers=headers,
                     )
                     response.raise_for_status()
                 except httpx.HTTPStatusError as claim_err:
@@ -412,8 +432,10 @@ class Worker:
         except Exception as ex:
             logger.error(f"Error handling execution_resumed event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+        finally:
+            self._close_checkpoint_outbox(request.context.execution_id)
 
-    async def _handle_execution_scheduled(self, base_url, headers, e):
+    async def _handle_execution_scheduled(self, base_url, e):
         """Handle execution scheduled event asynchronously.
 
         This method is called as a separate task and should handle its own exceptions.
@@ -454,9 +476,8 @@ class Worker:
                 logger.debug(f"Workflow input: {request.context.input}")
 
                 logger.debug(f"Claiming execution: {request.context.execution_id}")
-                response = await self.client.post(
+                response = await self._authorized_post(
                     f"{base_url}/claim/{request.context.execution_id}",
-                    headers=headers,
                 )
                 response.raise_for_status()
                 claim_data = response.json()
@@ -501,6 +522,8 @@ class Worker:
         except Exception as ex:
             logger.error(f"Error handling execution_scheduled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
+        finally:
+            self._close_checkpoint_outbox(request.context.execution_id)
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
         """Execute a workflow from a workflow execution request.
@@ -642,32 +665,126 @@ class Worker:
         return ctx
 
     async def _checkpoint(self, ctx: ExecutionContext):
-        pending = self._pending_checkpoints.pop(ctx.execution_id, None)
+        """Queue a checkpoint for delivery, never dropping durability.
 
-        if pending and not pending.done():
-            pending.cancel()
-            try:
-                await pending
-            except (asyncio.CancelledError, Exception):
-                pass
+        Intermediate checkpoints return immediately: the per-execution sender
+        task delivers the newest snapshot, retrying failures with capped
+        backoff instead of cancelling in-flight sends. Terminal checkpoints
+        block until the finished state is acknowledged by the server (or the
+        configured deadline expires, after which the server reaper is the
+        fallback).
+        """
+        box = self._checkpoint_outboxes.get(ctx.execution_id)
+        if box is None:
+            box = self._checkpoint_outboxes[ctx.execution_id] = _CheckpointOutbox()
+
+        box.latest = ctx
+        box.generation += 1
+        box.wakeup.set()
+
+        if box.sender is None or box.sender.done():
+            box.sender = asyncio.create_task(
+                self._drain_checkpoints(ctx.execution_id, box),
+            )
 
         if ctx.has_finished:
-            await self._send_checkpoint(ctx)
-        else:
-            task = asyncio.create_task(self._send_checkpoint(ctx))
-            task.add_done_callback(self._handle_checkpoint_error)
-            self._pending_checkpoints[ctx.execution_id] = task
+            try:
+                await asyncio.wait_for(
+                    box.delivered.wait(),
+                    timeout=self._terminal_checkpoint_deadline or None,
+                )
+            except TimeoutError:
+                logger.critical(
+                    f"Terminal checkpoint for execution {ctx.execution_id} "
+                    f"({ctx.workflow_name}, state={ctx.state.value}) not delivered within "
+                    f"{self._terminal_checkpoint_deadline}s; giving up. The server reaper "
+                    f"will requeue the execution.",
+                )
+                if box.sender and not box.sender.done():
+                    box.sender.cancel()
+                self._checkpoint_outboxes.pop(ctx.execution_id, None)
 
-    def _handle_checkpoint_error(self, task: asyncio.Task):
-        if task.cancelled():
+    async def _drain_checkpoints(self, execution_id: str, box: _CheckpointOutbox):
+        """Deliver checkpoint snapshots for one execution, in order, until terminal.
+
+        Runs as a dedicated task per execution: waits for new snapshots, sends
+        the newest one, and retries failed sends with jittered capped backoff.
+        Ends when a terminal snapshot is acknowledged.
+        """
+        initial_backoff = min(1.0, self._checkpoint_retry_max_delay or 1.0)
+        backoff = initial_backoff
+        while True:
+            await box.wakeup.wait()
+            box.wakeup.clear()
+
+            while box.acked < box.generation:
+                generation = box.generation
+                ctx = box.latest
+                assert ctx is not None
+                try:
+                    await self._send_checkpoint(ctx)
+                    box.acked = generation
+                    backoff = initial_backoff
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    delay = backoff * (0.5 + random.random())
+                    logger.warning(
+                        f"Checkpoint for execution {execution_id} failed "
+                        f"({type(e).__name__}: {e}); retrying in {delay:.1f}s",
+                    )
+                    await asyncio.sleep(delay)
+                    backoff = min(backoff * 2, self._checkpoint_retry_max_delay)
+
+            latest = box.latest
+            if latest is not None and latest.has_finished:
+                box.delivered.set()
+                self._checkpoint_outboxes.pop(execution_id, None)
+                return
+            if box.closed:
+                self._checkpoint_outboxes.pop(execution_id, None)
+                return
+
+    def _close_checkpoint_outbox(self, execution_id: str):
+        """Release checkpoint state once an execution's handler has ended.
+
+        On normal completion the sender already removed the outbox after the
+        terminal checkpoint was acknowledged, making this a no-op. For
+        non-terminal endings (pause, handler error) the sender is asked to
+        exit after delivering whatever is still pending — never cancelled, so
+        an in-flight PAUSED or partial snapshot is not lost.
+        """
+        box = self._checkpoint_outboxes.get(execution_id)
+        if box is None:
             return
-        exc = task.exception()
-        if exc:
-            logger.error(f"Checkpoint task failed: {exc}")
+        box.closed = True
+        box.wakeup.set()
+
+    def _auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.session_token}"}
+
+    async def _authorized_post(self, url: str, **kwargs) -> httpx.Response:
+        """POST with the session token; on 401/403 re-register once and retry.
+
+        Only the SSE connect path used to recover from token rejection, so a
+        key rotated or revoked mid-execution silently broke checkpoints,
+        claims, pongs, and progress. Persistent rejection after one refresh is
+        returned to the caller (whose raise_for_status surfaces it).
+        """
+        token_used = self.session_token
+        response = await self.client.post(url, headers=self._auth_headers(), **kwargs)
+        if response.status_code not in (401, 403) or not self._registered:
+            return response
+
+        async with self._reauth_lock:
+            if self.session_token == token_used:
+                logger.warning("Session token rejected mid-operation, re-registering...")
+                self._registered = False
+                await self._register()
+        return await self.client.post(url, headers=self._auth_headers(), **kwargs)
 
     async def _send_checkpoint(self, ctx: ExecutionContext):
         base_url = f"{self.base_url}/{self.name}"
-        headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
             logger.info(f"Checkpointing execution '{ctx.workflow_name}' ({ctx.execution_id})...")
             logger.debug(f"Checkpoint URL: {base_url}/checkpoint/{ctx.execution_id}")
@@ -678,10 +795,9 @@ class Worker:
             logger.debug(f"Sending checkpoint data ({len(str(ctx_dict))} bytes)")
 
             checkpoint_start = time.monotonic()
-            response = await self.client.post(
+            response = await self._authorized_post(
                 f"{base_url}/checkpoint/{ctx.execution_id}",
                 json=ctx_dict,
-                headers=headers,
             )
             response.raise_for_status()
             checkpoint_duration = time.monotonic() - checkpoint_start
@@ -705,7 +821,6 @@ class Worker:
 
     async def _flush_progress(self, queue: asyncio.Queue, execution_id: str):
         base_url = f"{self.base_url}/{self.name}"
-        headers = {"Authorization": f"Bearer {self.session_token}"}
         try:
             while True:
                 batch = []
@@ -719,10 +834,9 @@ class Worker:
                         batch.append(queue.get_nowait())
                     if batch:
                         try:
-                            await self.client.post(
+                            await self._authorized_post(
                                 f"{base_url}/progress/{execution_id}",
                                 json=batch,
-                                headers=headers,
                             )
                         except Exception:
                             logger.warning(
@@ -734,10 +848,9 @@ class Worker:
                     return
 
                 try:
-                    await self.client.post(
+                    await self._authorized_post(
                         f"{base_url}/progress/{execution_id}",
                         json=batch,
-                        headers=headers,
                     )
                 except Exception:
                     logger.warning(

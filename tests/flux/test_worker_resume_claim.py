@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -19,7 +20,11 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
     worker.session_token = "tok"
     worker.client = AsyncMock()
     worker._running_workflows = {}
-    worker._pending_checkpoints = {}
+    worker._checkpoint_outboxes = {}
+    worker._registered = True
+    worker._reauth_lock = asyncio.Lock()
+    worker._checkpoint_retry_max_delay = 30
+    worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
     worker._module_cache = {}
@@ -93,7 +98,11 @@ async def test_handle_execution_resumed_drops_on_409():
     worker.session_token = "tok"
     worker.client = AsyncMock()
     worker._running_workflows = {}
-    worker._pending_checkpoints = {}
+    worker._checkpoint_outboxes = {}
+    worker._registered = True
+    worker._reauth_lock = asyncio.Lock()
+    worker._checkpoint_retry_max_delay = 30
+    worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
     worker._module_cache = {}
