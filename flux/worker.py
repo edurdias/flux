@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
-from flux.errors import WorkflowNotFoundError
+from flux.errors import StaleClaimError, WorkflowNotFoundError
 from flux.utils import get_logger
 from flux import workflow
 
@@ -96,6 +96,10 @@ class _CheckpointOutbox:
         self.sender: asyncio.Task | None = None
         self.delivered = asyncio.Event()  # set once a terminal snapshot is acked
         self.closed = False  # handler ended; sender exits after catching up
+        # Event ids already acknowledged by the server. Snapshots are
+        # cumulative, so each send carries only events NOT in this set —
+        # O(delta) payloads instead of O(history) per checkpoint.
+        self.acked_ids: set[str] = set()
 
 
 class Worker:
@@ -120,6 +124,7 @@ class Worker:
         self.client = httpx.AsyncClient(timeout=config.http_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._checkpoint_outboxes: dict[str, _CheckpointOutbox] = {}
+        self._claim_generations: dict[str, str] = {}
         self._checkpoint_retry_max_delay: float = config.checkpoint_retry_max_delay
         self._terminal_checkpoint_deadline: float = config.terminal_checkpoint_deadline
         self._reauth_lock = asyncio.Lock()
@@ -454,6 +459,9 @@ class Worker:
                 )
 
                 claim_data = response.json()
+                generation = response.headers.get("X-Flux-Claim-Generation")
+                if generation is not None:
+                    self._claim_generations[request.context.execution_id] = generation
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if request.exec_token:
                     request.context.set_exec_token(request.exec_token)
@@ -538,6 +546,9 @@ class Worker:
                 )
                 response.raise_for_status()
                 claim_data = response.json()
+                generation = response.headers.get("X-Flux-Claim-Generation")
+                if generation is not None:
+                    self._claim_generations[request.context.execution_id] = generation
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if request.exec_token:
                     request.context.set_exec_token(request.exec_token)
@@ -779,11 +790,18 @@ class Worker:
                 ctx = box.latest
                 assert ctx is not None
                 try:
-                    await self._send_checkpoint(ctx)
+                    sent_ids = await self._send_checkpoint(
+                        ctx,
+                        exclude_event_ids=box.acked_ids,
+                    )
+                    box.acked_ids.update(sent_ids)
                     box.acked = generation
                     backoff = initial_backoff
                 except asyncio.CancelledError:
                     raise
+                except StaleClaimError:
+                    self._abort_fenced_execution(execution_id, box)
+                    return
                 except Exception as e:
                     delay = backoff * (0.5 + random.random())
                     logger.warning(
@@ -797,10 +815,28 @@ class Worker:
             if latest is not None and latest.has_finished:
                 box.delivered.set()
                 self._checkpoint_outboxes.pop(execution_id, None)
+                self._claim_generations.pop(execution_id, None)
                 return
             if box.closed:
                 self._checkpoint_outboxes.pop(execution_id, None)
+                self._claim_generations.pop(execution_id, None)
                 return
+
+    def _abort_fenced_execution(self, execution_id: str, box: _CheckpointOutbox):
+        """The server rejected our claim generation: another worker owns the
+        execution now. Cancel the local copy and discard its checkpoint state
+        — its writes must not interleave with the new owner's."""
+        logger.warning(
+            f"Execution {execution_id} was reassigned (stale claim); aborting the local copy",
+        )
+        task = self._running_workflows.get(execution_id)
+        if task and not task.done():
+            task.cancel()
+        # Unblock any terminal-checkpoint waiter; the result is discarded
+        # server-side anyway.
+        box.delivered.set()
+        self._checkpoint_outboxes.pop(execution_id, None)
+        self._claim_generations.pop(execution_id, None)
 
     def _close_checkpoint_outbox(self, execution_id: str):
         """Release checkpoint state once an execution's handler has ended.
@@ -829,7 +865,12 @@ class Worker:
         returned to the caller (whose raise_for_status surfaces it).
         """
         token_used = self.session_token
-        response = await self.client.post(url, headers=self._auth_headers(), **kwargs)
+        extra_headers = kwargs.pop("headers", None) or {}
+        response = await self.client.post(
+            url,
+            headers={**self._auth_headers(), **extra_headers},
+            **kwargs,
+        )
         if response.status_code not in (401, 403) or not self._registered:
             return response
 
@@ -838,24 +879,54 @@ class Worker:
                 logger.warning("Session token rejected mid-operation, re-registering...")
                 self._registered = False
                 await self._register()
-        return await self.client.post(url, headers=self._auth_headers(), **kwargs)
+        return await self.client.post(
+            url,
+            headers={**self._auth_headers(), **extra_headers},
+            **kwargs,
+        )
 
-    async def _send_checkpoint(self, ctx: ExecutionContext):
+    async def _send_checkpoint(
+        self,
+        ctx: ExecutionContext,
+        exclude_event_ids: set[str] | None = None,
+    ) -> list[str]:
+        """POST one checkpoint; returns the ids of the events it carried.
+
+        ``exclude_event_ids`` (the outbox's acknowledged set) turns the payload
+        into a delta: snapshots are cumulative, so already-acknowledged events
+        can be omitted — the server reconciles by event id either way. Raises
+        ``StaleClaimError`` if the server fences the claim (409): the
+        execution was reassigned and this worker's copy must abort.
+        """
         base_url = f"{self.base_url}/{self.name}"
         try:
             logger.info(f"Checkpointing execution '{ctx.workflow_name}' ({ctx.execution_id})...")
             logger.debug(f"Checkpoint URL: {base_url}/checkpoint/{ctx.execution_id}")
             logger.debug(f"Checkpoint state: {ctx.state.value}")
-            logger.debug(f"Number of events: {len(ctx.events)}")
 
             ctx_dict = ctx.to_dict()
-            logger.debug(f"Sending checkpoint data ({len(str(ctx_dict))} bytes)")
+            events = ctx_dict.get("events") or []
+            if exclude_event_ids:
+                events = [e for e in events if e.get("id") not in exclude_event_ids]
+                ctx_dict["events"] = events
+            sent_ids = [e.get("id") for e in events if e.get("id")]
+            logger.debug(
+                f"Sending checkpoint delta: {len(events)} event(s), {len(str(ctx_dict))} bytes",
+            )
+
+            headers = {}
+            generation = self._claim_generations.get(ctx.execution_id)
+            if generation is not None:
+                headers["X-Flux-Claim-Generation"] = generation
 
             checkpoint_start = time.monotonic()
             response = await self._authorized_post(
                 f"{base_url}/checkpoint/{ctx.execution_id}",
                 json=ctx_dict,
+                headers=headers,
             )
+            if response.status_code == 409 and "stale-claim" in response.text:
+                raise StaleClaimError(ctx.execution_id)
             response.raise_for_status()
             checkpoint_duration = time.monotonic() - checkpoint_start
             response_data = response.json()
@@ -871,6 +942,7 @@ class Worker:
             m = get_metrics()
             if m:
                 m.record_checkpoint(ctx.workflow_namespace, ctx.workflow_name, checkpoint_duration)
+            return sent_ids
         except Exception as e:
             logger.error(f"Error during checkpoint: {str(e)}")
             logger.debug(f"Checkpoint error details: {type(e).__name__}: {str(e)}")

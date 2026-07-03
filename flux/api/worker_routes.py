@@ -22,6 +22,7 @@ from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Query
 from fastapi import Request
+from fastapi import Response
 from sse_starlette import EventSourceResponse
 
 from flux.config import Configuration
@@ -29,7 +30,7 @@ from flux.config import Configuration
 from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
-from flux.errors import ExecutionContextNotFoundError, WorkerNotFoundError
+from flux.errors import ExecutionContextNotFoundError, StaleClaimError, WorkerNotFoundError
 from flux.secret_managers import SecretManager
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
@@ -473,6 +474,7 @@ class WorkerRoutesMixin:
         async def workers_claim(
             name: str,
             execution_id: str,
+            response: Response,
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             from flux.domain import ExecutionState
@@ -531,6 +533,15 @@ class WorkerRoutesMixin:
                 if event:
                     event.set()
 
+                # Fencing token: the worker echoes this on every checkpoint so
+                # a superseded claim (unclaimed after partition, reassigned)
+                # can be rejected instead of interleaving with the new owner.
+                generation = await asyncio.to_thread(
+                    context_manager.get_claim_generation,
+                    execution_id,
+                )
+                response.headers["X-Flux-Claim-Generation"] = str(generation)
+
                 return ctx.to_dict()
             except HTTPException:
                 raise
@@ -543,6 +554,7 @@ class WorkerRoutesMixin:
             name: str,
             execution_id: str,
             context: ExecutionContextDTO = Body(...),
+            claim_generation: str | None = Header(None, alias="X-Flux-Claim-Generation"),
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
             try:
@@ -557,8 +569,25 @@ class WorkerRoutesMixin:
                 context_manager = ContextManager.create()
                 domain_ctx = context.to_domain()
 
+                expected_generation = None
+                if claim_generation is not None:
+                    try:
+                        expected_generation = int(claim_generation)
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid X-Flux-Claim-Generation header.",
+                        )
+
                 try:
-                    ctx = await asyncio.to_thread(context_manager.update, domain_ctx)
+                    ctx = await asyncio.to_thread(
+                        context_manager.update,
+                        domain_ctx,
+                        expected_generation,
+                    )
+                except StaleClaimError as e:
+                    logger.warning(str(e))
+                    raise HTTPException(status_code=409, detail=f"stale-claim: {e}")
                 except ExecutionContextNotFoundError:
                     logger.warning(f"Execution context not found: {execution_id}")
                     raise HTTPException(status_code=404, detail="Execution context not found.")

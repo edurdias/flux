@@ -21,6 +21,7 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
     worker.client = AsyncMock()
     worker._running_workflows = {}
     worker._checkpoint_outboxes = {}
+    worker._claim_generations = {}
     worker._registered = True
     worker._reauth_lock = asyncio.Lock()
     worker._checkpoint_retry_max_delay = 30
@@ -46,6 +47,7 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
         },
     )
     claim_response.status_code = 200
+    claim_response.headers = {}
 
     async def mock_post(url, **kwargs):
         calls.append(("post", url))
@@ -99,6 +101,7 @@ async def test_handle_execution_resumed_drops_on_409():
     worker.client = AsyncMock()
     worker._running_workflows = {}
     worker._checkpoint_outboxes = {}
+    worker._claim_generations = {}
     worker._registered = True
     worker._reauth_lock = asyncio.Lock()
     worker._checkpoint_retry_max_delay = 30
