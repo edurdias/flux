@@ -1,0 +1,2301 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Distributed workflow orchestration engine to build stateful and fault-tolerant workflows">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Production Readiness Review — Scale to Thousands of Workers & Transient Workflows for AI Mesh - Flux Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#production-readiness-review-scale-to-thousands-of-workers-transient-workflows-for-ai-mesh" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Flux Documentation" class="md-header__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flux Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Production Readiness Review — Scale to Thousands of Workers &amp; Transient Workflows for AI Mesh
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Light Mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light Mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Dark Mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark Mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Flux Documentation" class="md-nav__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Flux Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Introduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../introduction/use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/basic_concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quick-start-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/workflow-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/execution-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/task-patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/workflow-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/task-progress/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Progress Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/agent-harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/mcp-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/ai-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/database-migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Executive summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-what-is-already-solid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. What is already solid
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-scalability-to-thousands-of-workers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Scalability to thousands of workers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Scalability to thousands of workers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#s1-critical-per-worker-05s-server-side-poll-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S1 (Critical) — Per-worker 0.5s server-side poll loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#s2-critical-15-connection-db-pool-and-32-thread-executor-ceiling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S2 (Critical) — 15-connection DB pool and 32-thread executor ceiling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#s3-high-_is_least_loaded_worker-full-aggregate-per-dispatch-attempt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S3 (High) — _is_least_loaded_worker full aggregate per dispatch attempt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#s4-high-single-process-server-per-replica-in-memory-state-breaks-multi-replica-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S4 (High) — Single-process server; per-replica in-memory state breaks multi-replica semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#s5-medium-heartbeatreaper-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S5 (Medium) — Heartbeat/reaper costs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#s6-medium-no-connectionbackpressure-limits-on-the-worker-plane" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        S6 (Medium) — No connection/backpressure limits on the worker plane
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-durability-correctness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Durability &amp; correctness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Durability &amp; correctness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#d1-critical-ok2-checkpoint-amplification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D1 (Critical) — O(K²) checkpoint amplification
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d2-critical-checkpoints-are-fire-and-forget-coalesced-unretried-and-untimed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D2 (Critical) — Checkpoints are fire-and-forget, coalesced, unretried, and untimed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d3-high-at-least-once-without-fencing-split-brain-on-partition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D3 (High) — At-least-once without fencing → split-brain on partition
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d4-high-unbounded-growth-no-retention-for-executionsevents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D4 (High) — Unbounded growth: no retention for executions/events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d5-medium-full-history-load-and-unpickle-on-every-read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D5 (Medium) — Full-history load and unpickle on every read
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d6-medium-replay-determinism-is-assumed-not-enforced-or-documented" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D6 (Medium) — Replay determinism is assumed, not enforced or documented
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d7-medium-sqlitepostgresql-behavioral-drift" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        D7 (Medium) — SQLite/PostgreSQL behavioral drift
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-worker-runtime-robustness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Worker runtime robustness
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Worker runtime robustness">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#w1-critical-no-isolation-no-per-workflow-timeout-no-concurrency-cap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W1 (Critical) — No isolation, no per-workflow timeout, no concurrency cap
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w2-high-no-graceful-draining" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W2 (High) — No graceful draining
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w3-medium-token-lifecycle-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W3 (Medium) — Token lifecycle gaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w4-medium-module-cache-staleness-and-leaks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W4 (Medium) — Module cache staleness and leaks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-security-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Security &amp; operations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Security &amp; operations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sec1-critical-no-rate-limiting-on-authentication-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEC1 (Critical) — No rate limiting on authentication paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sec2-critical-plaintext-transport-secrets-shipped-decrypted-over-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEC2 (Critical) — Plaintext transport; secrets shipped decrypted over HTTP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sec3-high-bootstrap-token-is-a-fleet-wide-master-secret-worker-keys-are-immortal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEC3 (High) — Bootstrap token is a fleet-wide master secret; worker keys are immortal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sec4-high-accepted-by-design-exec-of-registered-source-is-rce-by-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEC4 (High, accepted-by-design) — exec() of registered source is RCE by contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sec5-medium-operational-hygiene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEC5 (Medium) — Operational hygiene
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-transientstateless-workflows-for-the-ai-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Transient/stateless workflows for the AI mesh
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Transient/stateless workflows for the AI mesh">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-the-current-model-cant-serve-a-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the current model can't serve a mesh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-seam-already-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The seam already exists
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proposed-design-durabilitytransient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proposed design: durability="transient"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implemented-phase-1-revised-measured" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implemented (phase 1, revised) — measured
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sizing-sanity-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sizing sanity check
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-proposed-solution-target-architecture-stack-and-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Proposed solution — target architecture, stack, and dependencies
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Proposed solution — target architecture, stack, and dependencies">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-target-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Target architecture
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-component-designs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Component designs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-stack-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Stack decisions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-new-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 New dependencies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-configuration-surface-added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 Configuration surface added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#76-capacity-model-after-the-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.6 Capacity model after the changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7.6 Capacity model after the changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#measured-dispatch-plane-stress-test-poll-vs-event" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Measured: dispatch-plane stress test (poll vs event)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#77-rollout-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.7 Rollout path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-prioritized-roadmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Prioritized roadmap
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisions-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decisions log
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="production-readiness-review-scale-to-thousands-of-workers-transient-workflows-for-ai-mesh">Production Readiness Review — Scale to Thousands of Workers &amp; Transient Workflows for AI Mesh<a class="headerlink" href="#production-readiness-review-scale-to-thousands-of-workers-transient-workflows-for-ai-mesh" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-07-02 · <strong>Scope:</strong> dispatch/claim path, persistence, worker runtime, security/operations, and a design assessment for transient/stateless workflows supporting an AI-mesh use case.</p>
+<h2 id="executive-summary">Executive summary<a class="headerlink" href="#executive-summary" title="Permanent link">&para;</a></h2>
+<p>Flux has a well-factored core — event-sourced <code>ExecutionContext</code>, pessimistic <code>SELECT … FOR UPDATE SKIP LOCKED</code> claiming, Alembic migrations, HMAC-signed pickles, deny-by-default anonymous policy, cross-replica scheduler singleton — and a lot of recent hardening has landed. <strong>It is production-credible today at the scale of tens of workers and modest execution rates. It is not yet ready for thousands of workers or for high-frequency agent-to-agent traffic</strong>, for three structural reasons:</p>
+<ol>
+<li><strong>Dispatch is a per-worker server-side poll loop, not push.</strong> Each connected worker costs the server ~10–12 DB queries/sec even when idle, against a 15-connection pool and a ~32-thread executor. The system saturates in the low hundreds of workers per replica.</li>
+<li><strong>Durability is per-task full-context checkpointing.</strong> Every task completion re-ships the entire event history (O(K²) payload over a K-task workflow), checkpoints are fire-and-forget with no retry and no HTTP timeout, and there is no retention story for <code>execution_events</code>.</li>
+<li><strong>Every execution — including every agent LLM/tool step — pays full durable-workflow cost.</strong> A trivial 1-task workflow costs ≥6 persisted events, 5 locking DB transactions, and ~5 HTTP hops. An agent loop multiplies that per iteration. There is no transient/ephemeral execution mode — but the seam for one already exists and is clean (see §6).</li>
+</ol>
+<p>The recommended sequencing: fix the P0 correctness/robustness items (§8), replace polling dispatch with event-driven dispatch (§7), then add a <code>durability="transient"</code> execution mode that reuses the existing checkpoint-callable seam. Transient mode is the single highest-leverage change for the AI-mesh use case: it removes ~all DB work from the hot path and converts an agent hop from ~5 round-trips + 5 transactions to 1 relay round-trip.</p>
+<hr />
+<h2 id="1-what-is-already-solid">1. What is already solid<a class="headerlink" href="#1-what-is-already-solid" title="Permanent link">&para;</a></h2>
+<p>Credit where due — these are done correctly and should not be re-litigated:</p>
+<ul>
+<li><strong>Double-claim prevention.</strong> Dispatch and claim use <code>with_for_update(skip_locked=True)</code> with worker-name pinning and atomic state flips (<code>flux/context_managers.py:286,450-521</code>). No double-claim on PostgreSQL.</li>
+<li><strong>Cross-replica scheduler singleton</strong> via <code>pg_try_advisory_lock</code> per cycle (<code>flux/schedule_manager.py:386-428</code>), and idempotent cross-replica orphan reclaim from persisted heartbeats.</li>
+<li><strong>Migrations.</strong> Real Alembic chain with a frozen baseline, advisory-lock-guarded concurrent upgrade, and legacy <code>create_all</code> adoption (<code>flux/migrations/runner.py</code>).</li>
+<li><strong>Deterministic replay identity.</strong> Task IDs and event IDs are content-addressed SHA-256 (<code>flux/task.py:142-157</code>, <code>flux/domain/events.py:96-112</code>), which makes event dedup and replay short-circuiting stable across processes.</li>
+<li><strong>Security fundamentals.</strong> Constant-time bootstrap-token compare, static-parse-before-exec authorization ordering on registration, HMAC integrity signing of at-rest pickles (fail-closed when a key is set), worker identity binding on worker endpoints, secrets-batch allow-list enforcement.</li>
+<li><strong>Terminal-state write guard.</strong> <code>_accept_state_write</code> (<code>flux/context_managers.py:41-58</code>) prevents a stale worker from resurrecting a completed/cancelled execution.</li>
+</ul>
+<hr />
+<h2 id="2-scalability-to-thousands-of-workers">2. Scalability to thousands of workers<a class="headerlink" href="#2-scalability-to-thousands-of-workers" title="Permanent link">&para;</a></h2>
+<p>Findings ranked by severity. The first three interact: together they cap a replica at roughly 100–300 connected workers before pool exhaustion and executor queueing set in.</p>
+<h3 id="s1-critical-per-worker-05s-server-side-poll-loop">S1 (Critical) — Per-worker 0.5s server-side poll loop<a class="headerlink" href="#s1-critical-per-worker-05s-server-side-poll-loop" title="Permanent link">&para;</a></h3>
+<p><code>GET /workers/{name}/connect</code> looks like SSE push, but the server-side generator (<code>flux/api/worker_routes.py:260-388</code>) is a poll loop per connected worker: each tick calls <code>next_execution</code> + <code>next_cancellation</code> + <code>next_resume</code> (5–6 queries), and even with the event-based wakeups the fallback timeout is hard-coded to <strong>0.5s</strong> (<code>worker_routes.py:261</code>). An idle worker costs ~10–12 queries/sec:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Connected workers</th>
+<th style="text-align: right;">Idle dispatch queries/sec</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">100</td>
+<td style="text-align: right;">~1,000–1,200</td>
+</tr>
+<tr>
+<td style="text-align: right;">1,000</td>
+<td style="text-align: right;">~10,000–12,000</td>
+</tr>
+<tr>
+<td style="text-align: right;">5,000</td>
+<td style="text-align: right;">~50,000–60,000</td>
+</tr>
+</tbody>
+</table>
+<p>Worse, new-work wakeups broadcast on a single shared <code>_work_available</code> event (<code>worker_routes.py:352-356</code>) — a <strong>thundering herd</strong>: one enqueued execution wakes every connected worker's loop, each of which runs the full match query stack and all but one loses the <code>SKIP LOCKED</code> race.</p>
+<p><strong>Fix direction:</strong> event-driven dispatch. Per-replica in-memory work queues fed by PostgreSQL <code>LISTEN/NOTIFY</code> (or a lightweight fan-out table poll by <em>one</em> dispatcher task per replica, not one loop per worker), with targeted per-worker wakeups instead of broadcast, and the 0.5s fallback raised to a slow safety-net interval (10–30s).</p>
+<h3 id="s2-critical-15-connection-db-pool-and-32-thread-executor-ceiling">S2 (Critical) — 15-connection DB pool and 32-thread executor ceiling<a class="headerlink" href="#s2-critical-15-connection-db-pool-and-32-thread-executor-ceiling" title="Permanent link">&para;</a></h3>
+<ul>
+<li>PostgreSQL pool defaults: <code>pool_size=5</code>, <code>max_overflow=10</code> → <strong>15 connections per replica</strong> (<code>flux/config.py:166-173</code>, <code>flux/models.py:120-125</code>), <code>pool_timeout=30s</code>. The per-worker poll loops alone exceed this in the low hundreds of workers; requests then block 30s and error.</li>
+<li>All sync-SQLAlchemy work is offloaded via <code>asyncio.to_thread</code>, which uses the default loop executor (~<code>min(32, cpu+4)</code> threads; never overridden anywhere). That is the global concurrency ceiling for <em>all</em> DB operations — dispatch, checkpoints, admin routes.</li>
+</ul>
+<p><strong>Fix direction:</strong> make pool size and a dedicated, explicitly sized <code>ThreadPoolExecutor</code> configurable and sized together (executor ≤ pool); long-term, S1 removes most of the demand. Consider async SQLAlchemy for the hot paths eventually, but sizing + event-driven dispatch buys the most for the least risk.</p>
+<h3 id="s3-high-_is_least_loaded_worker-full-aggregate-per-dispatch-attempt">S3 (High) — <code>_is_least_loaded_worker</code> full aggregate per dispatch attempt<a class="headerlink" href="#s3-high-_is_least_loaded_worker-full-aggregate-per-dispatch-attempt" title="Permanent link">&para;</a></h3>
+<p>Every <code>next_execution</code> call first runs a <code>GROUP BY</code> aggregate over <strong>all</strong> active executions (<code>flux/context_managers.py:338-369</code>) with no per-worker filter. Cost is O(workers × active_executions) per 0.5s across the fleet, and every idle tick pays it just to bail out.</p>
+<p><strong>Fix direction:</strong> maintain an <code>active_executions</code> counter on the <code>workers</code> row (incremented/decremented in the same transactions that flip execution state), or compute load in the single per-replica dispatcher (S1) instead of per worker per tick.</p>
+<h3 id="s4-high-single-process-server-per-replica-in-memory-state-breaks-multi-replica-semantics">S4 (High) — Single-process server; per-replica in-memory state breaks multi-replica semantics<a class="headerlink" href="#s4-high-single-process-server-per-replica-in-memory-state-breaks-multi-replica-semantics" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Uvicorn runs one process, one event loop, no <code>workers=</code> (<code>flux/server.py:196-202</code>). SSE loops, the reaper, orphan reclaim (which deliberately runs <em>on</em> the event loop to set asyncio Events), and the scheduler all share it. A large stale-worker sweep blocks everything.</li>
+<li>Worker registry, SSE routing, round-robin index, execution-event signaling, and progress buffers are per-replica dicts (<code>flux/server.py:113-129</code>). Consequences with &gt;1 replica: <code>GET /workers</code> shows only the local slice (<code>worker_routes.py:631-665</code>); a checkpoint arriving on replica B never wakes a sync/stream caller waiting on replica A (it falls back to a 30s timeout re-poll, <code>flux/server.py:449</code>); work enqueued on replica B doesn't wake workers connected to replica A (0.5s poll masks it — until S1 removes the poll).</li>
+</ul>
+<p><strong>Fix direction:</strong> make the DB (or LISTEN/NOTIFY) the cross-replica signal plane: <code>GET /workers</code> reads the <code>workers</code> table; checkpoint completion NOTIFYs so any replica's sync waiters wake; document sticky routing for SSE as an interim requirement.</p>
+<h3 id="s5-medium-heartbeatreaper-costs">S5 (Medium) — Heartbeat/reaper costs<a class="headerlink" href="#s5-medium-heartbeatreaper-costs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>workers.last_seen_at</code> is <strong>unindexed</strong> (<code>flux/models.py:484</code>); <code>find_stale</code> full-scans the workers table every 10s per replica (<code>flux/worker_registry.py:189-201</code>).</li>
+<li>Heartbeat pongs are one targeted UPDATE-commit per worker per 10s — ~500 tiny write transactions/sec at 5,000 workers, competing for the same pool. Batch or lengthen the interval at scale.</li>
+<li>Mass eviction of a busy worker unclaims its executions one-by-one, unpaginated, on the event loop (<code>flux/server.py:595-636</code>).</li>
+</ul>
+<h3 id="s6-medium-no-connectionbackpressure-limits-on-the-worker-plane">S6 (Medium) — No connection/backpressure limits on the worker plane<a class="headerlink" href="#s6-medium-no-connectionbackpressure-limits-on-the-worker-plane" title="Permanent link">&para;</a></h3>
+<p>Unbounded workers may open <code>/connect</code>; each permanently consumes an asyncio task and poll loop. Rate limiting (slowapi) exists but is not applied here, and is keyed by remote address only. Add a max-connected-workers guard and registration rate limits (see also SEC1).</p>
+<hr />
+<h2 id="3-durability-correctness">3. Durability &amp; correctness<a class="headerlink" href="#3-durability-correctness" title="Permanent link">&para;</a></h2>
+<h3 id="d1-critical-ok2-checkpoint-amplification">D1 (Critical) — O(K²) checkpoint amplification<a class="headerlink" href="#d1-critical-ok2-checkpoint-amplification" title="Permanent link">&para;</a></h3>
+<p>Every checkpoint serializes the <strong>entire</strong> context including all accumulated events (<code>flux/domain/execution_context.py:518-522</code>; the worker sends <code>to_dict()</code> at <code>flux/worker.py:677-685</code>). Over a K-task workflow that is ~K²/2 event objects shipped, with every large task output dill-re-serialized on each subsequent checkpoint. Server-side, dedup re-reads the <code>(event_id, type)</code> set per checkpoint (<code>flux/context_managers.py:636-644</code>) — O(K²) read work — plus a <code>FOR UPDATE</code> lock on the execution row each time.</p>
+<p><strong>Fix direction:</strong> delta checkpoints. The worker knows which events are new since the last acknowledged checkpoint; send only those (keep a full-resync path for recovery). This also fixes the payload-size problem (M5 below) and most of the dedup cost.</p>
+<h3 id="d2-critical-checkpoints-are-fire-and-forget-coalesced-unretried-and-untimed">D2 (Critical) — Checkpoints are fire-and-forget, coalesced, unretried, and untimed<a class="headerlink" href="#d2-critical-checkpoints-are-fire-and-forget-coalesced-unretried-and-untimed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Intermediate checkpoints run as background tasks, and each new checkpoint <strong>cancels any still-pending one</strong> (<code>flux/worker.py:644-659</code>) — under rapid task completion, nothing is durably persisted until a lull or the terminal checkpoint.</li>
+<li>No retry on failure (<code>flux/worker.py:661-666,701-704</code>); events live only in worker memory between successful checkpoints.</li>
+<li><code>default_timeout</code> defaults to <code>0</code> → <code>httpx.AsyncClient(timeout=None)</code> (<code>flux/worker.py:100</code>): claim/checkpoint/pong can hang forever on a black-holed connection. A workflow that completes during a server blip may never persist COMPLETED — the reaper eventually unclaims it and it <strong>re-executes from scratch</strong>.</li>
+</ul>
+<p><strong>Fix direction:</strong> bounded retry with backoff for checkpoints (mandatory for terminal ones), an explicit default HTTP timeout, and an outbound event buffer that survives coalescing (coalesce <em>sends</em>, never <em>events</em>).</p>
+<h3 id="d3-high-at-least-once-without-fencing-split-brain-on-partition">D3 (High) — At-least-once without fencing → split-brain on partition<a class="headerlink" href="#d3-high-at-least-once-without-fencing-split-brain-on-partition" title="Permanent link">&para;</a></h3>
+<p>Eviction resets RUNNING executions to CREATED and re-dispatches (<code>flux/context_managers.py:544-575</code>). A network-partitioned-but-alive worker keeps executing the original; nothing fences its subsequent checkpoints from interleaving with the new owner's (<code>_accept_state_write</code> only guards terminal states). Two live workers can run the same execution concurrently.</p>
+<p><strong>Fix direction:</strong> a claim-generation fencing token: bump a <code>claim_generation</code> column on every (re)claim, embed it in the execution token/checkpoint, and reject checkpoints bearing a stale generation.</p>
+<h3 id="d4-high-unbounded-growth-no-retention-for-executionsevents">D4 (High) — Unbounded growth: no retention for executions/events<a class="headerlink" href="#d4-high-unbounded-growth-no-retention-for-executionsevents" title="Permanent link">&para;</a></h3>
+<p>There is no pruning, TTL, archival, or partitioning for <code>executions</code>/<code>execution_events</code> anywhere. Events carry inline pickled BLOB values. At AI-mesh rates (each agent LLM/tool step = 2 events + a checkpoint) this is millions of rows per hour. <strong>Fix direction:</strong> a retention job (age- and state-based), and per-workflow retention overrides. Transient mode (§6) removes most of the volume at the source.</p>
+<h3 id="d5-medium-full-history-load-and-unpickle-on-every-read">D5 (Medium) — Full-history load and unpickle on every read<a class="headerlink" href="#d5-medium-full-history-load-and-unpickle-on-every-read" title="Permanent link">&para;</a></h3>
+<p><code>ContextManager.get()</code> materializes and dill-unpickles every event row, every time (<code>flux/models.py:645</code>), and it is called on status polls, claims, sync-wait loop iterations, unclaims, and the secrets batch. Long executions make their own status checks progressively more expensive. <strong>Fix direction:</strong> state/summary reads that skip event hydration (a <code>summary()</code> exists on the context — the server should have a query-level equivalent), and lazy event loading.</p>
+<h3 id="d6-medium-replay-determinism-is-assumed-not-enforced-or-documented">D6 (Medium) — Replay determinism is assumed, not enforced or documented<a class="headerlink" href="#d6-medium-replay-determinism-is-assumed-not-enforced-or-documented" title="Permanent link">&para;</a></h3>
+<p>Resume re-executes the entire workflow body; only <code>@task</code> results short-circuit from the log (<code>flux/task.py:230-268</code>). Non-task I/O, <code>datetime.now()</code>, <code>random</code>, or wall-clock branching in a workflow body silently corrupts replay and can desync task IDs. This is a standard event-sourcing contract, but it appears nowhere in user-facing docs. Document it prominently; consider a debug-mode replay-divergence detector.</p>
+<h3 id="d7-medium-sqlitepostgresql-behavioral-drift">D7 (Medium) — SQLite/PostgreSQL behavioral drift<a class="headerlink" href="#d7-medium-sqlitepostgresql-behavioral-drift" title="Permanent link">&para;</a></h3>
+<p>On SQLite: <code>SKIP LOCKED</code> is a no-op (double-claim protection silently absent), FK cascades are unenforced (no <code>PRAGMA foreign_keys=ON</code>), and the single writer serializes checkpoints. SQLite must be positioned explicitly as dev/single-node only; consider emitting a startup warning when a worker fleet &gt;1 registers against SQLite.</p>
+<hr />
+<h2 id="4-worker-runtime-robustness">4. Worker runtime robustness<a class="headerlink" href="#4-worker-runtime-robustness" title="Permanent link">&para;</a></h2>
+<h3 id="w1-critical-no-isolation-no-per-workflow-timeout-no-concurrency-cap">W1 (Critical) — No isolation, no per-workflow timeout, no concurrency cap<a class="headerlink" href="#w1-critical-no-isolation-no-per-workflow-timeout-no-concurrency-cap" title="Permanent link">&para;</a></h3>
+<p>Workflow source is <code>exec()</code>'d and run on the worker's single event loop (<code>flux/worker.py:594,614</code>). One CPU-bound or sync-blocking workflow freezes the SSE reader, heartbeat pongs, and checkpoints for every co-tenant execution — missed pongs then get the <em>whole worker</em> evicted and all its executions mass-orphaned. There is <strong>no per-worker max-concurrency knob</strong>: every dispatch unconditionally <code>create_task</code>s (<code>flux/worker.py:259</code>); server-side least-loaded gating is a balancing heuristic, not a cap. Per-task <code>timeout</code> uses <code>asyncio.wait_for</code> and cannot bound sync code.</p>
+<p><strong>Fix direction (ordered):</strong> (1) <code>max_concurrent_executions</code> per worker, advertised at registration and respected by dispatch — also the backpressure primitive the AI mesh needs; (2) optional subprocess execution mode per workflow for untrusted/CPU-heavy code, with a real wall-clock kill; (3) worker self-health: detect event-loop starvation and stop claiming.</p>
+<h3 id="w2-high-no-graceful-draining">W2 (High) — No graceful draining<a class="headerlink" href="#w2-high-no-graceful-draining" title="Permanent link">&para;</a></h3>
+<p>Shutdown cancels the main task; nothing awaits <code>_running_workflows</code> or pending checkpoints (<code>flux/worker.py:123-134</code>). Rolling deploys abandon in-flight executions to the ~60s reaper and full re-execution. <strong>Fix:</strong> a drain phase — stop claiming, await running executions up to a configurable deadline, flush terminal checkpoints, deregister.</p>
+<h3 id="w3-medium-token-lifecycle-gaps">W3 (Medium) — Token lifecycle gaps<a class="headerlink" href="#w3-medium-token-lifecycle-gaps" title="Permanent link">&para;</a></h3>
+<p>Only the SSE connect path recovers from 401/403 by re-registering (<code>flux/worker.py:174-179</code>); checkpoint/claim/pong/authorize have no 401 recovery, so a mid-execution key revocation silently drops durability. Registration <strong>revokes all prior keys</strong> for the principal (<code>flux/api/worker_routes.py:128</code>), so two workers sharing a name thrash each other's tokens. <strong>Fix:</strong> 401→re-register→retry-once wrapper on all worker HTTP calls; reject duplicate live registrations for the same name instead of rotating keys.</p>
+<h3 id="w4-medium-module-cache-staleness-and-leaks">W4 (Medium) — Module cache staleness and leaks<a class="headerlink" href="#w4-medium-module-cache-staleness-and-leaks" title="Permanent link">&para;</a></h3>
+<p>Cache key is <code>namespace:name:version</code> with a 300s TTL (<code>flux/worker.py:540-597</code>): re-registering different source under the same version serves stale code for up to 5 minutes, and <code>sys.modules</code> entries for old versions are never freed (unbounded growth on version churn). <strong>Fix:</strong> include a source hash in the cache key; add an LRU size cap and evict <code>sys.modules</code> alongside.</p>
+<hr />
+<h2 id="5-security-operations">5. Security &amp; operations<a class="headerlink" href="#5-security-operations" title="Permanent link">&para;</a></h2>
+<h3 id="sec1-critical-no-rate-limiting-on-authentication-paths">SEC1 (Critical) — No rate limiting on authentication paths<a class="headerlink" href="#sec1-critical-no-rate-limiting-on-authentication-paths" title="Permanent link">&para;</a></h3>
+<p>slowapi is wired up but only <code>/auth/test-token</code> is limited. <code>POST /workers/register</code> — gated by a single fleet-wide bootstrap secret — and every API-key/JWT authentication are brute-forceable at full request rate (<code>flux/api/worker_routes.py:87-101</code>, <code>flux/security/auth_service.py:85-102</code>). <strong>Fix:</strong> default limits on register/auth endpoints, keyed with <code>X-Forwarded-For</code> awareness.</p>
+<h3 id="sec2-critical-plaintext-transport-secrets-shipped-decrypted-over-http">SEC2 (Critical) — Plaintext transport; secrets shipped decrypted over HTTP<a class="headerlink" href="#sec2-critical-plaintext-transport-secrets-shipped-decrypted-over-http" title="Permanent link">&para;</a></h3>
+<p>The server binds plain HTTP with no TLS support in-app (<code>flux/server.py:196</code>), Docker/compose default to <code>http://</code>, and <code>/workers/{name}/secrets/batch</code> returns decrypted secret values (<code>flux/api/worker_routes.py:580</code>). Encryption-at-rest is good; in-transit is entirely delegated to an undocumented external layer. <strong>Fix:</strong> first-class TLS config (or at minimum a prominent, hard requirement in deployment docs), and consider envelope-encrypting secret payloads to a worker-held key.</p>
+<h3 id="sec3-high-bootstrap-token-is-a-fleet-wide-master-secret-worker-keys-are-immortal">SEC3 (High) — Bootstrap token is a fleet-wide master secret; worker keys are immortal<a class="headerlink" href="#sec3-high-bootstrap-token-is-a-fleet-wide-master-secret-worker-keys-are-immortal" title="Permanent link">&para;</a></h3>
+<p>One shared bootstrap token grants registration under <strong>any</strong> worker name (names are caller-controlled), yielding the <code>worker</code> role (read all configs/executions, claim work → receive secrets). Worker API keys are minted with no expiry and no <code>last_used_at</code>; principals are never garbage-collected on eviction, so the principals table grows unbounded with churn (<code>flux/api/worker_routes.py:112-133</code>). Execution tokens are 7-day HS256 JWTs with no revocation list (<code>flux/security/execution_token.py:66-143</code>). <strong>Fix:</strong> key expiry + refresh for workers, principal GC tied to worker pruning, shorter execution-token TTL (they're scoped to one execution — hours, not a week), and per-registration one-time join tokens as an upgrade path from the shared bootstrap secret.</p>
+<h3 id="sec4-high-accepted-by-design-exec-of-registered-source-is-rce-by-contract">SEC4 (High, accepted-by-design) — <code>exec()</code> of registered source is RCE by contract<a class="headerlink" href="#sec4-high-accepted-by-design-exec-of-registered-source-is-rce-by-contract" title="Permanent link">&para;</a></h3>
+<p>Registration → <code>exec</code> on server (schedule extraction, enrich) and on every worker. The permission gate ordering is correct and SECURITY.md documents the trust boundary, but the only control is "restrict <code>workflow:*:register</code>". With auth disabled + <code>allow_anonymous=true</code>, registration is anonymous RCE. This is an inherent property of the programming model; it needs to stay loudly documented, and W1's subprocess isolation is the mitigation path.</p>
+<h3 id="sec5-medium-operational-hygiene">SEC5 (Medium) — Operational hygiene<a class="headerlink" href="#sec5-medium-operational-hygiene" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Metrics cardinality:</strong> <code>worker_name</code> (caller-controlled) is a Prometheus label on four worker metrics (<code>flux/observability/metrics.py:258-278</code>) — unbounded cardinality and a DoS vector at thousands of churning workers. Drop or hash the label.</li>
+<li><strong>Probes:</strong> <code>/health</code> conflates liveness and readiness (a DB blip can flap pod restarts); <code>/metrics</code> requires an admin-scoped credential, which is friction for scrapers. Add <code>/ready</code>; consider a scrape-scoped role.</li>
+<li><strong>Body limits:</strong> workflow upload is capped, but checkpoint, run-input, and progress bodies are not — unbounded dill payloads into memory. Add a global body-size middleware.</li>
+<li><strong>Late config failure:</strong> missing <code>encryption_key</code> silently disables pickle signing and surfaces only at first secret use; missing <code>execution_token_secret</code> fails at first mint. Validate at startup.</li>
+<li><strong>Defaults:</strong> auth disabled and CORS <code>*</code> by default are acceptable for a dev-first tool but deserve a one-page "production checklist" doc (auth on, key set, TLS, PostgreSQL, pool sizing).</li>
+<li><strong>Pagination:</strong> <code>GET /workers</code>, principals, and roles listings are unpaginated.</li>
+<li><strong>Dispatch payload rebuild:</strong> compiled dispatch payloads are built per event; fine today, worth caching per workflow version at mesh rates.</li>
+</ul>
+<hr />
+<h2 id="6-transientstateless-workflows-for-the-ai-mesh">6. Transient/stateless workflows for the AI mesh<a class="headerlink" href="#6-transientstateless-workflows-for-the-ai-mesh" title="Permanent link">&para;</a></h2>
+<h3 id="why-the-current-model-cant-serve-a-mesh">Why the current model can't serve a mesh<a class="headerlink" href="#why-the-current-model-cant-serve-a-mesh" title="Permanent link">&para;</a></h3>
+<p>Measured minimum cost of one trivial distributed execution today:</p>
+<table>
+<thead>
+<tr>
+<th>Cost</th>
+<th>Count</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Persisted events</td>
+<td>6 (SCHEDULED, CLAIMED, STARTED, TASK_STARTED, TASK_COMPLETED, COMPLETED)</td>
+<td><code>context_managers.py</code>, <code>workflow.py:132-149</code>, <code>task.py:280-393</code></td>
+</tr>
+<tr>
+<td>Locking DB transactions</td>
+<td>5 (create, schedule, claim, 2× checkpoint)</td>
+<td>each with <code>FOR UPDATE</code> + dedup SELECT</td>
+</tr>
+<tr>
+<td>HTTP round-trips</td>
+<td>~5 (run, SSE push, claim, 2× checkpoint)</td>
+<td>+1 authorize POST per task with auth on</td>
+</tr>
+</tbody>
+</table>
+<p>An agent invocation multiplies this: <strong>each LLM call and each tool call is a nested <code>@task</code></strong> (<code>flux/tasks/ai/agent_loop.py:88-101</code>, <code>flux/tasks/ai/tool_executor.py:238-309</code>) — 2 events + 1 checkpoint each. A modest 3-iteration agent with 2 tools/iteration ≈ 10 tasks → ~20 events + ~10 checkpoints. And <strong>every cross-workflow call is a full new durable execution</strong>: <code>flux/tasks/call.py</code> POSTs <code>/workflows/{ns}/{name}/run/sync</code>, and <code>workflow_agent()</code> (<code>flux/tasks/ai/delegation.py:229-261</code>) does the same. Completion visibility for the caller is a held-open sync request that re-reads the full context from the DB on every wake (30s timeout loop), SSE, or polling — there are no webhooks. Chain three agents and the floor is dozens of transactions per user request.</p>
+<h3 id="the-seam-already-exists">The seam already exists<a class="headerlink" href="#the-seam-already-exists" title="Permanent link">&para;</a></h3>
+<p>This is the encouraging part — the architecture is unusually well-prepared for a transient mode:</p>
+<ol>
+<li><strong><code>ExecutionContext._checkpoint</code> is an injected callable defaulting to a no-op</strong> (<code>flux/domain/execution_context.py:50,426-429</code>). The context has zero DB knowledge; <code>task.py</code>/<code>workflow.py</code> call <code>ctx.checkpoint()</code> blindly. A transient execution is literally a context whose checkpoint stays the no-op — events still accumulate in memory, so within-run replay/retry semantics keep working. <strong>Zero changes to the task/workflow engine needed.</strong></li>
+<li><strong><code>ContextManager</code> is an ABC with a single hard-coded implementation</strong> (<code>flux/context_managers.py:61,156-158</code>) — an <code>InMemoryContextManager</code> slots in cleanly for server-side lookups of transient executions.</li>
+<li>The context already nulls its checkpoint callable on pickle (<code>execution_context.py:499-513</code>) — it is designed to travel without its persistence hook.</li>
+</ol>
+<h3 id="proposed-design-durabilitytransient">Proposed design: <code>durability="transient"</code><a class="headerlink" href="#proposed-design-durabilitytransient" title="Permanent link">&para;</a></h3>
+<p><strong>API surface.</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">durability</span><span class="o">=</span><span class="s2">&quot;transient&quot;</span><span class="p">)</span>   <span class="c1"># default: &quot;durable&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">route_request</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="n">AgentRequest</span><span class="p">]):</span> <span class="o">...</span>
+</code></pre></div>
+<p>Also accept a per-invocation override on the run endpoint (<code>POST /workflows/{ns}/{name}/run/sync?durability=transient</code>) so the same workflow can serve both modes; <code>call()</code> and <code>workflow_agent()</code> grow a matching <code>durability=</code> passthrough.</p>
+<p><strong>Execution path (server-relayed, phase 1).</strong></p>
+<ol>
+<li><code>POST …/run/sync</code> with transient: <strong>no <code>executions</code> row, no catalog FK write, no events</strong>. The server assigns an ID, registers it in an in-memory transient registry (TTL-bounded), and pushes the dispatch frame down an eligible worker's existing SSE stream — same matching, no <code>next_execution</code> DB query (pick from the in-memory registry of connected workers; this rides on the S1 dispatch rework).</li>
+<li>The worker executes with the no-op checkpoint and POSTs a single <strong>result</strong> message (output or exception) to a new <code>/workers/{name}/result/{execution_id}</code> endpoint — no claim round-trip (the SSE push <em>is</em> the claim; transient work is never re-dispatched, so claim races don't exist).</li>
+<li>The held-open sync request is completed from memory. Net cost: <strong>1 client round-trip + 1 SSE push + 1 result POST, 0 DB transactions.</strong></li>
+<li>Failure semantics are <strong>at-most-once with error propagation</strong>: worker death or TTL expiry fails the caller's request with a structured error; the <em>caller</em> retries. No reaper, no unclaim, no replay.</li>
+</ol>
+<p><strong>Hard constraints (fail loudly, don't degrade silently).</strong></p>
+<ul>
+<li><code>pause()</code>, <code>requires_approval</code>, and cross-worker resume are inherently durable — they require rows another process can act on (<code>flux/task.py:474-593</code> writes approval rows via its own manager, bypassing the checkpoint seam). A transient execution hitting any of these must raise a clear error at that point — and registration should reject <code>durability="transient"</code> combined with <code>schedule=</code> or approval-gated tasks where statically detectable.</li>
+<li>Within-run retry/fallback/rollback keep working unchanged (they're in-memory event mechanics).</li>
+<li>Transient executions are invisible to <code>flux execution list</code>/history by design; emit OTel metrics (count, latency, outcome) so the mesh is still observable in aggregate.</li>
+</ul>
+<p><strong>Phase 2 — mesh fast paths.</strong></p>
+<ul>
+<li><code>call(durability="transient")</code> becomes the cheap agent-to-agent hop; in-process delegation (<code>build_delegate</code>) already avoids the round-trip and stays the first choice when the target lives in the same worker.</li>
+<li>Sticky same-worker scheduling: when a transient sub-call's target workflow is loadable on the calling worker, execute in-process (module cache already holds compiled workflows) and skip the server entirely — this is the true mesh path, with the server relay as fallback and service discovery.</li>
+<li>Optional bounded result cache (in-memory, TTL) so <code>mode=async</code> + late <code>GET /executions/{id}</code> works for transient runs within the TTL.</li>
+</ul>
+<p><strong>Prerequisites from the rest of this review.</strong> Transient mode shifts pressure from the DB to the worker fleet, so W1 (per-worker concurrency cap + advertised capacity → backpressure with a <code>429</code>-style "mesh busy" signal), D2 (HTTP timeouts), and S1 (event-driven dispatch) are prerequisites, not nice-to-haves. Multi-replica relay needs sticky routing or a cross-replica result channel (S4).</p>
+<h3 id="implemented-phase-1-revised-measured">Implemented (phase 1, revised) — measured<a class="headerlink" href="#implemented-phase-1-revised-measured" title="Permanent link">&para;</a></h3>
+<p>Implemented with one deliberate revision to the design above: instead of
+skipping persistence entirely, a transient execution <strong>keeps the outer
+lifecycle</strong> — execution row, dispatch/claim, <code>WORKFLOW_*</code> events, terminal
+state, visible in <code>flux execution list</code> like any run — and removes the
+task-level durability: the worker suppresses every intermediate checkpoint
+and the single terminal checkpoint carries no <code>TASK_*</code> events. This keeps
+auditability, cancellation, fencing, and reaper recovery intact, works in
+both dispatch modes, and reduces the feature to worker-side checkpoint
+suppression driven by a flag in the dispatch payload.</p>
+<p>Measured on real workers (same fleet, 8-task workflow, 150 sync calls):</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th style="text-align: right;">durable</th>
+<th style="text-align: right;">transient</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>persisted event rows per execution</td>
+<td style="text-align: right;">19.9</td>
+<td style="text-align: right;"><strong>4.0</strong></td>
+</tr>
+<tr>
+<td>p50 latency</td>
+<td style="text-align: right;">534 ms</td>
+<td style="text-align: right;">526 ms</td>
+</tr>
+<tr>
+<td>throughput</td>
+<td style="text-align: right;">18.2/s</td>
+<td style="text-align: right;">19.0/s</td>
+</tr>
+</tbody>
+</table>
+<p>Latency is unchanged because intermediate checkpoints were already
+asynchronous and coalesced; the win is storage and payload traffic — an
+agent loop's per-step LLM/tool payloads never reach the database. Pause and
+approvals are hard errors on transient runs (they need replayable task
+history); schedules are rejected at decoration time. Replay-on-retry
+re-executes tasks from scratch (no task history), i.e. at-least-once for
+side effects. The same-worker in-process fast path remains the phase-2
+follow-up.</p>
+<h3 id="sizing-sanity-check">Sizing sanity check<a class="headerlink" href="#sizing-sanity-check" title="Permanent link">&para;</a></h3>
+<p>At 1,000 sustained agent requests/sec with 3 transient hops each: today's model would be ~15,000 locking DB transactions/sec plus O(K²) checkpoint traffic — not feasible. The transient model is ~4,000 in-memory HTTP/SSE messages/sec spread across replicas and workers, with the DB touched only by durable workflows. That is an achievable target for a FastAPI/uvicorn fleet once S1/S2 land.</p>
+<hr />
+<h2 id="7-proposed-solution-target-architecture-stack-and-dependencies">7. Proposed solution — target architecture, stack, and dependencies<a class="headerlink" href="#7-proposed-solution-target-architecture-stack-and-dependencies" title="Permanent link">&para;</a></h2>
+<p>This section turns the fix directions above into one coherent design. The guiding principle: <strong>PostgreSQL stays the only required piece of infrastructure</strong>, the FastAPI/uvicorn/SQLAlchemy stack is kept, and scale comes from changing <em>access patterns</em> (push instead of poll, deltas instead of full snapshots, memory instead of rows for transient work) rather than from new middleware.</p>
+<h3 id="71-target-architecture">7.1 Target architecture<a class="headerlink" href="#71-target-architecture" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>                       ┌───────────────────────── control plane ─────────────────────────┐
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>   clients             │  server replica 1..R (FastAPI + uvicorn, sticky SSE routing)    │
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>     │                 │                                                                 │
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>     │ run/sync ──────▶│  ┌──────────────┐   assign    ┌────────────────────────────┐    │
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>     │ run/async       │  │  Dispatcher  │────────────▶│ per-worker outbound queues │    │
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>     │ (durable or     │  │ (1 task/rep.)│             │  (existing SSE streams)    │    │
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>     │  transient)     │  └──────┬───────┘             └─────────────┬──────────────┘    │
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>     │                 │         │ batch claim                       │ push frames       │
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>     │                 │         ▼ (SKIP LOCKED)                     │                    │
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>     │                 │  ┌─────────────────┐    LISTEN/NOTIFY  ┌────┴───────────────┐   │
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>     │                 │  │   PostgreSQL    │◀═════════════════▶│ Transient registry │   │
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>     │                 │  │ durable source  │  (wakeups only,   │ (in-memory, TTL,   │   │
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>     │                 │  │ of truth + WAL  │   R listeners)    │  sync-wait futures)│   │
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>     │                 │  └─────────────────┘                   └────────────────────┘   │
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>     └────────────────▶│  retention job · reaper · scheduler (advisory-lock singletons)  │
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>                       └──────────────────────────────┬──────────────────────────────────┘
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>                                                      │ SSE (dispatch) / HTTP (results,
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>                                                      │ delta checkpoints, heartbeats)
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>                       ┌───────────────────────────── ▼ ── data plane ───────────────────┐
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>                       │  worker 1..W (capacity slots, drain, delta-checkpoint buffer)   │
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>                       │   ├─ in-process executor (async workflows, trusted)             │
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>                       │   ├─ subprocess pool (isolation=&quot;process&quot;, wall-clock kill)     │
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>                       │   └─ mesh fast path: transient sub-calls run in-process when    │
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>                       │      the target workflow is locally loadable                    │
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>                       └──────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p>Key inversion vs today: <strong>the per-worker server-side poll loops disappear.</strong> Each replica runs exactly one dispatcher task; DB load scales with <code>replicas × work rate</code>, not <code>workers × 2/sec</code>. Workers' SSE handlers become passive consumers of an in-memory queue.</p>
+<h3 id="72-component-designs">7.2 Component designs<a class="headerlink" href="#72-component-designs" title="Permanent link">&para;</a></h3>
+<p><strong>Dispatcher (replaces the per-worker poll, fixes S1/S3/S6).</strong> One asyncio task per replica. It holds an in-memory view of locally connected workers — labels, resource capabilities, advertised <code>max_concurrent_executions</code>, current in-flight count (from dispatch/complete accounting, replacing the <code>GROUP BY</code> aggregate). Wakeup sources: a <code>LISTEN flux_work</code> notification (fired by a trigger or by the enqueue transaction), a local enqueue, a worker slot freeing up, or a 10–30s fallback tick. On wakeup it claims a <strong>batch</strong> of <code>CREATED</code>/<code>RESUME_SCHEDULED</code>/<code>CANCELLING</code> rows with one <code>FOR UPDATE SKIP LOCKED LIMIT n</code> query, matches them against local free slots in memory (label/resource matching moves out of SQL row iteration), flips them to <code>SCHEDULED</code> with <code>worker_name</code> and a bumped <code>claim_generation</code> in one transaction, and pushes dispatch frames onto the target workers' queues. Unmatched rows are released for other replicas. <code>SKIP LOCKED</code> makes concurrent dispatchers on other replicas coordination-free. NOTIFY delivery is best-effort by design — notifications are pure wakeups; the DB rows are the truth and the fallback tick covers missed signals. The worker's claim POST is kept as a cheap PK-targeted ack (<code>CLAIMED</code>), no scan.</p>
+<p><strong>Checkpoint pipeline v2 (fixes D1/D2/D3).</strong> Add a per-execution monotonic <code>seq</code> to events and a <code>claim_generation</code> column to executions. The worker keeps a per-execution outbound buffer and high-water mark of the last <em>acknowledged</em> seq; each checkpoint POST carries only <code>events[acked+1:]</code>, the current state, and the claim generation. The server appends, acks the new high-water mark, and <strong>rejects stale generations</strong> (a fenced-out partitioned worker gets a 409 and aborts its copy). Coalescing applies to <em>sends</em>, never to buffered events. Retries use capped exponential backoff (tenacity); terminal checkpoints must succeed before the execution is considered delivered, within the drain deadline. On resync (worker restart, 409, unknown seq) the worker falls back to one full-context POST — today's behavior becomes the recovery path instead of the hot path. All worker HTTP calls get explicit timeouts and a 401 → re-register → retry-once wrapper.</p>
+<p><strong>Transient execution plane (§6, fixes the mesh cost).</strong> A <code>TransientExecutionRegistry</code> per replica: <code>execution_id → {future, worker, deadline}</code> with a TTL sweeper. <code>POST /workflows/{ns}/{name}/run/sync</code> with <code>durability=transient</code> skips the <code>executions</code> insert entirely, registers the future, and hands the dispatch frame straight to the dispatcher's matching stage (same worker-selection code path, no DB). The worker runs it with the no-op checkpoint and POSTs one result message; the registry completes the future and the held-open request returns. Worker death, disconnect, or TTL expiry fails the future with a structured error — the caller retries (at-most-once). Because both the SSE stream and the sync waiter live on the same replica, no cross-replica channel is needed in phase 1 (sticky routing); phase 2 can add a NOTIFY-relayed result path or the optional Redis backend for replica-crossing calls. <code>call()</code> and <code>workflow_agent()</code> pass <code>durability</code> through; when the target workflow is loadable on the calling worker (module cache), the sub-call executes in-process and never leaves the worker — the true mesh path.</p>
+<p><strong>Worker runtime v2 (fixes W1–W4).</strong> Registration advertises <code>max_concurrent_executions</code>; the dispatcher never exceeds a worker's free slots, giving real backpressure (mesh callers get a fast "no capacity" failure instead of a queue). Shutdown gains a drain phase: deregister-from-dispatch → await running executions up to <code>drain_timeout</code> → flush terminal checkpoints. The module cache key gains a source hash and an LRU cap with <code>sys.modules</code> eviction. A new per-workflow option <code>isolation="process"</code> routes execution to a small <code>concurrent.futures.ProcessPoolExecutor</code>: the child runs <code>asyncio.run(wfunc(ctx))</code>, streams events back over a pipe, and can be killed on a wall-clock deadline — the mitigation for untrusted/CPU-bound code and the <code>exec()</code> trust boundary (SEC4), with no new dependency.</p>
+<p><strong>Data layer.</strong> Pool size, overflow, and a dedicated DB <code>ThreadPoolExecutor</code> (sized ≤ pool) become config knobs and replace the default 32-thread loop executor. Index <code>workers.last_seen_at</code>; batch heartbeat updates per replica (<code>UPDATE … WHERE name = ANY(…)</code> every interval). A retention job (advisory-lock singleton, like the scheduler) deletes terminal executions/events past <code>retention_days</code> in batches; <code>execution_events</code> optionally moves to native monthly partitioning via an Alembic migration for high-volume installs. Status reads get a summary query that skips event hydration.</p>
+<p><strong>Security hardening.</strong> slowapi default limits on <code>/workers/register</code> and auth-bearing routes (with <code>X-Forwarded-For</code> key function); worker API keys minted with expiry + a refresh endpoint; principal GC tied to worker pruning; execution-token TTL down to hours; startup validation of <code>encryption_key</code>/<code>execution_token_secret</code>; optional in-app TLS via uvicorn's <code>ssl_certfile</code>/<code>ssl_keyfile</code> passthrough plus documented terminate-at-ingress guidance; global body-size middleware; <code>worker_name</code> dropped from metric labels; <code>/ready</code> endpoint separate from <code>/health</code>.</p>
+<h3 id="73-stack-decisions">7.3 Stack decisions<a class="headerlink" href="#73-stack-decisions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Decision</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Language/runtime</td>
+<td><strong>Keep</strong> Python 3.12 + asyncio; add optional <code>uvloop</code></td>
+<td>No rewrite; uvloop is a drop-in ~2× event-loop win for SSE-heavy replicas and workers on Linux</td>
+</tr>
+<tr>
+<td>HTTP/app server</td>
+<td><strong>Keep</strong> FastAPI + uvicorn (single process per replica, scale by replicas)</td>
+<td>SSE + in-memory dispatcher state make process-per-replica the natural unit; <code>--limit-concurrency</code> guards the connection plane</td>
+</tr>
+<tr>
+<td>Durable store &amp; queue</td>
+<td><strong>Keep</strong> PostgreSQL as the only required infra; <code>SKIP LOCKED</code> batch claims + <code>LISTEN/NOTIFY</code> wakeups</td>
+<td>Postgres-as-queue at batch granularity is a proven pattern; avoids operating a broker; transactional with execution state</td>
+</tr>
+<tr>
+<td>DB driver</td>
+<td><strong>Migrate <code>psycopg2</code> → <code>psycopg</code> v3</strong> (<code>postgresql+psycopg</code> dialect)</td>
+<td>One driver serves sync SQLAlchemy <em>and</em> the async <code>LISTEN</code> connection; psycopg2 has no async path</td>
+</tr>
+<tr>
+<td>ORM</td>
+<td><strong>Keep</strong> sync SQLAlchemy behind a right-sized executor; async SQLAlchemy only if profiling demands it later</td>
+<td>Sizing + push dispatch removes the pressure that would justify an async migration's risk</td>
+</tr>
+<tr>
+<td>Signal plane</td>
+<td><strong>LISTEN/NOTIFY first</strong>; optional Redis backend behind a small <code>SignalPlane</code> interface</td>
+<td>R listeners (replicas), not W (workers); payloads are wakeups only, so the 8 KB/non-durable limits don't bite</td>
+</tr>
+<tr>
+<td>Isolation</td>
+<td>stdlib subprocess pool (<code>isolation="process"</code>)</td>
+<td>No dependency; real kill semantics; container/K8s handles the outer boundary</td>
+</tr>
+<tr>
+<td>Message broker (Kafka/RabbitMQ/NATS)</td>
+<td><strong>Explicit non-goal</strong></td>
+<td>Dispatch needs transactional consistency with execution rows, not throughput a broker adds; a broker would double the ops burden for every Flux install</td>
+</tr>
+</tbody>
+</table>
+<h3 id="74-new-dependencies">7.4 New dependencies<a class="headerlink" href="#74-new-dependencies" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Dependency</th>
+<th>Where</th>
+<th>Required?</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>psycopg[binary,pool] &gt;= 3.2</code></td>
+<td><code>postgresql</code> extra (replaces <code>psycopg2</code>)</td>
+<td>Yes, for multi-node</td>
+<td>Async <code>LISTEN/NOTIFY</code> listener + unified sync/async driver</td>
+</tr>
+<tr>
+<td><code>tenacity &gt;= 9</code></td>
+<td>core</td>
+<td>Yes</td>
+<td>Checkpoint/claim/result retry policies with capped backoff and jitter</td>
+</tr>
+<tr>
+<td><code>uvloop &gt;= 0.21</code></td>
+<td>new <code>performance</code> extra</td>
+<td>Optional</td>
+<td>Event-loop throughput for server replicas and workers (Linux/macOS)</td>
+</tr>
+<tr>
+<td><code>redis &gt;= 5</code></td>
+<td>new <code>mesh-redis</code> extra</td>
+<td>Optional</td>
+<td>Alternative signal plane + cross-replica transient result relay beyond LISTEN/NOTIFY scale</td>
+</tr>
+</tbody>
+</table>
+<p>Everything else in the design — subprocess isolation, delta checkpoints, capacity slots, retention, rate limiting (slowapi already present), body-size middleware — uses the stdlib or existing dependencies.</p>
+<h3 id="75-configuration-surface-added">7.5 Configuration surface added<a class="headerlink" href="#75-configuration-surface-added" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[flux.dispatch]</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">batch_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">64</span><span class="w">            </span><span class="c1"># rows claimed per dispatcher wakeup</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">fallback_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">15</span><span class="w">     </span><span class="c1"># safety-net tick (s); replaces the 0.5s per-worker poll</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">max_connected_workers</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">2000</span><span class="w">   </span><span class="c1"># per replica; excess registrations get 503</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">max_concurrent_executions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">16</span><span class="w"> </span><span class="c1"># advertised capacity; dispatcher never exceeds free slots</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">drain_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span><span class="w">             </span><span class="c1"># graceful-shutdown drain deadline (s)</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">default_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="w">           </span><span class="c1"># worker HTTP timeout — no longer 0/None</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">[flux.database]</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">pool_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span><span class="w">                 </span><span class="c1"># sized with executor_threads; executor &lt;= pool</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">max_overflow</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">20</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="n">executor_threads</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">16</span><span class="w">          </span><span class="c1"># dedicated DB thread pool (replaces default loop executor)</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="k">[flux.retention]</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="w">                 </span><span class="c1"># shipped default is false: enabling deletion is</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">                               </span><span class="c1"># an explicit production choice, never an upgrade side effect</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="n">retention_days</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">30</span><span class="w">            </span><span class="c1"># terminal executions + events (age since last event)</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="n">sweep_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="k">[flux.transient]</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="n">result_ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">120</span><span class="w">               </span><span class="c1"># seconds a transient result/future may wait</span>
+</code></pre></div>
+<h3 id="76-capacity-model-after-the-changes">7.6 Capacity model after the changes<a class="headerlink" href="#76-capacity-model-after-the-changes" title="Permanent link">&para;</a></h3>
+<p>At 5,000 workers across 3 replicas (~1,700 SSE connections each — comfortable for uvicorn with mostly-idle streams):</p>
+<table>
+<thead>
+<tr>
+<th>Load source</th>
+<th>Today</th>
+<th>Proposed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle dispatch queries</td>
+<td>~50–60k/s (5–6 per worker per 0.5s)</td>
+<td>~0.2/s (one fallback tick per replica per 15s)</td>
+</tr>
+<tr>
+<td>Dispatch under load</td>
+<td>thundering herd × full match stack per worker</td>
+<td><code>work_rate / batch_size</code> batch claims, herd eliminated</td>
+</tr>
+<tr>
+<td>Heartbeat writes</td>
+<td>~500 single-row commits/s</td>
+<td>~0.3 batched statements/s</td>
+</tr>
+<tr>
+<td>K-task workflow checkpoint bytes</td>
+<td>O(K²)</td>
+<td>O(K) (deltas; full snapshot only on resync)</td>
+</tr>
+<tr>
+<td>Transient agent hop</td>
+<td>6 events, 5 locking txns, ~5 HTTP hops</td>
+<td>0 DB txns, 3 in-memory messages (0 when same-worker in-process)</td>
+</tr>
+</tbody>
+</table>
+<p>The DB write load becomes proportional to durable execution throughput alone — which is exactly what a durable store should be paying for.</p>
+<h4 id="measured-dispatch-plane-stress-test-poll-vs-event">Measured: dispatch-plane stress test (poll vs event)<a class="headerlink" href="#measured-dispatch-plane-stress-test-poll-vs-event" title="Permanent link">&para;</a></h4>
+<p>Measured after the dispatcher landed, using <code>scripts/stress_dispatch.py</code>:
+protocol-level simulated workers (register → SSE connect → ping/pong →
+claim → checkpoint COMPLETED over real HTTP; no workflow code executes)
+against a real server on PostgreSQL 16. Environment: one 4-core/16 GB
+machine hosting server, fleet, and PostgreSQL together — absolute numbers
+are conservative; the poll-vs-event comparison is the signal.</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th style="text-align: right;">poll @ 200</th>
+<th style="text-align: right;">event @ 200</th>
+<th style="text-align: right;">poll @ 500</th>
+<th style="text-align: right;">event @ 500</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Idle DB transactions/sec (no work)</td>
+<td style="text-align: right;">641</td>
+<td style="text-align: right;">76</td>
+<td style="text-align: right;">613 †</td>
+<td style="text-align: right;">198</td>
+</tr>
+<tr>
+<td>Accepting 400/600 run-submissions</td>
+<td style="text-align: right;">55.2 s</td>
+<td style="text-align: right;">8.9 s</td>
+<td style="text-align: right;">221.6 s</td>
+<td style="text-align: right;">15.3 s</td>
+</tr>
+<tr>
+<td>Drain throughput (completions/sec)</td>
+<td style="text-align: right;">6.6</td>
+<td style="text-align: right;">19.7</td>
+<td style="text-align: right;">2.5</td>
+<td style="text-align: right;">16.6</td>
+</tr>
+<tr>
+<td>First dispatch after enqueue</td>
+<td style="text-align: right;">4.7 s</td>
+<td style="text-align: right;">0.86 s</td>
+<td style="text-align: right;">11.5 s</td>
+<td style="text-align: right;">0.70 s</td>
+</tr>
+<tr>
+<td>Median dispatch latency</td>
+<td style="text-align: right;">31.7 s</td>
+<td style="text-align: right;">12.8 s</td>
+<td style="text-align: right;">117.4 s</td>
+<td style="text-align: right;">22.4 s</td>
+</tr>
+</tbody>
+</table>
+<p>† Poll idle load is <em>executor-throttled</em>, not stable: nominal demand at 500
+workers is ~6,000 queries/sec but the DB thread pool can only push ~600, so
+poll loops queue up behind each other — which is why submissions crawl
+(600 POSTs took 3.7 minutes; an earlier identical run failed outright with
+connection errors) and median dispatch reaches 2 minutes. Poll mode degrades
+superlinearly with fleet size (throughput 6.6 → 2.5/s, median 32 → 117 s
+from 200 → 500 workers); event mode holds (19.7 → 16.6/s, first dispatch
+sub-second at both sizes). Event mode's remaining idle load (~0.4
+transactions/worker/sec) was heartbeat pongs — the P1 "batch heartbeat
+writes" item, since landed: with pongs buffered and flushed as one UPDATE
+per reaper tick, measured idle load dropped to <strong>45 tx/s @ 200 workers and
+101 tx/s @ 500</strong> (~half). The residual ~0.18 tx/worker/sec tracks the
+per-request auth/permission resolution on worker endpoints — a future
+candidate for role-resolution caching.</p>
+<h3 id="77-rollout-path">7.7 Rollout path<a class="headerlink" href="#77-rollout-path" title="Permanent link">&para;</a></h3>
+<p>Each step is independently shippable and backward-compatible: (1) driver swap psycopg2→psycopg3 and pool/executor knobs — no behavior change; (2) checkpoint v2 with protocol negotiation (workers advertise delta support at registration; server accepts both, full-snapshot remains the recovery path); (3) dispatcher behind a feature flag, per-worker poll kept as fallback for one release, then removed; (4) capacity slots + drain; (5) retention job; (6) transient mode (new surface, additive); (7) subprocess isolation (opt-in per workflow). Steps 1–2 are P0-aligned, 3–5 deliver the thousands-of-workers target, 6–7 deliver the mesh.</p>
+<hr />
+<h2 id="8-prioritized-roadmap">8. Prioritized roadmap<a class="headerlink" href="#8-prioritized-roadmap" title="Permanent link">&para;</a></h2>
+<p><strong>P0 — correctness &amp; safety (before any scale push)</strong></p>
+<ol>
+<li>Checkpoint retry + explicit HTTP timeouts + never-drop event buffering (D2) — silent event loss is the worst current behavior.</li>
+<li>Delta checkpoints (D1) — removes O(K²) payloads and most server-side dedup cost.</li>
+<li>Rate limits on <code>/workers/register</code> and auth paths (SEC1); startup validation of <code>encryption_key</code>/<code>execution_token_secret</code> (SEC5).</li>
+<li>Per-worker <code>max_concurrent_executions</code> (W1) and graceful drain (W2).</li>
+<li>Claim-generation fencing token (D3).</li>
+<li>TLS story — in-app or as a documented hard requirement — given secrets-in-transit (SEC2).</li>
+</ol>
+<p><strong>P1 — scale to thousands of workers</strong></p>
+<ol>
+<li>Event-driven dispatch: one dispatcher per replica + LISTEN/NOTIFY + targeted worker wakeups; kill the 0.5s per-worker poll and the broadcast herd (S1).</li>
+<li>Pool + executor sizing knobs, sized together (S2).</li>
+<li>Replace the least-loaded aggregate with maintained per-worker counters (S3).</li>
+<li>Index <code>workers.last_seen_at</code>; batch heartbeat writes (S5).</li>
+<li>Cross-replica signal plane: DB-backed <code>GET /workers</code>, NOTIFY-driven sync-waiter wakeups (S4).</li>
+<li>Retention/pruning job for executions/events (D4); summary reads without event hydration (D5).</li>
+<li>Worker key expiry + refresh, principal GC, shorter execution-token TTL (SEC3); bounded metrics label cardinality (SEC5).</li>
+</ol>
+<p><strong>P2 — transient mode &amp; AI mesh</strong></p>
+<ol>
+<li><code>durability="transient"</code>: no-op checkpoint + in-memory transient registry + server-relayed sync execution (§6, phase 1).</li>
+<li><code>call()</code>/<code>workflow_agent()</code> transient passthrough; sticky same-worker in-process execution (§6, phase 2).</li>
+<li>Subprocess isolation mode for untrusted/CPU-bound workflows (W1); module-cache source-hash keys + LRU (W4).</li>
+<li>Production deployment guide: PostgreSQL-only for fleets, replica topology, probes (<code>/ready</code>), pool sizing, security checklist.</li>
+</ol>
+<hr />
+<h2 id="decisions-log">Decisions log<a class="headerlink" href="#decisions-log" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>2026-07-03 — PostgreSQL-only for multi-node.</strong> Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.</li>
+<li><strong>2026-07-03 — Transient semantics: at-most-once at the workflow level.</strong> Transient executions are never re-dispatched by the server; worker death or TTL expiry returns a structured error and the caller retries. Task-level retry/fallback/rollback inside a transient run is unchanged (in-memory event mechanics are kept, only persistence is skipped). Pause, approval gates, and schedules on transient workflows are hard errors.</li>
+<li><strong>2026-07-03 — Dependency posture.</strong> fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release).</li>
+</ul>
+<hr />
+<p><em>Methodology: five parallel code-level reviews (dispatch/claim path, persistence, worker runtime, execution-overhead/transient seams, security/ops) over the repository at commit <code>305962c</code>, consolidated and de-duplicated. File/line references are to that commit.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/edurdias/flux" target="_blank" rel="noopener" title="Flux on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.tabs.link", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
