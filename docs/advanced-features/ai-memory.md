@@ -162,7 +162,7 @@ from flux.tasks.ai.memory import postgresql
 provider = postgresql("postgresql://user:password@localhost/mydb")
 ```
 
-Requires the `psycopg2` package:
+Requires the `psycopg` (v3) package:
 
 ```bash
 pip install flux-core[postgresql]

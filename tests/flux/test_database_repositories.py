@@ -81,7 +81,8 @@ class TestPostgreSQLRepository:
                 mock_create.assert_called_once()
                 args, kwargs = mock_create.call_args
 
-                assert args[0] == "postgresql://test_user:test_pass@localhost:5432/test_db"
+                # The bare postgresql:// config URL is pinned to the psycopg (v3) dialect.
+                assert args[0] == "postgresql+psycopg://test_user:test_pass@localhost:5432/test_db"
                 assert kwargs["pool_size"] == 5
                 assert kwargs["max_overflow"] == 10
                 assert kwargs["pool_timeout"] == 30
@@ -161,7 +162,7 @@ class TestPostgreSQLRepository:
     def test_missing_driver_error(self, mock_postgresql_config):
         """Test error when PostgreSQL driver is not installed."""
         with patch("flux.models.create_engine") as mock_create:
-            mock_create.side_effect = ImportError("No module named 'psycopg2'")
+            mock_create.side_effect = ImportError("No module named 'psycopg'")
 
             with pytest.raises(PostgreSQLConnectionError) as exc_info:
                 PostgreSQLRepository()
