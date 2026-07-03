@@ -942,9 +942,27 @@ class Server(
             )
             self._bootstrap_token = token
 
+            # All blocking DB work reaches the loop through asyncio.to_thread,
+            # which uses the loop's default executor — normally capped at
+            # min(32, cpu+4) threads, an invisible throughput ceiling shared
+            # with everything else. Install an explicitly sized executor so DB
+            # concurrency is a deliberate knob paired with the connection pool.
+            db_executor = None
+            executor_threads = startup_settings.database_executor_threads
+            if executor_threads > 0:
+                from concurrent.futures import ThreadPoolExecutor
+
+                db_executor = ThreadPoolExecutor(
+                    max_workers=executor_threads,
+                    thread_name_prefix="flux-db",
+                )
+                asyncio.get_running_loop().set_default_executor(db_executor)
+
             yield
             await self._stop_scheduler()
             await self._stop_reaper()
+            if db_executor is not None:
+                db_executor.shutdown(wait=False, cancel_futures=True)
 
             from flux.observability import shutdown as shutdown_observability
 

@@ -98,8 +98,8 @@ class TestPostgreSQLConfiguration:
     def test_default_pool_configuration(self):
         """Test default connection pool settings."""
         config = FluxConfig()
-        assert config.database_pool_size == 5
-        assert config.database_max_overflow == 10
+        assert config.database_pool_size == 20
+        assert config.database_max_overflow == 20
         assert config.database_pool_timeout == 30
         assert config.database_pool_recycle == 3600
         assert config.database_health_check_interval == 300

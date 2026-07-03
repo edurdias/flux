@@ -179,12 +179,21 @@ class FluxConfig(BaseSettings):
         description="Database backend type",
     )
     database_pool_size: int = Field(
-        default=5,
+        default=20,
         description="Database connection pool size (PostgreSQL only)",
     )
     database_max_overflow: int = Field(
-        default=10,
+        default=20,
         description="Maximum pool overflow (PostgreSQL only)",
+    )
+    database_executor_threads: int = Field(
+        default=16,
+        description=(
+            "Size of the server's thread pool for blocking database calls "
+            "(asyncio.to_thread). Size it at or below the connection pool so "
+            "threads never block waiting for a connection. 0 keeps the "
+            "asyncio default executor."
+        ),
     )
     database_pool_timeout: int = Field(
         default=30,
