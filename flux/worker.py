@@ -125,6 +125,8 @@ class Worker:
         self._running_workflows: dict[str, asyncio.Task] = {}
         self._checkpoint_outboxes: dict[str, _CheckpointOutbox] = {}
         self._claim_generations: dict[str, str] = {}
+        # Transient executions whose RUNNING transition has been persisted.
+        self._transient_started: set[str] = set()
         self._checkpoint_retry_max_delay: float = config.checkpoint_retry_max_delay
         self._terminal_checkpoint_deadline: float = config.terminal_checkpoint_deadline
         self._reauth_lock = asyncio.Lock()
@@ -759,9 +761,16 @@ class Worker:
                     {"type": "TransientDurabilityError", "message": str(error)},
                 )
             elif not ctx.has_finished:
-                # Intermediate (task-level) checkpoint: transient workflows
-                # skip these entirely — only the terminal state persists.
-                return
+                # The outer lifecycle persists like any regular run. The
+                # RUNNING transition only ever travels inside a checkpoint (the
+                # first task's, in durable mode), so let exactly one
+                # intermediate checkpoint through — filtered to WORKFLOW_*
+                # events by _send_checkpoint — and suppress the rest. The row
+                # is observable and cancellable mid-flight; task progress
+                # stays in memory until the terminal transition.
+                if ctx.execution_id in self._transient_started:
+                    return
+                self._transient_started.add(ctx.execution_id)
 
         box = self._checkpoint_outboxes.get(ctx.execution_id)
         if box is None:
@@ -837,10 +846,12 @@ class Worker:
                 box.delivered.set()
                 self._checkpoint_outboxes.pop(execution_id, None)
                 self._claim_generations.pop(execution_id, None)
+                self._transient_started.discard(execution_id)
                 return
             if box.closed:
                 self._checkpoint_outboxes.pop(execution_id, None)
                 self._claim_generations.pop(execution_id, None)
+                self._transient_started.discard(execution_id)
                 return
 
     def _abort_fenced_execution(self, execution_id: str, box: _CheckpointOutbox):
@@ -858,6 +869,7 @@ class Worker:
         box.delivered.set()
         self._checkpoint_outboxes.pop(execution_id, None)
         self._claim_generations.pop(execution_id, None)
+        self._transient_started.discard(execution_id)
 
     def _close_checkpoint_outbox(self, execution_id: str):
         """Release checkpoint state once an execution's handler has ended.

@@ -19,6 +19,7 @@ def make_worker() -> Worker:
     worker._running_workflows = {}
     worker._checkpoint_outboxes = {}
     worker._claim_generations = {}
+    worker._transient_started = set()
     worker._registered = True
     worker._reauth_lock = asyncio.Lock()
     worker._checkpoint_retry_max_delay = 0.01
