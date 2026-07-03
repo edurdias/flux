@@ -78,6 +78,15 @@ class WorkersConfig(BaseConfig):
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",
     )
+    register_rate_limit: str = Field(
+        default="30/minute",
+        description=(
+            "Per-client-IP rate limit for POST /workers/register, guarding the "
+            "shared bootstrap token against online brute force. slowapi syntax "
+            "(e.g. '30/minute'); empty string disables. Raise it for large "
+            "fleets restarting behind a shared NAT."
+        ),
+    )
 
 
 class MCPConfig(BaseConfig):
