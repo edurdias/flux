@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0003_worker_last_seen"
+HEAD = "0004_worker_last_seen_index"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to
@@ -91,6 +91,9 @@ def test_legacy_database_gains_worker_last_seen_at(tmp_path):
     engine = _engine(tmp_path, "no_last_seen.db")
     Base.metadata.create_all(engine)
     with engine.begin() as conn:
+        # A pre-0003 schema has neither the index (0004) nor the column; the
+        # index must go first or SQLite refuses the column drop.
+        conn.exec_driver_sql("DROP INDEX IF EXISTS ix_workers_last_seen_at")
         conn.exec_driver_sql("ALTER TABLE workers DROP COLUMN last_seen_at")
 
     cols = {c["name"] for c in inspect(engine).get_columns("workers")}
@@ -100,6 +103,25 @@ def test_legacy_database_gains_worker_last_seen_at(tmp_path):
 
     cols = {c["name"] for c in inspect(engine).get_columns("workers")}
     assert "last_seen_at" in cols
+    assert current_revision(engine) == HEAD
+
+
+def test_legacy_database_gains_worker_last_seen_index(tmp_path):
+    """A pre-0004 database missing the last_seen_at index gains it on upgrade."""
+    engine = _engine(tmp_path, "no_last_seen_index.db")
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP INDEX IF EXISTS ix_workers_last_seen_at")
+
+    assert "ix_workers_last_seen_at" not in {
+        ix["name"] for ix in inspect(engine).get_indexes("workers")
+    }
+
+    run_migrations(engine)
+
+    assert "ix_workers_last_seen_at" in {
+        ix["name"] for ix in inspect(engine).get_indexes("workers")
+    }
     assert current_revision(engine) == HEAD
 
 
