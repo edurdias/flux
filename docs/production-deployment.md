@@ -131,6 +131,18 @@ workers advertising it.
 - **`inprocess`** — the workflow runs as a task on the worker's event
   loop. Lowest latency, no isolation: reserve it for trusted, async-clean,
   latency-sensitive workflows — transient mesh hops especially.
+- **`docker`** (opt-in) — each execution runs in its own container via
+  `docker run -i`, speaking the same stdio protocol, so containers hold no
+  credentials either and SIGTERM-based cancellation works unchanged
+  (`--sig-proxy`; escalation is `docker kill`). Configure `docker_image`
+  with an image that has flux-core installed at a worker-compatible
+  version — the child entrypoint and context wire format must match — plus
+  optional `docker_network` / `docker_memory` / `docker_cpus` /
+  `docker_extra_args` (volumes, env, `--user`). Adds container start
+  overhead (roughly 1–3s) on top of the interpreter spawn; use it for
+  untrusted code, conflicting dependency sets, or filesystem isolation.
+  Workers advertising `docker` must have a reachable daemon — the worker
+  fails at startup otherwise.
 
 **Crash semantics follow durability.** If a child dies without reporting a
 result (segfault, OOM kill, `os._exit`), a durable execution is *released*

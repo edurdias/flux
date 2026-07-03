@@ -117,6 +117,33 @@ class WorkersConfig(BaseConfig):
             "process (Linux only, 0 = unlimited)"
         ),
     )
+    docker_image: str = Field(
+        default="",
+        description=(
+            "Image the docker runner launches per execution; must have "
+            "flux-core installed at a worker-compatible version. Required "
+            "when 'docker' is in runners"
+        ),
+    )
+    docker_network: str = Field(
+        default="",
+        description="Docker network for runner containers (empty = docker default)",
+    )
+    docker_memory: str = Field(
+        default="",
+        description="Per-container memory limit, docker syntax (e.g. '512m'; empty = unlimited)",
+    )
+    docker_cpus: float = Field(
+        default=0.0,
+        description="Per-container CPU limit (docker --cpus; 0 = unlimited)",
+    )
+    docker_extra_args: list[str] = Field(
+        default=[],
+        description=(
+            "Extra arguments inserted into 'docker run' before the image "
+            "(e.g. volumes, env vars, --user)"
+        ),
+    )
     max_concurrent_executions: int = Field(
         default=16,
         description=(

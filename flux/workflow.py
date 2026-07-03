@@ -44,7 +44,7 @@ class workflow:
             affinity (dict[str, str] | None, optional): Label-based worker affinity constraints. Workers must have all specified labels to run this workflow. Defaults to None.
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
             durability (str, optional): "durable" (default) persists every task-level checkpoint; "transient" keeps only the outer lifecycle.
-            runner (str | None, optional): Runner this workflow requires on the worker ("inprocess" or "subprocess"). Defaults to None, meaning the worker's configured default_runner.
+            runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.

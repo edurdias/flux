@@ -229,8 +229,8 @@ class TestRunnerSelection:
             subprocess_term_grace=5.0,
             subprocess_memory_limit=0,
         )
-        with pytest.raises(ValueError, match="Unknown runner 'docker'"):
-            create_runners(["inprocess", "docker"], config)
+        with pytest.raises(ValueError, match="Unknown runner 'kubernetes'"):
+            create_runners(["inprocess", "kubernetes"], config)
 
     @pytest.mark.asyncio
     async def test_unavailable_runner_fails_execution(self):

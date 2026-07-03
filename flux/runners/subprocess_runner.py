@@ -30,19 +30,19 @@ _STREAM_LIMIT = 64 * 1024 * 1024
 
 
 class SubprocessRunner(Runner):
+    """Also the base for other pipe-speaking runners (e.g. Docker): they run
+    the same child protocol and override only ``_spawn`` (how the child
+    process is launched) and ``_force_kill``/``_reap`` (how it is destroyed).
+    """
+
     name = "subprocess"
 
     def __init__(self, term_grace: float = 10.0, memory_limit: int = 0):
         self._term_grace = term_grace
         self._memory_limit = memory_limit
 
-    async def execute(
-        self,
-        request: WorkflowExecutionRequest,
-        hooks: RunnerHooks,
-    ) -> ExecutionContext:
-        execution_id = request.context.execution_id
-        proc = await asyncio.create_subprocess_exec(
+    async def _spawn(self, request: WorkflowExecutionRequest):
+        return await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
             "flux.runners.child",
@@ -52,6 +52,20 @@ class SubprocessRunner(Runner):
             limit=_STREAM_LIMIT,
             preexec_fn=self._build_preexec(),
         )
+
+    async def _force_kill(self, proc):
+        proc.kill()
+
+    def _reap(self, proc):
+        """Called once the child is gone; subclasses release launch state."""
+
+    async def execute(
+        self,
+        request: WorkflowExecutionRequest,
+        hooks: RunnerHooks,
+    ) -> ExecutionContext:
+        execution_id = request.context.execution_id
+        proc = await self._spawn(request)
         assert proc.stdin and proc.stdout and proc.stderr
 
         stderr_pump = asyncio.create_task(self._pump_stderr(proc.stderr, execution_id))
@@ -111,6 +125,7 @@ class SubprocessRunner(Runner):
             stderr_pump.cancel()
             for task in rpc_tasks:
                 task.cancel()
+            self._reap(proc)
 
         if result_ctx is None:
             raise WorkerProcessCrashed(
@@ -171,7 +186,7 @@ class SubprocessRunner(Runner):
             await asyncio.wait_for(self._drain_frames(proc, hooks), timeout=self._term_grace)
         except TimeoutError:
             logger.warning("Runner child ignored SIGTERM; killing it")
-            proc.kill()
+            await self._force_kill(proc)
         with contextlib.suppress(ProcessLookupError):
             await proc.wait()
 

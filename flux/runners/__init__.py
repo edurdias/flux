@@ -19,7 +19,7 @@ from flux.runners.inprocess import InProcessRunner
 from flux.runners.loader import WorkflowModuleLoader
 from flux.runners.subprocess_runner import SubprocessRunner
 
-KNOWN_RUNNERS = ("inprocess", "subprocess")
+KNOWN_RUNNERS = ("inprocess", "subprocess", "docker")
 
 
 def create_runners(names: list[str], config) -> dict[str, Runner]:
@@ -41,6 +41,17 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
             runners[name] = SubprocessRunner(
                 term_grace=config.subprocess_term_grace,
                 memory_limit=config.subprocess_memory_limit,
+            )
+        elif name == "docker":
+            from flux.runners.docker import DockerRunner
+
+            runners[name] = DockerRunner(
+                image=config.docker_image,
+                term_grace=config.subprocess_term_grace,
+                network=config.docker_network,
+                memory=config.docker_memory,
+                cpus=config.docker_cpus,
+                extra_args=list(config.docker_extra_args),
             )
         else:
             raise ValueError(
