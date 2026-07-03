@@ -380,4 +380,12 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 ---
 
+## Decisions log
+
+- **2026-07-03 — PostgreSQL-only for multi-node.** Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.
+- **2026-07-03 — Transient semantics: at-most-once at the workflow level.** Transient executions are never re-dispatched by the server; worker death or TTL expiry returns a structured error and the caller retries. Task-level retry/fallback/rollback inside a transient run is unchanged (in-memory event mechanics are kept, only persistence is skipped). Pause, approval gates, and schedules on transient workflows are hard errors.
+- **2026-07-03 — Dependency posture.** fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release).
+
+---
+
 *Methodology: five parallel code-level reviews (dispatch/claim path, persistence, worker runtime, execution-overhead/transient seams, security/ops) over the repository at commit `305962c`, consolidated and de-duplicated. File/line references are to that commit.*
