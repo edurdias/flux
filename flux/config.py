@@ -104,6 +104,32 @@ class WorkersConfig(BaseConfig):
     )
 
 
+class RetentionConfig(BaseConfig):
+    """Configuration for execution-history retention."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Delete terminal executions (and their events/approvals/sessions) "
+            "older than retention_days. Off by default so upgrades never "
+            "silently remove history; enable it in production or the "
+            "executions/execution_events tables grow without bound."
+        ),
+    )
+    retention_days: int = Field(
+        default=30,
+        description="Age (days since last event) after which terminal executions are deleted",
+    )
+    sweep_interval: int = Field(
+        default=3600,
+        description="Seconds between retention sweeps",
+    )
+    batch_size: int = Field(
+        default=500,
+        description="Executions deleted per transaction during a sweep",
+    )
+
+
 class DispatchConfig(BaseConfig):
     """Configuration for server-side execution dispatch."""
 
@@ -266,6 +292,7 @@ class FluxConfig(BaseSettings):
     )  # type: ignore[name-defined]
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     dispatch: DispatchConfig = Field(default_factory=DispatchConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 

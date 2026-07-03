@@ -137,6 +137,7 @@ class Server(
         self._pending_heartbeats: set[str] = set()
         self._dispatch_mode = Configuration.get().settings.dispatch.mode
         self._dispatcher = None
+        self._retention_job = None
         self._reaper_task: asyncio.Task | None = None
 
         config = Configuration.get().settings.scheduling
@@ -249,6 +250,12 @@ class Server(
 
                 self._dispatcher = Dispatcher(self)
                 self._dispatcher.start()
+
+            if Configuration.get().settings.retention.enabled:
+                from flux.retention import RetentionJob
+
+                self._retention_job = RetentionJob()
+                self._retention_job.start()
 
         try:
             config = uvicorn.Config(
@@ -1092,6 +1099,9 @@ class Server(
             if self._dispatcher is not None:
                 await self._dispatcher.stop()
                 self._dispatcher = None
+            if self._retention_job is not None:
+                await self._retention_job.stop()
+                self._retention_job = None
             if db_executor is not None:
                 db_executor.shutdown(wait=False, cancel_futures=True)
 
