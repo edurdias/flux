@@ -166,6 +166,52 @@ class StaleClaimError(Exception):
         )
 
 
+class WorkerProcessCrashed(Exception):
+    """A runner's child process died without reporting a result.
+
+    Covers segfaults, OOM kills, and hard exits (``os._exit``) of the
+    subprocess executing a workflow. The worker maps this to the framework's
+    durability semantics: durable executions are released back to the server
+    for re-dispatch (deterministic replay resumes from the last persisted
+    events), transient executions fail terminally (at-most-once).
+    """
+
+    def __init__(
+        self,
+        execution_id: str,
+        exit_code: int | None = None,
+        last_context=None,
+    ):
+        self.execution_id = execution_id
+        self.exit_code = exit_code
+        # Latest context rebuilt from the child's checkpoint frames, if any —
+        # lets the crash handler fail/release from the freshest known state.
+        self.last_context = last_context
+        signal_hint = ""
+        if exit_code is not None and exit_code < 0:
+            signal_hint = f" (signal {-exit_code})"
+        super().__init__(
+            f"Worker subprocess for execution {execution_id} exited with "
+            f"code {exit_code}{signal_hint} before reporting a result",
+        )
+
+
+class RunnerNotAvailableError(ExecutionError):
+    """An execution requested a runner this worker does not have enabled."""
+
+    def __init__(self, runner: str, available: list[str]):
+        self.runner = runner
+        self.available = available
+        super().__init__(
+            message=(
+                f"Runner '{runner}' is not enabled on this worker "
+                f"(enabled: {', '.join(available) or 'none'}). Enable it via "
+                f"[flux.workers] runners or register the workflow without "
+                f"runner='{runner}'."
+            ),
+        )
+
+
 class TransientDurabilityError(ExecutionError):
     """A transient execution reached a feature that requires durability.
 

@@ -437,6 +437,11 @@ class TestWorkerReconnect:
         mock_settings.workers.terminal_checkpoint_deadline = 300
         mock_settings.workers.reconnect_max_delay = 4
         mock_settings.workers.module_cache_ttl = 300
+        mock_settings.workers.module_cache_max_size = 64
+        mock_settings.workers.runners = ["inprocess", "subprocess"]
+        mock_settings.workers.default_runner = "subprocess"
+        mock_settings.workers.subprocess_term_grace = 5.0
+        mock_settings.workers.subprocess_memory_limit = 0
 
         with patch("flux.config.Configuration.get") as mock_get:
             mock_get.return_value.settings = mock_settings

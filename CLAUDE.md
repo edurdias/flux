@@ -85,7 +85,8 @@ Worker            Server
 
 Implementation hot-spots:
 - `flux/server.py` — ~4800 lines; FastAPI routes for workflows / executions / schedules / workers / admin / services. Most route handlers depend on `flux.security.dependencies.require_permission(...)`.
-- `flux/worker.py` — claim loop, module cache (TTL configurable, default 300s), heartbeat, reconnect with exponential backoff, eviction handling.
+- `flux/worker.py` — claim loop, checkpoint outbox, heartbeat, reconnect with exponential backoff, eviction handling.
+- `flux/runners/` — pluggable execution runners (Prefect-style). `subprocess` is the default: each execution runs in a credential-less child process (`runners/child.py`) streaming checkpoints/progress/secret-requests to the parent over a stdio pipe; `inprocess` runs on the worker's event loop (lowest latency — pair with transient mesh hops). Workflows pin one via `@workflow.with_options(runner=...)`; workers advertise enabled runners at registration and dispatch matches on them. The workflow module cache (TTL + LRU, source-hash keyed) lives in `runners/loader.py`. Child crashes map to durability: durable → claim released for re-dispatch (replay resumes), transient → terminal FAILED.
 - `flux/worker_registry.py` — capability + label tracking; `WorkerInfo` is the matching unit.
 - `flux/domain/resource_request.py` — `ResourceRequest` and `matches_labels`; powers both `@workflow.with_options(requests=...)` resource matching and `affinity={...}` label matching.
 

@@ -46,6 +46,12 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._input = input
         self._execution_id = execution_id or uuid4().hex
         self._events = events or []
+        # Wire rebuilds (from_json / claim responses) carry the state as its
+        # string value; coerce so state-derived flags (has_finished,
+        # is_paused, …) hold on rebuilt contexts, not only after the first
+        # local transition.
+        if isinstance(state, str):
+            state = ExecutionState(state.upper())
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None

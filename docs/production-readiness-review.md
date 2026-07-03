@@ -125,6 +125,8 @@ Workflow source is `exec()`'d and run on the worker's single event loop (`flux/w
 
 **Fix direction (ordered):** (1) `max_concurrent_executions` per worker, advertised at registration and respected by dispatch — also the backpressure primitive the AI mesh needs; (2) optional subprocess execution mode per workflow for untrusted/CPU-heavy code, with a real wall-clock kill; (3) worker self-health: detect event-loop starvation and stop claiming.
 
+**Status: (1) and (2) fixed.** Capacity slots landed earlier; isolation landed as **pluggable runners** (`flux/runners/`, Prefect-style). Workers enable runners via `[flux.workers] runners` and advertise them at registration; workflows may pin one with `@workflow.with_options(runner=...)` (AST-extracted, dispatched only to matching workers). The **default is the subprocess runner**: each execution runs in its own child process, the child holds no credentials (checkpoints, progress, secrets, and configs flow over a stdio pipe through the parent, preserving delta/fencing/transient semantics), cancellation is SIGTERM→grace→SIGKILL, and an optional `subprocess_memory_limit` applies RLIMIT_AS. A child that dies without a result maps to durability: durable executions are released (claim-generation-fenced) for re-dispatch and resume via deterministic replay; transient executions fail terminally. `runner="inprocess"` keeps the low-latency event-loop path (recommended for transient mesh hops). The Runner interface assumes neither stdio nor same-host, leaving room for Docker/Kubernetes runners. (3) remains open.
+
 ### W2 (High) — No graceful draining
 
 Shutdown cancels the main task; nothing awaits `_running_workflows` or pending checkpoints (`flux/worker.py:123-134`). Rolling deploys abandon in-flight executions to the ~60s reaper and full re-execution. **Fix:** a drain phase — stop claiming, await running executions up to a configurable deadline, flush terminal checkpoints, deregister.
@@ -437,7 +439,7 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 14. `durability="transient"`: no-op checkpoint + in-memory transient registry + server-relayed sync execution (§6, phase 1).
 15. `call()`/`workflow_agent()` transient passthrough; sticky same-worker in-process execution (§6, phase 2).
-16. Subprocess isolation mode for untrusted/CPU-bound workflows (W1); module-cache source-hash keys + LRU (W4, **done**).
+16. Subprocess isolation mode for untrusted/CPU-bound workflows (W1, **done** — shipped as pluggable runners with subprocess as the default); module-cache source-hash keys + LRU (W4, **done**).
 17. Production deployment guide: PostgreSQL-only for fleets, replica topology, probes (`/ready`), pool sizing, security checklist.
 
 ---
@@ -446,6 +448,7 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 - **2026-07-03 — PostgreSQL-only for multi-node.** Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.
 - **2026-07-03 — Transient semantics: at-most-once at the workflow level.** Transient executions are never re-dispatched by the server; worker death or TTL expiry returns a structured error and the caller retries. Task-level retry/fallback/rollback inside a transient run is unchanged (in-memory event mechanics are kept, only persistence is skipped). Pause, approval gates, and schedules on transient workflows are hard errors.
+- **2026-07-03 — Runners: subprocess by default, at-most-once transient crash semantics.** Execution is pluggable behind a Runner interface (Prefect-style). The subprocess runner is the day-one default — fault isolation out of the box at ~1s spawn cost per execution; latency-sensitive (transient mesh) workflows opt into `runner="inprocess"`. Child crashes follow durability: durable → release + replay-resume, transient → terminal FAILED. Children hold no credentials; all server traffic goes through the parent worker (pipe RPC). Docker/Kubernetes runners are future work behind the same interface.
 - **2026-07-03 — Dependency posture.** fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release). **Superseded 2026-07-03:** fastmcp migrated to 3.x (floor 3.2.0) — the 3.x meta-package kept the 2.x import layout, so the migration reduced to the floor bump plus replacing one private-attribute access (`FastMCP._tool_manager.get_tool` → the public `FastMCP.get_tool`). All previously-accepted 3.2.0-only advisories are now cleared.
 
 ---

@@ -26,6 +26,11 @@ retry_attempts = 0                                          # Default number of 
 retry_delay = 1                                             # Initial delay between retries in seconds
 retry_backoff = 2                                           # Multiplier for subsequent retry delays
 module_cache_ttl = 300                                      # Seconds to cache compiled workflow modules (0 to disable)
+module_cache_max_size = 64                                  # LRU bound on cached workflow modules (0 = unbounded)
+runners = ["inprocess", "subprocess"]                       # Runners enabled on this worker (advertised at registration)
+default_runner = "subprocess"                               # Runner used when a workflow does not declare one
+subprocess_term_grace = 10.0                                # Seconds between SIGTERM and SIGKILL when cancelling a child
+subprocess_memory_limit = 0                                 # Address-space limit per child in bytes (Linux only, 0 = unlimited)
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security.encryption]

@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import hashlib
-import importlib
 import platform
 import random
 import signal
-import sys
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable
-from types import ModuleType
 from collections.abc import Callable
 
 import httpx
@@ -22,31 +16,16 @@ from pydantic import BaseModel
 from flux import ExecutionContext
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent
-from flux.errors import StaleClaimError, WorkflowNotFoundError
+from flux.errors import (
+    RunnerNotAvailableError,
+    StaleClaimError,
+    WorkerProcessCrashed,
+)
+from flux.runners import create_runners
+from flux.runners.base import RunnerHooks
 from flux.utils import get_logger
-from flux import workflow
 
 logger = get_logger(__name__)
-
-
-def _hash_source(source: str) -> str:
-    """Short digest of the (base64-encoded) workflow source as shipped."""
-    return hashlib.sha256(source.encode()).hexdigest()[:12]
-
-
-def _make_module_cache_key(namespace: str, name: str, version: int, source_hash: str) -> str:
-    # Keyed by source hash so a same-version re-registration (delete +
-    # register, catalog overwrite) recompiles immediately instead of serving
-    # the previous source for up to module_cache_ttl seconds.
-    return f"{namespace}:{name}:{version}:{source_hash}"
-
-
-def _make_module_name(namespace: str, name: str, version: int, source_hash: str) -> str:
-    # The hash suffix keeps sys.modules entries per source variant, so
-    # evicting one cache entry can never remove a newer variant's module.
-    safe_namespace = namespace.replace("-", "_")
-    safe_name = name.replace("-", "_")
-    return f"flux_workflow__{safe_namespace}__{safe_name}__v{version}__h{source_hash}"
 
 
 class WorkflowDefinition(BaseModel):
@@ -61,6 +40,9 @@ class WorkflowExecutionRequest(BaseModel):
     workflow: WorkflowDefinition
     context: ExecutionContext
     exec_token: str | None = None
+    # Runner the workflow requires (from the dispatch payload); None means
+    # the worker's configured default_runner.
+    runner: str | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -87,6 +69,7 @@ class WorkflowExecutionRequest(BaseModel):
             workflow=WorkflowDefinition(**data["workflow"]),
             context=ctx,
             exec_token=exec_token,
+            runner=data.get("runner"),
         )
 
 
@@ -145,9 +128,13 @@ class Worker:
         self._progress_queues: dict[str, asyncio.Queue] = {}
         self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
-        self._module_cache: OrderedDict[str, tuple[ModuleType, float]] = OrderedDict()
-        self._module_cache_ttl = config.module_cache_ttl
-        self._module_cache_max_size = config.module_cache_max_size
+        self._runners = create_runners(list(config.runners), config)
+        self._default_runner = config.default_runner
+        if self._default_runner not in self._runners:
+            raise ValueError(
+                f"[flux.workers] default_runner '{self._default_runner}' is not "
+                f"among the enabled runners {sorted(self._runners)}",
+            )
         self._max_concurrent = config.max_concurrent_executions
         self._drain_timeout = config.drain_timeout
         self._draining = False
@@ -307,6 +294,7 @@ class Worker:
                 "packages": packages,
                 "labels": self.labels,
                 "max_concurrent_executions": self._max_concurrent or None,
+                "runners": sorted(self._runners),
             }
 
             logger.debug("Sending registration request to server...")
@@ -639,126 +627,152 @@ class Worker:
             config=config_manager,
             secret=secret_manager,
         )
+        hooks = RunnerHooks(
+            checkpoint=self._checkpoint,
+            get_secrets=secret_manager.get,
+            get_configs=config_manager.get,
+            progress=self._record_progress,
+        )
         try:
-            return await self._run_workflow(request)
+            return await self._run_workflow(request, hooks)
         finally:
             reset_remote_managers(remote_tokens)
             await config_manager.aclose()
             await secret_manager.aclose()
 
-    async def _run_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
+    async def _run_workflow(
+        self,
+        request: WorkflowExecutionRequest,
+        hooks: RunnerHooks,
+    ) -> ExecutionContext:
         logger.debug(
             f"Preparing to execute workflow: {request.workflow.name} v{request.workflow.version}",
         )
 
-        source_hash = _hash_source(request.workflow.source)
-        cache_key = _make_module_cache_key(
-            request.workflow.namespace,
-            request.workflow.name,
-            request.workflow.version,
-            source_hash,
-        )
-        module = None
-        wfunc = None
-
-        from flux.observability import get_metrics
-
-        m = get_metrics()
-
-        module_name = _make_module_name(
-            request.workflow.namespace,
-            request.workflow.name,
-            request.workflow.version,
-            source_hash,
-        )
-
-        if self._module_cache_ttl > 0:
-            cached = self._module_cache.get(cache_key)
-            if cached:
-                cached_module, cached_at = cached
-                if time.monotonic() - cached_at < self._module_cache_ttl:
-                    module = cached_module
-                    self._module_cache.move_to_end(cache_key)
-                    logger.debug(f"Module cache hit for {cache_key}")
-                    if m:
-                        m.record_module_cache("hit")
-                else:
-                    del self._module_cache[cache_key]
-                    sys.modules.pop(module_name, None)
-
-        if module is None:
-            if m and self._module_cache_ttl > 0:
-                m.record_module_cache("miss")
-
-            source_code = base64.b64decode(request.workflow.source).decode("utf-8")
-            logger.debug(f"Decoded workflow source code ({len(source_code)} bytes)")
-
-            # Drop any stale module under this name before exec'ing the new
-            # source (only possible after TTL expiry of this exact variant —
-            # the name includes the source hash).
-            sys.modules.pop(module_name, None)
-
-            logger.debug(f"Creating module: {module_name}")
-            module_spec = importlib.util.spec_from_loader(module_name, loader=None)
-            module = importlib.util.module_from_spec(module_spec)  # type: ignore
-            sys.modules[module_name] = module
-
-            logger.debug("Executing workflow source code")
-            exec(source_code, module.__dict__)
-
-            if self._module_cache_ttl > 0:
-                self._module_cache[cache_key] = (module, time.monotonic())
-                while (
-                    self._module_cache_max_size > 0
-                    and len(self._module_cache) > self._module_cache_max_size
-                ):
-                    _, (evicted, _) = self._module_cache.popitem(last=False)
-                    sys.modules.pop(evicted.__name__, None)
+        runner_name = request.runner or self._default_runner
+        runner = self._runners.get(runner_name)
+        if runner is None:
+            # Dispatch matching filters on advertised runners, so this only
+            # happens on races (config change between register and dispatch)
+            # or workers registered before runner capabilities existed.
+            raise RunnerNotAvailableError(runner_name, sorted(self._runners))
 
         ctx = request.context
         self._setup_progress(ctx)
 
-        for obj in module.__dict__.values():
-            if (
-                isinstance(obj, workflow)
-                and obj.namespace == request.workflow.namespace
-                and obj.name == request.workflow.name
-            ):
-                wfunc = obj
-                break
+        logger.debug(f"Executing workflow {request.workflow.name} via runner '{runner_name}'")
+        task = asyncio.create_task(runner.execute(request, hooks))
+        self._running_workflows[ctx.execution_id] = task
+        start_time = asyncio.get_event_loop().time()
+        try:
+            ctx = await task
+        except WorkerProcessCrashed as crash:
+            return await self._handle_runner_crash(request, crash)
+        finally:
+            self._running_workflows.pop(request.context.execution_id, None)
+            await self._teardown_progress(request.context.execution_id)
+            logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
 
-        if wfunc:
-            logger.debug(f"Found workflow: {request.workflow.name}")
-            logger.debug(f"Executing workflow: {request.workflow.name}")
-            task = asyncio.create_task(wfunc(request.context))
-            logger.debug(f"Added async task for workflow execution: {request.workflow.name}")
-            self._running_workflows[ctx.execution_id] = task
-            start_time = asyncio.get_event_loop().time()
-            logger.debug(f"Workflow execution started: {request.workflow.name}")
-            try:
-                ctx = await task
-            finally:
-                self._running_workflows.pop(request.context.execution_id, None)
-                await self._teardown_progress(request.context.execution_id)
-                logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
+        execution_time = asyncio.get_event_loop().time() - start_time
+        logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
 
-            execution_time = asyncio.get_event_loop().time() - start_time
-            logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
+        from flux.observability import get_metrics
 
-            m = get_metrics()
-            if m:
-                status = "completed" if not ctx.has_failed else "failed"
-                m.record_workflow_completed(
-                    request.workflow.namespace,
-                    request.workflow.name,
-                    status,
-                    execution_time,
-                )
-        else:
-            logger.warning(f"Workflow {request.workflow.name} not found in module")
-            raise WorkflowNotFoundError(f"Workflow {request.workflow.name} not found")
+        m = get_metrics()
+        if m:
+            status = "completed" if not ctx.has_failed else "failed"
+            m.record_workflow_completed(
+                request.workflow.namespace,
+                request.workflow.name,
+                status,
+                execution_time,
+            )
 
         return ctx
+
+    async def _handle_runner_crash(
+        self,
+        request: WorkflowExecutionRequest,
+        crash: WorkerProcessCrashed,
+    ) -> ExecutionContext:
+        """Map a dead runner child to the execution's durability semantics.
+
+        Durable executions are released back to the server for re-dispatch:
+        every checkpoint the child delivered before dying is persisted, so
+        deterministic replay resumes from the last saved task and completed
+        tasks are not re-run. Transient executions are at-most-once by
+        decision — they fail terminally and the caller retries.
+        """
+        ctx = crash.last_context or request.context
+        logger.error(str(crash))
+        if ctx.is_transient:
+            ctx.fail(
+                ctx.execution_id,
+                {"type": "WorkerProcessCrashed", "message": str(crash)},
+            )
+            await self._checkpoint(ctx)
+            return ctx
+        await self._release_claim(ctx.execution_id)
+        return ctx
+
+    async def _release_claim(self, execution_id: str):
+        """Hand a crashed durable execution back for re-dispatch.
+
+        Fenced by claim generation like checkpoints: if the server says the
+        claim is stale, another worker already owns the execution and there
+        is nothing to release.
+        """
+        # Flush pending checkpoints first: they carry the task completions
+        # replay resumes from, and after release the bumped claim generation
+        # would fence them.
+        box = self._checkpoint_outboxes.get(execution_id)
+        if box is not None:
+            box.closed = True
+            box.wakeup.set()
+            if box.sender and not box.sender.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(box.sender), timeout=30)
+                except TimeoutError:
+                    logger.warning(
+                        f"Timed out flushing checkpoints for crashed execution "
+                        f"{execution_id}; releasing anyway",
+                    )
+
+        base_url = f"{self.base_url}/{self.name}"
+        headers = {}
+        generation = self._claim_generations.get(execution_id)
+        if generation is not None:
+            headers["X-Flux-Claim-Generation"] = generation
+
+        backoff = 1.0
+        for attempt in range(5):
+            try:
+                response = await self._authorized_post(
+                    f"{base_url}/release/{execution_id}",
+                    headers=headers,
+                )
+                if response.status_code == 409 and "stale-claim" in response.text:
+                    logger.info(
+                        f"Release of {execution_id} fenced (stale claim); another worker owns it",
+                    )
+                    break
+                response.raise_for_status()
+                logger.info(f"Execution {execution_id} released for re-dispatch")
+                break
+            except Exception as e:
+                if attempt == 4:
+                    logger.critical(
+                        f"Could not release crashed execution {execution_id} "
+                        f"({type(e).__name__}: {e}); the server reaper will "
+                        f"recover it when this worker's claim goes stale",
+                    )
+                    break
+                delay = backoff * (0.5 + random.random())
+                await asyncio.sleep(delay)
+                backoff = min(backoff * 2, 10.0)
+        self._close_checkpoint_outbox(execution_id)
+        self._claim_generations.pop(execution_id, None)
+        self._transient_started.discard(execution_id)
 
     async def _checkpoint(self, ctx: ExecutionContext):
         """Queue a checkpoint for delivery, never dropping durability.
@@ -1073,21 +1087,27 @@ class Worker:
         else:
             self._progress_flushers[ctx.execution_id] = None
 
-        def on_progress(execution_id, task_id, task_name, value):
-            q = self._progress_queues.get(execution_id)
-            if q:
-                try:
-                    q.put_nowait(
-                        {
-                            "task_id": task_id,
-                            "task_name": task_name,
-                            "value": value,
-                        },
-                    )
-                except asyncio.QueueFull:
-                    pass
+        ctx.set_progress_callback(self._record_progress)
 
-        ctx.set_progress_callback(on_progress)
+    def _record_progress(self, execution_id, task_id, task_name, value):
+        """Enqueue one progress update for batched delivery to the server.
+
+        Reached two ways: as the context progress callback for in-process
+        executions, and as the RunnerHooks.progress relay for progress frames
+        arriving from runner child processes.
+        """
+        q = self._progress_queues.get(execution_id)
+        if q:
+            try:
+                q.put_nowait(
+                    {
+                        "task_id": task_id,
+                        "task_name": task_name,
+                        "value": value,
+                    },
+                )
+            except asyncio.QueueFull:
+                pass
 
     async def _teardown_progress(self, execution_id: str):
         flusher = self._progress_flushers.pop(execution_id, None)

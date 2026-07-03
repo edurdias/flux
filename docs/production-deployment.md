@@ -90,9 +90,10 @@ the same path. Plain HTTP round-robin works for everything else.
 
 - **Capacity**: workers advertise `FLUX_WORKERS__MAX_CONCURRENT_EXECUTIONS`
   (default 16, `0` = unlimited) at registration; the server never assigns
-  beyond a worker's free slots on any dispatch path. Size it to what one
-  worker process can genuinely run concurrently — workflow code shares the
-  worker's event loop.
+  beyond a worker's free slots on any dispatch path. With the default
+  subprocess runner each concurrent execution is its own process (size
+  against memory); with `runner="inprocess"` workflow code shares the
+  worker's event loop (size against what the loop can genuinely run).
 - **Deploys**: send SIGTERM and let the worker drain — it stops accepting
   work, finishes running executions (up to `FLUX_WORKERS__DRAIN_TIMEOUT`,
   default 60s), flushes terminal checkpoints, then exits. A second signal
@@ -107,6 +108,42 @@ the same path. Plain HTTP round-robin works for everything else.
   reassigned, its later checkpoints are rejected (stale claim generation)
   and it aborts those local runs — expect `stale-claim` warnings in worker
   logs after partitions heal; they are the mechanism working.
+
+## Runners: where workflow code executes
+
+Each execution runs through a **runner** (Prefect-style). Workers enable
+runners via `[flux.workers] runners` (advertised at registration) and pick
+`default_runner` for workflows that don't declare one; a workflow can pin
+one with `@workflow.with_options(runner=...)` and will only dispatch to
+workers advertising it.
+
+- **`subprocess` (the default)** — each execution gets its own child
+  process. A crash, OOM, or event-loop-blocking call cannot take down the
+  worker or co-resident executions; cancellation and drain are enforced
+  with SIGTERM → `subprocess_term_grace` → SIGKILL, which works even
+  against code stuck in sync C calls; `subprocess_memory_limit` (Linux)
+  bounds per-child address space. The child holds **no credentials** —
+  checkpoints, progress, secrets, and configs flow through the parent
+  worker over a pipe, so the server-facing protocol (delta checkpoints,
+  claim fencing, transient suppression) is identical to in-process
+  execution. Cost: roughly a second of process spawn + import per
+  execution.
+- **`inprocess`** — the workflow runs as a task on the worker's event
+  loop. Lowest latency, no isolation: reserve it for trusted, async-clean,
+  latency-sensitive workflows — transient mesh hops especially.
+
+**Crash semantics follow durability.** If a child dies without reporting a
+result (segfault, OOM kill, `os._exit`), a durable execution is *released*
+back to the server (fenced by claim generation, pending checkpoints flushed
+first) and re-dispatched — deterministic replay resumes from the last
+persisted task, so completed tasks do not re-run. A transient execution
+fails terminally (`WorkerProcessCrashed`) per its at-most-once contract —
+the caller retries.
+
+Since every subprocess execution pays a spawn, size
+`max_concurrent_executions` against memory as well as CPU: each concurrent
+execution is a full Python process (~50-100 MB baseline plus workflow
+memory).
 
 ## Transient executions (AI mesh)
 
@@ -125,6 +162,8 @@ unchanged latency. Limits:
 - A retried/requeued transient execution re-runs all tasks from scratch —
   at-least-once for side effects, with no replay short-circuit.
 - Works in both dispatch modes and with sync/async/stream callers.
+- Pair with `runner="inprocess"` to also skip the per-execution process
+  spawn — the lowest-latency configuration for trusted mesh hops.
 
 ## Registering workflows is code execution
 

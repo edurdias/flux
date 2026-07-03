@@ -73,6 +73,9 @@ class WorkerRoutesMixin:
             # The worker suppresses intermediate (task-level) checkpoints for
             # transient workflows; only the terminal workflow state persists.
             payload["transient"] = True
+        required_runner = (workflow.metadata or {}).get("runner")
+        if required_runner:
+            payload["runner"] = required_runner
         session = self._get_db_session()
         try:
             exec_row = session.get(ExecutionContextModel, ctx.execution_id)
@@ -125,6 +128,7 @@ class WorkerRoutesMixin:
                     registration.resources,
                     labels=registration.labels,
                     max_concurrent_executions=registration.max_concurrent_executions,
+                    runners=registration.runners,
                 )
 
                 if auth_service is not None and auth_config.api_keys.enabled:
@@ -624,6 +628,66 @@ class WorkerRoutesMixin:
                 raise
             except Exception as e:
                 logger.error(f"Error checkpointing execution: {str(e)}")
+                raise HTTPException(status_code=400, detail=str(e))
+
+        @api.post("/workers/{name}/release/{execution_id}")
+        async def workers_release(
+            name: str,
+            execution_id: str,
+            claim_generation: str | None = Header(None, alias="X-Flux-Claim-Generation"),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            """Hand a claimed execution back for re-dispatch.
+
+            Called by a worker whose runner child crashed mid-execution: the
+            events checkpointed before the crash are already persisted, so a
+            re-dispatched durable execution resumes via deterministic replay.
+            Fenced by claim generation like checkpoints — a stale claimant
+            gets a 409 instead of unclaiming the new owner's execution.
+            """
+            try:
+                self._verify_worker_identity(identity, name)
+                self._worker_last_pong[name] = time.monotonic()
+
+                context_manager = ContextManager.create()
+
+                if claim_generation is not None:
+                    try:
+                        expected_generation = int(claim_generation)
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid X-Flux-Claim-Generation header.",
+                        )
+                    current_generation = await asyncio.to_thread(
+                        context_manager.get_claim_generation,
+                        execution_id,
+                    )
+                    if expected_generation != current_generation:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"stale-claim: release carries generation "
+                                f"{expected_generation} but the row is at "
+                                f"{current_generation}"
+                            ),
+                        )
+
+                try:
+                    ctx = await asyncio.to_thread(context_manager.unclaim, execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(status_code=404, detail="Execution context not found.")
+
+                logger.warning(
+                    f"Worker {name} released execution {execution_id} "
+                    f"(state now {ctx.state.value}); re-dispatching",
+                )
+                self._notify_next_worker()
+                return {"status": "released", "state": ctx.state.value}
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error releasing execution {execution_id}: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
 
         @api.post("/workers/{name}/progress/{execution_id}")

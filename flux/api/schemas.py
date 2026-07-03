@@ -57,6 +57,9 @@ class WorkerRegistration(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     # Advertised capacity; None/0 means unlimited (legacy workers).
     max_concurrent_executions: int | None = None
+    # Runners this worker has enabled; None means a legacy worker that
+    # predates runners and executes everything in-process.
+    runners: list[str] | None = None
 
 
 class SecretRequest(BaseModel):
