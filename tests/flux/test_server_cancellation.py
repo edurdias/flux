@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from flux import ExecutionContext
 from flux.domain.events import ExecutionState
 from flux.errors import WorkerNotFoundError
-from flux.server import Server, WorkerResponse
+from flux.server import Server
 
 
 @pytest.fixture
@@ -356,19 +356,30 @@ class TestExecutionEndpoints:
 class TestWorkerEndpoints:
     """Tests for worker management endpoints."""
 
-    def test_workers_list(self, server_instance, test_client):
-        """Test listing all workers from in-memory cache."""
-        server_instance._worker_cache["worker-1"] = WorkerResponse(
-            name="worker-1",
-            status="online",
-        )
+    @patch("flux.api.worker_routes.WorkerRegistry.create")
+    def test_workers_list(self, mock_registry_create, server_instance, test_client):
+        """Workers are listed fleet-wide from the DB, with liveness derived
+        from the persisted heartbeat (not this replica's in-memory cache)."""
+        from datetime import datetime, timezone
+
+        fresh = MagicMock()
+        fresh.name = "worker-1"
+        fresh.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        stale = MagicMock()
+        stale.name = "worker-2"
+        stale.last_seen_at = None  # never heartbeated -> offline
+        mock_registry = MagicMock()
+        mock_registry.list.return_value = [fresh, stale]
+        mock_registry_create.return_value = mock_registry
 
         response = test_client.get("/workers")
 
         assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "worker-1"
+        data = {w["name"]: w["status"] for w in response.json()}
+        assert data == {"worker-1": "online", "worker-2": "offline"}
+
+        response = test_client.get("/workers?status=online")
+        assert [w["name"] for w in response.json()] == ["worker-1"]
 
     @patch("flux.server.WorkerRegistry.create")
     def test_workers_list_empty(self, mock_registry_create, test_client):
@@ -557,8 +568,13 @@ class TestAPIEdgeCases:
         assert response.status_code == 500
         assert "error" in response.text.lower()
 
-    def test_workers_list_empty_cache(self, test_client):
-        """Test workers list returns empty when cache is empty."""
+    @patch("flux.api.worker_routes.WorkerRegistry.create")
+    def test_workers_list_empty_cache(self, mock_registry_create, test_client):
+        """Test workers list returns empty when no workers are registered."""
+        mock_registry = MagicMock()
+        mock_registry.list.return_value = []
+        mock_registry_create.return_value = mock_registry
+
         response = test_client.get("/workers")
 
         assert response.status_code == 200

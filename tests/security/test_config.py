@@ -54,7 +54,7 @@ class TestAuthConfig:
     def test_security_config_has_execution_token_ttl(self):
         config = SecurityConfig()
         assert hasattr(config, "execution_token_ttl")
-        assert config.execution_token_ttl == 604800
+        assert config.execution_token_ttl == 86400
 
     def test_security_config_execution_token_ttl_configurable(self):
         config = SecurityConfig(execution_token_ttl=3600)

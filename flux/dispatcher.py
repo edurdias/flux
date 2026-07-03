@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _NOTIFY_CHANNEL = "flux_work"
+# Carries an execution_id payload when a checkpoint reaches a state a caller
+# may be waiting on (finished/paused), so sync/stream waiters on OTHER
+# replicas wake immediately instead of hitting their 30s poll fallback.
+_EXEC_CHANNEL = "flux_exec"
 
 
 @dataclass
@@ -91,6 +95,22 @@ class Dispatcher:
         this is purely the cross-replica signal and is skipped on SQLite
         (single-node by definition).
         """
+        self._fire_notify(f"NOTIFY {_NOTIFY_CHANNEL}")
+
+    def notify_execution_update(self, execution_id: str) -> None:
+        """Wake sync/stream waiters for one execution on every replica.
+
+        The local waiter is set directly by the checkpoint route; this relays
+        the same signal cross-replica so a caller held open on replica A wakes
+        as soon as the worker checkpoints through replica B, instead of
+        waiting out the 30s poll fallback.
+        """
+        self._fire_notify(
+            "SELECT pg_notify(:channel, :payload)",
+            {"channel": _EXEC_CHANNEL, "payload": execution_id},
+        )
+
+    def _fire_notify(self, statement: str, params: dict | None = None) -> None:
         if not self._is_postgresql:
             return
 
@@ -100,13 +120,13 @@ class Dispatcher:
 
                 def _notify():
                     with manager.session() as session:
-                        session.execute(text(f"NOTIFY {_NOTIFY_CHANNEL}"))
+                        session.execute(text(statement), params or {})
                         session.commit()
 
                 await asyncio.to_thread(_notify)
             except Exception as e:
-                # Best-effort: the fallback tick on every replica covers it.
-                logger.debug(f"NOTIFY {_NOTIFY_CHANNEL} failed: {e}")
+                # Best-effort: the fallback tick / poll fallback covers it.
+                logger.debug(f"NOTIFY failed ({statement}): {e}")
 
         asyncio.create_task(_send())
 
@@ -126,10 +146,16 @@ class Dispatcher:
                 conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
                 try:
                     await conn.execute(f"LISTEN {_NOTIFY_CHANNEL}")
+                    await conn.execute(f"LISTEN {_EXEC_CHANNEL}")
                     backoff = 1.0
-                    logger.debug(f"LISTEN {_NOTIFY_CHANNEL} established")
-                    async for _ in conn.notifies():
-                        self._server._work_available.set()
+                    logger.debug(f"LISTEN {_NOTIFY_CHANNEL}/{_EXEC_CHANNEL} established")
+                    async for notice in conn.notifies():
+                        if notice.channel == _EXEC_CHANNEL:
+                            waiter = self._server._execution_events.get(notice.payload)
+                            if waiter:
+                                waiter.set()
+                        else:
+                            self._server._work_available.set()
                 finally:
                     await conn.close()
             except asyncio.CancelledError:

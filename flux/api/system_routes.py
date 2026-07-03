@@ -7,6 +7,8 @@ to ``self`` (the ``Server`` instance) and the shared per-app dependencies.
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import TYPE_CHECKING
 
 
@@ -61,6 +63,23 @@ class SystemRoutesMixin:
         # ===========================================
         # Health & System Endpoints
         # ===========================================
+
+        @api.get("/ready")
+        async def ready(response: Response):
+            """Readiness probe: can this replica serve traffic right now?
+
+            Separate from /health so orchestrators can distinguish "remove
+            from the load balancer" (readiness, e.g. a DB blip) from "restart
+            the process" (liveness). Points a database round-trip.
+            """
+            try:
+                db_ready = await asyncio.to_thread(WorkflowCatalog.create().health_check)
+            except Exception:
+                db_ready = False
+            if not db_ready:
+                response.status_code = 503
+                return {"status": "not-ready", "database": False}
+            return {"status": "ready", "database": True}
 
         @api.get("/health", response_model=HealthResponse)
         async def health(response: Response):

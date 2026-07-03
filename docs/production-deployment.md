@@ -1,0 +1,128 @@
+# Production Deployment Guide
+
+How to run Flux in production: the hardening checklist, multi-replica
+topology, worker-fleet operations, and the configuration that matters at
+scale. Defaults are development-friendly; production requires the explicit
+choices below.
+
+## The checklist
+
+Every item here maps to a failure mode observed in the production-readiness
+review (`docs/production-readiness-review.md`).
+
+1. **PostgreSQL, not SQLite.** SQLite is single-node only: `SELECT … FOR
+   UPDATE SKIP LOCKED` (claim safety) and FK cascades are silently
+   unenforced there. Set `FLUX_DATABASE_URL=postgresql://…`. PostgreSQL 14+
+   is expected; the driver is psycopg v3 (`pip install 'flux-core[postgresql]'`).
+2. **Enable authentication and set the secrets.** With auth off, every
+   caller is the anonymous admin. The server refuses to start when auth is
+   enabled without these two values (they otherwise fail mid-traffic):
+   ```
+   FLUX_SECURITY__AUTH__ENABLED=true
+   FLUX_SECURITY__EXECUTION_TOKEN_SECRET=<random 32+ bytes>
+   FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=<random 32+ bytes>
+   ```
+3. **Terminate TLS in front of every replica.** Flux serves plain HTTP.
+   Bearer tokens, worker session keys, pickled payloads, and decrypted
+   secrets (`/workers/{name}/secrets/batch`) all travel over this channel —
+   an ingress/load-balancer with TLS is a hard requirement, not an option.
+4. **Event dispatch mode.** `FLUX_DISPATCH__MODE=event` runs one dispatcher
+   per replica with LISTEN/NOTIFY wakeups and batch `SKIP LOCKED` claims.
+   The default `poll` mode is the legacy per-worker query loop and degrades
+   superlinearly with fleet size (measured: at 500 workers it saturates the
+   DB executor and takes minutes to accept submissions — see the review's
+   stress-test table). Poll mode remains for one release as a fallback.
+5. **Enable retention.** Execution history grows without bound otherwise
+   (every task is a persisted event row):
+   ```
+   FLUX_RETENTION__ENABLED=true
+   FLUX_RETENTION__RETENTION_DAYS=30
+   ```
+6. **Size the database pool and executor together.** Defaults are
+   `database_pool_size=20`, `database_max_overflow=20`,
+   `database_executor_threads=16` per replica. Keep executor ≤ pool so DB
+   threads never block waiting for a connection, and give PostgreSQL
+   `max_connections ≥ replicas × (pool_size + max_overflow) + workers' LISTEN
+   connections + headroom`.
+7. **Registration rate limit.** `/workers/register` validates the shared
+   bootstrap token and is limited to `30/minute` per client IP by default.
+   Large fleets restarting behind one NAT need it raised
+   (`FLUX_WORKERS__REGISTER_RATE_LIMIT=300/minute`) — or run the server
+   behind a proxy that forwards real client IPs (uvicorn `--proxy-headers`).
+8. **Probes.** Point liveness at `GET /health` and readiness at
+   `GET /ready`. `/ready` performs a database round-trip and returns 503
+   when the DB is unreachable — wire it to load-balancer membership, not
+   restarts, so a DB blip drains traffic instead of bouncing pods.
+9. **Bootstrap token custody.** The worker bootstrap token is a fleet-wide
+   join secret: anyone holding it can register a worker (and workers receive
+   workflow source and secrets). Set it explicitly
+   (`FLUX_WORKERS__BOOTSTRAP_TOKEN`), store it in your secret manager, and
+   rotate it deliberately — rotation invalidates the whole fleet's ability
+   to re-register until workers get the new value.
+
+## Multi-replica topology
+
+Multiple server replicas coordinate through PostgreSQL; there is no leader
+election to configure. What each mechanism relies on:
+
+- **Dispatch**: every replica's dispatcher batch-claims with
+  `FOR UPDATE SKIP LOCKED`; replicas never double-assign. New-work wakeups
+  travel via `NOTIFY flux_work`; a missed notification is covered by the
+  dispatcher's fallback tick (`dispatch.fallback_interval`, default 15s).
+- **Scheduler and retention**: fleet-wide singletons per cycle via
+  PostgreSQL advisory locks; a dead holder's lock auto-releases.
+- **Worker liveness**: heartbeats persist to `workers.last_seen_at`
+  (batched, one UPDATE per interval per replica), so any replica's reaper
+  can reclaim executions from a dead replica's workers.
+- **Sync/stream callers**: a caller held open on replica A is woken by a
+  checkpoint landing on replica B via `NOTIFY flux_exec`; the 30s poll
+  fallback remains as the safety net.
+- **`GET /workers`** reads the workers table — every replica returns the
+  same fleet view, with liveness derived from persisted heartbeats.
+
+**Sticky routing requirement.** A worker's SSE stream, its dispatch queue,
+and its in-flight execution signals live on the replica it connected to.
+Configure the load balancer with connection affinity (source-IP or cookie
+stickiness) for `/workers/{name}/connect`, and let workers reconnect through
+the same path. Plain HTTP round-robin works for everything else.
+
+## Worker fleet operations
+
+- **Capacity**: workers advertise `FLUX_WORKERS__MAX_CONCURRENT_EXECUTIONS`
+  (default 16, `0` = unlimited) at registration; the server never assigns
+  beyond a worker's free slots on any dispatch path. Size it to what one
+  worker process can genuinely run concurrently — workflow code shares the
+  worker's event loop.
+- **Deploys**: send SIGTERM and let the worker drain — it stops accepting
+  work, finishes running executions (up to `FLUX_WORKERS__DRAIN_TIMEOUT`,
+  default 60s), flushes terminal checkpoints, then exits. A second signal
+  aborts the drain. Give the orchestrator a termination grace period of
+  `drain_timeout + 30s`.
+- **Credentials rotate themselves**: worker API keys are minted with a TTL
+  (`FLUX_SECURITY__AUTH__API_KEYS__WORKER_KEY_TTL`, default 7 days); on the
+  first 401 after expiry the worker re-registers and gets a fresh key.
+  Principals of workers offline past `offline_ttl` are disabled and their
+  keys revoked automatically; a returning worker re-enables on registration.
+- **Fencing**: if a partitioned worker is evicted and its executions
+  reassigned, its later checkpoints are rejected (stale claim generation)
+  and it aborts those local runs — expect `stale-claim` warnings in worker
+  logs after partitions heal; they are the mechanism working.
+
+## Registering workflows is code execution
+
+Workflow registration executes the uploaded Python on the server (metadata
+enrichment) and on every worker that runs it. Treat
+`workflow:<namespace>:*:register` as a deploy permission: grant it to CI
+identities, not humans-at-large, and never enable `allow_anonymous` on a
+network where untrusted parties can reach the server.
+
+## Observability
+
+- `GET /metrics` (Prometheus) requires `admin:metrics:read` — provision a
+  scrape credential. Worker/schedule names are deliberately not metric
+  labels (unbounded cardinality); dashboards aggregate by event/reason.
+- OpenTelemetry traces/metrics export via `[flux.observability]` with the
+  `observability` extra installed.
+- Capacity planning numbers (measured, single 4-core host): see the
+  stress-test table in `docs/production-readiness-review.md` §7.6 and
+  `scripts/stress_dispatch.py` to reproduce against your own hardware.
