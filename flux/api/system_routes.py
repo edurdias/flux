@@ -73,7 +73,12 @@ class SystemRoutesMixin:
             the process" (liveness). Points a database round-trip.
             """
             try:
-                db_ready = await asyncio.to_thread(WorkflowCatalog.create().health_check)
+                # The catalog construction itself opens the engine on first
+                # use, so it must run inside the thread hop as well — not just
+                # the health check — or a slow DB blocks the event loop.
+                db_ready = await asyncio.to_thread(
+                    lambda: WorkflowCatalog.create().health_check(),
+                )
             except Exception:
                 db_ready = False
             if not db_ready:

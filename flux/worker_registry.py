@@ -202,7 +202,11 @@ class DatabaseWorkerRegistry(WorkerRegistry):
     def record_heartbeat(self, name: str) -> None:
         from flux.models import WorkerModel
 
-        now = datetime.now(timezone.utc)
+        # Naive UTC, matching the column type and every comparison site
+        # (reaper threshold, /workers liveness). Writing an aware datetime
+        # into TIMESTAMP WITHOUT TIME ZONE round-trips correctly only when
+        # the session TimeZone happens to be UTC — make it explicit instead.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         with self.session() as session:
             # Targeted UPDATE — cheap enough to run on every pong, and avoids
             # loading the worker's runtime/packages/resources relationships.
@@ -217,7 +221,8 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             return
         from flux.models import WorkerModel
 
-        now = datetime.now(timezone.utc)
+        # Naive UTC — see record_heartbeat.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         with self.session() as session:
             session.query(WorkerModel).filter(WorkerModel.name.in_(list(names))).update(
                 {WorkerModel.last_seen_at: now},

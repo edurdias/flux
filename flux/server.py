@@ -173,28 +173,52 @@ class Server(
         ~60s eviction path — so the dispatcher can reassign them. Cancellation
         frames are simply dropped: the row is still CANCELLING and will be
         re-delivered wherever the execution lands.
+
+        Draining the queue is pure memory work; the unclaim writes are DB
+        round-trips and run in a background thread hop so a slow database (or
+        a long queue) never blocks the event loop mid-SSE-teardown.
         """
         queue = self._worker_queues.pop(name, None)
         if queue is None:
             return
-        released = 0
+        to_release: list[str] = []
         while not queue.empty():
             try:
                 item = queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
             if getattr(item, "kind", None) in ("execution_scheduled", "execution_resumed"):
+                to_release.append(item.execution_id)
+        if not to_release:
+            return
+
+        def _release() -> int:
+            manager = ContextManager.create()
+            released = 0
+            for execution_id in to_release:
                 try:
-                    ContextManager.create().unclaim(item.execution_id)
+                    manager.unclaim(execution_id)
                     released += 1
                 except Exception:
                     logger.error(
-                        f"Failed to release undelivered execution {item.execution_id}",
+                        f"Failed to release undelivered execution {execution_id}",
                         exc_info=True,
                     )
-        if released:
-            logger.info(f"Released {released} undelivered execution(s) from worker {name}")
-            self._work_available.set()
+            return released
+
+        async def _release_and_notify():
+            released = await asyncio.to_thread(_release)
+            if released:
+                logger.info(f"Released {released} undelivered execution(s) from worker {name}")
+                self._work_available.set()
+
+        try:
+            asyncio.get_running_loop()
+            asyncio.create_task(_release_and_notify())
+        except RuntimeError:
+            # No loop (tests / teardown): release synchronously.
+            if _release():
+                logger.info(f"Released undelivered execution(s) from worker {name}")
 
     def _notify_next_worker(self):
         """Signal that new work is available.
@@ -779,7 +803,11 @@ class Server(
         run this sweep concurrently for the same orphan.
         """
         deadline_seconds = self.heartbeat_timeout + self.eviction_grace_period
-        threshold = datetime.now(timezone.utc) - timedelta(seconds=deadline_seconds)
+        # Naive UTC to match the stored last_seen_at values (see
+        # WorkerRegistry.record_heartbeat).
+        threshold = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            seconds=deadline_seconds,
+        )
         try:
             from flux.worker_registry import WorkerRegistry
 
