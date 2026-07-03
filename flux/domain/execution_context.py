@@ -52,6 +52,18 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._current_worker = current_worker or ""
         self._progress_callback = progress_callback or (lambda *_: None)
         self._exec_token: str | None = None
+        # Transient executions never persist: checkpoint stays the no-op and
+        # durable-only features (pause, approvals) must refuse to engage.
+        # In-memory only — deliberately absent from to_dict()/pickle.
+        self._transient = False
+
+    def mark_transient(self) -> ExecutionContext:
+        self._transient = True
+        return self
+
+    @property
+    def is_transient(self) -> bool:
+        return getattr(self, "_transient", False)
 
     @staticmethod
     async def get() -> ExecutionContext:

@@ -302,3 +302,19 @@ class ResourceRequest:
 
         # Unsupported operator
         return False
+
+
+def worker_matches(worker, requests: dict | None, affinity: dict | None) -> bool:
+    """Whether a worker satisfies a workflow's affinity labels and resource
+    requests. Shared by the SQL dispatch paths and the transient (no-row)
+    dispatch, which has no session to hang the check on."""
+    if affinity is not None:
+        if not ResourceRequest.matches_labels(worker.labels, affinity):
+            return False
+    if requests is not None:
+        resource_request = ResourceRequest(**(requests or {}))
+        if worker.resources is None:
+            return False
+        if not resource_request.matches_worker(worker.resources, worker.packages):
+            return False
+    return True

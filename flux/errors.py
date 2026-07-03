@@ -164,3 +164,23 @@ class StaleClaimError(Exception):
             f"generation {expected} but the row is at {actual}; the execution "
             f"was reassigned",
         )
+
+
+class TransientDurabilityError(ExecutionError):
+    """A transient execution reached a feature that requires durability.
+
+    Pause, approvals, and cross-worker resume all need persisted state that a
+    transient execution deliberately does not have. Fail loudly instead of
+    silently losing an approval or stranding a pause.
+    """
+
+    def __init__(self, execution_id: str, feature: str):
+        self.execution_id = execution_id
+        self.feature = feature
+        super().__init__(
+            message=(
+                f"Transient execution {execution_id} attempted to use '{feature}', "
+                f"which requires durability. Register the workflow without "
+                f"durability='transient' to use it."
+            ),
+        )

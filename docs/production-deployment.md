@@ -108,6 +108,24 @@ the same path. Plain HTTP round-robin works for everything else.
   and it aborts those local runs — expect `stale-claim` warnings in worker
   logs after partitions heal; they are the mechanism working.
 
+## Transient executions (AI mesh)
+
+Workflows registered with `durability="transient"` keep the normal outer
+lifecycle — execution row, dispatch, terminal state, visible in
+`flux execution list` — but persist **no task-level state**: the worker
+suppresses every intermediate checkpoint and the terminal checkpoint carries
+only `WORKFLOW_*` events. Use it for high-frequency agent/mesh workflows
+whose intermediate step payloads (LLM inputs/outputs per task) would
+otherwise dominate `execution_events` growth. Measured on an 8-task
+workflow: 4.0 persisted event rows per execution vs 19.9 durable, with
+unchanged latency. Limits:
+
+- Pause and approvals are hard errors (they need replayable task history);
+  schedules are rejected at decoration time.
+- A retried/requeued transient execution re-runs all tasks from scratch —
+  at-least-once for side effects, with no replay short-circuit.
+- Works in both dispatch modes and with sync/async/stream callers.
+
 ## Registering workflows is code execution
 
 Workflow registration executes the uploaded Python on the server (metadata

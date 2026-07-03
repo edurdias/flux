@@ -502,6 +502,14 @@ class task:
         if self.requires_approval is False:
             return False
 
+        if ctx.is_transient:
+            # The gate's verdict lives in a durable row another process
+            # decides on later — impossible without persistence. Fail loudly
+            # instead of silently losing the approval.
+            from flux.errors import TransientDurabilityError
+
+            raise TransientDurabilityError(ctx.execution_id, "requires_approval")
+
         from flux.approvals import ApprovalManager, ApprovalRejected
 
         try:

@@ -347,6 +347,7 @@ class WorkflowCatalog(ABC):
                     workflow_namespace = DEFAULT_NAMESPACE
                     workflow_requests = None
                     workflow_affinity = None
+                    workflow_durability = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -379,6 +380,11 @@ class WorkflowCatalog(ABC):
                                     workflow_requests = self._extract_workflow_requests(kw.value)
                                 elif kw.arg == "affinity":
                                     workflow_affinity = self._extract_affinity(kw.value)
+                                elif kw.arg == "durability" and isinstance(
+                                    kw.value,
+                                    ast.Constant,
+                                ):
+                                    workflow_durability = kw.value.value
 
                             if not workflow_name:
                                 workflow_name = node.name
@@ -390,6 +396,9 @@ class WorkflowCatalog(ABC):
                             node,
                             tree,
                         )
+                        if workflow_durability is not None:
+                            wf_metadata = dict(wf_metadata or {})
+                            wf_metadata["durability"] = workflow_durability
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
