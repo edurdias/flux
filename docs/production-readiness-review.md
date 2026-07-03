@@ -344,6 +344,34 @@ At 5,000 workers across 3 replicas (~1,700 SSE connections each — comfortable 
 
 The DB write load becomes proportional to durable execution throughput alone — which is exactly what a durable store should be paying for.
 
+#### Measured: dispatch-plane stress test (poll vs event)
+
+Measured after the dispatcher landed, using `scripts/stress_dispatch.py`:
+protocol-level simulated workers (register → SSE connect → ping/pong →
+claim → checkpoint COMPLETED over real HTTP; no workflow code executes)
+against a real server on PostgreSQL 16. Environment: one 4-core/16 GB
+machine hosting server, fleet, and PostgreSQL together — absolute numbers
+are conservative; the poll-vs-event comparison is the signal.
+
+| Metric | poll @ 200 | event @ 200 | poll @ 500 | event @ 500 |
+|---|---:|---:|---:|---:|
+| Idle DB transactions/sec (no work) | 641 | 76 | 613 † | 198 |
+| Accepting 400/600 run-submissions | 55.2 s | 8.9 s | 221.6 s | 15.3 s |
+| Drain throughput (completions/sec) | 6.6 | 19.7 | 2.5 | 16.6 |
+| First dispatch after enqueue | 4.7 s | 0.86 s | 11.5 s | 0.70 s |
+| Median dispatch latency | 31.7 s | 12.8 s | 117.4 s | 22.4 s |
+
+† Poll idle load is *executor-throttled*, not stable: nominal demand at 500
+workers is ~6,000 queries/sec but the DB thread pool can only push ~600, so
+poll loops queue up behind each other — which is why submissions crawl
+(600 POSTs took 3.7 minutes; an earlier identical run failed outright with
+connection errors) and median dispatch reaches 2 minutes. Poll mode degrades
+superlinearly with fleet size (throughput 6.6 → 2.5/s, median 32 → 117 s
+from 200 → 500 workers); event mode holds (19.7 → 16.6/s, first dispatch
+sub-second at both sizes). Event mode's remaining idle load (~0.4
+transactions/worker/sec) is heartbeat pongs — the P1 "batch heartbeat
+writes" item.
+
 ### 7.7 Rollout path
 
 Each step is independently shippable and backward-compatible: (1) driver swap psycopg2→psycopg3 and pool/executor knobs — no behavior change; (2) checkpoint v2 with protocol negotiation (workers advertise delta support at registration; server accepts both, full-snapshot remains the recovery path); (3) dispatcher behind a feature flag, per-worker poll kept as fallback for one release, then removed; (4) capacity slots + drain; (5) retention job; (6) transient mode (new surface, additive); (7) subprocess isolation (opt-in per workflow). Steps 1–2 are P0-aligned, 3–5 deliver the thousands-of-workers target, 6–7 deliver the mesh.
