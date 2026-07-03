@@ -18,6 +18,7 @@ def make_worker() -> Worker:
     worker.client = AsyncMock()
     worker._running_workflows = {}
     worker._checkpoint_outboxes = {}
+    worker._claim_generations = {}
     worker._registered = True
     worker._reauth_lock = asyncio.Lock()
     worker._checkpoint_retry_max_delay = 0.01
@@ -293,3 +294,81 @@ async def test_scheduled_handler_declines_work_while_draining():
     }
     await worker._handle_execution_scheduled("http://localhost:19000/workers/x", evt)
     worker._authorized_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fenced_checkpoint_aborts_local_execution():
+    """A stale-claim 409 cancels the local run and unblocks terminal waiters."""
+    worker = make_worker()
+    worker._claim_generations["exec-1"] = "1"
+
+    fenced = MagicMock()
+    fenced.status_code = 409
+    fenced.text = '{"detail": "stale-claim: reassigned"}'
+    worker.client.post = AsyncMock(return_value=fenced)
+
+    hung = asyncio.get_running_loop().create_future()
+
+    async def running():
+        await hung  # would run forever unless cancelled
+
+    task = asyncio.create_task(running())
+    worker._running_workflows["exec-1"] = task
+
+    # Terminal checkpoint: must return promptly (fenced), not wait the deadline.
+    ctx = make_ctx(finished=True)
+    await asyncio.wait_for(worker._checkpoint(ctx), timeout=5)
+
+    await asyncio.sleep(0.01)
+    assert task.cancelled()
+    assert "exec-1" not in worker._checkpoint_outboxes
+    assert "exec-1" not in worker._claim_generations
+
+
+@pytest.mark.asyncio
+async def test_delta_checkpoints_send_only_unacked_events():
+    """The second checkpoint carries only events the server has not acked."""
+    worker = make_worker()
+    payloads = []
+
+    async def capture_post(url, **kwargs):
+        payloads.append(kwargs["json"])
+        return ok_response()
+
+    worker.client.post = capture_post
+
+    first = make_ctx()
+    first.to_dict.return_value = {
+        "execution_id": "exec-1",
+        "events": [{"id": "e1"}, {"id": "e2"}],
+    }
+    await worker._checkpoint(first)
+    box = worker._checkpoint_outboxes["exec-1"]
+    await asyncio.wait_for(_wait_for_ack(box), timeout=5)
+
+    second = make_ctx(finished=True)
+    second.to_dict.return_value = {
+        "execution_id": "exec-1",
+        "events": [{"id": "e1"}, {"id": "e2"}, {"id": "e3"}, {"id": "e4"}],
+    }
+    await worker._checkpoint(second)
+
+    assert [e["id"] for e in payloads[0]["events"]] == ["e1", "e2"]
+    assert [e["id"] for e in payloads[1]["events"]] == ["e3", "e4"]
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_includes_claim_generation_header():
+    worker = make_worker()
+    worker._claim_generations["exec-1"] = "7"
+    seen_headers = []
+
+    async def capture_post(url, headers=None, **kwargs):
+        seen_headers.append(headers or {})
+        return ok_response()
+
+    worker.client.post = capture_post
+
+    await worker._checkpoint(make_ctx(finished=True))
+
+    assert seen_headers[0].get("X-Flux-Claim-Generation") == "7"
