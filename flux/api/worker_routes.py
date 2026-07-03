@@ -69,6 +69,10 @@ class WorkerRoutesMixin:
         # source travels base64-encoded on the wire; the worker decodes it.
         workflow.source = base64.b64encode(workflow.source).decode("utf-8")  # type: ignore[assignment]
         payload: dict = {"workflow": workflow, "context": ctx}
+        if (workflow.metadata or {}).get("durability") == "transient":
+            # The worker suppresses intermediate (task-level) checkpoints for
+            # transient workflows; only the terminal workflow state persists.
+            payload["transient"] = True
         session = self._get_db_session()
         try:
             exec_row = session.get(ExecutionContextModel, ctx.execution_id)

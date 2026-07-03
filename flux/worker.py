@@ -533,6 +533,7 @@ class Worker:
             )
             return
 
+        is_transient = bool(event_data.get("transient"))
         try:
             with span_cm as span:
                 logger.info(
@@ -550,6 +551,8 @@ class Worker:
                 if generation is not None:
                     self._claim_generations[request.context.execution_id] = generation
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
+                if is_transient:
+                    request.context.mark_transient()
                 if request.exec_token:
                     request.context.set_exec_token(request.exec_token)
                 logger.debug(f"Claim response: {claim_data}")
@@ -742,6 +745,24 @@ class Worker:
         configured deadline expires, after which the server reaper is the
         fallback).
         """
+        if ctx.is_transient:
+            if ctx.is_paused:
+                # Pause needs task-level history to replay on resume, which a
+                # transient execution deliberately does not persist. Convert to
+                # a terminal failure so nothing is silently stranded.
+                from flux.errors import TransientDurabilityError
+
+                error = TransientDurabilityError(ctx.execution_id, "pause")
+                logger.warning(str(error))
+                ctx.fail(
+                    ctx.execution_id,
+                    {"type": "TransientDurabilityError", "message": str(error)},
+                )
+            elif not ctx.has_finished:
+                # Intermediate (task-level) checkpoint: transient workflows
+                # skip these entirely — only the terminal state persists.
+                return
+
         box = self._checkpoint_outboxes.get(ctx.execution_id)
         if box is None:
             box = self._checkpoint_outboxes[ctx.execution_id] = _CheckpointOutbox()
@@ -906,6 +927,12 @@ class Worker:
 
             ctx_dict = ctx.to_dict()
             events = ctx_dict.get("events") or []
+            if ctx.is_transient:
+                # Only the outer lifecycle persists: workflow-level events stay
+                # (they carry the terminal state and output); task-level events
+                # exist in memory only.
+                events = [e for e in events if not str(e.get("type", "")).startswith("TASK_")]
+                ctx_dict["events"] = events
             if exclude_event_ids:
                 events = [e for e in events if e.get("id") not in exclude_event_ids]
                 ctx_dict["events"] = events

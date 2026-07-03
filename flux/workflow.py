@@ -29,6 +29,7 @@ class workflow:
         requests: ResourceRequest | None = None,
         affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
+        durability: str = "durable",
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -56,6 +57,7 @@ class workflow:
                 requests=requests,
                 affinity=affinity,
                 schedule=schedule,
+                durability=durability,
             )
 
         return wrapper
@@ -70,7 +72,18 @@ class workflow:
         requests: ResourceRequest | None = None,
         affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
+        durability: str = "durable",
     ):
+        if durability not in ("durable", "transient"):
+            raise ValueError(
+                f"durability must be 'durable' or 'transient', got: '{durability}'",
+            )
+        if durability == "transient" and schedule is not None:
+            raise ValueError(
+                "durability='transient' cannot be combined with a schedule: "
+                "scheduled runs have no caller holding the connection, so their "
+                "results would be silently discarded.",
+            )
         self._func = func
         self._name = name if name else func.__name__
         self._namespace = validate_namespace(namespace)
@@ -79,6 +92,7 @@ class workflow:
         self._requests = requests
         self._affinity = affinity
         self._schedule = schedule
+        self._durability = durability
         wraps(func)(self)
 
     @property
@@ -88,6 +102,10 @@ class workflow:
     @property
     def namespace(self) -> str:
         return self._namespace
+
+    @property
+    def durability(self) -> str:
+        return self._durability
 
     @property
     def qualified_name(self) -> str:
