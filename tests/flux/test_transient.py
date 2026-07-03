@@ -50,7 +50,7 @@ class TestCatalogDurabilityExtraction:
     def test_parse_static_extracts_durability(self):
         from flux.catalogs import DatabaseWorkflowCatalog
 
-        source = b'''
+        source = b"""
 from flux import ExecutionContext
 from flux.workflow import workflow
 
@@ -58,7 +58,7 @@ from flux.workflow import workflow
 @workflow.with_options(durability="transient")
 async def mesh_hop(ctx: ExecutionContext[str]):
     return ctx.input
-'''
+"""
         # Bypass __init__ (which opens a database) — parse_static only needs
         # the AST helper methods on the instance.
         catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
@@ -68,18 +68,45 @@ async def mesh_hop(ctx: ExecutionContext[str]):
 
 class TestTransientCheckpointSuppression:
     @pytest.mark.asyncio
-    async def test_intermediate_checkpoints_are_skipped(self):
-        """Task-level checkpoints during a transient run never leave the worker."""
+    async def test_only_one_intermediate_checkpoint_persists_running(self):
+        """The first intermediate checkpoint goes through (persisting the
+        RUNNING transition, filtered to WORKFLOW_* events); every later
+        task-level checkpoint stays on the worker."""
         worker = make_worker()
-        worker.client.post = AsyncMock(return_value=ok_response())
+        payloads = []
 
-        ctx = make_ctx()
-        ctx.is_transient = True
-        ctx.is_paused = False
-        await worker._checkpoint(ctx)
+        async def capture_post(url, **kwargs):
+            payloads.append(kwargs["json"])
+            return ok_response()
 
-        worker.client.post.assert_not_called()
-        assert ctx.execution_id not in worker._checkpoint_outboxes
+        worker.client.post = capture_post
+
+        def snapshot():
+            ctx = make_ctx()
+            ctx.is_transient = True
+            ctx.is_paused = False
+            task_event = MagicMock()
+            task_event.type.value = "TASK_COMPLETED"
+            ctx.events = [task_event]
+            ctx.to_dict.return_value = {
+                "execution_id": "exec-1",
+                "events": [
+                    {"id": "e1", "type": "WORKFLOW_STARTED"},
+                    {"id": "e2", "type": "TASK_COMPLETED"},
+                ],
+            }
+            return ctx
+
+        await worker._checkpoint(snapshot())  # first: persists RUNNING
+        box = worker._checkpoint_outboxes.get("exec-1")
+        while box and box.acked < box.generation:
+            await asyncio.sleep(0.005)
+        await worker._checkpoint(snapshot())  # second: suppressed
+        await worker._checkpoint(snapshot())  # third: suppressed
+        await asyncio.sleep(0.02)
+
+        assert len(payloads) == 1
+        assert [e["type"] for e in payloads[0]["events"]] == ["WORKFLOW_STARTED"]
 
     @pytest.mark.asyncio
     async def test_terminal_checkpoint_is_sent_without_task_events(self):
