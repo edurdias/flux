@@ -102,6 +102,16 @@ class WorkerRegistry(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def record_heartbeats(self, names: Sequence[str]) -> None:  # pragma: no cover
+        """Persist heartbeats for many workers in one statement.
+
+        All names get the same (current) timestamp — callers buffer pongs for
+        at most one heartbeat interval, which is well inside the staleness
+        thresholds, and one UPDATE per interval replaces one commit per pong.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
     def find_stale(self, threshold: datetime) -> Sequence[str]:  # pragma: no cover
         """Names of workers whose last heartbeat predates ``threshold``.
 
@@ -181,6 +191,19 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             # Targeted UPDATE — cheap enough to run on every pong, and avoids
             # loading the worker's runtime/packages/resources relationships.
             session.query(WorkerModel).filter(WorkerModel.name == name).update(
+                {WorkerModel.last_seen_at: now},
+                synchronize_session=False,
+            )
+            session.commit()
+
+    def record_heartbeats(self, names: Sequence[str]) -> None:
+        if not names:
+            return
+        from flux.models import WorkerModel
+
+        now = datetime.now(timezone.utc)
+        with self.session() as session:
+            session.query(WorkerModel).filter(WorkerModel.name.in_(list(names))).update(
                 {WorkerModel.last_seen_at: now},
                 synchronize_session=False,
             )
