@@ -602,6 +602,12 @@ class ExecutionContextModel(Base):
     state = Column(SqlEnum(ExecutionState), nullable=False)
     worker_name = Column(String, ForeignKey("workers.name"), nullable=True)
     exec_token = Column(String, nullable=True)
+    # Fencing token: bumped every time the execution is (re)assigned to a
+    # worker. Checkpoints carry the generation they were claimed under; a
+    # mismatch means the sender was unclaimed (e.g. evicted after a network
+    # partition) and its writes are rejected instead of interleaving with
+    # the new owner's (split-brain prevention).
+    claim_generation = Column(Integer, nullable=False, default=0, server_default="0")
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
     # Set when the execution was dispatched by a schedule; lets schedule

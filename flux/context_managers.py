@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from flux import ExecutionContext
 from flux.domain import ExecutionState
 from flux.domain import ResourceRequest
-from flux.errors import ExecutionContextNotFoundError, ExecutionError
+from flux.errors import ExecutionContextNotFoundError, ExecutionError, StaleClaimError
 from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
 from flux.models import RepositoryFactory
@@ -93,7 +93,14 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def update(self, ctx: ExecutionContext) -> ExecutionContext:  # pragma: no cover
+    def update(
+        self,
+        ctx: ExecutionContext,
+        expected_claim_generation: int | None = None,
+    ) -> ExecutionContext:  # pragma: no cover
+        """Persist a checkpoint. When ``expected_claim_generation`` is given,
+        reject it with ``StaleClaimError`` if the row has since been reassigned
+        (fencing against partitioned-but-alive workers)."""
         raise NotImplementedError()
 
     @abstractmethod
@@ -145,6 +152,11 @@ class ContextManager(ABC):
         workers: list[WorkerInfo],
         limit: int,
     ) -> list[tuple[ExecutionContext, str]]:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_claim_generation(self, execution_id: str) -> int:  # pragma: no cover
+        """Current fencing generation for an execution (0 if never assigned)."""
         raise NotImplementedError()
 
     @abstractmethod
@@ -264,11 +276,24 @@ class DatabaseContextManager(ContextManager):
                 session.rollback()
             raise
 
-    def update(self, ctx: ExecutionContext) -> ExecutionContext:
+    def update(
+        self,
+        ctx: ExecutionContext,
+        expected_claim_generation: int | None = None,
+    ) -> ExecutionContext:
         with self.session() as session:
             model = self._lock_for_write(session, ctx.execution_id)
             if not model:
                 raise ExecutionContextNotFoundError(ctx.execution_id)
+            if (
+                expected_claim_generation is not None
+                and (model.claim_generation or 0) != expected_claim_generation
+            ):
+                raise StaleClaimError(
+                    ctx.execution_id,
+                    expected=expected_claim_generation,
+                    actual=model.claim_generation or 0,
+                )
             if _accept_state_write(ctx.state, model.state):
                 model.state = ctx.state
                 model.output = ctx.output
@@ -359,6 +384,7 @@ class DatabaseContextManager(ContextManager):
                 ctx.schedule(worker)
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
+                model.claim_generation = (model.claim_generation or 0) + 1
                 session.add_all(self._get_additional_events(ctx, session))
                 session.commit()
                 return ctx
@@ -456,6 +482,7 @@ class DatabaseContextManager(ContextManager):
             ctx.resume_schedule(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
+            model.claim_generation = (model.claim_generation or 0) + 1
             session.add_all(self._get_additional_events(ctx, session))
             session.commit()
 
@@ -493,6 +520,16 @@ class DatabaseContextManager(ContextManager):
         if not cap:
             return True
         return loads.get(worker.name, 0) < cap
+
+    def get_claim_generation(self, execution_id: str) -> int:
+        """Current fencing generation for an execution (0 if never assigned)."""
+        with self.session() as session:
+            row = (
+                session.query(ExecutionContextModel.claim_generation)
+                .filter(ExecutionContextModel.execution_id == execution_id)
+                .scalar()
+            )
+            return row or 0
 
     def _worker_load_map(self, session: Session, worker_names: list[str]) -> dict[str, int]:
         """Active-execution counts for the given workers, one aggregate query."""
@@ -556,6 +593,7 @@ class DatabaseContextManager(ContextManager):
                 ctx.schedule(worker)
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
+                model.claim_generation = (model.claim_generation or 0) + 1
                 session.add_all(self._get_additional_events(ctx, session))
                 loads[worker.name] = loads.get(worker.name, 0) + 1
                 assignments.append((ctx, worker.name))
@@ -607,6 +645,7 @@ class DatabaseContextManager(ContextManager):
                 ctx.resume_schedule(worker)
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
+                model.claim_generation = (model.claim_generation or 0) + 1
                 session.add_all(self._get_additional_events(ctx, session))
                 loads[worker.name] = loads.get(worker.name, 0) + 1
                 assignments.append((ctx, worker.name))
@@ -835,13 +874,20 @@ class DatabaseContextManager(ContextManager):
         # every save. The execution_id filter rides the FK index.
         from sqlalchemy import select
 
+        # Restrict the membership read to the ids in the incoming payload:
+        # with delta checkpoints the payload carries only unacknowledged
+        # events, so this read is O(delta) instead of O(full history).
+        incoming_ids = [e.id for e in ctx.events]
         existing = {
             (event_id, event_type)
             for event_id, event_type in session.execute(
                 select(
                     ExecutionEventModel.event_id,
                     ExecutionEventModel.type,
-                ).where(ExecutionEventModel.execution_id == ctx.execution_id),
+                ).where(
+                    ExecutionEventModel.execution_id == ctx.execution_id,
+                    ExecutionEventModel.event_id.in_(incoming_ids),
+                ),
             ).all()
         }
         return [

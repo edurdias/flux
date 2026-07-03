@@ -144,3 +144,23 @@ class PostgreSQLConnectionError(DatabaseConnectionError):
 
     def __init__(self, message: str, original_error: Exception | None = None):
         super().__init__(message, "postgresql", original_error)
+
+
+class StaleClaimError(Exception):
+    """A checkpoint arrived from a worker whose claim was superseded.
+
+    Raised when the checkpoint's claim generation does not match the
+    execution row's current generation — the execution was unclaimed (e.g.
+    by the eviction reaper after a network partition) and reassigned. The
+    fenced worker must abort its local copy; the new claim owns the row.
+    """
+
+    def __init__(self, execution_id: str, expected: int = -1, actual: int = -1):
+        # Defaults cover the worker side, which learns only *that* it was
+        # fenced (409 from the server), not the row's current generation.
+        self.execution_id = execution_id
+        super().__init__(
+            f"Stale claim for execution {execution_id}: checkpoint carries "
+            f"generation {expected} but the row is at {actual}; the execution "
+            f"was reassigned",
+        )
