@@ -89,6 +89,31 @@ class WorkersConfig(BaseConfig):
     )
 
 
+class DispatchConfig(BaseConfig):
+    """Configuration for server-side execution dispatch."""
+
+    mode: Literal["poll", "event"] = Field(
+        default="poll",
+        description=(
+            "Dispatch strategy. 'poll' runs the legacy per-worker query loop "
+            "(~5 queries per worker per 0.5s). 'event' runs one dispatcher task "
+            "per replica that batch-claims work on wakeups (LISTEN/NOTIFY on "
+            "PostgreSQL) — the scalable mode for large worker fleets."
+        ),
+    )
+    batch_size: int = Field(
+        default=64,
+        description="Max executions claimed per dispatcher wakeup (event mode)",
+    )
+    fallback_interval: float = Field(
+        default=15.0,
+        description=(
+            "Dispatcher safety-net tick in seconds (event mode); covers missed "
+            "notifications, which are wakeups only and carry no data"
+        ),
+    )
+
+
 class MCPConfig(BaseConfig):
     """Configuration for MCP server."""
 
@@ -225,6 +250,7 @@ class FluxConfig(BaseSettings):
         ).SecurityConfig(),
     )  # type: ignore[name-defined]
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    dispatch: DispatchConfig = Field(default_factory=DispatchConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 

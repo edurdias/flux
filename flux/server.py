@@ -128,6 +128,15 @@ class Server(
         self._bootstrap_token: str | None = None
         self._worker_connection_gen: dict[str, int] = {}
 
+        # Event-dispatch state: per-worker SSE frame queues and the WorkerInfo
+        # snapshots the dispatcher matches against. Populated only for workers
+        # connected to THIS replica; cross-replica coordination happens through
+        # the database (SKIP LOCKED) and LISTEN/NOTIFY wakeups.
+        self._worker_queues: dict[str, asyncio.Queue] = {}
+        self._worker_info: dict[str, object] = {}
+        self._dispatch_mode = Configuration.get().settings.dispatch.mode
+        self._dispatcher = None
+
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
 
@@ -153,8 +162,49 @@ class Server(
         repo = RepositoryFactory.create_repository()
         return repo.session()
 
+    def _drain_worker_queue(self, name: str) -> None:
+        """Release executions whose dispatch frames were never delivered.
+
+        A disconnecting worker may leave assigned-but-unsent frames in its SSE
+        queue. Unclaim those executions right away — instead of waiting the
+        ~60s eviction path — so the dispatcher can reassign them. Cancellation
+        frames are simply dropped: the row is still CANCELLING and will be
+        re-delivered wherever the execution lands.
+        """
+        queue = self._worker_queues.pop(name, None)
+        if queue is None:
+            return
+        released = 0
+        while not queue.empty():
+            try:
+                item = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if getattr(item, "kind", None) in ("execution_scheduled", "execution_resumed"):
+                try:
+                    ContextManager.create().unclaim(item.execution_id)
+                    released += 1
+                except Exception:
+                    logger.error(
+                        f"Failed to release undelivered execution {item.execution_id}",
+                        exc_info=True,
+                    )
+        if released:
+            logger.info(f"Released {released} undelivered execution(s) from worker {name}")
+            self._work_available.set()
+
     def _notify_next_worker(self):
-        """Signal the next connected worker in round-robin order."""
+        """Signal that new work is available.
+
+        Poll mode: wake the next connected worker's loop in round-robin order.
+        Event mode: wake this replica's dispatcher and NOTIFY other replicas.
+        """
+        if self._dispatch_mode == "event":
+            self._work_available.set()
+            if self._dispatcher is not None:
+                self._dispatcher.notify_remote_replicas()
+            return
+
         if not self._worker_names:
             self._work_available.set()
             return
@@ -191,6 +241,12 @@ class Server(
                 f"Heartbeat reaper started (interval={self.heartbeat_interval}s, "
                 f"timeout={self.heartbeat_timeout}s)",
             )
+
+            if self._dispatch_mode == "event":
+                from flux.dispatcher import Dispatcher
+
+                self._dispatcher = Dispatcher(self)
+                self._dispatcher.start()
 
         try:
             config = uvicorn.Config(
@@ -546,6 +602,8 @@ class Server(
         """Remove a worker from the connected set and mark it offline in cache."""
         self._worker_events.pop(name, None)
         self._worker_last_pong.pop(name, None)
+        self._worker_info.pop(name, None)
+        self._drain_worker_queue(name)
         if name in self._worker_names:
             self._worker_names.remove(name)
         self._worker_offline_since[name] = time.monotonic()
@@ -998,6 +1056,9 @@ class Server(
             yield
             await self._stop_scheduler()
             await self._stop_reaper()
+            if self._dispatcher is not None:
+                await self._dispatcher.stop()
+                self._dispatcher = None
             if db_executor is not None:
                 db_executor.shutdown(wait=False, cancel_futures=True)
 
