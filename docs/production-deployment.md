@@ -138,11 +138,27 @@ workers advertising it.
   with an image that has flux-core installed at a worker-compatible
   version — the child entrypoint and context wire format must match — plus
   optional `docker_network` / `docker_memory` / `docker_cpus` /
-  `docker_extra_args` (volumes, env, `--user`). Adds container start
-  overhead (roughly 1–3s) on top of the interpreter spawn; use it for
-  untrusted code, conflicting dependency sets, or filesystem isolation.
-  Workers advertising `docker` must have a reachable daemon — the worker
-  fails at startup otherwise.
+  `docker_extra_args` (volumes, env, `--user`). Use it for untrusted code,
+  conflicting dependency sets, or filesystem isolation. Workers advertising
+  `docker` must have a reachable daemon — the worker fails at startup
+  otherwise. **Precompile bytecode in the image**
+  (`RUN python -m compileall -q /usr/local/lib/python3.13/site-packages`):
+  containers are ephemeral, so without baked `.pyc` files every execution
+  re-compiles flux's imports from source — measured, that alone halves
+  per-execution latency.
+
+Measured on a single machine (1-task workflow, warm caches, overlayfs;
+sequential median / 8-concurrent effective throughput per worker):
+
+| runner | per-execution overhead | 8 concurrent |
+|---|---|---|
+| `inprocess` | ~0.1 ms | thousands/s (workflow-bound) |
+| `subprocess` | ~0.7 s | ~4.6 exec/s |
+| `docker` (precompiled image) | ~1.6 s (~0.3 s container + ~1.1 s imports) | ~2.0 exec/s |
+| `docker` (no `.pyc` in image) | ~3.1 s | ~1.1 exec/s |
+
+Concurrency amortizes the spawn cost — the per-execution *wall* cost at 8
+concurrent drops to ~0.2 s (subprocess) and ~0.5 s (docker).
 
 **Crash semantics follow durability.** If a child dies without reporting a
 result (segfault, OOM kill, `os._exit`), a durable execution is *released*
