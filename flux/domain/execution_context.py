@@ -46,6 +46,12 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._input = input
         self._execution_id = execution_id or uuid4().hex
         self._events = events or []
+        # Wire rebuilds (from_json / claim responses) carry the state as its
+        # string value; coerce so state-derived flags (has_finished,
+        # is_paused, …) hold on rebuilt contexts, not only after the first
+        # local transition.
+        if isinstance(state, str):
+            state = ExecutionState(state.upper())
         self._state = state or ExecutionState.CREATED
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None
@@ -449,56 +455,55 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._progress_callback = callback
         return self
 
-    def _await_approval(self, task_call_id: str):
+    def _await_approval(self, task_call_id: str, snapshot):
         """Suspension primitive for approval-gated task calls.
 
-        Reads the approval row state and either returns a verdict, raises
-        ``PauseRequested`` (workflow pauses), or raises ``ApprovalRejected``.
+        Maps an ``ApprovalSnapshot`` (fetched by the gate through the
+        transport-appropriate approval store — local DB inline, server API
+        on workers, parent pipe in runner children) to a verdict: returns,
+        raises ``PauseRequested`` (workflow pauses), or raises
+        ``ApprovalRejected``.
 
         Symmetric with ``ctx.resume()`` / ``ctx.pause()`` — the row state
         determines behaviour. First-call-vs-replay is implicit because the
         engine simply re-checks whether the row has reached a terminal state.
         """
-        from flux.approvals import (
-            ApprovalManager,
-            ApprovalRejected,
-            ApprovalVerdict,
-        )
+        from flux.approvals import ApprovalRejected, ApprovalVerdict
         from flux.errors import PauseRequested
         from flux.models import ApprovalStatus
 
-        mgr = ApprovalManager()
-        row = mgr.get_by_call(self.execution_id, task_call_id)
-        if row is None:
+        if snapshot is None:
             raise PauseRequested(name=f"approval:{task_call_id}")
-        if row.status == ApprovalStatus.PENDING:
+        if snapshot.status == ApprovalStatus.PENDING.value:
             raise PauseRequested(
                 name=f"approval:{task_call_id}",
                 output={
                     "type": "approval_required",
                     "execution_id": self.execution_id,
                     "task_call_id": task_call_id,
-                    "task_name": row.task_name,
-                    "workflow_namespace": row.workflow_namespace,
-                    "workflow_name": row.workflow_name,
-                    "approval_id": row.id,
-                    "requested_at": (row.requested_at.isoformat() if row.requested_at else None),
+                    "task_name": snapshot.task_name,
+                    "workflow_namespace": snapshot.workflow_namespace,
+                    "workflow_name": snapshot.workflow_name,
+                    "approval_id": snapshot.id,
+                    "requested_at": snapshot.requested_at,
                 },
             )
-        if row.status == ApprovalStatus.CANCELLED:
+        if snapshot.status == ApprovalStatus.CANCELLED.value:
             return ApprovalVerdict(approved=False, cancelled=True)
-        if row.status == ApprovalStatus.REJECTED:
+        if snapshot.status == ApprovalStatus.REJECTED.value:
             raise ApprovalRejected(
-                task_name=f"{row.workflow_namespace}/{row.workflow_name}/{row.task_name}",
-                approver_subject=row.approver_subject,
-                approver_provider=row.approver_provider,
-                reason=row.reason,
+                task_name=(
+                    f"{snapshot.workflow_namespace}/{snapshot.workflow_name}/{snapshot.task_name}"
+                ),
+                approver_subject=snapshot.approver_subject,
+                approver_provider=snapshot.approver_provider,
+                reason=snapshot.reason,
             )
         return ApprovalVerdict(
             approved=True,
-            approver_subject=row.approver_subject,
-            approver_provider=row.approver_provider,
-            reason=row.reason,
+            approver_subject=snapshot.approver_subject,
+            approver_provider=snapshot.approver_provider,
+            reason=snapshot.reason,
         )
 
     @property

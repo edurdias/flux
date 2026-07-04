@@ -90,9 +90,10 @@ the same path. Plain HTTP round-robin works for everything else.
 
 - **Capacity**: workers advertise `FLUX_WORKERS__MAX_CONCURRENT_EXECUTIONS`
   (default 16, `0` = unlimited) at registration; the server never assigns
-  beyond a worker's free slots on any dispatch path. Size it to what one
-  worker process can genuinely run concurrently — workflow code shares the
-  worker's event loop.
+  beyond a worker's free slots on any dispatch path. With the default
+  subprocess runner each concurrent execution is its own process (size
+  against memory); with `runner="inprocess"` workflow code shares the
+  worker's event loop (size against what the loop can genuinely run).
 - **Deploys**: send SIGTERM and let the worker drain — it stops accepting
   work, finishes running executions (up to `FLUX_WORKERS__DRAIN_TIMEOUT`,
   default 60s), flushes terminal checkpoints, then exits. A second signal
@@ -107,6 +108,88 @@ the same path. Plain HTTP round-robin works for everything else.
   reassigned, its later checkpoints are rejected (stale claim generation)
   and it aborts those local runs — expect `stale-claim` warnings in worker
   logs after partitions heal; they are the mechanism working.
+
+## Runners: where workflow code executes
+
+Each execution runs through a **runner** (Prefect-style). Workers enable
+runners via `[flux.workers] runners` (advertised at registration) and pick
+`default_runner` for workflows that don't declare one; a workflow can pin
+one with `@workflow.with_options(runner=...)` and will only dispatch to
+workers advertising it. (As an env var the list is JSON:
+`FLUX_WORKERS__RUNNERS='["inprocess","subprocess"]'`.)
+
+Execution-side processes never touch the database: secrets, configs, and
+the **approval gate** (`requires_approval`) all resolve through the server
+— workers call worker-scoped endpoints, and runner children reach them
+through their parent worker's pipe. Only the server (and inline
+`workflow.run()` executions, which own their own database) read or write
+approval rows.
+
+- **`subprocess` (the default)** — each execution gets its own child
+  process. A crash, OOM, or event-loop-blocking call cannot take down the
+  worker or co-resident executions; cancellation and drain are enforced
+  with SIGTERM → `subprocess_term_grace` → SIGKILL, which works even
+  against code stuck in sync C calls; `subprocess_memory_limit` (Linux)
+  bounds per-child address space. The child holds **no worker or fleet
+  credentials**: its environment is sanitized (the bootstrap token,
+  `FLUX_SECURITY__*`, and `FLUX_DATABASE_URL` are stripped), and
+  checkpoints, progress, secrets, configs, and approval-gate operations
+  all flow through the parent worker over a pipe — the server-facing
+  protocol (delta checkpoints, claim fencing, transient suppression) is
+  identical to in-process execution. The only credential in the child is
+  the short-lived, single-execution token used for `call()` hops. Cost:
+  roughly a second of process spawn + import per execution. Note: if the
+  worker reads secrets from a `flux.toml` on disk rather than env vars,
+  file permissions are your containment boundary — the docker runner
+  isolates the filesystem too.
+- **`inprocess`** — the workflow runs as a task on the worker's event
+  loop. Lowest latency, no isolation: reserve it for trusted, async-clean,
+  latency-sensitive workflows — transient mesh hops especially.
+- **`docker`** (opt-in) — each execution runs in its own container via
+  `docker run -i`, speaking the same stdio protocol, so containers hold no
+  credentials either and SIGTERM-based cancellation works unchanged
+  (`--sig-proxy`; escalation is `docker kill`). Configure `docker_image`
+  with an image that has flux-core installed at a worker-compatible
+  version — the child entrypoint and context wire format must match. The
+  official image works directly (pin its tag to the worker's flux-core
+  version; see DOCKER.md), or build on top of it to add workflow
+  dependencies. Optional knobs: `docker_network` / `docker_memory` /
+  `docker_cpus` / `docker_extra_args` (volumes, env, `--user`,
+  `--cap-drop`). Use it for untrusted code,
+  conflicting dependency sets, or filesystem isolation. Workers advertising
+  `docker` must have a reachable daemon — the worker fails at startup
+  otherwise. **Precompile bytecode in the image**
+  (`RUN python -m compileall -q /usr/local/lib/python3.13/site-packages`):
+  containers are ephemeral, so without baked `.pyc` files every execution
+  re-compiles flux's imports from source — measured, that alone halves
+  per-execution latency.
+
+Measured on a single machine (1-task workflow, warm caches, overlayfs;
+sequential median / 8-concurrent effective throughput per worker):
+
+| runner | per-execution overhead | 8 concurrent |
+|---|---|---|
+| `inprocess` | ~0.1 ms | thousands/s (workflow-bound) |
+| `subprocess` | ~0.55–0.7 s | ~4.6–5.0 exec/s |
+| `docker` (official image: precompiled + tini) | ~1.1–1.6 s (~0.3 s container + imports) | ~2.0–2.5 exec/s |
+| `docker` (no `.pyc` in image) | ~3.1 s | ~1.1 exec/s |
+
+Ranges reflect run-to-run variance on a shared host. Concurrency amortizes
+the spawn cost — the per-execution *wall* cost at 8 concurrent drops to
+~0.2 s (subprocess) and ~0.4–0.5 s (docker).
+
+**Crash semantics follow durability.** If a child dies without reporting a
+result (segfault, OOM kill, `os._exit`), a durable execution is *released*
+back to the server (fenced by claim generation, pending checkpoints flushed
+first) and re-dispatched — deterministic replay resumes from the last
+persisted task, so completed tasks do not re-run. A transient execution
+fails terminally (`WorkerProcessCrashed`) per its at-most-once contract —
+the caller retries.
+
+Since every subprocess execution pays a spawn, size
+`max_concurrent_executions` against memory as well as CPU: each concurrent
+execution is a full Python process (~50-100 MB baseline plus workflow
+memory).
 
 ## Transient executions (AI mesh)
 
@@ -125,6 +208,8 @@ unchanged latency. Limits:
 - A retried/requeued transient execution re-runs all tasks from scratch —
   at-least-once for side effects, with no replay short-circuit.
 - Works in both dispatch modes and with sync/async/stream callers.
+- Pair with `runner="inprocess"` to also skip the per-execution process
+  spawn — the lowest-latency configuration for trusted mesh hops.
 
 ## Registering workflows is code execution
 

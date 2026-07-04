@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.51.0"
+version = "0.52.0"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -28,13 +28,13 @@ sse-starlette = "^3.0.3"
 psutil = "^7.0.0"
 gputil = "^1.4.0"
 types-setuptools = ">=80.7.0.20250516,<83.0.0.0"
-# fastmcp 3.x is a restructured meta-package (fastmcp-slim) whose import layout
-# breaks `from fastmcp import FastMCP`; migrating is feature work, not a bump.
-# Floor at 2.14.2: fixes GHSA-5h2m-4q8j-pqpj (OAuth token reuse) and pulls
-# mcp>=1.23 (GHSA-9h52-p55h-vw2f, DNS rebinding). The 3.2.0-only advisories
-# (OpenAPI provider SSRF, OAuth confused-deputy, Gemini CLI) are in features
-# Flux does not use; they resolve with the 3.x migration.
-fastmcp = ">=2.14.2,<3.0.0"
+# fastmcp 3.x: the meta-package (fastmcp + fastmcp-slim) kept the 2.x import
+# layout — every entry point Flux uses (`FastMCP`, `Client`, server/client auth,
+# `get_http_headers`) resolves unchanged. Floor at 3.2.0: clears the advisories
+# that were 3.x-only fixes (OpenAPI provider SSRF, OAuth confused-deputy,
+# Gemini CLI) on top of the 2.14.2 fixes (GHSA-5h2m-4q8j-pqpj OAuth token
+# reuse; mcp>=1.23 for GHSA-9h52-p55h-vw2f DNS rebinding).
+fastmcp = ">=3.2.0,<4.0.0"
 # psycopg v3: one driver for both sync SQLAlchemy engines and the async
 # LISTEN/NOTIFY listener the event-driven dispatcher needs (psycopg2 has no
 # async path). URLs stay `postgresql://`; the dialect is normalized in code.
