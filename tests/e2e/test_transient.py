@@ -138,8 +138,9 @@ def test_durable_parent_calls_transient_child(cli):
 def _execution_count(cli, workflow_name: str) -> int:
     try:
         listing = cli.execution_list(workflow=workflow_name)
-    except Exception:
-        # Zero rows prints "No executions found." instead of JSON.
+    except ValueError:
+        # Zero rows prints "No executions found." instead of JSON; any other
+        # failure (CLI error, unreachable server) must fail the test.
         return 0
     executions = listing.get("executions", listing if isinstance(listing, list) else [])
     return len(executions)

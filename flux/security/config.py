@@ -55,6 +55,7 @@ class AuthConfig(_BaseConfig):
     )
     resolution_cache_ttl: float = Field(
         default=30.0,
+        ge=0,
         description=(
             "Seconds to cache token-to-identity and principal-to-permissions "
             "resolution in each server process (0 disables). Cuts the "
