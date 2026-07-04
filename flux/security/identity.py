@@ -17,7 +17,7 @@ class FluxIdentity:
     def has_role(self, role: str) -> bool:
         return role in self.roles
 
-    def has_permission(self, required: str, permissions: set[str]) -> bool:
+    def has_permission(self, required: str, permissions: set[str] | frozenset[str]) -> bool:
         if "*" in permissions:
             return True
         if required in permissions:

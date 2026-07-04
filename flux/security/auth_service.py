@@ -163,7 +163,7 @@ class AuthService:
         provider = identity.metadata.get("provider", "")
         return f"identity:{provider}:{identity.subject}:{','.join(sorted(identity.roles))}"
 
-    async def resolve_permissions(self, identity: FluxIdentity) -> set[str]:
+    async def resolve_permissions(self, identity: FluxIdentity) -> frozenset[str]:
         cache_key = None
         if self._resolution_cache_ttl > 0:
             cache_key = self._permission_cache_key(identity)
@@ -186,13 +186,17 @@ class AuthService:
                     all_permissions.update(role.permissions)
                 elif role_name in BUILT_IN_ROLES:
                     all_permissions.update(BUILT_IN_ROLES[role_name])
+            # Immutable: the cached value is shared across requests, so a
+            # caller mutating its result must not poison later authorization
+            # decisions.
+            resolved = frozenset(all_permissions)
             if cache_key is not None:
                 self._permission_cache.put(
                     cache_key,
-                    all_permissions,
+                    resolved,
                     self._resolution_cache_ttl,
                 )
-            return all_permissions
+            return resolved
         finally:
             session.close()
 
