@@ -112,3 +112,21 @@ jobs:
       run: |
         poetry config pypi-token.pypi ${{ secrets.PYPI_API_TOKEN }}
         poetry publish --no-interaction
+
+    # Tag the exact commit each published version shipped from. Runs after
+    # the PyPI publish so a failed publish never leaves a tag behind.
+    # GITHUB_TOKEN pushes don't retrigger workflows, so the docker-publish
+    # `push: tags` trigger stays quiet here — the image build still arrives
+    # via workflow_run and mints its version tags from pyproject.
+    - name: Tag the release
+      if: github.ref == 'refs/heads/main'
+      run: |
+        VERSION=$(poetry version -s)
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+          echo "Tag v${VERSION} already exists; skipping."
+        else
+          git tag -a "v${VERSION}" -m "flux-core ${VERSION}"
+          git push origin "v${VERSION}"
+        fi
