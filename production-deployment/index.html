@@ -1232,9 +1232,11 @@ choices below.</p>
 <p>Every item here maps to a failure mode observed in the production-readiness
 review (<code>docs/production-readiness-review.md</code>).</p>
 <ol>
-<li><strong>PostgreSQL, not SQLite.</strong> SQLite is single-node only: <code>SELECT … FOR
-   UPDATE SKIP LOCKED</code> (claim safety) and FK cascades are silently
-   unenforced there. Set <code>FLUX_DATABASE_URL=postgresql://…</code>. PostgreSQL 14+
+<li><strong>PostgreSQL, not SQLite.</strong> SQLite is single-node only — one server plus
+   one colocated worker, or inline <code>workflow.run()</code>: <code>SELECT … FOR UPDATE
+   SKIP LOCKED</code> (claim safety) and FK cascades are silently unenforced
+   there, and the server logs a warning when a second worker registers
+   against it. Set <code>FLUX_DATABASE_URL=postgresql://…</code>. PostgreSQL 14+
    is expected; the driver is psycopg v3 (<code>pip install 'flux-core[postgresql]'</code>).</li>
 <li><strong>Enable authentication and set the secrets.</strong> With auth off, every
    caller is the anonymous admin. The server refuses to start when auth is
@@ -1317,6 +1319,13 @@ the same path. Plain HTTP round-robin works for everything else.</p>
   default 60s), flushes terminal checkpoints, then exits. A second signal
   aborts the drain. Give the orchestrator a termination grace period of
   <code>drain_timeout + 30s</code>.</li>
+<li><strong>Auth resolution is cached per replica</strong>
+  (<code>FLUX_SECURITY__AUTH__RESOLUTION_CACHE_TTL</code>, default 30 s, 0 disables):
+  token→identity and principal→permissions lookups — the dominant idle
+  database load at fleet scale — are served from memory between changes.
+  Role/key/principal mutations invalidate the local replica immediately;
+  other replicas converge within the TTL, so a revoked credential can
+  outlive revocation there by up to the TTL — keep it short.</li>
 <li><strong>Credentials rotate themselves</strong>: worker API keys are minted with a TTL
   (<code>FLUX_SECURITY__AUTH__API_KEYS__WORKER_KEY_TTL</code>, default 7 days); on the
   first 401 after expiry the worker re-registers and gets a fresh key.
@@ -1446,6 +1455,19 @@ unchanged latency. Limits:</p>
 <li>Pair with <code>runner="inprocess"</code> to also skip the per-execution process
   spawn — the lowest-latency configuration for trusted mesh hops.</li>
 </ul>
+<p><strong>Same-worker fast path.</strong> A <code>call()</code> whose target is a <strong>transient
+workflow object</strong> (not a string reference) executes in-process on the
+calling worker: no dispatch round-trip, no execution row, no checkpoints.
+Measured: <strong>~2.3 ms median per hop</strong> versus ~526 ms for a server-relayed
+transient execution — the true agent-to-agent path. The parent's task
+event is the per-hop audit record; aggregate visibility comes from the
+<code>flux_transient_hops_total</code> / <code>flux_transient_hop_duration_seconds</code>
+metrics. String references, durable targets, and <code>mode="async"</code> always
+relay through the server (which owns service discovery and the durable
+lifecycle). Disable fleet-wide with
+<code>[flux.workers] transient_fast_path = false</code>. Note the hop runs inside
+the parent's capacity slot and its secret access is audited under the
+parent execution.</p>
 <h2 id="registering-workflows-is-code-execution">Registering workflows is code execution<a class="headerlink" href="#registering-workflows-is-code-execution" title="Permanent link">&para;</a></h2>
 <p>Workflow registration executes the uploaded Python on the server (metadata
 enrichment) and on every worker that runs it. Treat
