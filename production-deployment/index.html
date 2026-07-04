@@ -1160,6 +1160,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#runners-where-workflow-code-executes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runners: where workflow code executes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#transient-executions-ai-mesh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1297,9 +1308,10 @@ the same path. Plain HTTP round-robin works for everything else.</p>
 <ul>
 <li><strong>Capacity</strong>: workers advertise <code>FLUX_WORKERS__MAX_CONCURRENT_EXECUTIONS</code>
   (default 16, <code>0</code> = unlimited) at registration; the server never assigns
-  beyond a worker's free slots on any dispatch path. Size it to what one
-  worker process can genuinely run concurrently — workflow code shares the
-  worker's event loop.</li>
+  beyond a worker's free slots on any dispatch path. With the default
+  subprocess runner each concurrent execution is its own process (size
+  against memory); with <code>runner="inprocess"</code> workflow code shares the
+  worker's event loop (size against what the loop can genuinely run).</li>
 <li><strong>Deploys</strong>: send SIGTERM and let the worker drain — it stops accepting
   work, finishes running executions (up to <code>FLUX_WORKERS__DRAIN_TIMEOUT</code>,
   default 60s), flushes terminal checkpoints, then exits. A second signal
@@ -1315,6 +1327,106 @@ the same path. Plain HTTP round-robin works for everything else.</p>
   and it aborts those local runs — expect <code>stale-claim</code> warnings in worker
   logs after partitions heal; they are the mechanism working.</li>
 </ul>
+<h2 id="runners-where-workflow-code-executes">Runners: where workflow code executes<a class="headerlink" href="#runners-where-workflow-code-executes" title="Permanent link">&para;</a></h2>
+<p>Each execution runs through a <strong>runner</strong> (Prefect-style). Workers enable
+runners via <code>[flux.workers] runners</code> (advertised at registration) and pick
+<code>default_runner</code> for workflows that don't declare one; a workflow can pin
+one with <code>@workflow.with_options(runner=...)</code> and will only dispatch to
+workers advertising it. (As an env var the list is JSON:
+<code>FLUX_WORKERS__RUNNERS='["inprocess","subprocess"]'</code>.)</p>
+<p>Execution-side processes never touch the database: secrets, configs, and
+the <strong>approval gate</strong> (<code>requires_approval</code>) all resolve through the server
+— workers call worker-scoped endpoints, and runner children reach them
+through their parent worker's pipe. Only the server (and inline
+<code>workflow.run()</code> executions, which own their own database) read or write
+approval rows.</p>
+<ul>
+<li><strong><code>subprocess</code> (the default)</strong> — each execution gets its own child
+  process. A crash, OOM, or event-loop-blocking call cannot take down the
+  worker or co-resident executions; cancellation and drain are enforced
+  with SIGTERM → <code>subprocess_term_grace</code> → SIGKILL, which works even
+  against code stuck in sync C calls; <code>subprocess_memory_limit</code> (Linux)
+  bounds per-child address space. The child holds <strong>no worker or fleet
+  credentials</strong>: its environment is sanitized (the bootstrap token,
+  <code>FLUX_SECURITY__*</code>, and <code>FLUX_DATABASE_URL</code> are stripped), and
+  checkpoints, progress, secrets, configs, and approval-gate operations
+  all flow through the parent worker over a pipe — the server-facing
+  protocol (delta checkpoints, claim fencing, transient suppression) is
+  identical to in-process execution. The only credential in the child is
+  the short-lived, single-execution token used for <code>call()</code> hops. Cost:
+  roughly a second of process spawn + import per execution. Note: if the
+  worker reads secrets from a <code>flux.toml</code> on disk rather than env vars,
+  file permissions are your containment boundary — the docker runner
+  isolates the filesystem too.</li>
+<li><strong><code>inprocess</code></strong> — the workflow runs as a task on the worker's event
+  loop. Lowest latency, no isolation: reserve it for trusted, async-clean,
+  latency-sensitive workflows — transient mesh hops especially.</li>
+<li><strong><code>docker</code></strong> (opt-in) — each execution runs in its own container via
+  <code>docker run -i</code>, speaking the same stdio protocol, so containers hold no
+  credentials either and SIGTERM-based cancellation works unchanged
+  (<code>--sig-proxy</code>; escalation is <code>docker kill</code>). Configure <code>docker_image</code>
+  with an image that has flux-core installed at a worker-compatible
+  version — the child entrypoint and context wire format must match. The
+  official image works directly (pin its tag to the worker's flux-core
+  version; see DOCKER.md), or build on top of it to add workflow
+  dependencies. Optional knobs: <code>docker_network</code> / <code>docker_memory</code> /
+  <code>docker_cpus</code> / <code>docker_extra_args</code> (volumes, env, <code>--user</code>,
+  <code>--cap-drop</code>). Use it for untrusted code,
+  conflicting dependency sets, or filesystem isolation. Workers advertising
+  <code>docker</code> must have a reachable daemon — the worker fails at startup
+  otherwise. <strong>Precompile bytecode in the image</strong>
+  (<code>RUN python -m compileall -q /usr/local/lib/python3.13/site-packages</code>):
+  containers are ephemeral, so without baked <code>.pyc</code> files every execution
+  re-compiles flux's imports from source — measured, that alone halves
+  per-execution latency.</li>
+</ul>
+<p>Measured on a single machine (1-task workflow, warm caches, overlayfs;
+sequential median / 8-concurrent effective throughput per worker):</p>
+<table>
+<thead>
+<tr>
+<th>runner</th>
+<th>per-execution overhead</th>
+<th>8 concurrent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>inprocess</code></td>
+<td>~0.1 ms</td>
+<td>thousands/s (workflow-bound)</td>
+</tr>
+<tr>
+<td><code>subprocess</code></td>
+<td>~0.55–0.7 s</td>
+<td>~4.6–5.0 exec/s</td>
+</tr>
+<tr>
+<td><code>docker</code> (official image: precompiled + tini)</td>
+<td>~1.1–1.6 s (~0.3 s container + imports)</td>
+<td>~2.0–2.5 exec/s</td>
+</tr>
+<tr>
+<td><code>docker</code> (no <code>.pyc</code> in image)</td>
+<td>~3.1 s</td>
+<td>~1.1 exec/s</td>
+</tr>
+</tbody>
+</table>
+<p>Ranges reflect run-to-run variance on a shared host. Concurrency amortizes
+the spawn cost — the per-execution <em>wall</em> cost at 8 concurrent drops to
+~0.2 s (subprocess) and ~0.4–0.5 s (docker).</p>
+<p><strong>Crash semantics follow durability.</strong> If a child dies without reporting a
+result (segfault, OOM kill, <code>os._exit</code>), a durable execution is <em>released</em>
+back to the server (fenced by claim generation, pending checkpoints flushed
+first) and re-dispatched — deterministic replay resumes from the last
+persisted task, so completed tasks do not re-run. A transient execution
+fails terminally (<code>WorkerProcessCrashed</code>) per its at-most-once contract —
+the caller retries.</p>
+<p>Since every subprocess execution pays a spawn, size
+<code>max_concurrent_executions</code> against memory as well as CPU: each concurrent
+execution is a full Python process (~50-100 MB baseline plus workflow
+memory).</p>
 <h2 id="transient-executions-ai-mesh">Transient executions (AI mesh)<a class="headerlink" href="#transient-executions-ai-mesh" title="Permanent link">&para;</a></h2>
 <p>Workflows registered with <code>durability="transient"</code> keep the normal outer
 lifecycle — execution row, dispatch, terminal state, visible in
@@ -1331,6 +1443,8 @@ unchanged latency. Limits:</p>
 <li>A retried/requeued transient execution re-runs all tasks from scratch —
   at-least-once for side effects, with no replay short-circuit.</li>
 <li>Works in both dispatch modes and with sync/async/stream callers.</li>
+<li>Pair with <code>runner="inprocess"</code> to also skip the per-execution process
+  spawn — the lowest-latency configuration for trusted mesh hops.</li>
 </ul>
 <h2 id="registering-workflows-is-code-execution">Registering workflows is code execution<a class="headerlink" href="#registering-workflows-is-code-execution" title="Permanent link">&para;</a></h2>
 <p>Workflow registration executes the uploaded Python on the server (metadata
