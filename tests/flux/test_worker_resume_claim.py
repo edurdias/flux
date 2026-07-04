@@ -28,8 +28,8 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
     worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
-    worker._module_cache = {}
-    worker._module_cache_ttl = 0
+    worker._runners = {}
+    worker._default_runner = "subprocess"
 
     calls: list[tuple[str, str]] = []
 
@@ -108,8 +108,8 @@ async def test_handle_execution_resumed_drops_on_409():
     worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
-    worker._module_cache = {}
-    worker._module_cache_ttl = 0
+    worker._runners = {}
+    worker._default_runner = "subprocess"
 
     async def mock_post(url, **kwargs):
         resp = MagicMock()

@@ -69,6 +69,7 @@ class WorkerInfo:
         labels: dict[str, str] | None = None,
         max_concurrent_executions: int | None = None,
         last_seen_at: datetime | None = None,
+        runners: list[str] | None = None,
     ):
         self.name = name
         self.runtime = runtime
@@ -80,6 +81,9 @@ class WorkerInfo:
         self.max_concurrent_executions = max_concurrent_executions
         # Persisted heartbeat timestamp; None until the first pong lands.
         self.last_seen_at = last_seen_at
+        # Runners this worker has enabled; None means a legacy worker that
+        # predates runners and executes everything in-process.
+        self.runners = list(runners) if runners is not None else None
 
 
 class WorkerRegistry(ABC):
@@ -96,6 +100,7 @@ class WorkerRegistry(ABC):
         resources: WorkerResourcesInfo | None,
         labels: dict[str, str] | None = None,
         max_concurrent_executions: int | None = None,
+        runners: list[str] | None = None,
     ) -> WorkerInfo:  # pragma: no cover
         raise NotImplementedError()
 
@@ -162,6 +167,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
         resources: WorkerResourcesInfo | None,
         labels: dict[str, str] | None = None,
         max_concurrent_executions: int | None = None,
+        runners: list[str] | None = None,
     ) -> WorkerInfo:
         # Import here to avoid circular imports
         from flux.models import WorkerModel
@@ -174,6 +180,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
                     model.session_token = uuid4().hex
                     model.labels = labels or {}
                     model.max_concurrent_executions = max_concurrent_executions
+                    model.runners = runners
                 else:
                     # Creates a new model and assigns the session token
                     model = self._from_info(
@@ -183,6 +190,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
                         resources,
                         labels=labels,
                         max_concurrent_executions=max_concurrent_executions,
+                        runners=runners,
                     )
                     session.add(model)
                 session.commit()
@@ -252,6 +260,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
         resources,
         labels=None,
         max_concurrent_executions=None,
+        runners=None,
     ):
         # Import here to avoid circular imports
         from flux.models import (
@@ -288,6 +297,7 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             ),
             labels=labels,
             max_concurrent_executions=max_concurrent_executions,
+            runners=runners,
         )
 
     def _to_info(self, model: WorkerModel) -> WorkerInfo:
@@ -319,4 +329,5 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             labels=model.labels if model.labels else {},
             max_concurrent_executions=model.max_concurrent_executions,
             last_seen_at=model.last_seen_at,
+            runners=model.runners,
         )

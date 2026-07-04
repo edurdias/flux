@@ -73,6 +73,9 @@ class WorkerRoutesMixin:
             # The worker suppresses intermediate (task-level) checkpoints for
             # transient workflows; only the terminal workflow state persists.
             payload["transient"] = True
+        required_runner = (workflow.metadata or {}).get("runner")
+        if required_runner:
+            payload["runner"] = required_runner
         session = self._get_db_session()
         try:
             exec_row = session.get(ExecutionContextModel, ctx.execution_id)
@@ -125,6 +128,7 @@ class WorkerRoutesMixin:
                     registration.resources,
                     labels=registration.labels,
                     max_concurrent_executions=registration.max_concurrent_executions,
+                    runners=registration.runners,
                 )
 
                 if auth_service is not None and auth_config.api_keys.enabled:
@@ -625,6 +629,157 @@ class WorkerRoutesMixin:
             except Exception as e:
                 logger.error(f"Error checkpointing execution: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
+
+        @api.post("/workers/{name}/release/{execution_id}")
+        async def workers_release(
+            name: str,
+            execution_id: str,
+            claim_generation: str | None = Header(None, alias="X-Flux-Claim-Generation"),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            """Hand a claimed execution back for re-dispatch.
+
+            Called by a worker whose runner child crashed mid-execution: the
+            events checkpointed before the crash are already persisted, so a
+            re-dispatched durable execution resumes via deterministic replay.
+            Fenced by claim generation like checkpoints — a stale claimant
+            gets a 409 instead of unclaiming the new owner's execution.
+            """
+            try:
+                self._verify_worker_identity(identity, name)
+                self._worker_last_pong[name] = time.monotonic()
+
+                context_manager = ContextManager.create()
+
+                if claim_generation is not None:
+                    try:
+                        expected_generation = int(claim_generation)
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid X-Flux-Claim-Generation header.",
+                        )
+                    current_generation = await asyncio.to_thread(
+                        context_manager.get_claim_generation,
+                        execution_id,
+                    )
+                    if expected_generation != current_generation:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"stale-claim: release carries generation "
+                                f"{expected_generation} but the row is at "
+                                f"{current_generation}"
+                            ),
+                        )
+
+                try:
+                    ctx = await asyncio.to_thread(context_manager.unclaim, execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(status_code=404, detail="Execution context not found.")
+
+                logger.warning(
+                    f"Worker {name} released execution {execution_id} "
+                    f"(state now {ctx.state.value}); re-dispatching",
+                )
+                self._notify_next_worker()
+                return {"status": "released", "state": ctx.state.value}
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error releasing execution {execution_id}: {str(e)}")
+                raise HTTPException(status_code=400, detail=str(e))
+
+        @api.get("/workers/{name}/approvals/{execution_id}/{task_call_id}")
+        async def workers_approval_get(
+            name: str,
+            execution_id: str,
+            task_call_id: str,
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            """Approval-row lookup for the worker-side approval gate.
+
+            Workers (and runner children, via their parent worker) never
+            read approval rows from the database — the server owns it.
+            """
+            from flux.approvals import ApprovalManager, ApprovalSnapshot
+
+            self._verify_worker_identity(identity, name)
+            row = await asyncio.to_thread(
+                lambda: ApprovalManager().get_by_call(execution_id, task_call_id),
+            )
+            return {"approval": ApprovalSnapshot.from_model(row).to_dict() if row else None}
+
+        @api.post("/workers/{name}/approvals/{execution_id}")
+        async def workers_approval_register(
+            name: str,
+            execution_id: str,
+            payload: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("worker:*:*")),
+        ):
+            """Create the PENDING approval row for a gated task call.
+
+            The pausability check and the row insert run in one transaction
+            with the execution row locked, so a concurrent cancel either
+            wins (status "cancelled") or sweeps the row afterwards via
+            cancel_pending_for_execution. The TASK_AWAITING_APPROVAL event
+            arrives through the normal checkpoint path.
+            """
+            self._verify_worker_identity(identity, name)
+            task_call_id = payload.get("task_call_id")
+            task_name = payload.get("task_name")
+            if not task_call_id or not task_name:
+                raise HTTPException(
+                    status_code=400,
+                    detail="task_call_id and task_name are required.",
+                )
+
+            def _register() -> str:
+                from sqlalchemy import select
+
+                from flux.approvals import ApprovalManager
+                from flux.domain import ExecutionState
+                from flux.models import ExecutionContextModel
+                from flux.unit_of_work import UnitOfWork
+
+                mgr = ApprovalManager()
+                if mgr.get_by_call(execution_id, task_call_id) is not None:
+                    return "exists"
+                with UnitOfWork() as uow:
+                    model = uow.session.execute(
+                        select(ExecutionContextModel)
+                        .where(ExecutionContextModel.execution_id == execution_id)
+                        .with_for_update(),
+                    ).scalar_one_or_none()
+                    if model is None:
+                        return "not_found"
+                    pausable = (
+                        ExecutionState.CLAIMED,
+                        ExecutionState.RUNNING,
+                        ExecutionState.RESUME_CLAIMED,
+                        ExecutionState.RESUMING,
+                    )
+                    if model.state not in pausable:
+                        return "cancelled"
+                    mgr.create(
+                        execution_id=execution_id,
+                        task_call_id=task_call_id,
+                        workflow_namespace=model.workflow_namespace,
+                        workflow_name=model.workflow_name,
+                        task_name=task_name,
+                        uow=uow,
+                    )
+                    uow.commit()
+                return "created"
+
+            try:
+                status = await asyncio.to_thread(_register)
+            except Exception as e:
+                logger.error(f"Error registering approval for {execution_id}: {str(e)}")
+                raise HTTPException(status_code=400, detail=str(e))
+            if status == "not_found":
+                raise HTTPException(status_code=404, detail="Execution context not found.")
+            return {"status": status}
 
         @api.post("/workers/{name}/progress/{execution_id}")
         async def workers_progress(

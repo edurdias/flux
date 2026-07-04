@@ -56,7 +56,7 @@ class ServiceMCPServer:
         return set(self._tool_names)
 
     async def get_tool_function(self, name: str):
-        tool = await self.mcp._tool_manager.get_tool(name)
+        tool = await self.mcp.get_tool(name)
         return tool.fn if tool else None
 
     async def refresh(self) -> None:

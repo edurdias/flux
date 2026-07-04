@@ -348,6 +348,7 @@ class WorkflowCatalog(ABC):
                     workflow_requests = None
                     workflow_affinity = None
                     workflow_durability = None
+                    workflow_runner = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -385,6 +386,11 @@ class WorkflowCatalog(ABC):
                                     ast.Constant,
                                 ):
                                     workflow_durability = kw.value.value
+                                elif kw.arg == "runner" and isinstance(
+                                    kw.value,
+                                    ast.Constant,
+                                ):
+                                    workflow_runner = kw.value.value
 
                             if not workflow_name:
                                 workflow_name = node.name
@@ -399,6 +405,9 @@ class WorkflowCatalog(ABC):
                         if workflow_durability is not None:
                             wf_metadata = dict(wf_metadata or {})
                             wf_metadata["durability"] = workflow_durability
+                        if workflow_runner is not None:
+                            wf_metadata = dict(wf_metadata or {})
+                            wf_metadata["runner"] = workflow_runner
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",

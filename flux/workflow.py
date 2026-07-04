@@ -30,6 +30,7 @@ class workflow:
         affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
         durability: str = "durable",
+        runner: str | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -42,6 +43,8 @@ class workflow:
             requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
             affinity (dict[str, str] | None, optional): Label-based worker affinity constraints. Workers must have all specified labels to run this workflow. Defaults to None.
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
+            durability (str, optional): "durable" (default) persists every task-level checkpoint; "transient" keeps only the outer lifecycle.
+            runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
@@ -58,6 +61,7 @@ class workflow:
                 affinity=affinity,
                 schedule=schedule,
                 durability=durability,
+                runner=runner,
             )
 
         return wrapper
@@ -73,6 +77,7 @@ class workflow:
         affinity: dict[str, str] | None = None,
         schedule: Schedule | None = None,
         durability: str = "durable",
+        runner: str | None = None,
     ):
         if durability not in ("durable", "transient"):
             raise ValueError(
@@ -84,6 +89,13 @@ class workflow:
                 "scheduled runs have no caller holding the connection, so their "
                 "results would be silently discarded.",
             )
+        if runner is not None:
+            from flux.runners import KNOWN_RUNNERS
+
+            if runner not in KNOWN_RUNNERS:
+                raise ValueError(
+                    f"runner must be one of {', '.join(KNOWN_RUNNERS)}, got: '{runner}'",
+                )
         self._func = func
         self._name = name if name else func.__name__
         self._namespace = validate_namespace(namespace)
@@ -93,6 +105,7 @@ class workflow:
         self._affinity = affinity
         self._schedule = schedule
         self._durability = durability
+        self._runner = runner
         wraps(func)(self)
 
     @property
@@ -106,6 +119,10 @@ class workflow:
     @property
     def durability(self) -> str:
         return self._durability
+
+    @property
+    def runner(self) -> str | None:
+        return self._runner
 
     @property
     def qualified_name(self) -> str:

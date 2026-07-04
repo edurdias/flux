@@ -317,7 +317,12 @@ class DatabaseContextManager(ContextManager):
     def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
         from flux.domain.resource_request import worker_matches
 
-        return worker_matches(worker, workflow.requests, workflow.affinity)
+        return worker_matches(
+            worker,
+            workflow.requests,
+            workflow.affinity,
+            runner=(workflow.wf_metadata or {}).get("runner"),
+        )
 
     def _next_matching_execution(
         self,
@@ -333,14 +338,22 @@ class DatabaseContextManager(ContextManager):
             .with_for_update(skip_locked=True)
         )
 
+        # A workflow with metadata may carry a runner requirement (the column
+        # is encoded, so it cannot be filtered in SQL) — treat it as
+        # constrained so the per-row matcher runs.
         if constrained_only:
             query = query.filter(
-                or_(WorkflowModel.requests.is_not(None), WorkflowModel.affinity.is_not(None)),
+                or_(
+                    WorkflowModel.requests.is_not(None),
+                    WorkflowModel.affinity.is_not(None),
+                    WorkflowModel.wf_metadata.is_not(None),
+                ),
             )
         else:
             query = query.filter(
                 WorkflowModel.requests.is_(None),
                 WorkflowModel.affinity.is_(None),
+                WorkflowModel.wf_metadata.is_(None),
             )
 
         if not constrained_only:

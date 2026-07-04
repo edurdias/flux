@@ -502,6 +502,10 @@ class WorkerModel(Base):
     # Capacity advertised at registration; dispatch never assigns beyond it.
     # NULL/0 means unlimited (legacy workers that predate the field).
     max_concurrent_executions = Column(Integer, nullable=True)
+    # Runners the worker has enabled (advertised at registration). Workflows
+    # declaring runner=... only match workers whose list contains it. NULL
+    # means a legacy worker that executes everything in-process.
+    runners = Column(Base64Type(), nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")
@@ -521,6 +525,7 @@ class WorkerModel(Base):
         resources: WorkerResourcesModel | None = None,
         labels: dict[str, str] | None = None,
         max_concurrent_executions: int | None = None,
+        runners: list[str] | None = None,
     ):
         self.name = name
         self.runtime = runtime
@@ -528,6 +533,7 @@ class WorkerModel(Base):
         self.resources = resources
         self.labels = labels or {}
         self.max_concurrent_executions = max_concurrent_executions
+        self.runners = runners
 
 
 class WorkflowModel(Base):

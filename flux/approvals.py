@@ -84,6 +84,123 @@ class ApprovalVerdict:
     cancelled: bool = False
 
 
+@dataclass
+class ApprovalSnapshot:
+    """Transport-neutral view of one approval row.
+
+    The approval gate consumes this instead of the ORM model so the same
+    gate code runs against the local database (inline executions), the
+    server HTTP API (distributed workers), or the parent-worker pipe
+    (runner child processes).
+    """
+
+    id: str
+    status: str  # ApprovalStatus value
+    task_name: str
+    workflow_namespace: str
+    workflow_name: str
+    requested_at: str | None = None
+    approver_subject: str | None = None
+    approver_provider: str | None = None
+    reason: str | None = None
+
+    @classmethod
+    def from_model(cls, row: ApprovalRequestModel) -> ApprovalSnapshot:
+        return cls(
+            id=row.id,
+            status=row.status.value if hasattr(row.status, "value") else str(row.status),
+            task_name=row.task_name,
+            workflow_namespace=row.workflow_namespace,
+            workflow_name=row.workflow_name,
+            requested_at=row.requested_at.isoformat() if row.requested_at else None,
+            approver_subject=row.approver_subject,
+            approver_provider=row.approver_provider,
+            reason=row.reason,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ApprovalSnapshot:
+        return cls(
+            id=data["id"],
+            status=data["status"],
+            task_name=data["task_name"],
+            workflow_namespace=data["workflow_namespace"],
+            workflow_name=data["workflow_name"],
+            requested_at=data.get("requested_at"),
+            approver_subject=data.get("approver_subject"),
+            approver_provider=data.get("approver_provider"),
+            reason=data.get("reason"),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "status": self.status,
+            "task_name": self.task_name,
+            "workflow_namespace": self.workflow_namespace,
+            "workflow_name": self.workflow_name,
+            "requested_at": self.requested_at,
+            "approver_subject": self.approver_subject,
+            "approver_provider": self.approver_provider,
+            "reason": self.reason,
+        }
+
+
+class LocalApprovalStore:
+    """Approval store backed by direct database access.
+
+    Used only where the process legitimately owns a database connection:
+    inline executions (``workflow.run``) and the server itself. Distributed
+    workers use ``RemoteApprovalStore`` and runner children the pipe store —
+    execution-side processes never touch the database.
+    """
+
+    async def get_by_call(
+        self,
+        execution_id: str,
+        task_call_id: str,
+    ) -> ApprovalSnapshot | None:
+        row = ApprovalManager().get_by_call(execution_id, task_call_id)
+        return ApprovalSnapshot.from_model(row) if row else None
+
+    async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
+        """Atomically persist the awaiting event and the PENDING row.
+
+        Returns ``"created"``, ``"exists"``, or ``"cancelled"`` (the
+        execution is no longer pausable — a concurrent cancel won). On
+        success the awaiting event has been appended to ``ctx.events``;
+        on ``"cancelled"`` the context is left untouched.
+        """
+        from flux.context_managers import ContextManager
+
+        mgr = ApprovalManager()
+        if mgr.get_by_call(ctx.execution_id, task_call_id) is not None:
+            return "exists"
+
+        cm = ContextManager.create()
+        with UnitOfWork() as uow:
+            # Persist the execution context *before* the approval row is
+            # flushed so the approval_requests.execution_id foreign key has
+            # its target row (enforced on PostgreSQL). If a concurrent
+            # cancel already moved the execution to CANCELLING (or a
+            # terminal state), the state write is rejected — drop the
+            # in-memory awaiting event and report it.
+            ctx.events.append(awaiting_event)
+            if not cm.save_checked(ctx, uow=uow):
+                ctx.events.remove(awaiting_event)
+                return "cancelled"
+            mgr.create(
+                execution_id=ctx.execution_id,
+                task_call_id=task_call_id,
+                workflow_namespace=ctx.workflow_namespace,
+                workflow_name=ctx.workflow_name,
+                task_name=task_name,
+                uow=uow,
+            )
+            uow.commit()
+        return "created"
+
+
 class ApprovalManager:
     """CRUD and decision logic for approval requests.
 

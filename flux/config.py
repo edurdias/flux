@@ -78,6 +78,72 @@ class WorkersConfig(BaseConfig):
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",
     )
+    module_cache_max_size: int = Field(
+        default=64,
+        description=(
+            "Maximum number of compiled workflow modules kept in the cache; "
+            "the least-recently-used entry is evicted beyond this "
+            "(0 = unbounded, the legacy behavior)"
+        ),
+    )
+    runners: list[str] = Field(
+        default=["inprocess", "subprocess"],
+        description=(
+            "Runners enabled on this worker, advertised at registration; "
+            "workflows declaring runner=... only dispatch to workers that "
+            "advertise it"
+        ),
+    )
+    default_runner: str = Field(
+        default="subprocess",
+        description=(
+            "Runner used when a workflow does not declare one. 'subprocess' "
+            "(the default) isolates each execution in its own process; "
+            "'inprocess' runs it on the worker's event loop — lower latency, "
+            "no fault isolation"
+        ),
+    )
+    subprocess_term_grace: float = Field(
+        default=10.0,
+        description=(
+            "Seconds the subprocess runner waits after SIGTERM for a child "
+            "to finish its cancellation handling before SIGKILL"
+        ),
+    )
+    subprocess_memory_limit: int = Field(
+        default=0,
+        description=(
+            "Address-space limit in bytes applied to each runner child "
+            "process (Linux only, 0 = unlimited)"
+        ),
+    )
+    docker_image: str = Field(
+        default="",
+        description=(
+            "Image the docker runner launches per execution; must have "
+            "flux-core installed at a worker-compatible version. Required "
+            "when 'docker' is in runners"
+        ),
+    )
+    docker_network: str = Field(
+        default="",
+        description="Docker network for runner containers (empty = docker default)",
+    )
+    docker_memory: str = Field(
+        default="",
+        description="Per-container memory limit, docker syntax (e.g. '512m'; empty = unlimited)",
+    )
+    docker_cpus: float = Field(
+        default=0.0,
+        description="Per-container CPU limit (docker --cpus; 0 = unlimited)",
+    )
+    docker_extra_args: list[str] = Field(
+        default=[],
+        description=(
+            "Extra arguments inserted into 'docker run' before the image "
+            "(e.g. volumes, env vars, --user)"
+        ),
+    )
     max_concurrent_executions: int = Field(
         default=16,
         description=(
