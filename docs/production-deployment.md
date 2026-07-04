@@ -156,12 +156,13 @@ sequential median / 8-concurrent effective throughput per worker):
 | runner | per-execution overhead | 8 concurrent |
 |---|---|---|
 | `inprocess` | ~0.1 ms | thousands/s (workflow-bound) |
-| `subprocess` | ~0.7 s | ~4.6 exec/s |
-| `docker` (precompiled image) | ~1.6 s (~0.3 s container + ~1.1 s imports) | ~2.0 exec/s |
+| `subprocess` | ~0.55–0.7 s | ~4.6–5.0 exec/s |
+| `docker` (official image: precompiled + tini) | ~1.1–1.6 s (~0.3 s container + imports) | ~2.0–2.5 exec/s |
 | `docker` (no `.pyc` in image) | ~3.1 s | ~1.1 exec/s |
 
-Concurrency amortizes the spawn cost — the per-execution *wall* cost at 8
-concurrent drops to ~0.2 s (subprocess) and ~0.5 s (docker).
+Ranges reflect run-to-run variance on a shared host. Concurrency amortizes
+the spawn cost — the per-execution *wall* cost at 8 concurrent drops to
+~0.2 s (subprocess) and ~0.4–0.5 s (docker).
 
 **Crash semantics follow durability.** If a child dies without reporting a
 result (segfault, OOM kill, `os._exit`), a durable execution is *released*
