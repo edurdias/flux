@@ -203,8 +203,12 @@ class AuthService:
     def invalidate_resolution_caches(self) -> None:
         """Drop cached identities and permission sets on this replica.
 
-        Called after any role/principal/key mutation so local changes take
-        effect immediately; other replicas converge within the cache TTL.
+        Called after mutations that change authorization outcomes — role
+        definitions and assignments, principal enable/disable/delete, and
+        key revocation — so those take effect locally at once; other
+        replicas converge within the cache TTL. Additive mutations that
+        cannot invalidate an existing cached result (creating a principal,
+        minting a new key, principal metadata edits) do not clear it.
         """
         self._identity_cache.clear()
         self._permission_cache.clear()
