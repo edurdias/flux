@@ -131,6 +131,20 @@ class WorkerRoutesMixin:
                     runners=registration.runners,
                 )
 
+                # SQLite is supported for single-node mode only (one server +
+                # one worker on the same host, or inline workflow.run). The
+                # dispatcher, LISTEN/NOTIFY signal plane, and fencing assume
+                # PostgreSQL semantics under concurrency.
+                database_url = Configuration.get().settings.database_url or ""
+                if database_url.startswith("sqlite") and len(registry.list()) > 1:
+                    logger.warning(
+                        f"Worker '{registration.name}' registered as an additional "
+                        f"worker on a SQLite database. SQLite is supported for "
+                        f"single-node mode only — multi-worker fleets require "
+                        f"PostgreSQL; expect lock contention and dispatch "
+                        f"anomalies otherwise.",
+                    )
+
                 if auth_service is not None and auth_config.api_keys.enabled:
                     principal = principal_registry.find(
                         subject=registration.name,

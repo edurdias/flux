@@ -53,6 +53,18 @@ class AuthConfig(_BaseConfig):
             "on; when on, at least one provider (oidc/api_keys) must be enabled."
         ),
     )
+    resolution_cache_ttl: float = Field(
+        default=30.0,
+        description=(
+            "Seconds to cache token-to-identity and principal-to-permissions "
+            "resolution in each server process (0 disables). Cuts the "
+            "per-request database reads that dominate idle load on worker "
+            "endpoints at fleet scale. Mutations (role/key/principal changes) "
+            "invalidate the local replica's cache immediately; other replicas "
+            "converge within the TTL, so a revoked credential can remain "
+            "usable there for up to this many seconds — keep it short."
+        ),
+    )
     allow_anonymous: bool = Field(
         default=False,
         description=(

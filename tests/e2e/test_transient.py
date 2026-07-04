@@ -133,3 +133,26 @@ def test_durable_parent_calls_transient_child(cli):
 
     assert result["state"] == "COMPLETED"
     assert result["output"] == 12
+
+
+def _execution_count(cli, workflow_name: str) -> int:
+    try:
+        listing = cli.execution_list(workflow=workflow_name)
+    except Exception:
+        # Zero rows prints "No executions found." instead of JSON.
+        return 0
+    executions = listing.get("executions", listing if isinstance(listing, list) else [])
+    return len(executions)
+
+
+def test_transient_fast_path_skips_dispatch_entirely(cli):
+    """A transient child called by *object* runs in-process on the worker:
+    correct result, and no child execution row is ever created."""
+    cli.register(str(FIXTURES / "transient_workflow.py"))
+    child_rows_before = _execution_count(cli, "transient_double")
+
+    result = cli.run("durable_calls_transient_fast", "3", mode="sync", timeout=90)
+
+    assert result["state"] == "COMPLETED"
+    assert result["output"] == 12
+    assert _execution_count(cli, "transient_double") == child_rows_before

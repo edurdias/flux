@@ -38,6 +38,7 @@ subprocess_memory_limit = 0                                 # Address-space limi
 # docker_memory = ""                                        # Per-container memory limit, e.g. "512m"
 # docker_cpus = 0.0                                         # Per-container CPU limit (0 = unlimited)
 # docker_extra_args = []                                    # Extra 'docker run' args (volumes, env, --user, ...)
+transient_fast_path = true                                  # call() on a transient workflow object runs in-process (mesh fast path)
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security.encryption]
@@ -51,6 +52,8 @@ eviction_grace_period = 30                                  # Seconds to wait af
 
 # [flux.security.auth]
 # default_user_roles = ["viewer"]
+# resolution_cache_ttl = 30.0  # Per-process cache for token/permission resolution (0 disables);
+#                              # revocations on other replicas take effect within this window.
 
 # [flux.security]
 # execution_token_ttl = 604800

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
 
@@ -59,6 +60,40 @@ class AuthorizationResult:
         self.missing_permissions = missing_permissions or []
 
 
+class _TTLCache:
+    """Tiny per-process TTL cache for auth resolution results.
+
+    Bounded: when full, expired entries are swept; if still full the oldest
+    insertion is dropped. No background task — expiry is checked on read.
+    """
+
+    def __init__(self, max_size: int = 4096):
+        self._data: dict[str, tuple[float, object]] = {}
+        self._max_size = max_size
+
+    def get(self, key: str) -> object | None:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if time.monotonic() >= expires_at:
+            self._data.pop(key, None)
+            return None
+        return value
+
+    def put(self, key: str, value: object, ttl: float) -> None:
+        if len(self._data) >= self._max_size:
+            now = time.monotonic()
+            for stale in [k for k, (exp, _) in self._data.items() if exp <= now]:
+                self._data.pop(stale, None)
+            while len(self._data) >= self._max_size:
+                self._data.pop(next(iter(self._data)), None)
+        self._data[key] = (time.monotonic() + ttl, value)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+
 class AuthService:
     def __init__(
         self,
@@ -69,6 +104,12 @@ class AuthService:
         self._config = config
         self._session_factory = session_factory
         self._registry = registry
+        # Per-process TTL caches for the hot per-request path (token →
+        # identity, principal → permissions). Local mutations invalidate
+        # immediately; other replicas converge within the TTL.
+        self._resolution_cache_ttl = getattr(config, "resolution_cache_ttl", 0) or 0
+        self._identity_cache = _TTLCache()
+        self._permission_cache = _TTLCache()
         self._providers: list[AuthProvider] = []
 
         self._providers.append(ExecutionTokenProvider(registry=registry))
@@ -90,10 +131,24 @@ class AuthService:
         if not token:
             raise AuthenticationError("Authorization token required")
 
+        cache_key = None
+        if self._resolution_cache_ttl > 0:
+            # Never keep raw tokens as keys.
+            cache_key = hashlib.sha256(token.encode()).hexdigest()
+            cached = self._identity_cache.get(cache_key)
+            if cached is not None:
+                return cached  # type: ignore[return-value]
+
         for provider in self._providers:
             try:
                 identity = await provider.authenticate(token)
                 if identity is not None:
+                    if cache_key is not None:
+                        self._identity_cache.put(
+                            cache_key,
+                            identity,
+                            self._resolution_cache_ttl,
+                        )
                     return identity
             except Exception as e:
                 logger.error(f"Provider {type(provider).__name__} error: {e}")
@@ -101,7 +156,21 @@ class AuthService:
 
         raise AuthenticationError("Invalid or expired token")
 
+    def _permission_cache_key(self, identity: FluxIdentity) -> str:
+        principal_id = identity.metadata.get("principal_id")
+        if principal_id:
+            return f"principal:{principal_id}"
+        provider = identity.metadata.get("provider", "")
+        return f"identity:{provider}:{identity.subject}:{','.join(sorted(identity.roles))}"
+
     async def resolve_permissions(self, identity: FluxIdentity) -> set[str]:
+        cache_key = None
+        if self._resolution_cache_ttl > 0:
+            cache_key = self._permission_cache_key(identity)
+            cached = self._permission_cache.get(cache_key)
+            if cached is not None:
+                return cached  # type: ignore[return-value]
+
         session = self._session_factory()
         try:
             role_names: list[str] = []
@@ -117,9 +186,24 @@ class AuthService:
                     all_permissions.update(role.permissions)
                 elif role_name in BUILT_IN_ROLES:
                     all_permissions.update(BUILT_IN_ROLES[role_name])
+            if cache_key is not None:
+                self._permission_cache.put(
+                    cache_key,
+                    all_permissions,
+                    self._resolution_cache_ttl,
+                )
             return all_permissions
         finally:
             session.close()
+
+    def invalidate_resolution_caches(self) -> None:
+        """Drop cached identities and permission sets on this replica.
+
+        Called after any role/principal/key mutation so local changes take
+        effect immediately; other replicas converge within the cache TTL.
+        """
+        self._identity_cache.clear()
+        self._permission_cache.clear()
 
     async def is_authorized(self, identity: FluxIdentity, required: str) -> bool:
         permissions = await self.resolve_permissions(identity)
@@ -238,6 +322,7 @@ class AuthService:
             session.add(role)
             session.commit()
             session.refresh(role)
+            self.invalidate_resolution_caches()
             return role
         except Exception:
             session.rollback()
@@ -275,6 +360,7 @@ class AuthService:
             role.updated_at = datetime.now(timezone.utc)
             session.commit()
             session.refresh(role)
+            self.invalidate_resolution_caches()
             return role
         except Exception:
             session.rollback()
@@ -292,6 +378,7 @@ class AuthService:
                 raise ValueError(f"Cannot delete built-in role '{name}'")
             session.delete(role)
             session.commit()
+            self.invalidate_resolution_caches()
         except Exception:
             session.rollback()
             raise
@@ -347,16 +434,19 @@ class AuthService:
         if not self._registry:
             raise RuntimeError("PrincipalRegistry not configured")
         self._registry.delete(principal_id, force=force)
+        self.invalidate_resolution_caches()
 
     async def enable_principal(self, principal_id: str) -> None:
         if not self._registry:
             raise RuntimeError("PrincipalRegistry not configured")
         self._registry.set_enabled(principal_id, True)
+        self.invalidate_resolution_caches()
 
     async def disable_principal(self, principal_id: str) -> None:
         if not self._registry:
             raise RuntimeError("PrincipalRegistry not configured")
         self._registry.set_enabled(principal_id, False)
+        self.invalidate_resolution_caches()
 
     async def grant_role(
         self,
@@ -367,11 +457,13 @@ class AuthService:
         if not self._registry:
             raise RuntimeError("PrincipalRegistry not configured")
         self._registry.assign_role(principal_id, role_name, assigned_by=granted_by)
+        self.invalidate_resolution_caches()
 
     async def revoke_role(self, principal_id: str, role_name: str) -> None:
         if not self._registry:
             raise RuntimeError("PrincipalRegistry not configured")
         self._registry.revoke_role(principal_id, role_name)
+        self.invalidate_resolution_caches()
 
     async def create_api_key(
         self,
@@ -427,6 +519,7 @@ class AuthService:
                 raise ValueError(f"API key '{key_name}' not found")
             session.delete(key)
             session.commit()
+            self.invalidate_resolution_caches()
         except Exception:
             session.rollback()
             raise
@@ -441,6 +534,7 @@ class AuthService:
             for key in keys:
                 session.delete(key)
             session.commit()
+            self.invalidate_resolution_caches()
             return count
         except Exception:
             session.rollback()

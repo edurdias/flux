@@ -251,8 +251,18 @@ agent loop's per-step LLM/tool payloads never reach the database. Pause and
 approvals are hard errors on transient runs (they need replayable task
 history); schedules are rejected at decoration time. Replay-on-retry
 re-executes tasks from scratch (no task history), i.e. at-least-once for
-side effects. The same-worker in-process fast path remains the phase-2
-follow-up.
+side effects.
+
+**Phase 2 implemented — same-worker fast path.** A sync `call()` whose
+target is a transient workflow *object* executes in-process on the calling
+worker: no dispatch, no execution row, no checkpoints; durability guards
+still fire (the child context is transient with the no-op checkpoint).
+Measured: **~2.3 ms median per hop vs ~526 ms server-relayed** (~230×).
+String references, durable targets, and `mode="async"` still relay — the
+server keeps service discovery and the durable lifecycle. Aggregate
+observability via `flux_transient_hops_total` /
+`flux_transient_hop_duration_seconds`; opt out with
+`[flux.workers] transient_fast_path = false`.
 
 ### Sizing sanity check
 
@@ -438,7 +448,7 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 **P2 — transient mode & AI mesh**
 
 14. `durability="transient"`: no-op checkpoint + in-memory transient registry + server-relayed sync execution (§6, phase 1).
-15. `call()`/`workflow_agent()` transient passthrough; sticky same-worker in-process execution (§6, phase 2).
+15. `call()`/`workflow_agent()` transient passthrough; sticky same-worker in-process execution (§6, phase 2, **done** — in-process `call()` for transient workflow objects, ~2.3 ms/hop measured; server-side sticky routing for string references remains future work).
 16. Subprocess isolation mode for untrusted/CPU-bound workflows (W1, **done** — shipped as pluggable runners with subprocess as the default); module-cache source-hash keys + LRU (W4, **done**).
 17. Production deployment guide: PostgreSQL-only for fleets, replica topology, probes (`/ready`), pool sizing, security checklist.
 
@@ -448,6 +458,8 @@ Each step is independently shippable and backward-compatible: (1) driver swap ps
 
 - **2026-07-03 — PostgreSQL-only for multi-node.** Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.
 - **2026-07-03 — Transient semantics: at-most-once at the workflow level.** Transient executions are never re-dispatched by the server; worker death or TTL expiry returns a structured error and the caller retries. Task-level retry/fallback/rollback inside a transient run is unchanged (in-memory event mechanics are kept, only persistence is skipped). Pause, approval gates, and schedules on transient workflows are hard errors.
+- **2026-07-04 — Mesh fast path: in-process only for object references; at-most-once.** A sync `call()` on a transient workflow *object* runs in-process on the calling worker (no row, no dispatch, ~2.3 ms/hop); failures propagate to the caller as `ExecutionError` and the caller retries. String references intentionally keep relaying through the server — resolving them worker-side would need catalog fetches and version pinning; revisit only if object references prove insufficient for the mesh. The hop consumes the parent's capacity slot and audits secret access under the parent execution.
+- **2026-07-04 — Auth resolution cached per replica (default 30 s).** Token→identity and principal→permissions lookups are cached in-process; mutations invalidate locally, other replicas converge within the TTL. Accepted trade-off: a revoked key/role can remain effective on other replicas for up to the TTL. SQLite remains single-node only (server + one colocated worker, or inline runs) — the server now warns when a second worker registers against it.
 - **2026-07-04 — Approval rows are server-owned; runner children get sanitized environments.** The approval gate previously read/wrote the database directly from the execution path, which forced database credentials (and the encryption key, for signed event writes) into every execution-side process. Approvals now resolve through worker-scoped server endpoints (`GET/POST /workers/{name}/approvals/...`), relayed over the pipe for runner children; only the server and inline executions touch approval rows. With that dependency gone, the subprocess runner strips `FLUX_WORKERS__BOOTSTRAP_TOKEN`, `FLUX_SECURITY__*`, and `FLUX_DATABASE_URL` from child environments — workflow code can no longer read the fleet registration secret from `os.environ`. The only credential in a child is the single-execution token used for `call()` hops.
 - **2026-07-03 — Runners: subprocess by default, at-most-once transient crash semantics.** Execution is pluggable behind a Runner interface (Prefect-style). The subprocess runner is the day-one default — fault isolation out of the box at ~1s spawn cost per execution; latency-sensitive (transient mesh) workflows opt into `runner="inprocess"`. Child crashes follow durability: durable → release + replay-resume, transient → terminal FAILED. Children hold no credentials; all server traffic goes through the parent worker (pipe RPC). A **Docker runner** shipped behind the same interface (`docker run -i` speaks the identical stdio protocol; `--sig-proxy` preserves SIGTERM cancellation, `docker kill` is the escalation; opt-in via `docker_image`). Measured per-execution overhead (1-task workflow, single machine): inprocess ~0.1 ms, subprocess ~0.7 s, docker ~1.6 s with bytecode-precompiled images (~3.1 s without — bake `.pyc` into the image) — concurrency amortizes both to ~0.2 s / ~0.5 s effective at 8 concurrent. Kubernetes remains future work.
 - **2026-07-03 — Dependency posture.** fastmcp floored at 2.14.2 (clears the fixable advisories); the 3.2.0-only advisories are accepted as unused-feature risk until the tracked fastmcp 3.x migration; diskcache advisory accepted (transitive, no fixed release). **Superseded 2026-07-03:** fastmcp migrated to 3.x (floor 3.2.0) — the 3.x meta-package kept the 2.x import layout, so the migration reduced to the floor bump plus replacing one private-attribute access (`FastMCP._tool_manager.get_tool` → the public `FastMCP.get_tool`). All previously-accepted 3.2.0-only advisories are now cleared.
