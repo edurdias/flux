@@ -38,6 +38,11 @@ async def durable_child(ctx: ExecutionContext[int]):
     return await double(ctx.input)
 
 
+@workflow.with_options(durability="transient", runner="subprocess")
+async def transient_isolated(ctx: ExecutionContext[int]):
+    return await double(ctx.input)
+
+
 @pytest.fixture
 def unreachable_server():
     """Point the relay path at a port nothing listens on."""
@@ -90,6 +95,19 @@ def test_durable_object_still_relays(unreachable_server):
 def test_async_mode_still_relays(unreachable_server):
     """mode=async returns an execution_id others can query — server only."""
     ctx = parent_calls_transient_async.run(21)
+    assert ctx.has_failed
+    assert "Could not connect" in str(ctx.output)
+
+
+def test_declared_runner_requirement_disables_fast_path(unreachable_server):
+    """A transient target pinned to an isolating runner must not run in the
+    caller's process — it relays so dispatch honors the runner constraint."""
+
+    @workflow
+    async def parent_calls_isolated(ctx: ExecutionContext[int]):
+        return await call(transient_isolated, ctx.input)
+
+    ctx = parent_calls_isolated.run(21)
     assert ctx.has_failed
     assert "Could not connect" in str(ctx.output)
 

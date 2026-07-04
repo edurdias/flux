@@ -94,6 +94,10 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
         if (
             mode == "sync"
             and workflow.durability == "transient"
+            # A declared runner requirement (subprocess/docker isolation)
+            # must be honored — only runner-agnostic or inprocess targets
+            # may run inside the caller's process.
+            and workflow.runner in (None, "inprocess")
             and settings.workers.transient_fast_path
         ):
             return await _call_in_process(workflow, args)
