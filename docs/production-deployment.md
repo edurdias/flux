@@ -136,9 +136,12 @@ workers advertising it.
   credentials either and SIGTERM-based cancellation works unchanged
   (`--sig-proxy`; escalation is `docker kill`). Configure `docker_image`
   with an image that has flux-core installed at a worker-compatible
-  version — the child entrypoint and context wire format must match — plus
-  optional `docker_network` / `docker_memory` / `docker_cpus` /
-  `docker_extra_args` (volumes, env, `--user`). Use it for untrusted code,
+  version — the child entrypoint and context wire format must match. The
+  official image works directly (pin its tag to the worker's flux-core
+  version; see DOCKER.md), or build on top of it to add workflow
+  dependencies. Optional knobs: `docker_network` / `docker_memory` /
+  `docker_cpus` / `docker_extra_args` (volumes, env, `--user`,
+  `--cap-drop`). Use it for untrusted code,
   conflicting dependency sets, or filesystem isolation. Workers advertising
   `docker` must have a reachable daemon — the worker fails at startup
   otherwise. **Precompile bytecode in the image**

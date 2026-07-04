@@ -7,8 +7,9 @@ cancellation — so the container holds no credentials either: checkpoints,
 progress, secrets, and configs all flow through the parent worker.
 
 The image must have ``flux-core`` installed at a version compatible with the
-worker (the child entrypoint and context wire format must match). Workers
-enable it explicitly:
+worker (the child entrypoint and context wire format must match) — the
+official Flux image satisfies this when its tag matches the worker's
+flux-core version (see DOCKER.md). Workers enable it explicitly:
 
     [flux.workers]
     runners = ["inprocess", "subprocess", "docker"]
