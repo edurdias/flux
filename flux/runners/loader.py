@@ -50,7 +50,9 @@ def find_workflow(module: ModuleType, namespace: str, name: str) -> workflow | N
 class WorkflowModuleLoader:
     """TTL + LRU cache of compiled workflow modules.
 
-    ``ttl=0`` disables caching entirely; ``max_size=0`` keeps the cache
+    ``ttl=0`` disables reuse (every load recompiles), but compiled modules
+    are still tracked so their ``sys.modules`` entries stay bounded by
+    ``max_size`` in long-running processes. ``max_size=0`` keeps the cache
     unbounded (the legacy behavior).
     """
 
@@ -100,10 +102,13 @@ class WorkflowModuleLoader:
         logger.debug("Executing workflow source code")
         exec(source_code, module.__dict__)
 
-        if self._ttl > 0:
-            self._cache[cache_key] = (module, time.monotonic())
-            while self._max_size > 0 and len(self._cache) > self._max_size:
-                _, (evicted, _) = self._cache.popitem(last=False)
-                sys.modules.pop(evicted.__name__, None)
+        # Track even when ttl=0: the module must stay importable while its
+        # workflow runs, so it cannot be dropped from sys.modules here — the
+        # LRU bound is what keeps sys.modules from growing without limit.
+        self._cache[cache_key] = (module, time.monotonic())
+        self._cache.move_to_end(cache_key)
+        while self._max_size > 0 and len(self._cache) > self._max_size:
+            _, (evicted, _) = self._cache.popitem(last=False)
+            sys.modules.pop(evicted.__name__, None)
 
         return module

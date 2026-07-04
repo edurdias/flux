@@ -314,9 +314,12 @@ def worker_matches(
     requests, and required runner. Shared by the SQL dispatch paths and the
     transient (no-row) dispatch, which has no session to hang the check on."""
     if runner is not None:
-        # A worker that never advertised runners is a legacy in-process-only
-        # worker: it can honor runner="inprocess" and nothing else.
-        advertised = getattr(worker, "runners", None) or ["inprocess"]
+        # A worker that never advertised runners (None) is a legacy
+        # in-process-only worker: it can honor runner="inprocess" and nothing
+        # else. An explicitly empty list means "no runners" and matches none.
+        advertised = getattr(worker, "runners", None)
+        if advertised is None:
+            advertised = ["inprocess"]
         if runner not in advertised:
             return False
     if affinity is not None:

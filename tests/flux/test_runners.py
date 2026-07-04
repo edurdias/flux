@@ -261,6 +261,14 @@ class TestRunnerSelection:
         assert worker_matches(legacy, None, None, runner="inprocess")
         assert not worker_matches(legacy, None, None, runner="subprocess")
 
+        # An explicitly empty list means "no runners" — it is not legacy and
+        # must not fall back to inprocess-only matching.
+        none_advertised = MagicMock(labels={}, resources=None, packages=[])
+        none_advertised.runners = []
+        assert not worker_matches(none_advertised, None, None, runner="inprocess")
+        assert not worker_matches(none_advertised, None, None, runner="subprocess")
+        assert worker_matches(none_advertised, None, None, runner=None)
+
     def test_catalog_extracts_runner(self):
         from flux.catalogs import DatabaseWorkflowCatalog
 

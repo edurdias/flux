@@ -54,7 +54,10 @@ class SubprocessRunner(Runner):
         )
 
     async def _force_kill(self, proc):
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            # Best-effort: the child may have exited between the grace
+            # timeout and the kill.
+            proc.kill()
 
     def _reap(self, proc):
         """Called once the child is gone; subclasses release launch state."""

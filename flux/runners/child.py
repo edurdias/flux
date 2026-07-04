@@ -177,7 +177,14 @@ async def _run(request: dict) -> int:
             "value": value,
         }
         task = asyncio.get_running_loop().create_task(io.emit(frame))
-        task.add_done_callback(lambda t: t.exception())  # never let it warn unretrieved
+
+        def _consume(t: asyncio.Task) -> None:
+            # Retrieve the exception so it never warns as unretrieved, but a
+            # cancelled task has none to retrieve (exception() would raise).
+            if not t.cancelled():
+                t.exception()
+
+        task.add_done_callback(_consume)
 
     ctx.set_progress_callback(on_progress)
     set_remote_managers(config=_PipeConfigManager(io), secret=_PipeSecretManager(io))

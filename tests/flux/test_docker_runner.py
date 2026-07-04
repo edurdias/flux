@@ -33,12 +33,7 @@ class TestDockerCommand:
         command = runner._build_command("flux-exec-abc")
 
         assert command[:6] == ["docker", "run", "-i", "--rm", "--name", "flux-exec-abc"]
-        assert command[-3:] == ["flux:test", "python", "-m"] or command[-4:] == [
-            "flux:test",
-            "python",
-            "-m",
-            "flux.runners.child",
-        ]
+        assert command[-4:] == ["flux:test", "python", "-m", "flux.runners.child"]
 
     def test_command_includes_limits_network_and_extra_args(self):
         runner = make_runner(

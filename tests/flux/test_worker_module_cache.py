@@ -79,13 +79,20 @@ def test_unbounded_when_max_size_zero():
     assert len(loader._cache) == 5
 
 
-def test_ttl_zero_disables_caching():
-    loader = WorkflowModuleLoader(ttl=0)
+def test_ttl_zero_disables_reuse_but_bounds_sys_modules():
+    loader = WorkflowModuleLoader(ttl=0, max_size=2)
 
     first = loader.load("default", "wf_a", 1, b64("x = 1"))
     second = loader.load("default", "wf_a", 1, b64("x = 1"))
-    assert first is not second
-    assert len(loader._cache) == 0
+    assert first is not second  # every load recompiles
+
+    # Distinct sources are still tracked, so sys.modules stays bounded.
+    loader.load("default", "wf_b", 1, b64("x = 2"))
+    evictable = second.__name__
+    loader.load("default", "wf_c", 1, b64("x = 3"))
+    loader.load("default", "wf_d", 1, b64("x = 4"))
+    assert len(loader._cache) == 2
+    assert evictable not in sys.modules
 
 
 @pytest.mark.asyncio

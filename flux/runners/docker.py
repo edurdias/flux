@@ -19,6 +19,7 @@ flux-core version (see DOCKER.md). Workers enable it explicitly:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import subprocess
 from typing import TYPE_CHECKING
@@ -124,7 +125,9 @@ class DockerRunner(SubprocessRunner):
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await killer.wait()
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            # Best-effort: docker kill usually already ended the CLI process.
+            proc.kill()
 
     def _reap(self, proc):
         self._containers.pop(proc.pid, None)
