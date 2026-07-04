@@ -58,13 +58,13 @@ class _FrameIO:
         sys.stdout.write(data)
         sys.stdout.flush()
 
-    async def call(self, frame_type: str, names: list[str]) -> dict[str, Any]:
+    async def call(self, frame_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._seq += 1
         rpc_id = self._seq
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[rpc_id] = future
         try:
-            await self.emit({"type": frame_type, "id": rpc_id, "names": names})
+            await self.emit({"type": frame_type, "id": rpc_id, **payload})
             return await future
         finally:
             self._pending.pop(rpc_id, None)
@@ -96,7 +96,7 @@ class _PipeConfigManager(ConfigManager):
         self._io = io
 
     async def get(self, config_requests: list[str]) -> dict[str, Any]:
-        return await self._io.call("configs_request", config_requests)
+        return await self._io.call("configs_request", {"names": config_requests})
 
     async def aclose(self) -> None:
         return None
@@ -118,7 +118,7 @@ class _PipeSecretManager(SecretManager):
         self._io = io
 
     async def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        return await self._io.call("secrets_request", secret_requests)
+        return await self._io.call("secrets_request", {"names": secret_requests})
 
     async def aclose(self) -> None:
         return None
@@ -131,6 +131,38 @@ class _PipeSecretManager(SecretManager):
 
     def all(self) -> list[str]:
         raise NotImplementedError("Secret listing is not available inside a runner child")
+
+
+class _PipeApprovalStore:
+    """Approval gate operations relayed through the parent worker."""
+
+    def __init__(self, io: _FrameIO):
+        self._io = io
+
+    async def get_by_call(self, execution_id: str, task_call_id: str):
+        from flux.approvals import ApprovalSnapshot
+
+        values = await self._io.call(
+            "approval_get_request",
+            {"execution_id": execution_id, "task_call_id": task_call_id},
+        )
+        data = values.get("approval")
+        return ApprovalSnapshot.from_dict(data) if data else None
+
+    async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
+        values = await self._io.call(
+            "approval_register_request",
+            {
+                "execution_id": ctx.execution_id,
+                "task_call_id": task_call_id,
+                "task_name": task_name,
+            },
+        )
+        status = values.get("status", "cancelled")
+        if status in ("created", "exists"):
+            # Reaches the server through the normal checkpoint path.
+            ctx.events.append(awaiting_event)
+        return status
 
 
 async def _run(request: dict) -> int:
@@ -187,7 +219,11 @@ async def _run(request: dict) -> int:
         task.add_done_callback(_consume)
 
     ctx.set_progress_callback(on_progress)
-    set_remote_managers(config=_PipeConfigManager(io), secret=_PipeSecretManager(io))
+    set_remote_managers(
+        config=_PipeConfigManager(io),
+        secret=_PipeSecretManager(io),
+        approvals=_PipeApprovalStore(io),
+    )
 
     definition = request["workflow"]
     # No cache: this process executes exactly one workflow and exits.

@@ -609,6 +609,7 @@ class Worker:
             ExecutionContext: The execution context after workflow execution
         """
         from flux.remote_managers import (
+            RemoteApprovalStore,
             RemoteConfigManager,
             RemoteSecretManager,
             reset_remote_managers,
@@ -623,15 +624,23 @@ class Worker:
             worker_name=self.name,
             execution_id=request.context.execution_id,
         )
+        approval_store = RemoteApprovalStore(
+            server_url,
+            self.session_token,
+            worker_name=self.name,
+        )
         remote_tokens = set_remote_managers(
             config=config_manager,
             secret=secret_manager,
+            approvals=approval_store,
         )
         hooks = RunnerHooks(
             checkpoint=self._checkpoint,
             get_secrets=secret_manager.get,
             get_configs=config_manager.get,
             progress=self._record_progress,
+            get_approval=self._approval_get,
+            register_approval=self._approval_register,
         )
         try:
             return await self._run_workflow(request, hooks)
@@ -639,6 +648,7 @@ class Worker:
             reset_remote_managers(remote_tokens)
             await config_manager.aclose()
             await secret_manager.aclose()
+            await approval_store.aclose()
 
     async def _run_workflow(
         self,
@@ -954,6 +964,24 @@ class Worker:
             headers={**self._auth_headers(), **extra_headers},
             **kwargs,
         )
+
+    async def _approval_get(self, execution_id: str, task_call_id: str) -> dict | None:
+        """Approval-row lookup relayed for a runner child (RunnerHooks)."""
+        response = await self.client.get(
+            f"{self.base_url}/{self.name}/approvals/{execution_id}/{task_call_id}",
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+        return response.json().get("approval")
+
+    async def _approval_register(self, execution_id: str, payload: dict) -> dict:
+        """Approval-row registration relayed for a runner child (RunnerHooks)."""
+        response = await self._authorized_post(
+            f"{self.base_url}/{self.name}/approvals/{execution_id}",
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def _send_checkpoint(
         self,

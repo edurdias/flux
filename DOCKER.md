@@ -57,9 +57,11 @@ RUN pip install --no-cache-dir pandas numpy && \
     python -m compileall -q "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
 ```
 
-The execution child holds no credentials and needs no configuration —
-checkpoints, secrets, and configs flow through the parent worker over the
-container's stdio.
+The execution child holds no worker or fleet credentials and needs no
+configuration — checkpoints, secrets, configs, and approval-gate
+operations flow through the parent worker over the container's stdio. The
+only credential inside the container is the short-lived, single-execution
+token used for `call()` hops back into the server.
 
 ## Running the Server
 

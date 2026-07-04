@@ -169,6 +169,95 @@ class TestSubprocessRunner:
             await asyncio.wait_for(task, timeout=30)
 
 
+class TestChildEnvironment:
+    def test_child_environment_strips_worker_credentials(self, monkeypatch):
+        from flux.runners.subprocess_runner import child_environment
+
+        monkeypatch.setenv("FLUX_WORKERS__BOOTSTRAP_TOKEN", "fleet-secret")
+        monkeypatch.setenv("FLUX_DATABASE_URL", "postgresql://u:p@db/flux")
+        monkeypatch.setenv("FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY", "0" * 64)
+        monkeypatch.setenv("FLUX_SECURITY__AUTH__EXECUTION_TOKEN_SECRET", "sign")
+        monkeypatch.setenv("FLUX_WORKERS__SERVER_URL", "http://localhost:8000")
+        monkeypatch.setenv("MY_WORKFLOW_VAR", "visible")
+
+        env = child_environment()
+
+        assert "FLUX_WORKERS__BOOTSTRAP_TOKEN" not in env
+        assert "FLUX_DATABASE_URL" not in env
+        assert "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY" not in env
+        assert "FLUX_SECURITY__AUTH__EXECUTION_TOKEN_SECRET" not in env
+        # Non-credential config and workflow-code env pass through.
+        assert env["FLUX_WORKERS__SERVER_URL"] == "http://localhost:8000"
+        assert env["MY_WORKFLOW_VAR"] == "visible"
+
+    @pytest.mark.asyncio
+    async def test_subprocess_child_cannot_read_worker_credentials(self, monkeypatch):
+        """End-to-end: workflow code in the child probes its environment."""
+        monkeypatch.setenv("FLUX_WORKERS__BOOTSTRAP_TOKEN", "fleet-secret")
+        monkeypatch.setenv("MY_WORKFLOW_VAR", "visible")
+        source = """
+        import os
+        from flux import ExecutionContext, workflow
+
+        @workflow
+        async def env_probe(ctx: ExecutionContext):
+            return [
+                os.environ.get("FLUX_WORKS__BOOTSTRAP_TOKEN"),
+                os.environ.get("FLUX_WORKERS__BOOTSTRAP_TOKEN"),
+                os.environ.get("MY_WORKFLOW_VAR"),
+            ]
+        """
+        request = make_request(source, "env_probe")
+        runner = SubprocessRunner(term_grace=5)
+
+        result = await runner.execute(request, make_hooks())
+
+        assert result.has_finished and not result.has_failed
+        assert result.output == [None, None, "visible"]
+
+
+class TestApprovalRpcRelay:
+    @pytest.mark.asyncio
+    async def test_resolve_rpc_dispatches_approval_frames(self):
+        runner = SubprocessRunner(term_grace=5)
+        hooks = make_hooks()
+
+        async def get_approval(execution_id, task_call_id):
+            assert (execution_id, task_call_id) == ("e1", "c1")
+            return {"id": "a1", "status": "pending"}
+
+        async def register_approval(execution_id, payload):
+            assert execution_id == "e1"
+            assert payload == {"task_call_id": "c1", "task_name": "deploy"}
+            return {"status": "created"}
+
+        hooks.get_approval = get_approval
+        hooks.register_approval = register_approval
+
+        got = await runner._resolve_rpc(
+            {"type": "approval_get_request", "execution_id": "e1", "task_call_id": "c1"},
+            hooks,
+        )
+        assert got == {"approval": {"id": "a1", "status": "pending"}}
+
+        registered = await runner._resolve_rpc(
+            {
+                "type": "approval_register_request",
+                "execution_id": "e1",
+                "task_call_id": "c1",
+                "task_name": "deploy",
+            },
+            hooks,
+        )
+        assert registered == {"status": "created"}
+
+    @pytest.mark.asyncio
+    async def test_resolve_rpc_rejects_unknown_frames(self):
+        runner = SubprocessRunner(term_grace=5)
+        with pytest.raises(RuntimeError, match="Unknown RPC frame"):
+            await runner._resolve_rpc({"type": "bogus_request", "id": 1}, make_hooks())
+
+
 class TestCrashDurabilityMapping:
     def _make_worker(self):
         from tests.flux.test_worker_checkpoint import make_worker

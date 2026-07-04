@@ -510,11 +510,16 @@ class task:
 
             raise TransientDurabilityError(ctx.execution_id, "requires_approval")
 
-        from flux.approvals import ApprovalManager, ApprovalRejected
+        from flux.approvals import ApprovalRejected, LocalApprovalStore
+        from flux.remote_managers import get_remote_approvals
+
+        # Transport-appropriate store: the server API on distributed workers
+        # (or the parent-worker pipe in runner children); direct database
+        # access only for inline executions, which own a connection anyway.
+        store = get_remote_approvals() or LocalApprovalStore()
 
         try:
-            mgr = ApprovalManager()
-            existing = mgr.get_by_call(ctx.execution_id, call_id)
+            existing = await store.get_by_call(ctx.execution_id, call_id)
 
             if existing is not None:
                 verdict_required = True
@@ -525,10 +530,6 @@ class task:
                 return False
 
             if existing is None:
-                from flux.context_managers import ContextManager
-                from flux.unit_of_work import UnitOfWork
-
-                cm = ContextManager.create()
                 awaiting_event = ExecutionEvent(
                     type=ExecutionEventType.TASK_AWAITING_APPROVAL,
                     source_id=call_id,
@@ -540,31 +541,16 @@ class task:
                         "task_name": self.name,
                     },
                 )
-                with UnitOfWork() as uow:
-                    ctx.events.append(awaiting_event)
-                    # Persist the execution context *before* the approval row
-                    # is flushed so the approval_requests.execution_id foreign
-                    # key has its target row (enforced on PostgreSQL). If a
-                    # concurrent cancel already moved the execution to
-                    # CANCELLING (or a terminal state), the state write is
-                    # rejected — drop the in-memory awaiting event (so the
-                    # cancellation checkpoint doesn't persist it), skip creating
-                    # a PENDING approval on a no-longer-pausable execution, and
-                    # unwind the task so the cancellation flow proceeds.
-                    if not cm.save_checked(ctx, uow=uow):
-                        ctx.events.remove(awaiting_event)
-                        raise asyncio.CancelledError()
-                    mgr.create(
-                        execution_id=ctx.execution_id,
-                        task_call_id=call_id,
-                        workflow_namespace=ctx.workflow_namespace,
-                        workflow_name=ctx.workflow_name,
-                        task_name=self.name,
-                        uow=uow,
-                    )
-                    uow.commit()
+                # The store persists the PENDING row (and, for the local
+                # store, the awaiting event atomically with it). "cancelled"
+                # means a concurrent cancel already made the execution
+                # non-pausable — unwind so the cancellation flow proceeds.
+                status = await store.register(ctx, call_id, self.name, awaiting_event)
+                if status == "cancelled":
+                    raise asyncio.CancelledError()
 
-            verdict = ctx._await_approval(call_id)
+            snapshot = await store.get_by_call(ctx.execution_id, call_id)
+            verdict = ctx._await_approval(call_id, snapshot)
         except (PauseRequested, asyncio.CancelledError):
             # Expected suspension / cancellation signals — propagate untouched.
             raise

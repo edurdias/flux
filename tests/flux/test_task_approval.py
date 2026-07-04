@@ -69,13 +69,22 @@ def _build_test_ctx():
     )
 
 
+def _snapshot(ctx, call_id):
+    """Fetch the approval snapshot the way the gate does (local store)."""
+    import asyncio
+
+    from flux.approvals import LocalApprovalStore
+
+    return asyncio.run(LocalApprovalStore().get_by_call(ctx.execution_id, call_id))
+
+
 def test_await_approval_pending_raises_pause_requested(isolated_db):
     """If the approval row doesn't exist or is pending, _await_approval raises PauseRequested."""
     from flux.tasks.pause import PauseRequested
 
     ctx = _build_test_ctx()
     with pytest.raises(PauseRequested):
-        ctx._await_approval("nonexistent-call-id")
+        ctx._await_approval("nonexistent-call-id", None)
 
 
 def test_await_approval_pending_pause_carries_metadata_payload(isolated_db):
@@ -93,7 +102,7 @@ def test_await_approval_pending_pause_carries_metadata_payload(isolated_db):
         uow.commit()
 
     with pytest.raises(PauseRequested) as exc_info:
-        ctx._await_approval("call-meta-1")
+        ctx._await_approval("call-meta-1", _snapshot(ctx, "call-meta-1"))
 
     output = exc_info.value.output
     assert output is not None
@@ -127,7 +136,7 @@ def test_await_approval_approved_returns_verdict(isolated_db):
             uow=uow,
         )
         uow.commit()
-    verdict = ctx._await_approval("call-app-1")
+    verdict = ctx._await_approval("call-app-1", _snapshot(ctx, "call-app-1"))
     assert verdict.approved is True
     assert verdict.approver_subject == "alice"
     assert verdict.cancelled is False
@@ -154,7 +163,7 @@ def test_await_approval_rejected_raises_approval_rejected(isolated_db):
         )
         uow.commit()
     with pytest.raises(ApprovalRejected) as exc_info:
-        ctx._await_approval("call-rej-1")
+        ctx._await_approval("call-rej-1", _snapshot(ctx, "call-rej-1"))
     assert exc_info.value.approver_subject == "bob"
 
 
@@ -171,7 +180,7 @@ def test_await_approval_cancelled_returns_cancelled_verdict(isolated_db):
         count = mgr.cancel_pending_for_execution(ctx.execution_id, uow=uow)
         uow.commit()
     assert count == 1
-    verdict = ctx._await_approval("call-cnl-1")
+    verdict = ctx._await_approval("call-cnl-1", _snapshot(ctx, "call-cnl-1"))
     assert verdict.cancelled is True
     assert verdict.approved is False
 

@@ -19,14 +19,19 @@ class RunnerHooks:
     ``checkpoint`` is the worker's outbox entry point — delta encoding,
     claim-generation fencing, retry, terminal blocking, and transient
     suppression all live behind it, so the server cannot tell runners apart.
-    ``get_secrets``/``get_configs`` resolve against the server with the
-    worker's credentials; child processes never hold a network credential.
+    ``get_secrets``/``get_configs``/``get_approval``/``register_approval``
+    resolve against the server with the worker's credentials; child
+    processes never hold a worker or fleet credential.
     """
 
     checkpoint: Callable[[ExecutionContext], Awaitable[Any]]
     get_secrets: Callable[[list[str]], Awaitable[dict[str, Any]]]
     get_configs: Callable[[list[str]], Awaitable[dict[str, Any]]]
     progress: Callable[[str, str, str, Any], None] | None = None
+    # Approval-gate relay: (execution_id, task_call_id) -> snapshot dict | None,
+    # and (execution_id, {task_call_id, task_name}) -> {"status": ...}.
+    get_approval: Callable[[str, str], Awaitable[dict[str, Any] | None]] | None = None
+    register_approval: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None
 
 
 class Runner(ABC):

@@ -115,19 +115,33 @@ Each execution runs through a **runner** (Prefect-style). Workers enable
 runners via `[flux.workers] runners` (advertised at registration) and pick
 `default_runner` for workflows that don't declare one; a workflow can pin
 one with `@workflow.with_options(runner=...)` and will only dispatch to
-workers advertising it.
+workers advertising it. (As an env var the list is JSON:
+`FLUX_WORKERS__RUNNERS='["inprocess","subprocess"]'`.)
+
+Execution-side processes never touch the database: secrets, configs, and
+the **approval gate** (`requires_approval`) all resolve through the server
+— workers call worker-scoped endpoints, and runner children reach them
+through their parent worker's pipe. Only the server (and inline
+`workflow.run()` executions, which own their own database) read or write
+approval rows.
 
 - **`subprocess` (the default)** — each execution gets its own child
   process. A crash, OOM, or event-loop-blocking call cannot take down the
   worker or co-resident executions; cancellation and drain are enforced
   with SIGTERM → `subprocess_term_grace` → SIGKILL, which works even
   against code stuck in sync C calls; `subprocess_memory_limit` (Linux)
-  bounds per-child address space. The child holds **no credentials** —
-  checkpoints, progress, secrets, and configs flow through the parent
-  worker over a pipe, so the server-facing protocol (delta checkpoints,
-  claim fencing, transient suppression) is identical to in-process
-  execution. Cost: roughly a second of process spawn + import per
-  execution.
+  bounds per-child address space. The child holds **no worker or fleet
+  credentials**: its environment is sanitized (the bootstrap token,
+  `FLUX_SECURITY__*`, and `FLUX_DATABASE_URL` are stripped), and
+  checkpoints, progress, secrets, configs, and approval-gate operations
+  all flow through the parent worker over a pipe — the server-facing
+  protocol (delta checkpoints, claim fencing, transient suppression) is
+  identical to in-process execution. The only credential in the child is
+  the short-lived, single-execution token used for `call()` hops. Cost:
+  roughly a second of process spawn + import per execution. Note: if the
+  worker reads secrets from a `flux.toml` on disk rather than env vars,
+  file permissions are your containment boundary — the docker runner
+  isolates the filesystem too.
 - **`inprocess`** — the workflow runs as a task on the worker's event
   loop. Lowest latency, no isolation: reserve it for trusted, async-clean,
   latency-sensitive workflows — transient mesh hops especially.
