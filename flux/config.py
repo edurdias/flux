@@ -144,6 +144,15 @@ class WorkersConfig(BaseConfig):
             "(e.g. volumes, env vars, --user)"
         ),
     )
+    transient_fast_path: bool = Field(
+        default=True,
+        description=(
+            "Execute call() targets that are transient workflow objects "
+            "in-process (same worker, no dispatch round-trip, no execution "
+            "row) — the mesh fast path. Disable to force every call() "
+            "through the server"
+        ),
+    )
     max_concurrent_executions: int = Field(
         default=16,
         description=(

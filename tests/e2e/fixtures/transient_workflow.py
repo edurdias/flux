@@ -81,5 +81,12 @@ async def durable_sibling(ctx: ExecutionContext[int]):
 
 @workflow
 async def durable_calls_transient(ctx: ExecutionContext[int]):
-    """Mesh hop: a durable parent invoking a transient child via call()."""
+    """Mesh hop via server relay: a string reference always dispatches."""
     return await call("transient_double", ctx.input)
+
+
+@workflow
+async def durable_calls_transient_fast(ctx: ExecutionContext[int]):
+    """Mesh hop via the same-worker fast path: a transient workflow *object*
+    executes in-process on the worker — no dispatch, no execution row."""
+    return await call(transient_double, ctx.input)

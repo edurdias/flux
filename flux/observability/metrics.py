@@ -92,6 +92,15 @@ class FluxMetrics:
             "flux_checkpoints_total",
             description="Checkpoint events",
         )
+        self.transient_hops = meter.create_counter(
+            "flux_transient_hops_total",
+            description="In-process transient call() hops (mesh fast path)",
+        )
+        self.transient_hop_duration = meter.create_histogram(
+            "flux_transient_hop_duration_seconds",
+            description="In-process transient call() hop duration",
+            unit="s",
+        )
         self.checkpoint_duration = meter.create_histogram(
             "flux_checkpoint_duration_seconds",
             description="Checkpoint HTTP round-trip duration",
@@ -164,6 +173,27 @@ class FluxMetrics:
                 "status": "started",
             },
         )
+
+    def record_transient_hop(
+        self,
+        namespace: str,
+        workflow_name: str,
+        outcome: str,
+        duration: float,
+    ):
+        """One in-process transient call() hop. These bypass the server, so
+        this metric is the mesh's aggregate observability."""
+        attributes = {
+            "workflow_namespace": namespace,
+            "workflow_name": workflow_name,
+            "outcome": outcome,
+        }
+        self.transient_hops.add(1, attributes)
+        if duration > 0:
+            self.transient_hop_duration.record(
+                duration,
+                {"workflow_namespace": namespace, "workflow_name": workflow_name},
+            )
 
     def record_workflow_completed(
         self,
