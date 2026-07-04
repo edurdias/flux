@@ -53,12 +53,15 @@ jobs:
       uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/flux
+        # Version tags come from pyproject.toml (extracted above), not from
+        # git tags — this repo does not push v* tags, so plain type=semver
+        # entries never fired and images were published as main/latest only.
+        # The explicit value makes every main publish also produce X.Y.Z and
+        # X.Y, which is what docker-runner users pin docker_image to.
         tags: |
           type=ref,event=branch
-          type=ref,event=pr
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
+          type=semver,pattern={{version}},value=v${{ steps.version.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.version }}
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
