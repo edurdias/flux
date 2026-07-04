@@ -97,7 +97,16 @@ docker run \
 
 ## Using Docker Compose
 
-For a complete setup with server and multiple workers:
+**Full-stack example**: `examples/docker/docker-compose.full.yml` runs every
+role from the official image — PostgreSQL, server (event dispatch, auth,
+retention, observability), general workers, a docker-runner worker, a
+labeled worker for affinity routing, the MCP server, an HTTP-served AI
+agent (`--profile agents`), and an OTel collector + Prometheus stack
+(`--profile observability`). It requires real secrets via environment
+variables and refuses to start without them.
+
+The root `docker-compose.yml` below is the DEVELOPMENT-ONLY stack with
+server and multiple workers:
 
 ```bash
 # Start the entire stack

@@ -1,0 +1,170 @@
+# =============================================================================
+# Flux — full-stack example: every role from the single official image.
+#
+#   docker compose -f examples/docker/docker-compose.full.yml up -d
+#
+# Services (one image, roles chosen by FLUX_MODE or an explicit command):
+#   postgres            PostgreSQL 16 — required beyond single-node
+#   flux-server         API + integrated scheduler + event dispatcher
+#   flux-worker         general workers ×2 (subprocess runner, isolated children)
+#   flux-worker-docker  worker offering container-per-execution (docker runner)
+#   flux-worker-gpu     labeled worker for affinity routing (--label gpu=true)
+#   flux-mcp            MCP server exposing registered workflows as tools
+#   flux-agent          AI agent served over HTTP        (profile: agents)
+#   otel-collector      OTLP traces/metrics sink         (profile: observability)
+#   prometheus          scrapes the collector            (profile: observability)
+#
+# Before first run — provision real secrets (never commit them):
+#   export PG_PASSWORD=$(openssl rand -hex 16)
+#   export BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+#   export EXEC_TOKEN_SECRET=$(openssl rand -hex 32)
+#   export ENCRYPTION_KEY=$(openssl rand -hex 32)
+#
+# Then register workflows with the same image:
+#   docker compose -f examples/docker/docker-compose.full.yml \
+#     run --rm -v ./my_workflows.py:/w.py flux-server \
+#     flux --server-url http://flux-server:8000 workflow register /w.py
+#
+# Production notes: terminate TLS in front of flux-server (hard requirement);
+# scale servers/workers freely (replicas coordinate through PostgreSQL);
+# see docs/production-deployment.md for the full checklist.
+# =============================================================================
+
+x-flux-image: &flux-image
+  image: edurdias/flux:0.53.1   # pin the tag to the flux-core version you run
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges]
+
+x-worker-env: &worker-env
+  FLUX_MODE: worker
+  FLUX_SERVER_URL: http://flux-server:8000
+  FLUX_WORKERS__BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?export BOOTSTRAP_TOKEN first}
+  FLUX_WORKERS__MAX_CONCURRENT_EXECUTIONS: "16"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: flux
+      POSTGRES_USER: flux
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?export PG_PASSWORD first}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flux -d flux"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  flux-server:
+    <<: [*flux-image, *hardening]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FLUX_DATABASE_URL: postgresql://flux:${PG_PASSWORD}@postgres:5432/flux
+      FLUX_DISPATCH__MODE: event                    # LISTEN/NOTIFY dispatch plane
+      FLUX_WORKERS__BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?export BOOTSTRAP_TOKEN first}
+      FLUX_SECURITY__AUTH__ENABLED: "true"
+      FLUX_SECURITY__AUTH__API_KEYS__ENABLED: "true"
+      FLUX_SECURITY__EXECUTION_TOKEN_SECRET: ${EXEC_TOKEN_SECRET:?export EXEC_TOKEN_SECRET first}
+      FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY: ${ENCRYPTION_KEY:?export ENCRYPTION_KEY first}
+      FLUX_RETENTION__ENABLED: "true"               # prune finished executions/events
+      FLUX_OBSERVABILITY__ENABLED: "true"
+      FLUX_OBSERVABILITY__OTLP_ENDPOINT: http://otel-collector:4317
+    ports:
+      - "8000:8000"
+    volumes:
+      - flux-storage:/app/.flux                     # task outputs / local storage
+
+  # General-purpose workers. The default subprocess runner gives every
+  # execution its own credential-sanitized child process out of the box.
+  flux-worker:
+    <<: [*flux-image, *hardening]
+    depends_on: [flux-server]
+    deploy:
+      replicas: 2
+    environment:
+      <<: *worker-env
+    stop_grace_period: 90s                          # drain_timeout + margin
+
+  # Container-per-execution isolation: this worker offers the docker runner,
+  # so workflows declaring @workflow.with_options(runner="docker") land here.
+  # Needs a Docker daemon — the socket mount hands this container control of
+  # the host daemon, so treat it as trusted infrastructure (it already holds
+  # the bootstrap token). No cap_drop here: the docker CLI needs the socket.
+  flux-worker-docker:
+    <<: *flux-image
+    depends_on: [flux-server]
+    environment:
+      <<: *worker-env
+      FLUX_WORKERS__RUNNERS: '["inprocess", "subprocess", "docker"]'
+      FLUX_WORKERS__DOCKER_IMAGE: edurdias/flux:0.53.1
+      FLUX_WORKERS__DOCKER_EXTRA_ARGS: '["--cap-drop=ALL", "--security-opt=no-new-privileges"]'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    stop_grace_period: 90s
+
+  # Labeled worker: workflows with affinity={"gpu": "true"} dispatch only
+  # here. Any explicit command overrides FLUX_MODE — that's how labels and
+  # other CLI flags are passed.
+  flux-worker-gpu:
+    <<: [*flux-image, *hardening]
+    depends_on: [flux-server]
+    environment:
+      FLUX_WORKERS__BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:?export BOOTSTRAP_TOKEN first}
+    command: flux start worker gpu-worker --server-url http://flux-server:8000 --label gpu=true
+    stop_grace_period: 90s
+
+  # Registered workflows exposed as MCP tools (Claude Desktop, IDEs, ...).
+  flux-mcp:
+    <<: [*flux-image, *hardening]
+    depends_on: [flux-server]
+    environment:
+      FLUX_MODE: mcp
+      FLUX_SERVER_URL: http://flux-server:8000
+      FLUX_MCP_NAME: flux-workflows
+    ports:
+      - "8080:8080"
+
+  # AI agent served over HTTP. Create the definition once, then start:
+  #   docker compose run --rm flux-server \
+  #     flux --server-url http://flux-server:8000 agent create assistant \
+  #       --model openai/gpt-5 --instructions "You are a helpful assistant."
+  #   docker compose --profile agents up -d flux-agent
+  # (`-m web` serves the chat UI instead of the JSON API.)
+  flux-agent:
+    <<: [*flux-image, *hardening]
+    profiles: [agents]
+    depends_on: [flux-server]
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}           # provider key for the agent's model
+    command: flux agent start assistant -m api --host 0.0.0.0 -p 8081 --server http://flux-server:8000
+    ports:
+      - "8081:8081"
+
+  # --- Observability (profile: observability) ------------------------------
+  # docker compose --profile observability up -d
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    profiles: [observability]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ../../docker/observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC in
+      - "8889:8889"   # Prometheus exposition out
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: [observability]
+    volumes:
+      - ../../docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+volumes:
+  pgdata:
+  flux-storage:
