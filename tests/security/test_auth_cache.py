@@ -63,6 +63,21 @@ class TestPermissionCache:
         assert op_perms is not viewer_perms
 
     @pytest.mark.asyncio
+    async def test_cached_permissions_are_immutable(self):
+        """A caller cannot poison later authorization decisions by mutating
+        the returned (cached, shared) permission set."""
+        service, _ = make_service()
+        identity = FluxIdentity(subject="w1", roles=frozenset({"operator"}))
+
+        first = await service.resolve_permissions(identity)
+        assert isinstance(first, frozenset)
+        with pytest.raises(AttributeError):
+            first.add("admin:*")  # type: ignore[attr-defined]
+
+        second = await service.resolve_permissions(identity)
+        assert second == {"workflow:*:run"}
+
+    @pytest.mark.asyncio
     async def test_role_mutation_invalidates_cache(self):
         registry = MagicMock()
         registry.get_roles.return_value = ["operator"]
