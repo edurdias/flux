@@ -197,11 +197,12 @@ class Dispatcher:
                 logger.error("Dispatch cycle failed", exc_info=True)
 
     def _connected_workers(self):
-        """Snapshot of workers with a live SSE queue on this replica."""
+        """Snapshot of dispatchable workers on this replica: a live SSE
+        queue and not self-reported unhealthy (event-loop starvation)."""
         return [
             info
             for name, info in list(self._server._worker_info.items())
-            if name in self._server._worker_queues
+            if name in self._server._worker_queues and name not in self._server._worker_unhealthy
         ]
 
     async def _dispatch_cycle(self):

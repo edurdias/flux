@@ -138,6 +138,14 @@ class Worker:
         self._max_concurrent = config.max_concurrent_executions
         self._drain_timeout = config.drain_timeout
         self._draining = False
+        # Self-health: an event-loop starved by misbehaving in-process code
+        # makes the worker a black hole (accepts dispatches it can't run).
+        # The lag monitor flips this off after consecutive breaches; while
+        # unhealthy the worker declines/releases new work and advertises the
+        # state on heartbeats so dispatch routes around it.
+        self._healthy = True
+        self._loop_lag_threshold = config.loop_lag_threshold
+        self._loop_lag_probe_interval = config.loop_lag_probe_interval
         self._registered = False
         self.session_token: str | None = None
 
@@ -197,6 +205,10 @@ class Worker:
                 # SIGINT->KeyboardInterrupt behaviour still applies there.
                 logger.debug(f"Could not install {sig.name} handler via event loop")
 
+        health_monitor: asyncio.Task | None = None
+        if self._loop_lag_threshold > 0:
+            health_monitor = asyncio.create_task(self._monitor_loop_health())
+
         backoff = 1
         try:
             while True:
@@ -234,7 +246,64 @@ class Worker:
             # so drain what is already running. A second signal cancels again,
             # which interrupts the drain's awaits and exits immediately.
             self._draining = True
+            if health_monitor is not None:
+                health_monitor.cancel()
             await self._drain()
+
+    async def _monitor_loop_health(self):
+        """Detect event-loop starvation and step out of the dispatch pool.
+
+        Measures scheduling lag (actual vs requested sleep). Three
+        consecutive probes over ``loop_lag_threshold`` flip the worker
+        unhealthy: new dispatches are released back for re-dispatch and
+        heartbeat pongs advertise the state so the server routes around this
+        worker. Running executions are left to finish. Three consecutive
+        clean probes recover. Note the probe itself runs on the starved loop
+        — under total starvation it can't fire at all, and the server-side
+        heartbeat reaper remains the backstop.
+        """
+        breaches = 0
+        recoveries = 0
+        while True:
+            start = time.monotonic()
+            await asyncio.sleep(self._loop_lag_probe_interval)
+            lag = time.monotonic() - start - self._loop_lag_probe_interval
+
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_loop_lag(lag)
+
+            if lag >= self._loop_lag_threshold:
+                recoveries = 0
+                breaches += 1
+                if breaches >= 3 and self._healthy:
+                    self._healthy = False
+                    logger.error(
+                        f"Event loop starved (lag {lag:.2f}s >= "
+                        f"{self._loop_lag_threshold}s for {breaches} probes); "
+                        f"marking worker unhealthy — declining new work until "
+                        f"the loop recovers",
+                    )
+                    if m:
+                        m.record_worker_health_transition("unhealthy")
+                    # Tell the server immediately instead of waiting for the
+                    # next ping/pong round-trip.
+                    asyncio.create_task(self._send_pong())
+            else:
+                breaches = 0
+                if not self._healthy:
+                    recoveries += 1
+                    if recoveries >= 3:
+                        self._healthy = True
+                        recoveries = 0
+                        logger.warning(
+                            "Event loop recovered; worker healthy — accepting work again",
+                        )
+                        if m:
+                            m.record_worker_health_transition("recovered")
+                        asyncio.create_task(self._send_pong())
 
     async def _drain(self):
         """Let running executions finish, then flush their checkpoints.
@@ -364,10 +433,10 @@ class Worker:
             raise
 
     async def _send_pong(self):
-        """Respond to server ping with a pong."""
+        """Respond to server ping with a pong carrying the health state."""
         base_url = f"{self.base_url}/{self.name}"
         try:
-            await self._authorized_post(f"{base_url}/pong")
+            await self._authorized_post(f"{base_url}/pong", json={"healthy": self._healthy})
             logger.debug("Pong sent")
         except Exception as e:
             logger.debug(f"Failed to send pong: {e}")
@@ -433,6 +502,14 @@ class Worker:
                     "flux.worker.name": self.name,
                 },
             )
+
+        if not self._healthy:
+            logger.warning(
+                f"Unhealthy (event-loop lag); releasing resumed execution "
+                f"{request.context.execution_id} for re-dispatch",
+            )
+            await self._release_claim(request.context.execution_id)
+            return
 
         try:
             with span_cm as span:
@@ -534,6 +611,17 @@ class Worker:
                 f"Draining; not claiming execution {request.context.execution_id} "
                 f"(will be re-dispatched)",
             )
+            return
+
+        if not self._healthy:
+            # Unlike draining (where disconnect drains the queue), an
+            # unhealthy worker stays connected — release the assignment
+            # explicitly so it re-dispatches now instead of idling on us.
+            logger.warning(
+                f"Unhealthy (event-loop lag); releasing execution "
+                f"{request.context.execution_id} for re-dispatch",
+            )
+            await self._release_claim(request.context.execution_id)
             return
 
         is_transient = bool(event_data.get("transient"))
@@ -726,8 +814,10 @@ class Worker:
         return ctx
 
     async def _release_claim(self, execution_id: str):
-        """Hand a crashed durable execution back for re-dispatch.
+        """Hand an assigned execution back to the server for re-dispatch.
 
+        Used when this worker cannot run work it was given: a crashed
+        durable runner child, or a dispatch that arrived while unhealthy.
         Fenced by claim generation like checkpoints: if the server says the
         claim is stale, another worker already owns the execution and there
         is nothing to release.
@@ -772,7 +862,7 @@ class Worker:
             except Exception as e:
                 if attempt == 4:
                     logger.critical(
-                        f"Could not release crashed execution {execution_id} "
+                        f"Could not release execution {execution_id} "
                         f"({type(e).__name__}: {e}); the server reaper will "
                         f"recover it when this worker's claim goes stale",
                     )

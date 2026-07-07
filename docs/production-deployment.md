@@ -117,6 +117,15 @@ the same path. Plain HTTP round-robin works for everything else.
   reassigned, its later checkpoints are rejected (stale claim generation)
   and it aborts those local runs — expect `stale-claim` warnings in worker
   logs after partitions heal; they are the mechanism working.
+- **Self-health**: each worker probes its own event-loop lag
+  (`FLUX_WORKERS__LOOP_LAG_THRESHOLD`, default 1 s; 0 disables). Three
+  consecutive breaches — typically in-process workflow code blocking the
+  loop — mark it unhealthy: it releases newly-assigned work for immediate
+  re-dispatch, its heartbeat advertises the state, dispatch routes around
+  it, and `GET /workers` shows `unhealthy`. Running executions finish
+  untouched; three clean probes recover it. Under *total* starvation the
+  probe itself cannot fire — missed pongs and the eviction reaper remain
+  the backstop for that case.
 
 ## Runners: where workflow code executes
 
@@ -219,6 +228,14 @@ unchanged latency. Limits:
 - Works in both dispatch modes and with sync/async/stream callers.
 - Pair with `runner="inprocess"` to also skip the per-execution process
   spawn — the lowest-latency configuration for trusted mesh hops.
+
+**Sticky routing for relayed calls.** A `call()` that does relay through
+the server (string references, `mode="async"`, runner-constrained targets)
+tags the child with the calling worker's name; dispatch prefers that
+worker whenever it is eligible (connected, healthy, free capacity,
+runner/label match), keeping the hop on the worker whose module cache is
+already warm. It is a hint, never a constraint — an ineligible preferred
+worker falls back to least-loaded, and poll-mode dispatch ignores it.
 
 **Same-worker fast path.** A `call()` whose target is a **transient
 workflow object** (not a string reference) executes in-process on the

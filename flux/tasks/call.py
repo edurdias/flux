@@ -111,19 +111,30 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
 
     server_url = settings.workers.server_url
 
+    # Sticky-routing hint: when relaying from a worker, tag the child with
+    # this worker's name so dispatch prefers it (warm module cache) whenever
+    # it is eligible. A hint only — the server's matching still decides.
+    headers: dict[str, str] = {}
+    try:
+        current = await ExecutionContext.get()
+        if current is not None and current.current_worker:
+            headers["X-Flux-Preferred-Worker"] = current.current_worker
+    except Exception:
+        pass
+
     try:
         payload = args[0] if len(args) == 1 else args
         url = f"{server_url}/workflows/{namespace}/{name}/run/{mode}"
 
         async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
             if mode == "async":
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
                 return data["execution_id"]
 
             url = f"{url}?detailed=true"
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
 
             data = response.json()

@@ -92,6 +92,15 @@ class FluxMetrics:
             "flux_checkpoints_total",
             description="Checkpoint events",
         )
+        self.worker_loop_lag = meter.create_histogram(
+            "flux_worker_loop_lag_seconds",
+            description="Event-loop scheduling lag measured by the worker health probe",
+            unit="s",
+        )
+        self.worker_health_transitions = meter.create_counter(
+            "flux_worker_health_transitions_total",
+            description="Worker self-health state changes (unhealthy/recovered)",
+        )
         self.transient_hops = meter.create_counter(
             "flux_transient_hops_total",
             description="In-process transient call() hops (mesh fast path)",
@@ -173,6 +182,13 @@ class FluxMetrics:
                 "status": "started",
             },
         )
+
+    def record_loop_lag(self, lag_seconds: float):
+        if lag_seconds > 0:
+            self.worker_loop_lag.record(lag_seconds)
+
+    def record_worker_health_transition(self, state: str):
+        self.worker_health_transitions.add(1, {"state": state})
 
     def record_transient_hop(
         self,

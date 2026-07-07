@@ -144,6 +144,21 @@ class WorkersConfig(BaseConfig):
             "(e.g. volumes, env vars, --user)"
         ),
     )
+    loop_lag_threshold: float = Field(
+        default=1.0,
+        ge=0,
+        description=(
+            "Event-loop lag in seconds beyond which a health probe counts as "
+            "a breach; three consecutive breaches mark the worker unhealthy "
+            "(it declines new work and advertises the state on heartbeats "
+            "until three clean probes). 0 disables self-health monitoring"
+        ),
+    )
+    loop_lag_probe_interval: float = Field(
+        default=1.0,
+        gt=0,
+        description="Seconds between event-loop lag probes",
+    )
     transient_fast_path: bool = Field(
         default=True,
         description=(
