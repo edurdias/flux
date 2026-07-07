@@ -216,6 +216,7 @@ class WorkerRoutesMixin:
                     else [],
                     labels=registration.labels,
                 )
+                self._worker_unhealthy.discard(registration.name)
                 if registration.name in self._worker_names:
                     self._worker_offline_since.pop(registration.name, None)
                 else:
@@ -251,12 +252,30 @@ class WorkerRoutesMixin:
         @api.post("/workers/{name}/pong")
         async def workers_pong(
             name: str,
+            payload: dict | None = Body(None),
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
-            """Receive heartbeat pong from a worker."""
+            """Receive heartbeat pong from a worker.
+
+            The optional body carries self-health ({"healthy": bool}):
+            unhealthy workers stay connected (running work finishes, the
+            reaper is not involved) but are excluded from new dispatch until
+            they report healthy again. Legacy workers send no body.
+            """
             try:
                 self._verify_worker_identity(identity, name)
                 await self._record_heartbeat(name)
+                healthy = True if payload is None else bool(payload.get("healthy", True))
+                if healthy:
+                    if name in self._worker_unhealthy:
+                        logger.info(f"Worker {name} reports healthy again; resuming dispatch")
+                    self._worker_unhealthy.discard(name)
+                elif name not in self._worker_unhealthy:
+                    logger.warning(
+                        f"Worker {name} reports unhealthy (event-loop starvation); "
+                        f"excluding it from dispatch until it recovers",
+                    )
+                    self._worker_unhealthy.add(name)
                 logger.debug(f"Pong received from worker {name}")
                 return {"status": "ok"}
             except HTTPException:
@@ -283,6 +302,7 @@ class WorkerRoutesMixin:
                 if name not in self._worker_names:
                     self._worker_names.append(name)
                 self._worker_offline_since.pop(name, None)
+                self._worker_unhealthy.discard(name)
                 await self._record_heartbeat(name)
                 gen = self._worker_connection_gen.get(name, 0) + 1
                 self._worker_connection_gen[name] = gen
@@ -373,6 +393,12 @@ class WorkerRoutesMixin:
                                         "event": "ping",
                                         "data": "",
                                     }
+
+                                # Self-reported unhealthy (event-loop lag):
+                                # skip new work, keep pings/cancellations.
+                                if name in self._worker_unhealthy:
+                                    await asyncio.sleep(fallback_interval)
+                                    continue
 
                                 ctx = await asyncio.to_thread(
                                     context_manager.next_execution,
@@ -946,6 +972,8 @@ class WorkerRoutesMixin:
                     # read "online" for the rest of its heartbeat window). The
                     # persisted-heartbeat fallback covers workers attached to
                     # OTHER replicas, which this process cannot see directly.
+                    if info.name in self._worker_unhealthy:
+                        return "unhealthy"
                     if info.name in self._worker_names:
                         return "online"
                     if info.name in self._worker_offline_since:

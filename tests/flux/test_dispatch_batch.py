@@ -302,3 +302,36 @@ def test_unlimited_capacity_workers_keep_legacy_behavior(clean_env):
 
     assignments = cm.next_executions_batch([w1], limit=10)
     assert len(assignments) == 3
+
+
+def test_batch_honors_preferred_worker_hint(clean_env):
+    """A sticky-routing hint beats least-loaded when the worker is eligible."""
+    cm, registry = clean_env
+    w1 = _register_worker(registry, "w1")
+    w2 = _register_worker(registry, "w2")
+    wf_id = _create_workflow("plain")
+
+    # Load w2 so least-loaded would pick w1; the hint must still win.
+    busy = _create_execution(cm, wf_id, name="plain")
+    _force_state(busy.execution_id, ExecutionState.RUNNING, worker_name="w2")
+    hinted = _create_execution(cm, wf_id, name="plain")
+    cm.set_preferred_worker(hinted.execution_id, "w2")
+
+    assignments = cm.next_executions_batch([w1, w2], limit=10)
+
+    assigned = {ctx.execution_id: worker for ctx, worker in assignments}
+    assert assigned[hinted.execution_id] == "w2"
+
+
+def test_preferred_worker_hint_falls_back_when_ineligible(clean_env):
+    """A hint naming a worker that is not dispatchable is ignored."""
+    cm, registry = clean_env
+    w1 = _register_worker(registry, "w1")
+    wf_id = _create_workflow("plain")
+    hinted = _create_execution(cm, wf_id, name="plain")
+    cm.set_preferred_worker(hinted.execution_id, "ghost-worker")
+
+    assignments = cm.next_executions_batch([w1], limit=10)
+
+    assigned = {ctx.execution_id: worker for ctx, worker in assignments}
+    assert assigned[hinted.execution_id] == "w1"

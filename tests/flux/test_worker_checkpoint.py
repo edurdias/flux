@@ -30,6 +30,7 @@ def make_worker() -> Worker:
     worker._default_runner = "subprocess"
     worker._draining = False
     worker._drain_timeout = 5
+    worker._healthy = True
     return worker
 
 

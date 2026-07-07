@@ -154,6 +154,14 @@ class ContextManager(ABC):
         raise NotImplementedError()
 
     @abstractmethod
+    def set_preferred_worker(
+        self,
+        execution_id: str,
+        worker_name: str,
+    ) -> None:  # pragma: no cover
+        raise NotImplementedError()
+
+    @abstractmethod
     def get_claim_generation(self, execution_id: str) -> int:  # pragma: no cover
         """Current fencing generation for an execution (0 if never assigned)."""
         raise NotImplementedError()
@@ -536,6 +544,17 @@ class DatabaseContextManager(ContextManager):
             )
             return row or 0
 
+    def set_preferred_worker(self, execution_id: str, worker_name: str) -> None:
+        """Record the sticky-routing hint for a relayed call() child."""
+        with self.session() as session:
+            session.query(ExecutionContextModel).filter(
+                ExecutionContextModel.execution_id == execution_id,
+            ).update(
+                {ExecutionContextModel.preferred_worker: worker_name},
+                synchronize_session=False,
+            )
+            session.commit()
+
     def _worker_load_map(self, session: Session, worker_names: list[str]) -> dict[str, int]:
         """Active-execution counts for the given workers, one aggregate query."""
         active_states = [
@@ -593,7 +612,15 @@ class DatabaseContextManager(ContextManager):
                 ]
                 if not eligible:
                     continue
-                worker = min(eligible, key=lambda w: loads.get(w.name, 0))
+                # Sticky-routing hint (relayed call()): prefer the worker
+                # whose module cache is already warm, but only when it is
+                # eligible right now — otherwise fall back to least-loaded.
+                preferred = getattr(model, "preferred_worker", None)
+                worker = None
+                if preferred:
+                    worker = next((w for w in eligible if w.name == preferred), None)
+                if worker is None:
+                    worker = min(eligible, key=lambda w: loads.get(w.name, 0))
                 ctx = model.to_plain()
                 ctx.schedule(worker)
                 model.state = ctx.state

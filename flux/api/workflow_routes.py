@@ -14,6 +14,7 @@ from typing import Any
 
 from fastapi import Body
 from fastapi import Depends
+from fastapi import Header
 from fastapi import File
 from fastapi import HTTPException
 from fastapi import UploadFile
@@ -197,6 +198,7 @@ class WorkflowRoutesMixin:
             mode: str = "async",
             detailed: bool = False,
             version: int | None = None,
+            preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:
@@ -232,7 +234,13 @@ class WorkflowRoutesMixin:
                             },
                         )
 
-                ctx = self._create_execution(namespace, workflow_name, input, version)
+                ctx = self._create_execution(
+                    namespace,
+                    workflow_name,
+                    input,
+                    version,
+                    preferred_worker=preferred_worker,
+                )
                 manager = ContextManager.create()
 
                 # Record agent-session linkage for "agents" namespace runs so
