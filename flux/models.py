@@ -614,6 +614,11 @@ class ExecutionContextModel(Base):
     # partition) and its writes are rejected instead of interleaving with
     # the new owner's (split-brain prevention).
     claim_generation = Column(Integer, nullable=False, default=0, server_default="0")
+    # Sticky-routing hint set at submission (X-Flux-Preferred-Worker from a
+    # worker relaying a call()): dispatch prefers this worker when it is
+    # connected, healthy, has capacity, and matches — module cache locality
+    # for mesh hops. A hint, never a constraint.
+    preferred_worker = Column(String, nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
     # Set when the execution was dispatched by a schedule; lets schedule

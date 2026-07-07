@@ -30,6 +30,7 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
     worker._progress_flushers = {}
     worker._runners = {}
     worker._default_runner = "subprocess"
+    worker._healthy = True
 
     calls: list[tuple[str, str]] = []
 
@@ -110,6 +111,7 @@ async def test_handle_execution_resumed_drops_on_409():
     worker._progress_flushers = {}
     worker._runners = {}
     worker._default_runner = "subprocess"
+    worker._healthy = True
 
     async def mock_post(url, **kwargs):
         resp = MagicMock()

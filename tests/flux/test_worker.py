@@ -29,6 +29,8 @@ def mock_config():
     mock_settings.workers.module_cache_max_size = 64
     mock_settings.workers.subprocess_term_grace = 5.0
     mock_settings.workers.subprocess_memory_limit = 0
+    mock_settings.workers.loop_lag_threshold = 0
+    mock_settings.workers.loop_lag_probe_interval = 1.0
     mock_settings.observability.enabled = False
 
     with patch.object(Configuration, "get") as mock_get:

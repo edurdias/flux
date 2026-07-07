@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0007_worker_runners"
+HEAD = "0008_preferred_worker"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to

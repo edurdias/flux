@@ -120,6 +120,10 @@ class Server(
         self._worker_last_pong: dict[str, float] = {}
         self._worker_cache: dict[str, WorkerResponse] = {}
         self._worker_offline_since: dict[str, float] = {}
+        # Workers that self-reported event-loop starvation on their heartbeat
+        # pong: still connected (running work finishes) but excluded from new
+        # dispatch until they report healthy again.
+        self._worker_unhealthy: set[str] = set()
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
         # Resolved by the FastAPI lifespan startup hook in _create_api so that
@@ -436,12 +440,14 @@ class Server(
         workflow_name: str,
         input_data: Any = None,
         version: int | None = None,
+        preferred_worker: str | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
         if not workflow:
             raise WorkflowNotFoundError(f"Workflow '{namespace}/{workflow_name}' not found")
 
-        ctx = ContextManager.create().save(
+        manager = ContextManager.create()
+        ctx = manager.save(
             ExecutionContext(
                 workflow_id=workflow.id,
                 workflow_namespace=workflow.namespace,
@@ -450,6 +456,10 @@ class Server(
                 requests=workflow.requests,
             ),
         )
+        if preferred_worker:
+            # Sticky-routing hint from a relaying worker; dispatch prefers it
+            # when eligible. A hint only — matching still decides.
+            manager.set_preferred_worker(ctx.execution_id, preferred_worker)
 
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
@@ -666,6 +676,7 @@ class Server(
         self._drain_worker_queue(name)
         if name in self._worker_names:
             self._worker_names.remove(name)
+            self._worker_unhealthy.discard(name)
         self._worker_offline_since[name] = time.monotonic()
         if name in self._worker_cache:
             self._worker_cache[name].status = "offline"

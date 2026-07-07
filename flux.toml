@@ -39,6 +39,8 @@ subprocess_memory_limit = 0                                 # Address-space limi
 # docker_cpus = 0.0                                         # Per-container CPU limit (0 = unlimited)
 # docker_extra_args = []                                    # Extra 'docker run' args (volumes, env, --user, ...)
 transient_fast_path = true                                  # call() on a transient workflow object runs in-process (mesh fast path)
+loop_lag_threshold = 1.0                                    # Event-loop lag (s) counting as a health breach; 3 in a row = unhealthy (0 disables)
+loop_lag_probe_interval = 1.0                               # Seconds between event-loop lag probes
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
 
 [flux.security.encryption]
