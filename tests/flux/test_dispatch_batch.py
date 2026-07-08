@@ -335,3 +335,25 @@ def test_preferred_worker_hint_falls_back_when_ineligible(clean_env):
 
     assigned = {ctx.execution_id: worker for ctx, worker in assignments}
     assert assigned[hinted.execution_id] == "w1"
+
+
+def test_preferred_worker_persists_in_the_insert_transaction(clean_env):
+    """The hint is written with the insert, not a follow-up UPDATE — a
+    dispatcher racing the submission must still see it."""
+    cm, registry = clean_env
+    _register_worker(registry, "w1")
+    w2 = _register_worker(registry, "w2")
+    wf_id = _create_workflow("plain")
+
+    ctx = cm.save(
+        ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="plain"),
+        preferred_worker="w2",
+    )
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        row = session.get(ExecutionContextModel, ctx.execution_id)
+        assert row.preferred_worker == "w2"
+
+    assignments = cm.next_executions_batch([w2], limit=10)
+    assert {c.execution_id: w for c, w in assignments}[ctx.execution_id] == "w2"

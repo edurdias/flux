@@ -42,11 +42,15 @@ class TestLoopLagMonitor:
         worker._send_pong = AsyncMock()
 
         # Each probe reads monotonic twice (start, after sleep): feed three
-        # starved probes (lag 10s) then a stream of clean ones.
+        # starved probes (lag 10s) then an unbounded stream of clean ones —
+        # the monitor keeps probing until cancelled, so a finite list would
+        # exhaust into StopIteration inside the task.
+        import itertools
+
         lagged = [0.0, 10.0] * 3
-        clean = [0.0, 0.001] * 50
+        clean = itertools.cycle([0.0, 0.001])
         with patch("flux.worker.time") as mock_time:
-            mock_time.monotonic.side_effect = lagged + clean
+            mock_time.monotonic.side_effect = itertools.chain(lagged, clean)
             monitor = asyncio.create_task(worker._monitor_loop_health())
             try:
                 async with asyncio.timeout(10):
@@ -69,7 +73,12 @@ class TestLoopLagMonitor:
         worker._loop_lag_probe_interval = 0.001
         worker._send_pong = AsyncMock()
 
-        one_breach_then_clean = [0.0, 10.0] + [0.0, 0.001] * 20
+        import itertools
+
+        one_breach_then_clean = itertools.chain(
+            [0.0, 10.0],
+            itertools.cycle([0.0, 0.001]),
+        )
         with patch("flux.worker.time") as mock_time:
             mock_time.monotonic.side_effect = one_breach_then_clean
             monitor = asyncio.create_task(worker._monitor_loop_health())
