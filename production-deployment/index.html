@@ -1335,6 +1335,15 @@ the same path. Plain HTTP round-robin works for everything else.</p>
   reassigned, its later checkpoints are rejected (stale claim generation)
   and it aborts those local runs — expect <code>stale-claim</code> warnings in worker
   logs after partitions heal; they are the mechanism working.</li>
+<li><strong>Self-health</strong>: each worker probes its own event-loop lag
+  (<code>FLUX_WORKERS__LOOP_LAG_THRESHOLD</code>, default 1 s; 0 disables). Three
+  consecutive breaches — typically in-process workflow code blocking the
+  loop — mark it unhealthy: it releases newly-assigned work for immediate
+  re-dispatch, its heartbeat advertises the state, dispatch routes around
+  it, and <code>GET /workers</code> shows <code>unhealthy</code>. Running executions finish
+  untouched; three clean probes recover it. Under <em>total</em> starvation the
+  probe itself cannot fire — missed pongs and the eviction reaper remain
+  the backstop for that case.</li>
 </ul>
 <h2 id="runners-where-workflow-code-executes">Runners: where workflow code executes<a class="headerlink" href="#runners-where-workflow-code-executes" title="Permanent link">&para;</a></h2>
 <p>Each execution runs through a <strong>runner</strong> (Prefect-style). Workers enable
@@ -1455,6 +1464,13 @@ unchanged latency. Limits:</p>
 <li>Pair with <code>runner="inprocess"</code> to also skip the per-execution process
   spawn — the lowest-latency configuration for trusted mesh hops.</li>
 </ul>
+<p><strong>Sticky routing for relayed calls.</strong> A <code>call()</code> that does relay through
+the server (string references, <code>mode="async"</code>, runner-constrained targets)
+tags the child with the calling worker's name; dispatch prefers that
+worker whenever it is eligible (connected, healthy, free capacity,
+runner/label match), keeping the hop on the worker whose module cache is
+already warm. It is a hint, never a constraint — an ineligible preferred
+worker falls back to least-loaded, and poll-mode dispatch ignores it.</p>
 <p><strong>Same-worker fast path.</strong> A <code>call()</code> whose target is a <strong>transient
 workflow object</strong> (not a string reference) executes in-process on the
 calling worker: no dispatch round-trip, no execution row, no checkpoints.
