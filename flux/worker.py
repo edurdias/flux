@@ -154,6 +154,22 @@ class Worker:
         self._metrics_interval = config.metrics_interval
         self._metrics_snapshot: dict[str, float] | None = None
         self._metrics_collected_at: float | None = None
+        self._user_metrics: dict[str, float] | None = None
+        # Built-in flux.* metrics: loop lag, throughput/failure aggregates,
+        # system gauges — published without a provider so policies can rank
+        # on them out of the box.
+        self._metrics_collector = None
+        if config.builtin_metrics:
+            from flux.worker_metrics import WorkerMetricsCollector
+
+            inproc = self._runners.get("inprocess")
+            self._metrics_collector = WorkerMetricsCollector(
+                max_concurrent=config.max_concurrent_executions or None,
+                warm_modules=getattr(inproc, "warm_modules", None),
+            )
+        # Non-transient executions awaiting their first checkpoint; feeds the
+        # flux.startup_overhead_seconds built-in.
+        self._execution_started: dict[str, float] = {}
         self._registered = False
         self.session_token: str | None = None
 
@@ -182,7 +198,7 @@ class Worker:
         Sync providers run in a thread so a slow collector cannot starve the
         event loop; any failure keeps the previous snapshot.
         """
-        if self._metrics_provider is None:
+        if self._metrics_provider is None and self._metrics_collector is None:
             return None
         now = time.monotonic()
         if (
@@ -191,26 +207,44 @@ class Worker:
         ):
             return self._metrics_snapshot
         self._metrics_collected_at = now
-        try:
-            from flux.routing import validate_worker_metrics
-            from flux.utils import maybe_awaitable
 
-            async with asyncio.timeout(min(5.0, self._metrics_interval)):
-                if asyncio.iscoroutinefunction(self._metrics_provider):
-                    raw = await self._metrics_provider()
+        if self._metrics_provider is not None:
+            try:
+                from flux.routing import RESERVED_METRIC_PREFIX, validate_worker_metrics
+                from flux.utils import maybe_awaitable
+
+                async with asyncio.timeout(min(5.0, self._metrics_interval)):
+                    if asyncio.iscoroutinefunction(self._metrics_provider):
+                        raw = await self._metrics_provider()
+                    else:
+                        raw = await asyncio.to_thread(self._metrics_provider)
+                    raw = await maybe_awaitable(raw)
+                validated = validate_worker_metrics(raw)
+                if validated is None:
+                    logger.warning(
+                        f"Metrics provider returned an invalid payload ({raw!r}); "
+                        "keeping the previous snapshot",
+                    )
                 else:
-                    raw = await asyncio.to_thread(self._metrics_provider)
-                raw = await maybe_awaitable(raw)
-            validated = validate_worker_metrics(raw)
-            if validated is None:
-                logger.warning(
-                    f"Metrics provider returned an invalid payload ({raw!r}); "
-                    "keeping the previous snapshot",
-                )
-            else:
-                self._metrics_snapshot = validated
-        except Exception as e:
-            logger.warning(f"Metrics provider failed ({e}); keeping the previous snapshot")
+                    stripped = {
+                        key: value
+                        for key, value in validated.items()
+                        if not key.startswith(RESERVED_METRIC_PREFIX)
+                    }
+                    if len(stripped) != len(validated):
+                        logger.debug(
+                            "Metrics provider keys under the reserved "
+                            f"'{RESERVED_METRIC_PREFIX}' prefix were dropped",
+                        )
+                    self._user_metrics = stripped
+            except Exception as e:
+                logger.warning(f"Metrics provider failed ({e}); keeping the previous snapshot")
+
+        merged = dict(self._user_metrics or {})
+        if self._metrics_collector:
+            # Built-ins win: user values can never impersonate a flux.* signal.
+            merged.update(self._metrics_collector.snapshot(len(self._running_workflows)))
+        self._metrics_snapshot = merged or None
         return self._metrics_snapshot
 
     def start(self):
@@ -342,6 +376,8 @@ class Worker:
             m = get_metrics()
             if m:
                 m.record_loop_lag(lag)
+            if self._metrics_collector:
+                self._metrics_collector.record_loop_lag(lag)
 
             if lag >= self._loop_lag_threshold:
                 recoveries = 0
@@ -834,17 +870,27 @@ class Worker:
         task = asyncio.create_task(runner.execute(request, hooks))
         self._running_workflows[ctx.execution_id] = task
         start_time = asyncio.get_event_loop().time()
+        if self._metrics_collector and not ctx.is_transient:
+            # Resolved by the first checkpoint -> flux.startup_overhead_seconds.
+            self._execution_started[ctx.execution_id] = time.monotonic()
         try:
             ctx = await task
         except WorkerProcessCrashed as crash:
             return await self._handle_runner_crash(request, crash)
         finally:
             self._running_workflows.pop(request.context.execution_id, None)
+            self._execution_started.pop(request.context.execution_id, None)
             await self._teardown_progress(request.context.execution_id)
             logger.debug(f"Workflow execution async task removed: {request.workflow.name}")
 
         execution_time = asyncio.get_event_loop().time() - start_time
         logger.debug(f"Workflow execution completed in {execution_time:.4f}s")
+
+        if self._metrics_collector:
+            self._metrics_collector.record_duration(execution_time)
+            self._metrics_collector.record_outcome(
+                "failed" if ctx.has_failed else "completed",
+            )
 
         from flux.observability import get_metrics
 
@@ -875,6 +921,8 @@ class Worker:
         """
         ctx = crash.last_context or request.context
         logger.error(str(crash))
+        if self._metrics_collector:
+            self._metrics_collector.record_outcome("crashed")
         if ctx.is_transient:
             ctx.fail(
                 ctx.execution_id,
@@ -956,6 +1004,17 @@ class Worker:
         configured deadline expires, after which the server reaper is the
         fallback).
         """
+        started = self._execution_started.pop(ctx.execution_id, None)
+        if (
+            started is not None
+            and self._metrics_collector
+            and not ctx.is_transient
+            and not ctx.has_finished
+        ):
+            # First intermediate checkpoint = user code is genuinely running;
+            # the gap from dispatch is the runner's spawn/load overhead. A
+            # terminal first checkpoint carries no startup signal (skipped).
+            self._metrics_collector.record_startup(time.monotonic() - started)
         if ctx.is_transient:
             if ctx.is_paused:
                 # Pause needs task-level history to replay on resume, which a
