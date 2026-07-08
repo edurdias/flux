@@ -248,6 +248,10 @@ class Worker:
             self._draining = True
             if health_monitor is not None:
                 health_monitor.cancel()
+                import contextlib
+
+                with contextlib.suppress(asyncio.CancelledError):
+                    await health_monitor
             await self._drain()
 
     async def _monitor_loop_health(self):
