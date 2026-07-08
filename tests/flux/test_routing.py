@@ -5,12 +5,17 @@ from __future__ import annotations
 import pytest
 
 from flux.routing import (
+    Condition,
     InputRef,
     input as input_ref,
+    label,
     least,
+    load,
+    metric,
     most,
     pick_worker,
     prefer,
+    resource,
     score,
     sticky,
     validate_worker_metrics,
@@ -25,18 +30,46 @@ def _worker(name: str, labels: dict | None = None, metrics: dict | None = None) 
 class TestFactories:
     def test_score_compiles_to_spec(self):
         spec = score(
-            prefer("label:region", "==", "eu", weight=10),
-            least("metric:queue", weight=5),
-            most("resource:memory_available"),
+            prefer(label("region") == "eu", weight=10),
+            least(metric("queue"), weight=5),
+            most(resource("memory_available")),
             sticky(weight=3),
-            least("load"),
+            least(load()),
         )
         kinds = [t["kind"] for t in spec["terms"]]
         assert kinds == ["prefer", "least", "most", "sticky", "least"]
-        assert spec["terms"][0]["weight"] == 10.0
+        assert spec["terms"][0] == {
+            "kind": "prefer",
+            "selector": "label:region",
+            "op": "==",
+            "value": "eu",
+            "weight": 10.0,
+        }
+        assert spec["terms"][1]["selector"] == "metric:queue"
+        assert spec["terms"][2]["selector"] == "resource:memory_available"
+        assert spec["terms"][4]["selector"] == "load"
+
+    def test_comparison_operators_map_to_ops(self):
+        cases = {
+            "==": label("x") == "v",
+            "!=": label("x") != "v",
+            "<": metric("m") < 5,
+            "<=": metric("m") <= 5,
+            ">": metric("m") > 5,
+            ">=": metric("m") >= 5,
+        }
+        for op, condition in cases.items():
+            assert isinstance(condition, Condition)
+            assert condition.op == op
+
+    def test_reversed_comparison_uses_reflected_operator(self):
+        condition = 60 > metric("temp")  # int.__gt__ -> NotImplemented -> reflected __lt__
+        assert isinstance(condition, Condition)
+        assert condition.op == "<"
+        assert condition.value == 60
 
     def test_input_ref_serializes_to_marker(self):
-        term = prefer("label:tier", "==", input_ref("customer.tier"))
+        term = prefer(label("tier") == input_ref("customer.tier"))
         assert term["value"] == {"$input": "customer.tier"}
 
     def test_score_requires_terms(self):
@@ -47,22 +80,38 @@ class TestFactories:
         with pytest.raises(ValueError, match="prefer\\(\\)/least\\(\\)"):
             score({"kind": "custom"})
 
-    def test_invalid_selector_rejected(self):
-        with pytest.raises(ValueError, match="selector"):
-            least("cpu")
-        with pytest.raises(ValueError, match="missing its key"):
-            least("metric:")
+    def test_invalid_selectors_rejected(self):
+        with pytest.raises(ValueError, match="non-empty string key"):
+            label("")
+        with pytest.raises(ValueError, match="non-empty string key"):
+            metric("")
         with pytest.raises(ValueError, match="unknown resource field"):
-            most("resource:gpu_flops")
+            resource("gpu_flops")
+
+    def test_least_and_most_require_selector_objects(self):
+        with pytest.raises(ValueError, match="takes a selector"):
+            least("load")
+        with pytest.raises(ValueError, match="takes a selector"):
+            most("metric:fitness")
+
+    def test_prefer_requires_a_condition(self):
+        with pytest.raises(ValueError, match="selector comparison"):
+            prefer(label("x"))
+        with pytest.raises(ValueError, match="selector comparison"):
+            prefer(True)
+
+    def test_selector_cannot_be_compared_to_selector(self):
+        with pytest.raises(ValueError, match="constants or input"):
+            label("a") == label("b")
 
     def test_invalid_op_rejected(self):
         with pytest.raises(ValueError, match="op must be one of"):
-            prefer("label:x", "~=", "y")
+            Condition(label("x"), "~=", "y")
 
     def test_invalid_weight_rejected(self):
         for bad in (0, -1, float("inf"), "heavy"):
             with pytest.raises(ValueError, match="weight"):
-                least("load", weight=bad)
+                least(load(), weight=bad)
 
     def test_input_requires_path(self):
         with pytest.raises(ValueError):
@@ -90,7 +139,7 @@ class TestPickWorker:
     def test_prefer_label_wins_over_load(self):
         eu = _worker("eu-1", labels={"region": "eu"})
         us = _worker("us-1", labels={"region": "us"})
-        policy = score(prefer("label:region", "==", "eu", weight=10), least("load"))
+        policy = score(prefer(label("region") == "eu", weight=10), least(load()))
 
         # eu-1 is far busier, but the region preference dominates.
         winner = pick_worker([eu, us], policy, loads={"eu-1": 9, "us-1": 0})
@@ -100,7 +149,7 @@ class TestPickWorker:
     def test_input_resolved_against_execution_input(self):
         gold = _worker("gold-w", labels={"tier": "gold"})
         silver = _worker("silver-w", labels={"tier": "silver"})
-        policy = score(prefer("label:tier", "==", input_ref("tier"), weight=10), least("load"))
+        policy = score(prefer(label("tier") == input_ref("tier"), weight=10), least(load()))
 
         assert (
             pick_worker([gold, silver], policy, loads={}, input_value={"tier": "gold"}).name
@@ -115,8 +164,8 @@ class TestPickWorker:
         gold = _worker("gold-w", labels={"tier": "gold"})
         silver = _worker("silver-w", labels={"tier": "silver"})
         policy = score(
-            prefer("label:tier", "==", input_ref("customer.tier"), weight=10),
-            least("load"),
+            prefer(label("tier") == input_ref("customer.tier"), weight=10),
+            least(load()),
         )
 
         nested = {"customer": {"tier": "silver"}}
@@ -133,28 +182,28 @@ class TestPickWorker:
     def test_least_metric_normalized_against_candidates(self):
         low = _worker("low", metrics={"queue": 1})
         high = _worker("high", metrics={"queue": 50})
-        policy = score(least("metric:queue"))
+        policy = score(least(metric("queue")))
 
         assert pick_worker([low, high], policy, loads={}).name == "low"
 
     def test_most_metric(self):
         weak = _worker("weak", metrics={"fitness": 0.2})
         strong = _worker("strong", metrics={"fitness": 0.9})
-        policy = score(most("metric:fitness"))
+        policy = score(most(metric("fitness")))
 
         assert pick_worker([weak, strong], policy, loads={}).name == "strong"
 
     def test_missing_metric_scores_worst(self):
         reporting = _worker("reporting", metrics={"fitness": 0.1})
         silent = _worker("silent")
-        policy = score(most("metric:fitness"))
+        policy = score(most(metric("fitness")))
 
         assert pick_worker([reporting, silent], policy, loads={}).name == "reporting"
 
     def test_metric_absent_everywhere_cannot_discriminate(self):
         a = _worker("a")
         b = _worker("b")
-        policy = score(most("metric:fitness"), least("load"))
+        policy = score(most(metric("fitness")), least(load()))
 
         winner = pick_worker([a, b], policy, loads={"a": 3, "b": 1})
 
@@ -163,7 +212,7 @@ class TestPickWorker:
     def test_sticky_term_prefers_hinted_worker(self):
         a = _worker("a")
         b = _worker("b")
-        policy = score(sticky(weight=5), least("load"))
+        policy = score(sticky(weight=5), least(load()))
 
         winner = pick_worker([a, b], policy, loads={"a": 1, "b": 0}, preferred="a")
 
@@ -172,7 +221,7 @@ class TestPickWorker:
     def test_policy_without_sticky_term_ignores_hint(self):
         a = _worker("a")
         b = _worker("b")
-        policy = score(least("load"))
+        policy = score(least(load()))
 
         winner = pick_worker([a, b], policy, loads={"a": 1, "b": 0}, preferred="a")
 
@@ -181,14 +230,14 @@ class TestPickWorker:
     def test_ordering_ops_on_metrics(self):
         cold = _worker("cold", metrics={"temp": 40})
         hot = _worker("hot", metrics={"temp": 90})
-        policy = score(prefer("metric:temp", "<", 60, weight=10))
+        policy = score(prefer(metric("temp") < 60, weight=10))
 
         assert pick_worker([cold, hot], policy, loads={}).name == "cold"
 
     def test_ordering_op_on_non_numeric_is_false(self):
         a = _worker("a", labels={"zone": "z1"})
         b = _worker("b")
-        policy = score(prefer("label:zone", "<", "z2", weight=10), least("load"))
+        policy = score(prefer(label("zone") < "z2", weight=10), least(load()))
 
         # Strings never satisfy ordering ops: the term matches nobody.
         winner = pick_worker([a, b], policy, loads={"a": 1, "b": 0})
@@ -198,7 +247,7 @@ class TestPickWorker:
     def test_tie_breaks_deterministically(self):
         a = _worker("a")
         b = _worker("b")
-        policy = score(least("load"))
+        policy = score(least(load()))
 
         # Equal scores and loads: name ascends.
         assert pick_worker([b, a], policy, loads={}).name == "a"
@@ -209,4 +258,4 @@ class TestPickWorker:
             assert pick_worker([a], bad, loads={}) is None
 
     def test_empty_eligible_returns_none(self):
-        assert pick_worker([], score(least("load")), loads={}) is None
+        assert pick_worker([], score(least(load())), loads={}) is None
