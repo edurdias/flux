@@ -253,6 +253,10 @@ class FluxEncoder(json.JSONEncoder):
                 "input": obj.input,
                 "output": obj.output,
                 "state": obj.state,
+                # Must survive serialization hops (server -> worker -> child
+                # process): call() relays read it to build the sticky-routing
+                # hint header.
+                "current_worker": obj.current_worker,
                 "events": obj.events,
             }
 
