@@ -550,6 +550,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
             input=data["input"],
             execution_id=data["execution_id"],
             state=data["state"],
+            current_worker=data.get("current_worker"),
             events=[ExecutionEvent(**event) for event in data["events"]],
             checkpoint=checkpoint,
         )
