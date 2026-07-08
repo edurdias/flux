@@ -31,7 +31,7 @@
 # =============================================================================
 
 x-flux-image: &flux-image
-  image: edurdias/flux:0.53.1   # pin the tag to the flux-core version you run
+  image: edurdias/flux:0.54.0   # pin the tag to the flux-core version you run
 
 x-hardening: &hardening
   cap_drop: [ALL]
@@ -101,7 +101,7 @@ services:
     environment:
       <<: *worker-env
       FLUX_WORKERS__RUNNERS: '["inprocess", "subprocess", "docker"]'
-      FLUX_WORKERS__DOCKER_IMAGE: edurdias/flux:0.53.1
+      FLUX_WORKERS__DOCKER_IMAGE: edurdias/flux:0.54.0
       FLUX_WORKERS__DOCKER_EXTRA_ARGS: '["--cap-drop=ALL", "--security-opt=no-new-privileges"]'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

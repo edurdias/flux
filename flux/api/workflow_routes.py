@@ -234,6 +234,14 @@ class WorkflowRoutesMixin:
                             },
                         )
 
+                # The sticky-routing hint is caller-supplied header input:
+                # bound and sanitize before it reaches the database. Invalid
+                # values are dropped, not rejected — it is only a hint.
+                if preferred_worker is not None:
+                    preferred_worker = preferred_worker.strip()
+                    if not preferred_worker or len(preferred_worker) > 256:
+                        preferred_worker = None
+
                 ctx = self._create_execution(
                     namespace,
                     workflow_name,
