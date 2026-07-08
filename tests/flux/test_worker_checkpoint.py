@@ -31,6 +31,10 @@ def make_worker() -> Worker:
     worker._draining = False
     worker._drain_timeout = 5
     worker._healthy = True
+    worker._metrics_provider = None
+    worker._metrics_interval = 10.0
+    worker._metrics_snapshot = None
+    worker._metrics_collected_at = None
     return worker
 
 

@@ -85,9 +85,23 @@ def event_cli(tmp_path_factory):
     cli = FluxCLI(server_url=url)
     cli._env = env
 
+    # Both workers advertise a 'fitness' metric via the fixture provider —
+    # PYTHONPATH makes the tests package importable inside the worker process.
+    metrics_env = {
+        "FLUX_WORKERS__METRICS_PROVIDER": "tests.e2e.fixtures.worker_metrics:collect",
+        "PYTHONPATH": str(PROJECT_ROOT),
+    }
     try:
-        cli.start_worker("sticky-a", labels={"pin": "parent"})
-        cli.start_worker("sticky-b", labels={"pin": "target", "starve": "true"})
+        cli.start_worker(
+            "sticky-a",
+            labels={"pin": "parent"},
+            env={**metrics_env, "FLUX_TEST_FITNESS": "0.2"},
+        )
+        cli.start_worker(
+            "sticky-b",
+            labels={"pin": "target", "starve": "true"},
+            env={**metrics_env, "FLUX_TEST_FITNESS": "0.9"},
+        )
     except RuntimeError:
         for proc in cli._extra_workers:
             _kill_process(proc, "event-worker")
@@ -171,6 +185,45 @@ def test_ineligible_hint_falls_back_to_matching_worker(event_cli):
     children = _rows(event_cli, "pinned_child")
     assert children, "pinned_child execution row not found"
     assert all(r.get("worker_name") == "sticky-b" for r in children), children
+
+
+def test_routing_policy_follows_execution_input(event_cli):
+    """Payload-driven locality: prefer("label:pin", "==", input("pin"))
+    routes each execution to the worker matching its own input."""
+    event_cli.register(str(FIXTURES / "routing_workflow.py"))
+
+    to_parent = event_cli.run("pin_router", '{"pin": "parent"}', mode="sync", timeout=90)
+    assert to_parent["state"] == "COMPLETED"
+    assert to_parent.get("current_worker") == "sticky-a"
+
+    to_target = event_cli.run("pin_router", '{"pin": "target"}', mode="sync", timeout=90)
+    assert to_target["state"] == "COMPLETED"
+    assert to_target.get("current_worker") == "sticky-b"
+
+
+def _wait_for_metric(cli, worker_name: str, metric: str, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for w in cli.worker_list():
+            if w.get("name") == worker_name and metric in (w.get("metrics") or {}):
+                return True
+        time.sleep(1)
+    return False
+
+
+def test_routing_policy_follows_worker_metric(event_cli):
+    """Metric-driven placement: most("metric:fitness") lands every run on
+    the worker advertising the highest fitness (sticky-b, 0.9 vs 0.2)."""
+    event_cli.register(str(FIXTURES / "routing_workflow.py"))
+
+    # Metrics ride heartbeat pongs — wait until both workers reported.
+    assert _wait_for_metric(event_cli, "sticky-a", "fitness", timeout=60)
+    assert _wait_for_metric(event_cli, "sticky-b", "fitness", timeout=60)
+
+    for i in range(3):
+        result = event_cli.run("fitness_router", str(i), mode="sync", timeout=90)
+        assert result["state"] == "COMPLETED"
+        assert result.get("current_worker") == "sticky-b", result
 
 
 def test_event_dispatch_excludes_unhealthy_worker(event_cli):

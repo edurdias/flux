@@ -146,8 +146,72 @@ class Worker:
         self._healthy = True
         self._loop_lag_threshold = config.loop_lag_threshold
         self._loop_lag_probe_interval = config.loop_lag_probe_interval
+        # Metrics provider: user callable (sync or async) returning
+        # dict[str, float], advertised on heartbeat pongs for routing
+        # policies ("metric:*" selectors). Collected lazily on pong at
+        # metrics_interval cadence; a broken provider disables itself.
+        self._metrics_provider = self._load_metrics_provider(config.metrics_provider)
+        self._metrics_interval = config.metrics_interval
+        self._metrics_snapshot: dict[str, float] | None = None
+        self._metrics_collected_at: float | None = None
         self._registered = False
         self.session_token: str | None = None
+
+    @staticmethod
+    def _load_metrics_provider(spec: str | None):
+        """Resolve '[flux.workers] metrics_provider' ("pkg.module:callable")."""
+        if not spec:
+            return None
+        try:
+            module_path, _, attr = spec.partition(":")
+            if not module_path or not attr:
+                raise ValueError("expected format 'package.module:callable'")
+            import importlib
+
+            provider = getattr(importlib.import_module(module_path), attr)
+            if not callable(provider):
+                raise ValueError(f"'{spec}' is not callable")
+            return provider
+        except Exception as e:
+            logger.warning(f"Metrics provider '{spec}' could not be loaded ({e}); disabled")
+            return None
+
+    async def _collect_metrics(self) -> dict[str, float] | None:
+        """Latest validated metrics snapshot, refreshed at metrics_interval.
+
+        Sync providers run in a thread so a slow collector cannot starve the
+        event loop; any failure keeps the previous snapshot.
+        """
+        if self._metrics_provider is None:
+            return None
+        now = time.monotonic()
+        if (
+            self._metrics_collected_at is not None
+            and now - self._metrics_collected_at < self._metrics_interval
+        ):
+            return self._metrics_snapshot
+        self._metrics_collected_at = now
+        try:
+            from flux.routing import validate_worker_metrics
+            from flux.utils import maybe_awaitable
+
+            async with asyncio.timeout(min(5.0, self._metrics_interval)):
+                if asyncio.iscoroutinefunction(self._metrics_provider):
+                    raw = await self._metrics_provider()
+                else:
+                    raw = await asyncio.to_thread(self._metrics_provider)
+                raw = await maybe_awaitable(raw)
+            validated = validate_worker_metrics(raw)
+            if validated is None:
+                logger.warning(
+                    f"Metrics provider returned an invalid payload ({raw!r}); "
+                    "keeping the previous snapshot",
+                )
+            else:
+                self._metrics_snapshot = validated
+        except Exception as e:
+            logger.warning(f"Metrics provider failed ({e}); keeping the previous snapshot")
+        return self._metrics_snapshot
 
     def start(self):
         logger.info("Worker starting up...")
@@ -437,10 +501,14 @@ class Worker:
             raise
 
     async def _send_pong(self):
-        """Respond to server ping with a pong carrying the health state."""
+        """Respond to server ping with a pong carrying health and metrics."""
         base_url = f"{self.base_url}/{self.name}"
         try:
-            await self._authorized_post(f"{base_url}/pong", json={"healthy": self._healthy})
+            payload: dict = {"healthy": self._healthy}
+            metrics = await self._collect_metrics()
+            if metrics is not None:
+                payload["metrics"] = metrics
+            await self._authorized_post(f"{base_url}/pong", json=payload)
             logger.debug("Pong sent")
         except Exception as e:
             logger.debug(f"Failed to send pong: {e}")

@@ -349,6 +349,7 @@ class WorkflowCatalog(ABC):
                     workflow_affinity = None
                     workflow_durability = None
                     workflow_runner = None
+                    workflow_routing = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -391,6 +392,8 @@ class WorkflowCatalog(ABC):
                                     ast.Constant,
                                 ):
                                     workflow_runner = kw.value.value
+                                elif kw.arg == "routing":
+                                    workflow_routing = self._extract_routing(kw.value)
 
                             if not workflow_name:
                                 workflow_name = node.name
@@ -408,6 +411,9 @@ class WorkflowCatalog(ABC):
                         if workflow_runner is not None:
                             wf_metadata = dict(wf_metadata or {})
                             wf_metadata["runner"] = workflow_runner
+                        if workflow_routing is not None:
+                            wf_metadata = dict(wf_metadata or {})
+                            wf_metadata["routing"] = workflow_routing
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
@@ -566,6 +572,78 @@ class WorkflowCatalog(ABC):
                     result[str(key.value)] = str(value.value)
             return result if result else None
         return None
+
+    def _extract_routing(self, node: ast.AST) -> dict | None:
+        """Extract a ``routing=score(...)`` policy into its JSON spec.
+
+        Unlike ``requests``/``affinity``, an unparseable routing policy raises
+        instead of returning None: silently dropping it would dispatch the
+        workflow with different semantics than the author declared. Building
+        through the real ``flux.routing`` factories reuses their validation.
+        """
+        from typing import NoReturn
+
+        from flux import routing as routing_dsl
+
+        def fail(reason: str) -> NoReturn:
+            raise SyntaxError(
+                f"routing policy must be statically declarable ({reason}); build it "
+                "with flux.routing.score(...) using literal values or input(...)",
+            )
+
+        def call_name(call: ast.AST) -> str | None:
+            if not isinstance(call, ast.Call):
+                return None
+            if isinstance(call.func, ast.Name):
+                return call.func.id
+            if isinstance(call.func, ast.Attribute):
+                return call.func.attr
+            return None
+
+        def extract_value(value_node: ast.AST) -> Any:
+            if isinstance(value_node, ast.Constant):
+                return value_node.value
+            if call_name(value_node) == "input":
+                call = value_node
+                assert isinstance(call, ast.Call)
+                if len(call.args) == 1 and isinstance(call.args[0], ast.Constant):
+                    return routing_dsl.input(call.args[0].value)
+                fail("input() takes a single literal path")
+            fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
+
+        if call_name(node) != "score":
+            fail("expected a score(...) call")
+        assert isinstance(node, ast.Call)
+
+        from collections.abc import Callable
+
+        factories: dict[str, Callable[..., dict]] = {
+            "prefer": routing_dsl.prefer,
+            "least": routing_dsl.least,
+            "most": routing_dsl.most,
+            "sticky": routing_dsl.sticky,
+        }
+        terms = []
+        for term_node in node.args:
+            name = call_name(term_node)
+            factory = factories.get(name or "")
+            if factory is None:
+                fail(f"expected prefer()/least()/most()/sticky() terms, got '{name}'")
+            assert isinstance(term_node, ast.Call)
+            args = [extract_value(arg) for arg in term_node.args]
+            kwargs = {}
+            for kw in term_node.keywords:
+                if kw.arg is None:
+                    fail("**kwargs is not supported in routing terms")
+                kwargs[kw.arg] = extract_value(kw.value)
+            try:
+                terms.append(factory(*args, **kwargs))
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid routing term '{name}': {e}") from e
+        try:
+            return routing_dsl.score(*terms)
+        except ValueError as e:
+            raise SyntaxError(f"Invalid routing policy: {e}") from e
 
     def _extract_workflow_requests(self, node: ast.AST) -> ResourceRequest | None:
         """

@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0008_preferred_worker"
+HEAD = "0009_worker_metrics"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

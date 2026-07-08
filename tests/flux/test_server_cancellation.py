@@ -365,9 +365,11 @@ class TestWorkerEndpoints:
         fresh = MagicMock()
         fresh.name = "worker-1"
         fresh.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        fresh.metrics = None
         stale = MagicMock()
         stale.name = "worker-2"
         stale.last_seen_at = None  # never heartbeated -> offline
+        stale.metrics = None
         mock_registry = MagicMock()
         mock_registry.list.return_value = [fresh, stale]
         mock_registry_create.return_value = mock_registry
@@ -407,6 +409,7 @@ class TestWorkerEndpoints:
         mock_worker.runtime.python_version = "3.12.0"
         mock_worker.resources = None
         mock_worker.packages = [{"name": "numpy", "version": "1.24.0"}]
+        mock_worker.metrics = None
 
         mock_registry.get.return_value = mock_worker
         mock_registry_create.return_value = mock_registry

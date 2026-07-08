@@ -220,6 +220,8 @@ class WorkerResponse(BaseModel):
     resources: WorkerResourcesModel | None = None
     packages: list[dict[str, str]] = Field(default_factory=list)
     labels: dict[str, str] = Field(default_factory=dict)
+    # Latest advertised metrics snapshot (routing "metric:*" selectors).
+    metrics: dict[str, float] | None = None
 
 
 class HealthResponse(BaseModel):
