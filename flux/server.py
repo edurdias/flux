@@ -446,8 +446,9 @@ class Server(
         if not workflow:
             raise WorkflowNotFoundError(f"Workflow '{namespace}/{workflow_name}' not found")
 
-        manager = ContextManager.create()
-        ctx = manager.save(
+        # The sticky-routing hint is written in the same transaction as the
+        # insert: event-mode dispatch can pick a fresh row up immediately.
+        ctx = ContextManager.create().save(
             ExecutionContext(
                 workflow_id=workflow.id,
                 workflow_namespace=workflow.namespace,
@@ -455,11 +456,8 @@ class Server(
                 input=input_data,
                 requests=workflow.requests,
             ),
+            preferred_worker=preferred_worker or None,
         )
-        if preferred_worker:
-            # Sticky-routing hint from a relaying worker; dispatch prefers it
-            # when eligible. A hint only — matching still decides.
-            manager.set_preferred_worker(ctx.execution_id, preferred_worker)
 
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 

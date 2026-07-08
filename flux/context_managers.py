@@ -64,6 +64,7 @@ class ContextManager(ABC):
         ctx: ExecutionContext,
         *,
         uow: UnitOfWork | None = None,
+        preferred_worker: str | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -73,6 +74,7 @@ class ContextManager(ABC):
         ctx: ExecutionContext,
         *,
         uow: UnitOfWork | None = None,
+        preferred_worker: str | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
 
@@ -242,8 +244,9 @@ class DatabaseContextManager(ContextManager):
         ctx: ExecutionContext,
         *,
         uow: UnitOfWork | None = None,
+        preferred_worker: str | None = None,
     ) -> ExecutionContext:
-        self.save_checked(ctx, uow=uow)
+        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker)
         return ctx
 
     def save_checked(
@@ -251,11 +254,22 @@ class DatabaseContextManager(ContextManager):
         ctx: ExecutionContext,
         *,
         uow: UnitOfWork | None = None,
+        preferred_worker: str | None = None,
     ) -> bool:
         if uow is not None:
-            return self._save_with_session(ctx, uow.session, manage_transaction=False)
+            return self._save_with_session(
+                ctx,
+                uow.session,
+                manage_transaction=False,
+                preferred_worker=preferred_worker,
+            )
         with self.session() as session:
-            return self._save_with_session(ctx, session, manage_transaction=True)
+            return self._save_with_session(
+                ctx,
+                session,
+                manage_transaction=True,
+                preferred_worker=preferred_worker,
+            )
 
     def _save_with_session(
         self,
@@ -263,6 +277,7 @@ class DatabaseContextManager(ContextManager):
         session: Session,
         *,
         manage_transaction: bool,
+        preferred_worker: str | None = None,
     ) -> bool:
         try:
             model = self._lock_for_write(session, ctx.execution_id)
@@ -274,7 +289,13 @@ class DatabaseContextManager(ContextManager):
                     session.add_all(self._get_additional_events(ctx, session))
             else:
                 accepted = True
-                session.add(ExecutionContextModel.from_plain(ctx))
+                new_model = ExecutionContextModel.from_plain(ctx)
+                if preferred_worker:
+                    # Same transaction as the insert: event-mode dispatch can
+                    # pick a fresh row up immediately, so a hint written in a
+                    # follow-up UPDATE could be missed.
+                    new_model.preferred_worker = preferred_worker
+                session.add(new_model)
             if manage_transaction:
                 session.commit()
             return accepted
