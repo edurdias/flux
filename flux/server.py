@@ -124,6 +124,10 @@ class Server(
         # pong: still connected (running work finishes) but excluded from new
         # dispatch until they report healthy again.
         self._worker_unhealthy: set[str] = set()
+        # Last metrics snapshot persisted per worker; pongs repeat the current
+        # snapshot every beat, so this gate keeps DB writes on the (slower)
+        # metrics-refresh cadence instead of the heartbeat rate.
+        self._worker_metrics_persisted: dict[str, dict[str, float]] = {}
         self._worker_evicted: dict[str, asyncio.Event] = {}
         self._worker_stale_since: dict[str, float] = {}
         # Resolved by the FastAPI lifespan startup hook in _create_api so that
@@ -652,6 +656,36 @@ class Server(
         except Exception as e:
             logger.debug(f"Failed to persist heartbeat for worker {name}: {e}")
 
+    async def _record_worker_metrics(self, name: str, raw: Any) -> None:
+        """Store a worker's advertised metrics: in-memory for this replica's
+        dispatcher, persisted (on change only) for GET /workers fleet-wide.
+
+        Metrics are a hint channel: an invalid payload is dropped with a
+        warning, never an error. Providers refresh every metrics_interval,
+        so change-driven persistence is bounded by that cadence — not the
+        (much faster) heartbeat rate.
+        """
+        from flux.routing import validate_worker_metrics
+
+        metrics = validate_worker_metrics(raw)
+        if metrics is None:
+            logger.warning(f"Worker {name} sent an invalid metrics payload; ignored")
+            return
+        if self._worker_metrics_persisted.get(name) == metrics:
+            return
+        info = self._worker_info.get(name)
+        if info is not None:
+            # _worker_info values are WorkerInfo (typed dict[str, object]).
+            setattr(info, "metrics", metrics)
+        self._worker_metrics_persisted[name] = metrics
+        try:
+            from flux.worker_registry import WorkerRegistry
+
+            registry = WorkerRegistry.create()
+            await asyncio.to_thread(registry.record_metrics, name, metrics)
+        except Exception as e:
+            logger.debug(f"Failed to persist metrics for worker {name}: {e}")
+
     async def _flush_heartbeats(self) -> None:
         """Persist all buffered pongs in one batched UPDATE."""
         if not self._pending_heartbeats:
@@ -677,6 +711,7 @@ class Server(
         # Unconditional: a lingering unhealthy flag would wrongly surface in
         # GET /workers even after the worker is gone.
         self._worker_unhealthy.discard(name)
+        self._worker_metrics_persisted.pop(name, None)
         self._worker_offline_since[name] = time.monotonic()
         if name in self._worker_cache:
             self._worker_cache[name].status = "offline"

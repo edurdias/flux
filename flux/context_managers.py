@@ -633,12 +633,27 @@ class DatabaseContextManager(ContextManager):
                 ]
                 if not eligible:
                     continue
-                # Sticky-routing hint (relayed call()): prefer the worker
-                # whose module cache is already warm, but only when it is
-                # eligible right now — otherwise fall back to least-loaded.
                 preferred = getattr(model, "preferred_worker", None)
                 worker = None
-                if preferred:
+                policy = (workflow.wf_metadata or {}).get("routing")
+                if policy:
+                    # Declared scoring policy owns the score stage: the sticky
+                    # hint participates only through an explicit sticky() term.
+                    # A malformed policy returns None and degrades to the
+                    # default selection — it must never strand executions.
+                    from flux.routing import pick_worker
+
+                    worker = pick_worker(
+                        eligible,
+                        policy,
+                        loads=loads,
+                        input_value=model.input,
+                        preferred=preferred,
+                    )
+                elif preferred:
+                    # Sticky-routing hint (relayed call()): prefer the worker
+                    # whose module cache is already warm, but only when it is
+                    # eligible right now — otherwise fall back to least-loaded.
                     worker = next((w for w in eligible if w.name == preferred), None)
                 if worker is None:
                     worker = min(eligible, key=lambda w: loads.get(w.name, 0))

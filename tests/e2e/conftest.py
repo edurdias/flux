@@ -252,6 +252,7 @@ class FluxCLI:
         self,
         name: str,
         labels: dict[str, str] | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.Popen:
         cmd = [
             "poetry",
@@ -271,7 +272,7 @@ class FluxCLI:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             cwd=PROJECT_ROOT,
-            env=self._env,
+            env={**self._env, **(env or {})},
         )
 
         deadline = time.monotonic() + 60

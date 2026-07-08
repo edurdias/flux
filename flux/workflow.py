@@ -31,6 +31,7 @@ class workflow:
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
+        routing: dict | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -45,6 +46,7 @@ class workflow:
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
             durability (str, optional): "durable" (default) persists every task-level checkpoint; "transient" keeps only the outer lifecycle.
             runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
+            routing (dict | None, optional): Scoring policy built with ``flux.routing.score(...)`` that ranks eligible workers at dispatch (event mode only). Hard constraints (requests/affinity/runner) still filter first. Defaults to None (least-loaded).
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
@@ -62,6 +64,7 @@ class workflow:
                 schedule=schedule,
                 durability=durability,
                 runner=runner,
+                routing=routing,
             )
 
         return wrapper
@@ -78,6 +81,7 @@ class workflow:
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
+        routing: dict | None = None,
     ):
         if durability not in ("durable", "transient"):
             raise ValueError(
@@ -96,6 +100,12 @@ class workflow:
                 raise ValueError(
                     f"runner must be one of {', '.join(KNOWN_RUNNERS)}, got: '{runner}'",
                 )
+        if routing is not None and (
+            not isinstance(routing, dict) or not isinstance(routing.get("terms"), list)
+        ):
+            raise ValueError(
+                f"routing must be a policy built with flux.routing.score(...), got: {routing!r}",
+            )
         self._func = func
         self._name = name if name else func.__name__
         self._namespace = validate_namespace(namespace)
@@ -106,6 +116,7 @@ class workflow:
         self._schedule = schedule
         self._durability = durability
         self._runner = runner
+        self._routing = routing
         wraps(func)(self)
 
     @property
@@ -123,6 +134,10 @@ class workflow:
     @property
     def runner(self) -> str | None:
         return self._runner
+
+    @property
+    def routing(self) -> dict | None:
+        return self._routing
 
     @property
     def qualified_name(self) -> str:

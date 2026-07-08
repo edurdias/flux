@@ -257,14 +257,18 @@ class WorkerRoutesMixin:
         ):
             """Receive heartbeat pong from a worker.
 
-            The optional body carries self-health ({"healthy": bool}):
-            unhealthy workers stay connected (running work finishes, the
-            reaper is not involved) but are excluded from new dispatch until
-            they report healthy again. Legacy workers send no body.
+            The optional body carries self-health ({"healthy": bool}) and
+            advertised metrics ({"metrics": {str: float}}): unhealthy workers
+            stay connected (running work finishes, the reaper is not
+            involved) but are excluded from new dispatch until they report
+            healthy again; metrics feed routing policies through "metric:*"
+            selectors. Legacy workers send no body.
             """
             try:
                 self._verify_worker_identity(identity, name)
                 await self._record_heartbeat(name)
+                if payload is not None and "metrics" in payload:
+                    await self._record_worker_metrics(name, payload.get("metrics"))
                 healthy = True if payload is None else bool(payload.get("healthy", True))
                 if healthy:
                     if name in self._worker_unhealthy:
@@ -907,6 +911,7 @@ class WorkerRoutesMixin:
                 if w.packages
                 else [],
                 labels=w.labels if isinstance(w.labels, dict) else {},
+                metrics=getattr(w, "metrics", None),
             )
 
             if w.runtime:
@@ -991,9 +996,16 @@ class WorkerRoutesMixin:
                     cached = self._worker_cache.get(info.name)
                     if cached is not None:
                         cached.status = worker_status
+                        cached.metrics = info.metrics
                         result.append(cached)
                     else:
-                        result.append(WorkerResponse(name=info.name, status=worker_status))
+                        result.append(
+                            WorkerResponse(
+                                name=info.name,
+                                status=worker_status,
+                                metrics=info.metrics,
+                            ),
+                        )
 
                 logger.debug(f"Found {len(result)} workers")
                 return result

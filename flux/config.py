@@ -159,6 +159,20 @@ class WorkersConfig(BaseConfig):
         gt=0,
         description="Seconds between event-loop lag probes",
     )
+    metrics_provider: str | None = Field(
+        default=None,
+        description=(
+            "Dotted path ('package.module:callable') to a sync or async "
+            "callable returning dict[str, float]. The worker advertises the "
+            "snapshot on heartbeat pongs; routing policies read it through "
+            "'metric:*' selectors"
+        ),
+    )
+    metrics_interval: float = Field(
+        default=10.0,
+        gt=0,
+        description="Seconds between metrics-provider refreshes",
+    )
     transient_fast_path: bool = Field(
         default=True,
         description=(

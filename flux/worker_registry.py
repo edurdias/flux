@@ -70,6 +70,7 @@ class WorkerInfo:
         max_concurrent_executions: int | None = None,
         last_seen_at: datetime | None = None,
         runners: list[str] | None = None,
+        metrics: dict[str, float] | None = None,
     ):
         self.name = name
         self.runtime = runtime
@@ -84,6 +85,9 @@ class WorkerInfo:
         # Runners this worker has enabled; None means a legacy worker that
         # predates runners and executes everything in-process.
         self.runners = list(runners) if runners is not None else None
+        # Latest metrics snapshot from the worker's heartbeat pong; read by
+        # routing policies ("metric:*" selectors). None until the first report.
+        self.metrics = dict(metrics) if metrics else None
 
 
 class WorkerRegistry(ABC):
@@ -120,6 +124,16 @@ class WorkerRegistry(ABC):
         All names get the same (current) timestamp — callers buffer pongs for
         at most one heartbeat interval, which is well inside the staleness
         thresholds, and one UPDATE per interval replaces one commit per pong.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def record_metrics(self, name: str, metrics: dict[str, float]) -> None:  # pragma: no cover
+        """Persist the worker's latest advertised metrics snapshot.
+
+        Called on metric *change*, not per pong — providers refresh on
+        ``metrics_interval`` (seconds), so writes are bounded by
+        fleet_size / metrics_interval, independent of heartbeat rate.
         """
         raise NotImplementedError()
 
@@ -220,6 +234,16 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             # loading the worker's runtime/packages/resources relationships.
             session.query(WorkerModel).filter(WorkerModel.name == name).update(
                 {WorkerModel.last_seen_at: now},
+                synchronize_session=False,
+            )
+            session.commit()
+
+    def record_metrics(self, name: str, metrics: dict[str, float]) -> None:
+        from flux.models import WorkerModel
+
+        with self.session() as session:
+            session.query(WorkerModel).filter(WorkerModel.name == name).update(
+                {WorkerModel.metrics: metrics},
                 synchronize_session=False,
             )
             session.commit()
@@ -330,4 +354,5 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             max_concurrent_executions=model.max_concurrent_executions,
             last_seen_at=model.last_seen_at,
             runners=model.runners,
+            metrics=model.metrics,
         )
