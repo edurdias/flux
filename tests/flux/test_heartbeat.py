@@ -443,6 +443,9 @@ class TestWorkerReconnect:
         mock_settings.workers.subprocess_term_grace = 5.0
         mock_settings.workers.subprocess_memory_limit = 0
         mock_settings.workers.loop_lag_threshold = 0
+        mock_settings.workers.metrics_provider = None
+        mock_settings.workers.metrics_interval = 10.0
+        mock_settings.workers.builtin_metrics = False
         mock_settings.workers.loop_lag_probe_interval = 1.0
 
         with patch("flux.config.Configuration.get") as mock_get:

@@ -24,6 +24,11 @@ class InProcessRunner(Runner):
     def __init__(self, loader: WorkflowModuleLoader | None = None):
         self._loader = loader or WorkflowModuleLoader()
 
+    def warm_modules(self) -> int:
+        """Workflow modules currently warm in this runner's cache (feeds the
+        flux.warm_modules built-in metric)."""
+        return self._loader.size()
+
     async def execute(
         self,
         request: WorkflowExecutionRequest,
