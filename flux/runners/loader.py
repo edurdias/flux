@@ -61,6 +61,11 @@ class WorkflowModuleLoader:
         self._max_size = max_size
         self._cache: OrderedDict[str, tuple[ModuleType, float]] = OrderedDict()
 
+    def size(self) -> int:
+        """Modules currently cached, counting only unexpired entries."""
+        now = time.monotonic()
+        return sum(1 for _, cached_at in self._cache.values() if now - cached_at < self._ttl)
+
     def load(self, namespace: str, name: str, version: int, source_b64: str) -> ModuleType:
         source_hash = hash_source(source_b64)
         cache_key = make_module_cache_key(namespace, name, version, source_hash)

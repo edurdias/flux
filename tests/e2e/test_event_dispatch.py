@@ -220,6 +220,13 @@ def test_routing_policy_follows_worker_metric(event_cli):
     assert _wait_for_metric(event_cli, "sticky-a", "fitness", timeout=60)
     assert _wait_for_metric(event_cli, "sticky-b", "fitness", timeout=60)
 
+    # Built-in flux.* metrics ride the same pong, no provider required.
+    metrics = next(
+        w.get("metrics") or {} for w in event_cli.worker_list() if w.get("name") == "sticky-a"
+    )
+    assert "flux.running_executions" in metrics, metrics
+    assert "flux.cpu_percent" in metrics, metrics
+
     for i in range(3):
         result = event_cli.run("fitness_router", str(i), mode="sync", timeout=90)
         assert result["state"] == "COMPLETED"

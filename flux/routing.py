@@ -54,8 +54,14 @@ _RESOURCE_FIELDS = (
 )
 
 # Guardrails for worker-advertised metrics (the pong payload is caller input).
+# MAX_METRICS bounds a metrics provider's output; MAX_TOTAL_METRICS bounds the
+# merged pong payload (provider output + built-in flux.* metrics) server-side.
 MAX_METRICS = 32
+MAX_TOTAL_METRICS = 64
 MAX_METRIC_KEY_LENGTH = 64
+# Built-in worker metrics live under this prefix; provider keys using it are
+# stripped so user values can never impersonate a built-in signal.
+RESERVED_METRIC_PREFIX = "flux."
 
 
 class InputRef:
@@ -241,10 +247,10 @@ def score(*terms: dict) -> dict:
     return {"terms": list(terms)}
 
 
-def validate_worker_metrics(payload: Any) -> dict[str, float] | None:
+def validate_worker_metrics(payload: Any, max_keys: int = MAX_METRICS) -> dict[str, float] | None:
     """Sanitize a worker-advertised metrics mapping. Returns None when the
     payload is unusable — metrics are a hint channel, never an error channel."""
-    if not isinstance(payload, dict) or len(payload) > MAX_METRICS:
+    if not isinstance(payload, dict) or len(payload) > max_keys:
         return None
     metrics: dict[str, float] = {}
     for key, value in payload.items():

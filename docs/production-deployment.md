@@ -158,7 +158,7 @@ owns its score stage: the sticky relay hint participates only through an
 explicit `sticky()` term. Event dispatch mode only — poll mode has no
 cross-worker view and ignores policies, same as the sticky hint.
 
-**Worker metrics** feed `metric:*` selectors: point
+**Worker metrics** feed `metric(...)` selectors: point
 `FLUX_WORKERS__METRICS_PROVIDER` at a callable (`"myapp.routing:collect"`,
 sync or async) returning `dict[str, float]` — latency to a dependency, GPU
 queue depth, an ML-scored fitness, anything worker-observable. The worker
@@ -168,6 +168,27 @@ values for debugging ("why did it pick that worker?"). Payloads are bounded
 (≤32 keys, finite floats) and invalid ones are dropped, never fatal. This is
 the intended home for *arbitrary* routing logic: compute anything on the
 worker, publish it as a metric, rank on it declaratively.
+
+**Built-in metrics** ship under the reserved `flux.` prefix with no provider
+required (`builtin_metrics = true`, the default). Aggregates are computed
+worker-side over fixed windows and published as single scalars — the control
+plane stores only the latest snapshot per worker, never a time series:
+
+| Metric | Meaning |
+|---|---|
+| `flux.running_executions` / `flux.slots_free` | live occupancy / headroom (bounded capacity only) |
+| `flux.loop_lag_seconds` / `flux.loop_lag_p95_seconds` | latest / p95 event-loop lag — a soft gradient below the unhealthy cliff |
+| `flux.cpu_percent` (EWMA) / `flux.memory_available_bytes` / `flux.load_avg_1m` | live utilization (fixes the registration-snapshot staleness of `resource(...)`) |
+| `flux.failure_rate` / `flux.crash_rate` | failed / child-crashed fraction of recent executions — quarantines sick workers before an operator notices |
+| `flux.executions_per_minute` | observed completion throughput |
+| `flux.execution_duration_p95_seconds` | completion-time tail — slow disk, throttling, noisy neighbors |
+| `flux.startup_overhead_seconds` | median dispatch→first-checkpoint gap (runner spawn/load cost; durable runs only) |
+| `flux.warm_modules` | workflow modules warm in the inprocess runner's cache |
+
+So `least(metric("flux.loop_lag_p95_seconds"))` or
+`prefer(metric("flux.crash_rate") < 0.1, weight=10)` work with zero user
+code. Provider keys under `flux.` are stripped — user values can never
+impersonate a built-in signal.
 
 ## Runners: where workflow code executes
 

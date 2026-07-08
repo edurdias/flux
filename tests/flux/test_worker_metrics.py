@@ -147,3 +147,117 @@ class TestPongPayload:
         await worker._send_pong()
 
         assert captured["json"] == {"healthy": True}
+
+
+class TestBuiltinMetricsCollector:
+    def _collector(self, **kwargs):
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        return WorkerMetricsCollector(**kwargs)
+
+    def test_snapshot_always_reports_running_and_system_gauges(self):
+        snapshot = self._collector().snapshot(running=3)
+
+        assert snapshot["flux.running_executions"] == 3.0
+        assert "flux.cpu_percent" in snapshot
+        assert "flux.memory_available_bytes" in snapshot
+        # Aggregates stay absent until their source has data.
+        assert "flux.failure_rate" not in snapshot
+        assert "flux.loop_lag_p95_seconds" not in snapshot
+
+    def test_slots_free_only_with_bounded_capacity(self):
+        assert "flux.slots_free" not in self._collector().snapshot(running=1)
+        bounded = self._collector(max_concurrent=8).snapshot(running=3)
+        assert bounded["flux.slots_free"] == 5.0
+
+    def test_loop_lag_latest_and_p95(self):
+        collector = self._collector()
+        for lag in (0.01,) * 99 + (2.0,):
+            collector.record_loop_lag(lag)
+
+        snapshot = collector.snapshot(running=0)
+
+        assert snapshot["flux.loop_lag_seconds"] == 2.0
+        assert snapshot["flux.loop_lag_p95_seconds"] == 0.01  # single spike ignored by p95
+
+    def test_failure_and_crash_rates(self):
+        collector = self._collector()
+        for outcome in ("completed",) * 6 + ("failed",) * 2 + ("crashed",) * 2:
+            collector.record_outcome(outcome)
+
+        snapshot = collector.snapshot(running=0)
+
+        assert snapshot["flux.failure_rate"] == 0.4  # failed + crashed
+        assert snapshot["flux.crash_rate"] == 0.2
+        assert snapshot["flux.executions_per_minute"] == 10.0
+
+    def test_duration_p95_and_startup_median(self):
+        collector = self._collector()
+        for i in range(100):
+            collector.record_duration(float(i))
+        for value in (0.1, 0.2, 0.9):
+            collector.record_startup(value)
+
+        snapshot = collector.snapshot(running=0)
+
+        assert snapshot["flux.execution_duration_p95_seconds"] == 94.0
+        assert snapshot["flux.startup_overhead_seconds"] == 0.2  # median, spike-resistant
+
+    def test_warm_modules_accessor(self):
+        collector = self._collector(warm_modules=lambda: 7)
+        assert collector.snapshot(running=0)["flux.warm_modules"] == 7.0
+
+
+class TestBuiltinMergeInPong:
+    @pytest.mark.asyncio
+    async def test_builtins_published_without_provider(self):
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        worker = make_worker()
+        worker._metrics_collector = WorkerMetricsCollector()
+        worker._metrics_interval = 60.0
+
+        snapshot = await worker._collect_metrics()
+
+        assert snapshot is not None
+        assert snapshot["flux.running_executions"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_reserved_prefix_stripped_from_provider_output(self):
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        worker = make_worker()
+        worker._metrics_collector = WorkerMetricsCollector()
+        worker._metrics_provider = lambda: {
+            "fitness": 0.9,
+            "flux.running_executions": 999.0,  # impersonation attempt
+        }
+        worker._metrics_interval = 60.0
+
+        snapshot = await worker._collect_metrics()
+
+        assert snapshot["fitness"] == 0.9
+        assert snapshot["flux.running_executions"] == 0.0  # built-in wins
+
+    @pytest.mark.asyncio
+    async def test_provider_failure_keeps_user_values_but_refreshes_builtins(self):
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        worker = make_worker()
+        worker._metrics_collector = WorkerMetricsCollector()
+        worker._metrics_provider = lambda: {"fitness": 0.7}
+        worker._metrics_interval = 0.0001
+
+        first = await worker._collect_metrics()
+        assert first["fitness"] == 0.7
+
+        def boom():
+            raise RuntimeError("collector down")
+
+        worker._metrics_provider = boom
+        worker._metrics_collector.record_outcome("failed")
+        await asyncio.sleep(0.001)
+        second = await worker._collect_metrics()
+
+        assert second["fitness"] == 0.7  # user snapshot survives the failure
+        assert second["flux.failure_rate"] == 1.0  # built-ins still refreshed

@@ -665,9 +665,10 @@ class Server(
         so change-driven persistence is bounded by that cadence — not the
         (much faster) heartbeat rate.
         """
-        from flux.routing import validate_worker_metrics
+        from flux.routing import MAX_TOTAL_METRICS, validate_worker_metrics
 
-        metrics = validate_worker_metrics(raw)
+        # Total cap: provider output (bounded worker-side) + built-in flux.*.
+        metrics = validate_worker_metrics(raw, max_keys=MAX_TOTAL_METRICS)
         if metrics is None:
             logger.warning(f"Worker {name} sent an invalid metrics payload; ignored")
             return

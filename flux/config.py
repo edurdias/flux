@@ -173,6 +173,14 @@ class WorkersConfig(BaseConfig):
         gt=0,
         description="Seconds between metrics-provider refreshes",
     )
+    builtin_metrics: bool = Field(
+        default=True,
+        description=(
+            "Publish the built-in 'flux.*' worker metrics (loop lag, load, "
+            "failure/crash rates, durations, cpu/memory, ...) on heartbeats "
+            "so routing policies can rank on them without a metrics_provider"
+        ),
+    )
     transient_fast_path: bool = Field(
         default=True,
         description=(

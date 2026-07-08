@@ -35,6 +35,9 @@ def make_worker() -> Worker:
     worker._metrics_interval = 10.0
     worker._metrics_snapshot = None
     worker._metrics_collected_at = None
+    worker._metrics_collector = None
+    worker._user_metrics = None
+    worker._execution_started = {}
     return worker
 
 
