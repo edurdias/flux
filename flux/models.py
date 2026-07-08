@@ -506,6 +506,10 @@ class WorkerModel(Base):
     # declaring runner=... only match workers whose list contains it. NULL
     # means a legacy worker that executes everything in-process.
     runners = Column(Base64Type(), nullable=True)
+    # Latest metrics snapshot advertised on the worker's heartbeat pong
+    # (validated dict[str, float]). Read by routing policies via "metric:*"
+    # selectors and surfaced in GET /workers. NULL when no provider is set.
+    metrics = Column(Base64Type(), nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")

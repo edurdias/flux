@@ -127,6 +127,48 @@ the same path. Plain HTTP round-robin works for everything else.
   probe itself cannot fire — missed pongs and the eviction reaper remain
   the backstop for that case.
 
+## Dynamic routing (scoring policies)
+
+Hard constraints (`requests`, `affinity`, `runner`) decide *which* workers
+can run a workflow; a routing policy decides which of them *should*. The
+policy is data, not code — declared on the workflow, extracted statically at
+registration (like `requests`), and evaluated natively by the event
+dispatcher. No user code runs on the server.
+
+```python
+from flux.routing import score, prefer, least, most, sticky, input
+
+@workflow.with_options(
+    routing=score(
+        prefer("label:region", "==", input("region"), weight=10),  # payload locality
+        least("metric:queue_depth", weight=5),   # worker-advertised metric
+        most("resource:memory_available"),       # built-in resource field
+        sticky(weight=3),                        # opt the relay hint into the score
+        least("load"),                           # built-in: active executions
+    ),
+)
+async def train(ctx: ExecutionContext[TrainInput]): ...
+```
+
+Each term normalizes to 0–1 across the eligible workers, the weighted sum
+ranks them, and ties break deterministically (lower load, then name). A
+worker missing a value scores 0 for that term; a malformed policy degrades
+to least-loaded rather than stranding executions. A workflow with a policy
+owns its score stage: the sticky relay hint participates only through an
+explicit `sticky()` term. Event dispatch mode only — poll mode has no
+cross-worker view and ignores policies, same as the sticky hint.
+
+**Worker metrics** feed `metric:*` selectors: point
+`FLUX_WORKERS__METRICS_PROVIDER` at a callable (`"myapp.routing:collect"`,
+sync or async) returning `dict[str, float]` — latency to a dependency, GPU
+queue depth, an ML-scored fitness, anything worker-observable. The worker
+refreshes it every `FLUX_WORKERS__METRICS_INTERVAL` (default 10 s) and
+advertises the snapshot on its heartbeat pong; `GET /workers` surfaces the
+values for debugging ("why did it pick that worker?"). Payloads are bounded
+(≤32 keys, finite floats) and invalid ones are dropped, never fatal. This is
+the intended home for *arbitrary* routing logic: compute anything on the
+worker, publish it as a metric, rank on it declaratively.
+
 ## Runners: where workflow code executes
 
 Each execution runs through a **runner** (Prefect-style). Workers enable
