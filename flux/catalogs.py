@@ -600,6 +600,31 @@ class WorkflowCatalog(ABC):
                 return call.func.attr
             return None
 
+        from collections.abc import Callable
+
+        _SELECTOR_FACTORIES: dict[str, Callable[..., Any]] = {
+            "label": routing_dsl.label,
+            "metric": routing_dsl.metric,
+            "resource": routing_dsl.resource,
+            "load": routing_dsl.load,
+        }
+
+        def extract_selector(sel_node: ast.AST) -> Any:
+            name = call_name(sel_node)
+            factory = _SELECTOR_FACTORIES.get(name or "")
+            if factory is None:
+                fail(f"expected label()/metric()/resource()/load(), got '{name}'")
+            assert isinstance(sel_node, ast.Call)
+            args = []
+            for arg in sel_node.args:
+                if not isinstance(arg, ast.Constant):
+                    fail(f"{name}() takes a literal key")
+                args.append(arg.value)
+            try:
+                return factory(*args)
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid routing selector '{name}': {e}") from e
+
         def extract_value(value_node: ast.AST) -> Any:
             if isinstance(value_node, ast.Constant):
                 return value_node.value
@@ -611,33 +636,73 @@ class WorkflowCatalog(ABC):
                 fail("input() takes a single literal path")
             fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
 
+        _AST_OPS = {
+            ast.Eq: "==",
+            ast.NotEq: "!=",
+            ast.Lt: "<",
+            ast.LtE: "<=",
+            ast.Gt: ">",
+            ast.GtE: ">=",
+        }
+        # For "value <op> selector" order: same condition, operator flipped.
+        _FLIPPED = {"==": "==", "!=": "!=", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
+
+        def extract_condition(cond_node: ast.AST) -> Any:
+            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
+                fail(
+                    "prefer() takes a single selector comparison, "
+                    'e.g. prefer(label("region") == "eu-west")',
+                )
+            op = _AST_OPS.get(type(cond_node.ops[0]))
+            if op is None:
+                fail(f"unsupported comparison operator at line {cond_node.lineno}")
+            left, right = cond_node.left, cond_node.comparators[0]
+            if call_name(left) in _SELECTOR_FACTORIES:
+                selector, value = extract_selector(left), extract_value(right)
+            elif call_name(right) in _SELECTOR_FACTORIES:
+                selector, value, op = extract_selector(right), extract_value(left), _FLIPPED[op]
+            else:
+                fail("one side of a prefer() comparison must be a selector")
+            try:
+                return routing_dsl.Condition(selector, op, value)
+            except ValueError as e:
+                raise SyntaxError(f"Invalid routing condition: {e}") from e
+
         if call_name(node) != "score":
             fail("expected a score(...) call")
         assert isinstance(node, ast.Call)
 
-        from collections.abc import Callable
-
-        factories: dict[str, Callable[..., dict]] = {
-            "prefer": routing_dsl.prefer,
-            "least": routing_dsl.least,
-            "most": routing_dsl.most,
-            "sticky": routing_dsl.sticky,
-        }
         terms = []
         for term_node in node.args:
             name = call_name(term_node)
-            factory = factories.get(name or "")
-            if factory is None:
+            if name not in ("prefer", "least", "most", "sticky"):
                 fail(f"expected prefer()/least()/most()/sticky() terms, got '{name}'")
             assert isinstance(term_node, ast.Call)
-            args = [extract_value(arg) for arg in term_node.args]
             kwargs = {}
             for kw in term_node.keywords:
                 if kw.arg is None:
                     fail("**kwargs is not supported in routing terms")
                 kwargs[kw.arg] = extract_value(kw.value)
             try:
-                terms.append(factory(*args, **kwargs))
+                if name == "sticky":
+                    if term_node.args:
+                        fail("sticky() takes no positional arguments")
+                    terms.append(routing_dsl.sticky(**kwargs))
+                    continue
+                if len(term_node.args) != 1:
+                    fail(f"{name}() takes exactly one positional argument")
+                if name == "prefer":
+                    terms.append(
+                        routing_dsl.prefer(extract_condition(term_node.args[0]), **kwargs),
+                    )
+                elif name == "least":
+                    terms.append(
+                        routing_dsl.least(extract_selector(term_node.args[0]), **kwargs),
+                    )
+                else:
+                    terms.append(
+                        routing_dsl.most(extract_selector(term_node.args[0]), **kwargs),
+                    )
             except (TypeError, ValueError) as e:
                 raise SyntaxError(f"Invalid routing term '{name}': {e}") from e
         try:

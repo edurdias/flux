@@ -136,15 +136,15 @@ registration (like `requests`), and evaluated natively by the event
 dispatcher. No user code runs on the server.
 
 ```python
-from flux.routing import score, prefer, least, most, sticky, input
+from flux.routing import score, prefer, least, most, sticky, label, metric, resource, load, input
 
 @workflow.with_options(
     routing=score(
-        prefer("label:region", "==", input("region"), weight=10),  # payload locality
-        least("metric:queue_depth", weight=5),   # worker-advertised metric
-        most("resource:memory_available"),       # built-in resource field
+        prefer(label("region") == input("region"), weight=10),  # payload locality
+        least(metric("queue_depth"), weight=5),  # worker-advertised metric
+        most(resource("memory_available")),      # built-in resource field
         sticky(weight=3),                        # opt the relay hint into the score
-        least("load"),                           # built-in: active executions
+        least(load()),                           # built-in: active executions
     ),
 )
 async def train(ctx: ExecutionContext[TrainInput]): ...

@@ -9,19 +9,19 @@ server.
 
     @workflow.with_options(
         routing=score(
-            prefer("label:region", "==", input("region"), weight=10),
-            least("metric:queue_depth", weight=5),
-            most("resource:memory_available", weight=2),
+            prefer(label("region") == input("region"), weight=10),
+            least(metric("queue_depth"), weight=5),
+            most(resource("memory_available"), weight=2),
             sticky(weight=3),
-            least("load"),
+            least(load()),
         ),
     )
 
 Selectors:
-    ``label:<key>``     worker label value
-    ``metric:<key>``    worker-advertised metric (``[flux.workers] metrics_provider``)
-    ``resource:<field>``worker resource field (cpu/memory/disk totals and availables)
-    ``load``            active executions on the worker (built-in)
+    ``label(key)``      worker label value
+    ``metric(key)``     worker-advertised metric (``[flux.workers] metrics_provider``)
+    ``resource(field)`` worker resource field (cpu/memory/disk totals and availables)
+    ``load()``          active executions on the worker (built-in)
 
 Each term normalizes to 0..1 across the eligible set (so an unbounded
 ``load`` term cannot drown a boolean ``prefer``), the weighted sum ranks the
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _OPS = ("==", "!=", "<", "<=", ">", ">=")
-_SELECTOR_PREFIXES = ("label:", "metric:", "resource:")
 _RESOURCE_FIELDS = (
     "cpu_total",
     "cpu_available",
@@ -79,25 +78,86 @@ def input(path: str) -> InputRef:  # noqa: A001 - deliberate DSL name
     return InputRef(path)
 
 
-def _validate_selector(selector: str, *, allow_load: bool = True) -> str:
-    if not isinstance(selector, str):
-        raise ValueError(f"selector must be a string, got: {type(selector).__name__}")
-    if selector == "load":
-        if not allow_load:
-            raise ValueError("'load' is not valid here")
-        return selector
-    if not selector.startswith(_SELECTOR_PREFIXES):
-        raise ValueError(
-            f"selector must be 'load' or start with one of {_SELECTOR_PREFIXES}, got: '{selector}'",
-        )
-    kind, _, key = selector.partition(":")
-    if not key:
-        raise ValueError(f"selector '{selector}' is missing its key")
-    if kind == "resource" and key not in _RESOURCE_FIELDS:
-        raise ValueError(
-            f"unknown resource field '{key}'; expected one of {_RESOURCE_FIELDS}",
-        )
-    return selector
+class Condition:
+    """A comparison produced by applying an operator to a Selector."""
+
+    def __init__(self, selector: Selector, op: str, value: Any):
+        if op not in _OPS:
+            raise ValueError(f"op must be one of {_OPS}, got: '{op}'")
+        if isinstance(value, Selector):
+            raise ValueError("selectors can only be compared against constants or input(...)")
+        if isinstance(value, InputRef):
+            value = value.to_spec()
+        elif not isinstance(value, (str, int, float, bool)):
+            raise ValueError(
+                f"value must be a constant or input(...), got: {type(value).__name__}",
+            )
+        self.selector = selector
+        self.op = op
+        self.value = value
+
+
+class Selector:
+    """A worker attribute usable in routing terms.
+
+    Comparison operators build :class:`Condition` objects for ``prefer()``:
+    ``label("region") == "eu-west"``, ``metric("temp") < 60``. Reversed
+    comparisons (``60 > metric("temp")``) work through Python's reflected
+    operator protocol.
+    """
+
+    def __init__(self, kind: str, key: str | None = None):
+        if kind == "load":
+            self.spec = "load"
+            return
+        if not key or not isinstance(key, str):
+            raise ValueError(f"{kind}() requires a non-empty string key")
+        if kind == "resource" and key not in _RESOURCE_FIELDS:
+            raise ValueError(
+                f"unknown resource field '{key}'; expected one of {_RESOURCE_FIELDS}",
+            )
+        self.spec = f"{kind}:{key}"
+
+    def __eq__(self, other: Any) -> Condition:  # type: ignore[override]
+        return Condition(self, "==", other)
+
+    def __ne__(self, other: Any) -> Condition:  # type: ignore[override]
+        return Condition(self, "!=", other)
+
+    def __lt__(self, other: Any) -> Condition:
+        return Condition(self, "<", other)
+
+    def __le__(self, other: Any) -> Condition:
+        return Condition(self, "<=", other)
+
+    def __gt__(self, other: Any) -> Condition:
+        return Condition(self, ">", other)
+
+    def __ge__(self, other: Any) -> Condition:
+        return Condition(self, ">=", other)
+
+    # Comparisons build Conditions, so instances are deliberately unhashable.
+    __hash__ = None  # type: ignore[assignment]
+
+
+def label(key: str) -> Selector:
+    """Worker label value."""
+    return Selector("label", key)
+
+
+def metric(key: str) -> Selector:
+    """Worker-advertised metric (``[flux.workers] metrics_provider``)."""
+    return Selector("metric", key)
+
+
+def resource(field: str) -> Selector:
+    """Worker resource field (cpu/memory/disk totals and availables)."""
+    return Selector("resource", field)
+
+
+def load() -> Selector:
+    """Active executions on the worker (built-in)."""
+    return Selector("load")
 
 
 def _validate_weight(weight: Any) -> float:
@@ -110,36 +170,49 @@ def _validate_weight(weight: Any) -> float:
     return weight
 
 
-def prefer(selector: str, op: str, value: Any, *, weight: float = 1.0) -> dict:
-    """Boolean preference: 1.0 when ``<selector> <op> <value>`` holds, else 0."""
-    _validate_selector(selector)
-    if op not in _OPS:
-        raise ValueError(f"op must be one of {_OPS}, got: '{op}'")
-    if isinstance(value, InputRef):
-        value = value.to_spec()
-    elif not isinstance(value, (str, int, float, bool)):
+def _require_selector(value: Any, term: str) -> Selector:
+    if not isinstance(value, Selector):
         raise ValueError(
-            f"value must be a constant or input(...), got: {type(value).__name__}",
+            f"{term}() takes a selector (label/metric/resource/load), got: {type(value).__name__}",
+        )
+    return value
+
+
+def prefer(condition: Condition, *, weight: float = 1.0) -> dict:
+    """Boolean preference: 1.0 when the condition holds, else 0.
+
+    ``prefer(label("region") == input("region"), weight=10)``
+    """
+    if not isinstance(condition, Condition):
+        raise ValueError(
+            "prefer() takes a selector comparison, e.g. "
+            f'prefer(label("region") == "eu-west"), got: {type(condition).__name__}',
         )
     return {
         "kind": "prefer",
-        "selector": selector,
-        "op": op,
-        "value": value,
+        "selector": condition.selector.spec,
+        "op": condition.op,
+        "value": condition.value,
         "weight": _validate_weight(weight),
     }
 
 
-def least(selector: str, *, weight: float = 1.0) -> dict:
+def least(selector: Selector, *, weight: float = 1.0) -> dict:
     """Prefer workers where the numeric selector value is lowest."""
-    _validate_selector(selector)
-    return {"kind": "least", "selector": selector, "weight": _validate_weight(weight)}
+    return {
+        "kind": "least",
+        "selector": _require_selector(selector, "least").spec,
+        "weight": _validate_weight(weight),
+    }
 
 
-def most(selector: str, *, weight: float = 1.0) -> dict:
+def most(selector: Selector, *, weight: float = 1.0) -> dict:
     """Prefer workers where the numeric selector value is highest."""
-    _validate_selector(selector)
-    return {"kind": "most", "selector": selector, "weight": _validate_weight(weight)}
+    return {
+        "kind": "most",
+        "selector": _require_selector(selector, "most").spec,
+        "weight": _validate_weight(weight),
+    }
 
 
 def sticky(*, weight: float = 1.0) -> dict:

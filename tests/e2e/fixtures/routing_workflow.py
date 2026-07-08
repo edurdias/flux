@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext, task, workflow
-from flux.routing import input, least, most, prefer, score
+from flux.routing import input, label, least, load, metric, most, prefer, score
 
 
 @task
@@ -13,8 +13,8 @@ async def ident(value):
 
 @workflow.with_options(
     routing=score(
-        prefer("label:pin", "==", input("pin"), weight=10),
-        least("load"),
+        prefer(label("pin") == input("pin"), weight=10),
+        least(load()),
     ),
 )
 async def pin_router(ctx: ExecutionContext[dict]):
@@ -23,7 +23,7 @@ async def pin_router(ctx: ExecutionContext[dict]):
     return await ident(ctx.input)
 
 
-@workflow.with_options(routing=score(most("metric:fitness", weight=10)))
+@workflow.with_options(routing=score(most(metric("fitness"), weight=10)))
 async def fitness_router(ctx: ExecutionContext):
     """Metric-driven placement: lands on the worker advertising the highest
     'fitness' value from its metrics provider."""
