@@ -66,6 +66,7 @@ class ExecutionContext(BaseModel):
             input=self.input,
             execution_id=self.execution_id,
             state=ExecutionState(self.state),
+            current_worker=self.current_worker or None,
             events=events,
         )
 

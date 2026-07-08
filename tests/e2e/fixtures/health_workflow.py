@@ -29,6 +29,13 @@ async def loop_blocker(ctx: ExecutionContext):
     return await block_loop_repeatedly(2.5, 5)
 
 
+@workflow.with_options(runner="inprocess", affinity={"starve": "true"})
+async def pinned_loop_blocker(ctx: ExecutionContext):
+    """Same starvation, pinned by label so tests can starve one specific
+    worker while the rest of the fleet stays healthy."""
+    return await block_loop_repeatedly(2.5, 5)
+
+
 @task
 async def quick() -> str:
     return "healthy again"

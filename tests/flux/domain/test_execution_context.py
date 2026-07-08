@@ -164,3 +164,36 @@ def test_emit_progress_supports_async_callback():
     ctx.set_progress_callback(on_progress)
     asyncio.run(ctx.emit_progress("task_1", "my_task", "hello"))
     assert captured == ["hello"]
+
+
+class TestCurrentWorkerSerialization:
+    """current_worker must survive every serialization hop (server -> worker
+    -> child process): call() relays read it to build the sticky-routing
+    hint header, so dropping it silently disables sticky routing."""
+
+    def _scheduled_ctx(self) -> ExecutionContext:
+        ctx: ExecutionContext = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+        )
+        ctx.schedule(WorkerInfo(name="worker-1"))
+        return ctx
+
+    def test_json_round_trip_preserves_current_worker(self):
+        ctx = self._scheduled_ctx()
+        restored = ExecutionContext.from_json(ctx.to_dict())
+        assert restored.current_worker == "worker-1"
+
+    def test_from_json_tolerates_missing_current_worker(self):
+        data = self._scheduled_ctx().to_dict()
+        del data["current_worker"]
+        restored = ExecutionContext.from_json(data)
+        assert restored.current_worker == ""
+
+    def test_dto_round_trip_preserves_current_worker(self):
+        from flux.servers.models import ExecutionContext as ExecutionContextDTO
+
+        ctx = self._scheduled_ctx()
+        restored = ExecutionContextDTO.from_domain(ctx).to_domain()
+        assert restored.current_worker == "worker-1"
