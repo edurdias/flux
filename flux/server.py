@@ -676,7 +676,9 @@ class Server(
         self._drain_worker_queue(name)
         if name in self._worker_names:
             self._worker_names.remove(name)
-            self._worker_unhealthy.discard(name)
+        # Unconditional: a lingering unhealthy flag would wrongly surface in
+        # GET /workers even after the worker is gone.
+        self._worker_unhealthy.discard(name)
         self._worker_offline_since[name] = time.monotonic()
         if name in self._worker_cache:
             self._worker_cache[name].status = "offline"
