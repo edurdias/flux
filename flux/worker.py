@@ -213,7 +213,10 @@ class Worker:
                 from flux.routing import RESERVED_METRIC_PREFIX, validate_worker_metrics
                 from flux.utils import maybe_awaitable
 
-                async with asyncio.timeout(min(5.0, self._metrics_interval)):
+                # Bounded so a hung provider cannot block pongs, floored so
+                # a sub-second refresh cadence never strangles collection
+                # itself (thread dispatch alone can exceed a tiny interval).
+                async with asyncio.timeout(min(5.0, max(1.0, self._metrics_interval))):
                     if asyncio.iscoroutinefunction(self._metrics_provider):
                         raw = await self._metrics_provider()
                     else:
