@@ -200,12 +200,19 @@ def test_routing_policy_follows_execution_input(event_cli):
     assert to_target["state"] == "COMPLETED"
     assert to_target.get("current_worker") == "sticky-b"
 
+    # The policy survives registration: workflow show carries the spec.
+    shown = event_cli.show("pin_router")
+    assert "routing" in (shown.get("metadata") or {}), shown
 
-def _wait_for_metric(cli, worker_name: str, metric: str, timeout: float) -> bool:
+
+def _wait_for_metric(cli, worker_name: str, metric: str, timeout: float, predicate=None) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         for w in cli.worker_list():
-            if w.get("name") == worker_name and metric in (w.get("metrics") or {}):
+            if w.get("name") != worker_name:
+                continue
+            metrics = w.get("metrics") or {}
+            if metric in metrics and (predicate is None or predicate(metrics[metric])):
                 return True
         time.sleep(1)
     return False
@@ -226,11 +233,55 @@ def test_routing_policy_follows_worker_metric(event_cli):
     )
     assert "flux.running_executions" in metrics, metrics
     assert "flux.cpu_percent" in metrics, metrics
+    # The fixture provider tries to publish flux.running_executions=999: the
+    # reserved prefix is stripped and the genuine built-in wins.
+    assert metrics["flux.running_executions"] != 999.0, metrics
 
     for i in range(3):
         result = event_cli.run("fitness_router", str(i), mode="sync", timeout=90)
         assert result["state"] == "COMPLETED"
         assert result.get("current_worker") == "sticky-b", result
+
+
+def test_builtin_metric_drives_routing(event_cli):
+    """A policy on a built-in metric, deliberately anti-least-loaded:
+    most(metric("flux.running_executions")) must land on the BUSY worker —
+    the default selection would pick the idle one, so landing busy proves
+    the flux.* metric drove the decision end-to-end."""
+    event_cli.register(str(FIXTURES / "routing_workflow.py"))
+
+    occupant = event_cli.run("slow_occupant", "null", mode="async", timeout=30)
+    try:
+        # The occupancy travels: execution running -> next metrics refresh ->
+        # heartbeat pong -> GET /workers.
+        assert _wait_for_metric(
+            event_cli,
+            "sticky-b",
+            "flux.running_executions",
+            timeout=60,
+            predicate=lambda v: v >= 1,
+        ), event_cli.worker_list()
+
+        result = event_cli.run("busy_router", "1", mode="sync", timeout=90)
+        assert result["state"] == "COMPLETED"
+        assert result.get("current_worker") == "sticky-b", result
+
+        # By now this module has completed executions on sticky-b: the
+        # windowed aggregates are published alongside the gauges.
+        assert _wait_for_metric(
+            event_cli,
+            "sticky-b",
+            "flux.executions_per_minute",
+            timeout=30,
+        ), event_cli.worker_list()
+    finally:
+        event_cli.cancel("slow_occupant", occupant["execution_id"])
+        event_cli.wait_for_state(
+            "slow_occupant",
+            occupant["execution_id"],
+            "CANCELLED",
+            timeout=60,
+        )
 
 
 def test_event_dispatch_excludes_unhealthy_worker(event_cli):
