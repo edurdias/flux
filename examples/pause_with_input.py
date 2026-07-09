@@ -89,8 +89,6 @@ async def conditional_pause_workflow(ctx: ExecutionContext):
 
 
 if __name__ == "__main__":  # pragma: no cover
-    from flux.context_managers import ContextManager
-
     # Example 1: Basic pause with input
     print("=== Basic Pause with Input ===")
     ctx = pause_with_input_workflow.run()
@@ -98,18 +96,12 @@ if __name__ == "__main__":  # pragma: no cover
     print(f"Execution ID: {ctx.execution_id}")
     print("Workflow is paused, waiting for input...")
 
-    # Simulate providing input and resuming
+    # Provide input on resume — workflow.resume accepts it directly and the
+    # pause(...) call inside the workflow returns it. (Across processes, use
+    # FluxClient.resume_execution_sync or `flux workflow resume`.)
     user_input = {"multiplier": 5, "comment": "Adding multiplier value"}
     print(f"Providing input: {user_input}")
-
-    # The correct way to resume with input:
-    # 1. Start resuming with input
-    ctx.start_resuming(user_input)
-    # 2. Save the context with the resuming state
-    cm = ContextManager.create()
-    cm.save(ctx)
-    # 3. Resume the workflow
-    resumed_ctx = pause_with_input_workflow.run(execution_id=ctx.execution_id)
+    resumed_ctx = pause_with_input_workflow.resume(ctx.execution_id, user_input)
     print(f"Workflow completed! Output: {resumed_ctx.output}")
 
     # Example 2: Multiple input pauses
@@ -119,23 +111,17 @@ if __name__ == "__main__":  # pragma: no cover
 
     # Resume with config input
     config_input = {"database_url": "localhost:5432", "timeout": 30}
-    ctx.start_resuming(config_input)
-    cm.save(ctx)
-    ctx = multiple_input_pause_workflow.run(execution_id=ctx.execution_id)
+    ctx = multiple_input_pause_workflow.resume(ctx.execution_id, config_input)
     print(f"Second pause at: {ctx.events[-1].value}")
 
     # Resume with parameter input
     param_input = {"batch_size": 100, "parallel_workers": 4}
-    ctx.start_resuming(param_input)
-    cm.save(ctx)
-    ctx = multiple_input_pause_workflow.run(execution_id=ctx.execution_id)
+    ctx = multiple_input_pause_workflow.resume(ctx.execution_id, param_input)
     print(f"Third pause at: {ctx.events[-1].value}")
 
     # Resume with approval input
     approval_input = {"approved": True, "approver": "admin"}
-    ctx.start_resuming(approval_input)
-    cm.save(ctx)
-    final_ctx = multiple_input_pause_workflow.run(execution_id=ctx.execution_id)
+    final_ctx = multiple_input_pause_workflow.resume(ctx.execution_id, approval_input)
     print(f"Final result: {final_ctx.output}")
 
     # Example 3: Conditional pause
@@ -149,9 +135,7 @@ if __name__ == "__main__":  # pragma: no cover
 
     # Resume with approval
     approval = {"approved": True, "reason": "Looks good to proceed"}
-    ctx.start_resuming(approval)
-    cm.save(ctx)
-    approved_ctx = conditional_pause_workflow.run(execution_id=ctx.execution_id)
+    approved_ctx = conditional_pause_workflow.resume(ctx.execution_id, approval)
     print(f"Approval result: {approved_ctx.output}")
 
     # Example 4: Rejection scenario
@@ -160,7 +144,5 @@ if __name__ == "__main__":  # pragma: no cover
 
     # Resume with rejection
     rejection = {"approved": False, "reason": "Needs more review"}
-    ctx.start_resuming(rejection)
-    cm.save(ctx)
-    rejected_ctx = conditional_pause_workflow.run(execution_id=ctx.execution_id)
+    rejected_ctx = conditional_pause_workflow.resume(ctx.execution_id, rejection)
     print(f"Rejection result: {rejected_ctx.output}")
