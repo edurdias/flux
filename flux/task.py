@@ -951,11 +951,11 @@ class task:
             }
 
             try:
-                await asyncio.sleep(current_delay)
-
                 # Idempotent across replays: a resumed interrupted attempt
-                # already has its STARTED event in the log.
+                # already waited its backoff and has its STARTED event in
+                # the log — sleeping again would double-apply the delay.
                 if attempt not in started_attempts:
+                    await asyncio.sleep(current_delay)
                     started_attempts.add(attempt)
                     ctx.events.append(
                         ExecutionEvent(

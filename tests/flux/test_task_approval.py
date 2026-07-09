@@ -756,3 +756,52 @@ def test_retry_exhaustion_on_resume_continues_into_fallback(isolated_db):
     assert ctx.has_succeeded
     assert ctx.output == "fallback-ran"
     assert calls[0] == 2, f"original attempt re-ran on resume (body calls: {calls[0]})"
+
+
+@pytest.mark.asyncio
+async def test_resumed_interrupted_attempt_skips_backoff_and_started_duplicate(isolated_db):
+    """A resumed attempt that already STARTED (interrupted mid-body) must
+    re-run without re-applying its backoff delay or duplicating its
+    STARTED event — the original run already did both."""
+    import time as time_mod
+
+    from flux.domain.events import ExecutionEvent, ExecutionEventType
+
+    calls = [0]
+
+    @task_decorator.with_options(retry_max_attempts=2, retry_delay=5)
+    async def flaky() -> str:
+        calls[0] += 1
+        return "ran"
+
+    ctx = _build_test_ctx()
+    # Durable history of a run interrupted mid-attempt-1: the original body
+    # failed (attempt 0), attempt 1 started (its backoff already waited)
+    # but never terminated.
+    for event_type, attempt in (
+        (ExecutionEventType.TASK_RETRY_FAILED, 0),
+        (ExecutionEventType.TASK_RETRY_STARTED, 1),
+    ):
+        ctx.events.append(
+            ExecutionEvent(
+                type=event_type,
+                source_id="tid-interrupted",
+                name="flaky",
+                value={"current_attempt": attempt, "max_attempts": 2},
+            ),
+        )
+
+    started = time_mod.monotonic()
+    output = await flaky._task__handle_retry(ctx, "tid-interrupted", "flaky", (), {})
+    elapsed = time_mod.monotonic() - started
+
+    assert output == "ran"
+    assert calls[0] == 1
+    # retry_delay is 5s: re-applying it on resume would blow this bound.
+    assert elapsed < 3, f"backoff re-applied on resumed attempt ({elapsed:.1f}s)"
+    started_events = [
+        e
+        for e in ctx.events
+        if e.type == ExecutionEventType.TASK_RETRY_STARTED and e.source_id == "tid-interrupted"
+    ]
+    assert len(started_events) == 1, "STARTED duplicated for the resumed attempt"
