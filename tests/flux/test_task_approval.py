@@ -599,3 +599,160 @@ def test_gate_skips_create_when_execution_already_cancelling(isolated_db):
     from flux.domain.events import ExecutionEventType
 
     assert not any(e.type == ExecutionEventType.TASK_AWAITING_APPROVAL for e in ctx.events)
+
+
+def _approve_single_pending(mgr: ApprovalManager, execution_id: str) -> str:
+    """Approve the one pending approval on an execution; return its call id."""
+    pending = mgr.list(execution_id=execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1, f"expected one pending approval, got {len(pending)}"
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason=None,
+            uow=uow,
+        )
+        uow.commit()
+    return pending[0].task_call_id
+
+
+def test_resume_after_retry_approval_does_not_rerun_original_attempt(isolated_db):
+    """#72: approving a retry attempt and resuming must resume INTO that
+    attempt. Before the fix, every resume replayed the original body first —
+    duplicating its side effects — and only reached the approved retry after
+    the original failed again."""
+    from flux.domain.events import ExecutionEventType
+
+    calls = [0]
+
+    @task_decorator.with_options(requires_approval=True, retry_max_attempts=2, retry_delay=0)
+    async def flaky_gated() -> str:
+        calls[0] += 1
+        if calls[0] <= 2:
+            raise ValueError(f"boom {calls[0]}")
+        return "recovered"
+
+    @workflow
+    async def wf_retry_resume(ctx: ExecutionContext):
+        return await flaky_gated()
+
+    mgr = ApprovalManager()
+
+    ctx = wf_retry_resume.run()  # pauses at the original call's gate
+    assert ctx.is_paused
+    assert calls[0] == 0
+    _approve_single_pending(mgr, ctx.execution_id)
+
+    # Original attempt runs (fails), first retry attempt pauses at its gate.
+    ctx = wf_retry_resume.run(execution_id=ctx.execution_id)
+    assert ctx.is_paused
+    assert calls[0] == 1
+    assert _approve_single_pending(mgr, ctx.execution_id).endswith("~retry1")
+
+    # Resume runs ONLY retry attempt 1 (fails) — the original body must not
+    # re-run — then pauses at retry attempt 2's gate.
+    ctx = wf_retry_resume.run(execution_id=ctx.execution_id)
+    assert ctx.is_paused
+    assert calls[0] == 2, f"original attempt re-ran on resume (body calls: {calls[0]})"
+    assert _approve_single_pending(mgr, ctx.execution_id).endswith("~retry2")
+
+    # Final resume runs ONLY retry attempt 2, which succeeds.
+    ctx = wf_retry_resume.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == "recovered"
+    assert calls[0] == 3, f"attempts duplicated across resumes (body calls: {calls[0]})"
+
+    # Durable retry history, no duplicates from the replays: one failure
+    # marker per failed attempt (0 = original, 1 = first retry) and one
+    # completion for attempt 2.
+    failed = sorted(
+        e.value["current_attempt"]
+        for e in ctx.events
+        if e.type == ExecutionEventType.TASK_RETRY_FAILED
+    )
+    completed = [
+        e.value["current_attempt"]
+        for e in ctx.events
+        if e.type == ExecutionEventType.TASK_RETRY_COMPLETED
+    ]
+    assert failed == [0, 1]
+    assert completed == [2]
+
+
+def test_resume_consumes_approved_retry_when_original_would_succeed(isolated_db):
+    """#72 second manifestation: replay must not give the original body a
+    second chance to succeed and orphan the approved retry row — the retry
+    attempt itself must run."""
+    from flux.domain.events import ExecutionEventType
+
+    calls = [0]
+
+    @task_decorator.with_options(requires_approval=True, retry_max_attempts=1, retry_delay=0)
+    async def flaky_once_gated() -> str:
+        calls[0] += 1
+        if calls[0] == 1:
+            raise ValueError("boom")
+        return f"attempt-{calls[0]}"
+
+    @workflow
+    async def wf_flaky_once(ctx: ExecutionContext):
+        return await flaky_once_gated()
+
+    mgr = ApprovalManager()
+
+    ctx = wf_flaky_once.run()
+    assert ctx.is_paused
+    _approve_single_pending(mgr, ctx.execution_id)
+
+    ctx = wf_flaky_once.run(execution_id=ctx.execution_id)  # original fails
+    assert ctx.is_paused
+    assert _approve_single_pending(mgr, ctx.execution_id).endswith("~retry1")
+
+    ctx = wf_flaky_once.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == "attempt-2"
+    assert calls[0] == 2
+    # The completion came from the retry attempt, not a replayed original.
+    assert any(e.type == ExecutionEventType.TASK_RETRY_COMPLETED for e in ctx.events)
+
+
+def test_retry_exhaustion_on_resume_continues_into_fallback(isolated_db):
+    """Resuming into the retry chain preserves retry -> fallback: exhausting
+    the resumed attempts falls through to the fallback, without re-running
+    the original body."""
+    calls = [0]
+
+    async def use_fallback() -> str:
+        return "fallback-ran"
+
+    @task_decorator.with_options(
+        requires_approval=True,
+        retry_max_attempts=1,
+        retry_delay=0,
+        fallback=use_fallback,
+    )
+    async def always_fails_gated() -> str:
+        calls[0] += 1
+        raise ValueError("boom")
+
+    @workflow
+    async def wf_fallback(ctx: ExecutionContext):
+        return await always_fails_gated()
+
+    mgr = ApprovalManager()
+
+    ctx = wf_fallback.run()
+    assert ctx.is_paused
+    _approve_single_pending(mgr, ctx.execution_id)
+
+    ctx = wf_fallback.run(execution_id=ctx.execution_id)  # original fails
+    assert ctx.is_paused
+    assert _approve_single_pending(mgr, ctx.execution_id).endswith("~retry1")
+
+    ctx = wf_fallback.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == "fallback-ran"
+    assert calls[0] == 2, f"original attempt re-ran on resume (body calls: {calls[0]})"

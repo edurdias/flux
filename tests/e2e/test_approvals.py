@@ -129,3 +129,52 @@ def test_workflow_status_blocked_line_on_stderr(cli):
     # session-scoped server. Approve and wait for COMPLETED before returning.
     cli._server_ok(["execution", "approve", exec_id, pending["task_call_id"]])
     cli.wait_for_state("approval_e2e", exec_id, "COMPLETED", timeout=30)
+
+
+def test_retry_approval_resumes_into_the_retry_attempt(cli):
+    """#72 e2e: approving a retry-attempt gate resumes INTO that attempt —
+    the original attempt's side effects are not duplicated by the replay,
+    across real worker processes."""
+    import tempfile
+    import time
+    from pathlib import Path
+
+    cli.register(str(FIXTURES / "approval_workflow.py"))
+    marker = Path(tempfile.mkdtemp(prefix="flux-retry-approval-")) / "attempts"
+
+    r = cli.run("approval_retry_e2e", f'"{marker}"', mode="async")
+    exec_id = r["execution_id"]
+
+    # Original call's gate pauses the workflow; approve it.
+    cli.wait_for_state("approval_retry_e2e", exec_id, "PAUSED", timeout=30)
+    pending = _wait_for_pending_approval(cli, exec_id)
+    cli._server_ok(["execution", "approve", exec_id, pending["task_call_id"]])
+
+    # The body runs once (fails), then the retry attempt pauses at its own
+    # gate — poll for the retry-scoped pending approval.
+    deadline = time.monotonic() + 30
+    retry_pending = None
+    while time.monotonic() < deadline:
+        out = cli._server_json(
+            ["execution", "approvals", "--execution", exec_id, "--json"],
+        )
+        rows = [
+            row
+            for row in out.get("approvals", [])
+            if row.get("status") == "pending" and row["task_call_id"].endswith("~retry1")
+        ]
+        if rows:
+            retry_pending = rows[0]
+            break
+        time.sleep(1)
+    assert retry_pending is not None, "retry-attempt approval never appeared"
+    assert marker.read_text() == "1"
+
+    cli._server_ok(["execution", "approve", exec_id, retry_pending["task_call_id"]])
+
+    final = cli.wait_for_state("approval_retry_e2e", exec_id, "COMPLETED", timeout=60)
+    assert final["state"] == "COMPLETED"
+    assert final.get("output") == "deployed-after-2-attempts"
+    # Exactly two body runs: original + the approved retry. Before the #72
+    # fix the resume replayed the original attempt again (three runs).
+    assert marker.read_text() == "2"
