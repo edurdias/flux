@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import MagicMock
 
 import pytest
@@ -78,20 +77,20 @@ class TestCollection:
     async def test_invalid_payload_keeps_previous_snapshot(self):
         worker = make_worker()
         worker._metrics_provider = lambda: {"queue": 1.0}
-        worker._metrics_interval = 0.0001
+        worker._metrics_interval = 60.0
 
         first = await worker._collect_metrics()
         assert first == {"queue": 1.0}
 
         worker._metrics_provider = lambda: {"queue": "busted"}
-        await asyncio.sleep(0.001)
+        worker._metrics_collected_at = None  # force a refresh deterministically
         assert await worker._collect_metrics() == {"queue": 1.0}
 
     @pytest.mark.asyncio
     async def test_provider_exception_keeps_previous_snapshot(self):
         worker = make_worker()
         worker._metrics_provider = lambda: {"queue": 2.0}
-        worker._metrics_interval = 0.0001
+        worker._metrics_interval = 60.0
 
         assert await worker._collect_metrics() == {"queue": 2.0}
 
@@ -99,7 +98,7 @@ class TestCollection:
             raise RuntimeError("collector down")
 
         worker._metrics_provider = boom
-        await asyncio.sleep(0.001)
+        worker._metrics_collected_at = None  # force a refresh deterministically
         assert await worker._collect_metrics() == {"queue": 2.0}
 
     @pytest.mark.asyncio
@@ -246,7 +245,7 @@ class TestBuiltinMergeInPong:
         worker = make_worker()
         worker._metrics_collector = WorkerMetricsCollector()
         worker._metrics_provider = lambda: {"fitness": 0.7}
-        worker._metrics_interval = 0.0001
+        worker._metrics_interval = 60.0
 
         first = await worker._collect_metrics()
         assert first["fitness"] == 0.7
@@ -256,7 +255,7 @@ class TestBuiltinMergeInPong:
 
         worker._metrics_provider = boom
         worker._metrics_collector.record_outcome("failed")
-        await asyncio.sleep(0.001)
+        worker._metrics_collected_at = None  # force a refresh deterministically
         second = await worker._collect_metrics()
 
         assert second["fitness"] == 0.7  # user snapshot survives the failure
