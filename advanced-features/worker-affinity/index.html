@@ -11,6 +11,10 @@
       
       
       
+        <link rel="prev" href="../workflow-controls/">
+      
+      
+        <link rel="next" href="../dynamic-routing/">
       
       
         
@@ -771,8 +775,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -794,6 +800,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -803,13 +813,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -830,7 +838,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -884,6 +892,197 @@
     
   
     Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Affinity
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Affinity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-worker-affinity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is Worker Affinity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#starting-a-worker-with-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a Worker with Labels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#declaring-workflow-affinity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring Workflow Affinity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#matching-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matching Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#labels-vs-resource-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Labels vs Resource Requests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume Behavior
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-pinning-to-a-sandbox-harness-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Pinning to a Sandbox Harness Worker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#beyond-hard-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Beyond Hard Constraints
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dynamic-routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Routing
   
 
     
@@ -1203,6 +1402,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#beyond-hard-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Beyond Hard Constraints
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1329,6 +1539,10 @@
 <a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">ai_researcher</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Without the affinity constraint, the workflow might run on a generic worker without browser tools and fail.</p>
+<h2 id="beyond-hard-constraints">Beyond Hard Constraints<a class="headerlink" href="#beyond-hard-constraints" title="Permanent link">&para;</a></h2>
+<p>Affinity decides which workers <em>can</em> run a workflow. To rank the eligible
+workers — by latency, load, locality, or custom metrics — add a scoring
+policy on top: see <a href="../dynamic-routing/">Dynamic Routing</a>.</p>
 
 
 

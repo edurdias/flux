@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../observability/">
+        <link rel="prev" href="../worker-affinity/">
       
       
-        <link rel="next" href="../agent-skills/">
+        <link rel="next" href="../observability/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Task Progress Streaming - Flux Documentation</title>
+        <title>Dynamic Routing - Flux Documentation</title>
       
     
     
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#task-progress-streaming" class="md-skip">
+        <a href="#dynamic-routing" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Task Progress Streaming
+              Dynamic Routing
             
           </span>
         </div>
@@ -937,10 +937,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../dynamic-routing/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Routing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -956,6 +983,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#declaring-a-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Declaring a policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-scoring-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How scoring works
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-worker-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in worker metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-metrics-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom metrics providers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observing-routing-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observing routing decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-sticky-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to sticky routing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -993,37 +1106,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Task Progress Streaming
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../task-progress/" class="md-nav__link">
         
   
   
@@ -1039,187 +1125,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Start
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consuming-progress-events" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consuming Progress Events
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Consuming Progress Events">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CLI
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#http-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HTTP API
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-token-streaming" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Agent Token Streaming
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Token Streaming">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#disabling-streaming" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Disabling Streaming
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#structured-output" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Structured Output
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tool-calling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tool Calling
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#progress-value" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Progress Value
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#durability-guarantees" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Durability Guarantees
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How It Works
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How It Works">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#back-pressure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Back-pressure
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1399,10 +1304,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
+  <a href="#declaring-a-policy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quick Start
+        Declaring a policy
       
     </span>
   </a>
@@ -1410,99 +1315,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#consuming-progress-events" class="md-nav__link">
+  <a href="#how-scoring-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Consuming Progress Events
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Consuming Progress Events">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CLI
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#http-api" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HTTP API
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#agent-token-streaming" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Agent Token Streaming
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Agent Token Streaming">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#disabling-streaming" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Disabling Streaming
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#structured-output" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Structured Output
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#tool-calling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tool Calling
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#progress-value" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Progress Value
+        How scoring works
       
     </span>
   </a>
@@ -1510,10 +1326,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#durability-guarantees" class="md-nav__link">
+  <a href="#built-in-worker-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Durability Guarantees
+        Built-in worker metrics
       
     </span>
   </a>
@@ -1521,38 +1337,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#custom-metrics-providers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How It Works
+        Custom metrics providers
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="How It Works">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#back-pressure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Back-pressure
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#observing-routing-decisions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
+        Observing routing decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-sticky-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to sticky routing
       
     </span>
   </a>
@@ -1579,181 +1389,206 @@
   
 
 
-<h1 id="task-progress-streaming">Task Progress Streaming<a class="headerlink" href="#task-progress-streaming" title="Permanent link">&para;</a></h1>
-<p>Tasks can report progress during execution using the <code>progress()</code> function. Progress events are <strong>ephemeral</strong> — they stream to connected clients in real-time but are never persisted, never stored in the database, and never replayed. This makes them ideal for:</p>
+<h1 id="dynamic-routing">Dynamic Routing<a class="headerlink" href="#dynamic-routing" title="Permanent link">&para;</a></h1>
+<p>Dynamic routing lets a workflow decide <strong>which</strong> of its eligible workers
+<em>should</em> run it — by latency, queue depth, locality, utilization, or any
+factor you can measure. It builds on the two mechanisms you may already use:</p>
 <ul>
-<li><strong>LLM token streaming</strong> — see agent responses as they generate</li>
-<li><strong>Data processing updates</strong> — track rows processed, percentage complete</li>
-<li><strong>Pipeline step reporting</strong> — show which phase is active</li>
+<li><a href="../../core-concepts/workflow-management/">Resource requests</a> and
+  <a href="../worker-affinity/">worker affinity</a> are <strong>hard constraints</strong>: they filter
+  the workers that <em>can</em> run a workflow.</li>
+<li>A <strong>routing policy</strong> is a soft preference: it ranks the workers that
+  survived the filter. Without one, Flux picks the least-loaded eligible
+  worker.</li>
 </ul>
-<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">task</span><span class="p">,</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">progress</span>
+<p>Routing policies are evaluated by the event dispatcher
+(<code>[flux.dispatch] mode = "event"</code>); the legacy poll mode ignores them.</p>
+<h2 id="declaring-a-policy">Declaring a policy<a class="headerlink" href="#declaring-a-policy" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExecutionContext</span><span class="p">,</span> <span class="n">workflow</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">score</span><span class="p">,</span> <span class="n">prefer</span><span class="p">,</span> <span class="n">least</span><span class="p">,</span> <span class="n">most</span><span class="p">,</span> <span class="n">sticky</span><span class="p">,</span> <span class="n">label</span><span class="p">,</span> <span class="n">metric</span><span class="p">,</span> <span class="n">resource</span><span class="p">,</span> <span class="n">load</span><span class="p">,</span> <span class="nb">input</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nd">@task</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">process_data</span><span class="p">(</span><span class="n">items</span><span class="p">:</span> <span class="nb">list</span><span class="p">):</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">items</span><span class="p">):</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">item</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="k">await</span> <span class="n">progress</span><span class="p">({</span><span class="s2">&quot;processed&quot;</span><span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">)})</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="k">return</span> <span class="n">results</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="nd">@workflow</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_workflow</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">process_data</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">[</span><span class="s2">&quot;items&quot;</span><span class="p">])</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">prefer</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;region&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;region&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>  <span class="c1"># payload locality</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;temp&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">60</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>                   <span class="c1"># threshold preference</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;queue_depth&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>                  <span class="c1"># minimize a worker metric</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">most</span><span class="p">(</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;memory_available&quot;</span><span class="p">)),</span>                      <span class="c1"># maximize a resource field</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="n">sticky</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>                                        <span class="c1"># opt the relay hint into the score</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()),</span>                                           <span class="c1"># built-in: active executions</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="p">),</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="p">)</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">train</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="o">...</span>
 </code></pre></div>
-<h2 id="consuming-progress-events">Consuming Progress Events<a class="headerlink" href="#consuming-progress-events" title="Permanent link">&para;</a></h2>
-<p>Progress events are delivered via SSE when using stream mode. There are two ways to consume them:</p>
-<h3 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flux<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>my_workflow<span class="w"> </span><span class="s1">&#39;{&quot;items&quot;: [1, 2, 3]}&#39;</span><span class="w"> </span>--mode<span class="w"> </span>stream
-</code></pre></div>
-<h3 id="http-api">HTTP API<a class="headerlink" href="#http-api" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>curl<span class="w"> </span>-N<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8000/workflows/my_workflow/run/stream<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;items&quot;: [1, 2, 3]}&#39;</span>
-</code></pre></div>
-<p>Both produce the same SSE event stream. Progress events use the <code>task.progress</code> event type and carry the standard <code>ExecutionEvent</code> structure:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>event: task.progress
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;source_id&quot;: &quot;process_data_123&quot;, &quot;name&quot;: &quot;process_data&quot;, &quot;value&quot;: {&quot;processed&quot;: 1, &quot;total&quot;: 3}, &quot;time&quot;: &quot;2026-03-19 17:50:08.410&quot;}
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>event: task.progress
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;source_id&quot;: &quot;process_data_123&quot;, &quot;name&quot;: &quot;process_data&quot;, &quot;value&quot;: {&quot;processed&quot;: 2, &quot;total&quot;: 3}, &quot;time&quot;: &quot;2026-03-19 17:50:08.511&quot;}
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>event: task.progress
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;source_id&quot;: &quot;process_data_123&quot;, &quot;name&quot;: &quot;process_data&quot;, &quot;value&quot;: {&quot;processed&quot;: 3, &quot;total&quot;: 3}, &quot;time&quot;: &quot;2026-03-19 17:50:08.613&quot;}
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>event: my_workflow.execution.completed
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>data: {&quot;state&quot;: &quot;COMPLETED&quot;, &quot;output&quot;: {...}}
-</code></pre></div>
-<p>Progress events are interleaved with durable execution state events (<code>CLAIMED</code>, <code>RUNNING</code>, <code>COMPLETED</code>). Clients distinguish them by the <code>event</code> field — <code>task.progress</code> for ephemeral progress, <code>{workflow}.execution.{state}</code> for durable state changes.</p>
-<p><strong>When no stream-mode client is connected</strong> (async or sync mode), progress events are silently dropped. There is zero memory or CPU overhead.</p>
-<h2 id="agent-token-streaming">Agent Token Streaming<a class="headerlink" href="#agent-token-streaming" title="Permanent link">&para;</a></h2>
-<p>The <code>agent()</code> task uses <code>progress()</code> to stream LLM tokens. Streaming is enabled by default:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks.ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">agent</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">assistant</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="s2">&quot;You are a helpful assistant.&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="p">)</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">assistant</span><span class="p">(</span><span class="s2">&quot;Explain quantum computing&quot;</span><span class="p">)</span>
-</code></pre></div>
-<p>Each token is emitted as <code>progress({"token": "..."})</code>. The return value is still the complete response string — streaming is a side-effect for connected clients.</p>
-<p>SSE output for a streaming agent:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>event: task.progress
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;name&quot;: &quot;agent_openai_gpt_4o&quot;, &quot;value&quot;: {&quot;token&quot;: &quot;Quantum&quot;}, ...}
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>event: task.progress
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;name&quot;: &quot;agent_openai_gpt_4o&quot;, &quot;value&quot;: {&quot;token&quot;: &quot; computing&quot;}, ...}
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>event: task.progress
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>data: {&quot;type&quot;: &quot;TASK_PROGRESS&quot;, &quot;name&quot;: &quot;agent_openai_gpt_4o&quot;, &quot;value&quot;: {&quot;token&quot;: &quot; is&quot;}, ...}
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>event: my_workflow.execution.completed
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>data: {&quot;state&quot;: &quot;COMPLETED&quot;, &quot;output&quot;: {&quot;response&quot;: &quot;Quantum computing is...&quot;}}
-</code></pre></div>
-<h3 id="disabling-streaming">Disabling Streaming<a class="headerlink" href="#disabling-streaming" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">assistant</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="s2">&quot;You are a helpful assistant.&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">stream</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="p">)</span>
-</code></pre></div>
-<h3 id="structured-output">Structured Output<a class="headerlink" href="#structured-output" title="Permanent link">&para;</a></h3>
-<p>When <code>response_format</code> is set, streaming is automatically disabled. Partial JSON tokens are not useful to clients.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Analysis</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">summary</span><span class="p">:</span> <span class="nb">str</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="n">score</span><span class="p">:</span> <span class="nb">float</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">analyst</span> <span class="o">=</span> <span class="n">agent</span><span class="p">(</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="s2">&quot;Analyze the text.&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="n">response_format</span><span class="o">=</span><span class="n">Analysis</span><span class="p">,</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="p">)</span>
-</code></pre></div>
-<h3 id="tool-calling">Tool Calling<a class="headerlink" href="#tool-calling" title="Permanent link">&para;</a></h3>
-<p>When an agent uses tools, the tool-calling iterations use non-streaming calls (tool call JSON must be complete to parse). Only the <strong>final response</strong> (after all tool calls) is streamed.</p>
-<h2 id="progress-value">Progress Value<a class="headerlink" href="#progress-value" title="Permanent link">&para;</a></h2>
-<p>The <code>progress()</code> function accepts any value — the shape is up to the task author:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Numeric progress</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">await</span> <span class="n">progress</span><span class="p">({</span><span class="s2">&quot;processed&quot;</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span> <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="mi">10000</span><span class="p">})</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Step-based progress</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="k">await</span> <span class="n">progress</span><span class="p">({</span><span class="s2">&quot;step&quot;</span><span class="p">:</span> <span class="s2">&quot;building image&quot;</span><span class="p">})</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># Token streaming (used by agent())</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="k">await</span> <span class="n">progress</span><span class="p">({</span><span class="s2">&quot;token&quot;</span><span class="p">:</span> <span class="s2">&quot;Hello&quot;</span><span class="p">})</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1"># Custom structure</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="k">await</span> <span class="n">progress</span><span class="p">({</span><span class="s2">&quot;phase&quot;</span><span class="p">:</span> <span class="s2">&quot;training&quot;</span><span class="p">,</span> <span class="s2">&quot;epoch&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;loss&quot;</span><span class="p">:</span> <span class="mf">0.042</span><span class="p">})</span>
-</code></pre></div>
-<h2 id="durability-guarantees">Durability Guarantees<a class="headerlink" href="#durability-guarantees" title="Permanent link">&para;</a></h2>
-<p>Progress events have <strong>zero impact</strong> on Flux's durability model:</p>
+<p>A policy is a weighted combination of terms over <strong>selectors</strong>:</p>
 <table>
 <thead>
 <tr>
-<th>Aspect</th>
-<th>Behavior</th>
+<th>Selector</th>
+<th>Reads</th>
+<th>Freshness</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Event log</td>
-<td>Progress is never added to <code>ctx.events</code></td>
+<td><code>label("key")</code></td>
+<td>worker labels (<code>--label key=value</code>)</td>
+<td>static (set at registration)</td>
 </tr>
 <tr>
-<td>Database</td>
-<td>Progress is never persisted</td>
+<td><code>metric("key")</code></td>
+<td>worker-advertised metrics (built-in <code>flux.*</code> or your provider's)</td>
+<td>refreshed every <code>metrics_interval</code></td>
 </tr>
 <tr>
-<td>Checkpoint</td>
-<td>Progress does not trigger checkpoints</td>
+<td><code>resource("field")</code></td>
+<td><code>cpu_total</code>, <code>cpu_available</code>, <code>memory_total</code>, <code>memory_available</code>, <code>disk_total</code>, <code>disk_free</code></td>
+<td>registration-time snapshot (prefer <code>metric("flux.cpu_percent")</code> etc. for live values)</td>
 </tr>
 <tr>
-<td>Replay</td>
-<td>Progress events don't exist during replay</td>
-</tr>
-<tr>
-<td>Event count</td>
-<td>Still 2 per task (STARTED + COMPLETED)</td>
+<td><code>load()</code></td>
+<td>active executions on the worker</td>
+<td>live, computed at dispatch</td>
 </tr>
 </tbody>
 </table>
-<p>If the worker crashes mid-streaming, the task re-executes from scratch on resume. The client gets a fresh token stream. The complete response is durably stored only in the <code>TASK_COMPLETED</code> event.</p>
-<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sequenceDiagram
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    participant Task
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    participant Worker
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    participant Server
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    participant Client
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    Task-&gt;&gt;Worker: await progress(value)
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    Note over Worker: put_nowait(queue)
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    Worker-&gt;&gt;Server: POST /progress/{id} (batch, no DB write)
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    Server-&gt;&gt;Client: SSE: task.progress (ephemeral)
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>    Task-&gt;&gt;Worker: return result
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>    Note over Worker: TASK_COMPLETED event
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>    Worker-&gt;&gt;Server: POST /checkpoint/{id} (DB write)
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>    Server-&gt;&gt;Client: SSE: execution.completed (durable)
-</code></pre></div>
-<ol>
-<li>Task calls <code>progress(value)</code> — enqueued in an in-memory per-execution queue on the worker (fire-and-forget, never blocks)</li>
-<li>A background flusher batches progress items and POSTs them to <code>POST /workers/{name}/progress/{execution_id}</code> (no database write)</li>
-<li>Server buffers in-memory (only when a stream-mode client is connected — zero overhead otherwise)</li>
-<li>SSE handler yields <code>TASK_PROGRESS</code> events to the client, interleaved with durable checkpoint events</li>
-<li>On cancellation, the flusher drains remaining items before exiting (final tokens are the most valuable)</li>
-</ol>
-<h3 id="back-pressure">Back-pressure<a class="headerlink" href="#back-pressure" title="Permanent link">&para;</a></h3>
-<p>The worker queue has a max size of 1000 items. If progress events are produced faster than they can be flushed, excess events are silently dropped. This prevents unbounded memory growth without blocking task execution.</p>
-<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<p>See the included examples:</p>
+<p>And four term types:</p>
 <ul>
-<li><a href="../../examples/task_progress_example.py"><code>examples/task_progress_example.py</code></a> — Numeric and step-based progress reporting</li>
-<li><a href="../../examples/ai/streaming_progress_agent_ollama.py"><code>examples/ai/streaming_progress_agent_ollama.py</code></a> — LLM token streaming with Ollama</li>
+<li><code>prefer(condition, weight=...)</code> — scores 1 when the comparison holds.
+  Conditions use ordinary Python operators (<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>,
+  <code>&gt;=</code>) between a selector and a constant or <code>input(...)</code>.</li>
+<li><code>least(selector, weight=...)</code> / <code>most(selector, weight=...)</code> — prefer the
+  lowest / highest numeric value.</li>
+<li><code>sticky(weight=...)</code> — opts the relayed-<code>call()</code> worker hint into the
+  score. A workflow with a policy owns its score stage entirely: the hint
+  participates <strong>only</strong> through this term.</li>
 </ul>
+<p><code>input("path")</code> resolves against the execution's input at dispatch time —
+dotted paths (<code>input("customer.region")</code>) descend nested dictionaries. This
+is how payload-driven locality works: the same workflow routes each
+execution by its own data.</p>
+<h2 id="how-scoring-works">How scoring works<a class="headerlink" href="#how-scoring-works" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Hard constraints filter first — a policy can never route to a worker
+   that fails <code>requests</code>/<code>affinity</code>/<code>runner</code> matching, is unhealthy, or has
+   no free capacity.</li>
+<li>Each term is normalized to 0–1 <strong>across the eligible workers</strong> (so an
+   unbounded <code>load</code> term cannot drown a boolean <code>prefer</code>), multiplied by
+   its weight, and summed.</li>
+<li>The highest total wins; ties break deterministically (lower load, then
+   name).</li>
+</ol>
+<p>Degradation is deliberate: a worker missing a metric scores 0 for that
+term; a metric absent everywhere makes the term a no-op; a malformed policy
+falls back to least-loaded. A routing policy can never strand an execution.</p>
+<p>Policies are <strong>data, not code</strong>. The <code>score(...)</code> expression compiles to a
+JSON spec that is extracted statically at registration (the same AST
+mechanism as <code>requests</code>) and evaluated natively by the server — no user
+code runs in the dispatcher. The flip side: the policy must be declared
+with literal values (or <code>input(...)</code>); a policy the parser cannot extract
+fails registration with a clear error rather than silently routing
+differently than written.</p>
+<h2 id="built-in-worker-metrics">Built-in worker metrics<a class="headerlink" href="#built-in-worker-metrics" title="Permanent link">&para;</a></h2>
+<p>Every worker publishes a standard metric set under the reserved <code>flux.</code>
+prefix on its heartbeat — no configuration needed
+(<code>[flux.workers] builtin_metrics = true</code> by default):</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux.running_executions</code> / <code>flux.slots_free</code></td>
+<td>live occupancy / headroom (bounded capacity only)</td>
+</tr>
+<tr>
+<td><code>flux.loop_lag_seconds</code> / <code>flux.loop_lag_p95_seconds</code></td>
+<td>latest / p95 event-loop lag</td>
+</tr>
+<tr>
+<td><code>flux.cpu_percent</code> / <code>flux.memory_available_bytes</code> / <code>flux.load_avg_1m</code></td>
+<td>live utilization (EWMA-smoothed / quantized)</td>
+</tr>
+<tr>
+<td><code>flux.failure_rate</code> / <code>flux.crash_rate</code></td>
+<td>failed / child-crashed fraction of recent executions</td>
+</tr>
+<tr>
+<td><code>flux.executions_per_minute</code></td>
+<td>observed completion throughput</td>
+</tr>
+<tr>
+<td><code>flux.execution_duration_p95_seconds</code></td>
+<td>completion-time tail</td>
+</tr>
+<tr>
+<td><code>flux.startup_overhead_seconds</code></td>
+<td>median dispatch→first-checkpoint gap (runner spawn/load cost)</td>
+</tr>
+<tr>
+<td><code>flux.warm_modules</code></td>
+<td>workflow modules warm in the inprocess runner's cache</td>
+</tr>
+</tbody>
+</table>
+<p>So these work with zero setup:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Steer latency-sensitive work away from degraded-but-not-unhealthy workers</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.loop_lag_p95_seconds&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Quarantine workers that accept work and fail it (full disk, sick GPU, ...)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.crash_rate&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+</code></pre></div>
+<p>Aggregates are computed on the worker over fixed windows and published as
+single scalars — the server stores only the latest snapshot per worker,
+never a time series. For history and trending, use the
+<a href="../observability/">observability</a> pipeline.</p>
+<h2 id="custom-metrics-providers">Custom metrics providers<a class="headerlink" href="#custom-metrics-providers" title="Permanent link">&para;</a></h2>
+<p>For anything the built-ins don't cover, point the worker at your own
+callable (sync or async) returning <code>dict[str, float]</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># myapp/routing.py — runs inside the worker process</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="k">return</span> <span class="p">{</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        <span class="s2">&quot;gpu_queue_depth&quot;</span><span class="p">:</span> <span class="n">gpu_queue</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        <span class="s2">&quot;shard_latency_ms&quot;</span><span class="p">:</span> <span class="k">await</span> <span class="n">probe_local_shard</span><span class="p">(),</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="s2">&quot;scratch_free_gb&quot;</span><span class="p">:</span> <span class="n">psutil</span><span class="o">.</span><span class="n">disk_usage</span><span class="p">(</span><span class="s2">&quot;/scratch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">free</span> <span class="o">/</span> <span class="mf">1e9</span><span class="p">,</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="p">}</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">metrics_provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;myapp.routing:collect&quot;</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">metrics_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">10.0</span>
+</code></pre></div>
+<p>The worker refreshes the provider on that cadence (sync providers run in a
+thread; a failure keeps the previous snapshot) and merges the result with
+the built-ins. This is the intended home for <em>arbitrary</em> routing logic:
+measure anything worker-side — including windowed aggregates like a rolling
+p95 you compute yourself — and publish it as a number the server can rank
+on declaratively.</p>
+<p>Guardrails: a provider may publish up to 32 metrics (string keys ≤64 chars,
+finite numbers); invalid payloads are dropped with a warning, never an
+error. Keys under the reserved <code>flux.</code> prefix are stripped, so user values
+can never impersonate a built-in signal.</p>
+<h2 id="observing-routing-decisions">Observing routing decisions<a class="headerlink" href="#observing-routing-decisions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>flux worker list</code> / <code>flux worker show &lt;name&gt;</code> (and <code>GET /workers</code>) show
+  each worker's latest advertised metrics — the values the last dispatch
+  decision actually saw.</li>
+<li><code>flux workflow show &lt;name&gt;</code> includes the registered routing policy in the
+  workflow's metadata.</li>
+</ul>
+<h2 id="relationship-to-sticky-routing">Relationship to sticky routing<a class="headerlink" href="#relationship-to-sticky-routing" title="Permanent link">&para;</a></h2>
+<p>Relayed <code>call()</code>s tag their child executions with the calling worker's name
+(the <code>X-Flux-Preferred-Worker</code> hint), and workflows <strong>without</strong> a policy
+prefer that worker when eligible — keeping mesh hops on warm module caches.
+A workflow <strong>with</strong> a policy takes full ownership of the score stage;
+include <code>sticky(weight=...)</code> to blend the hint into your ranking, or omit
+it to override the hint entirely.</p>
 
 
 

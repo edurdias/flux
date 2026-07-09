@@ -794,6 +794,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -884,6 +888,62 @@
     
   
     Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/worker-affinity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Affinity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced-features/dynamic-routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Routing
   
 
     
@@ -1160,6 +1220,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#dynamic-routing-scoring-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic routing (scoring policies)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#runners-where-workflow-code-executes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1345,6 +1416,92 @@ the same path. Plain HTTP round-robin works for everything else.</p>
   probe itself cannot fire — missed pongs and the eviction reaper remain
   the backstop for that case.</li>
 </ul>
+<h2 id="dynamic-routing-scoring-policies">Dynamic routing (scoring policies)<a class="headerlink" href="#dynamic-routing-scoring-policies" title="Permanent link">&para;</a></h2>
+<p>Hard constraints (<code>requests</code>, <code>affinity</code>, <code>runner</code>) decide <em>which</em> workers
+can run a workflow; a routing policy decides which of them <em>should</em>. The
+policy is data, not code — declared on the workflow, extracted statically at
+registration (like <code>requests</code>), and evaluated natively by the event
+dispatcher. No user code runs on the server.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">score</span><span class="p">,</span> <span class="n">prefer</span><span class="p">,</span> <span class="n">least</span><span class="p">,</span> <span class="n">most</span><span class="p">,</span> <span class="n">sticky</span><span class="p">,</span> <span class="n">label</span><span class="p">,</span> <span class="n">metric</span><span class="p">,</span> <span class="n">resource</span><span class="p">,</span> <span class="n">load</span><span class="p">,</span> <span class="nb">input</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        <span class="n">prefer</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;region&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;region&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span>  <span class="c1"># payload locality</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        <span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;queue_depth&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>  <span class="c1"># worker-advertised metric</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        <span class="n">most</span><span class="p">(</span><span class="n">resource</span><span class="p">(</span><span class="s2">&quot;memory_available&quot;</span><span class="p">)),</span>      <span class="c1"># built-in resource field</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        <span class="n">sticky</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">3</span><span class="p">),</span>                        <span class="c1"># opt the relay hint into the score</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()),</span>                           <span class="c1"># built-in: active executions</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="p">),</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">)</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">train</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="n">TrainInput</span><span class="p">]):</span> <span class="o">...</span>
+</code></pre></div>
+<p>Each term normalizes to 0–1 across the eligible workers, the weighted sum
+ranks them, and ties break deterministically (lower load, then name). A
+worker missing a value scores 0 for that term; a malformed policy degrades
+to least-loaded rather than stranding executions. A workflow with a policy
+owns its score stage: the sticky relay hint participates only through an
+explicit <code>sticky()</code> term. Event dispatch mode only — poll mode has no
+cross-worker view and ignores policies, same as the sticky hint.</p>
+<p><strong>Worker metrics</strong> feed <code>metric(...)</code> selectors: point
+<code>FLUX_WORKERS__METRICS_PROVIDER</code> at a callable (<code>"myapp.routing:collect"</code>,
+sync or async) returning <code>dict[str, float]</code> — latency to a dependency, GPU
+queue depth, an ML-scored fitness, anything worker-observable. The worker
+refreshes it every <code>FLUX_WORKERS__METRICS_INTERVAL</code> (default 10 s) and
+advertises the snapshot on its heartbeat pong; <code>GET /workers</code> surfaces the
+values for debugging ("why did it pick that worker?"). Payloads are bounded
+(≤32 keys, finite floats) and invalid ones are dropped, never fatal. This is
+the intended home for <em>arbitrary</em> routing logic: compute anything on the
+worker, publish it as a metric, rank on it declaratively.</p>
+<p><strong>Built-in metrics</strong> ship under the reserved <code>flux.</code> prefix with no provider
+required (<code>builtin_metrics = true</code>, the default). Aggregates are computed
+worker-side over fixed windows and published as single scalars — the control
+plane stores only the latest snapshot per worker, never a time series:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flux.running_executions</code> / <code>flux.slots_free</code></td>
+<td>live occupancy / headroom (bounded capacity only)</td>
+</tr>
+<tr>
+<td><code>flux.loop_lag_seconds</code> / <code>flux.loop_lag_p95_seconds</code></td>
+<td>latest / p95 event-loop lag — a soft gradient below the unhealthy cliff</td>
+</tr>
+<tr>
+<td><code>flux.cpu_percent</code> (EWMA) / <code>flux.memory_available_bytes</code> / <code>flux.load_avg_1m</code></td>
+<td>live utilization (fixes the registration-snapshot staleness of <code>resource(...)</code>)</td>
+</tr>
+<tr>
+<td><code>flux.failure_rate</code> / <code>flux.crash_rate</code></td>
+<td>failed / child-crashed fraction of recent executions — quarantines sick workers before an operator notices</td>
+</tr>
+<tr>
+<td><code>flux.executions_per_minute</code></td>
+<td>observed completion throughput</td>
+</tr>
+<tr>
+<td><code>flux.execution_duration_p95_seconds</code></td>
+<td>completion-time tail — slow disk, throttling, noisy neighbors</td>
+</tr>
+<tr>
+<td><code>flux.startup_overhead_seconds</code></td>
+<td>median dispatch→first-checkpoint gap (runner spawn/load cost; durable runs only)</td>
+</tr>
+<tr>
+<td><code>flux.warm_modules</code></td>
+<td>workflow modules warm in the inprocess runner's cache</td>
+</tr>
+</tbody>
+</table>
+<p>So <code>least(metric("flux.loop_lag_p95_seconds"))</code> or
+<code>prefer(metric("flux.crash_rate") &lt; 0.1, weight=10)</code> work with zero user
+code. Provider keys under <code>flux.</code> are stripped — user values can never
+impersonate a built-in signal.</p>
 <h2 id="runners-where-workflow-code-executes">Runners: where workflow code executes<a class="headerlink" href="#runners-where-workflow-code-executes" title="Permanent link">&para;</a></h2>
 <p>Each execution runs through a <strong>runner</strong> (Prefect-style). Workers enable
 runners via <code>[flux.workers] runners</code> (advertised at registration) and pick
