@@ -261,3 +261,181 @@ class TestBuiltinMergeInPong:
 
         assert second["fitness"] == 0.7  # user snapshot survives the failure
         assert second["flux.failure_rate"] == 1.0  # built-ins still refreshed
+
+
+def _lifecycle_ctx(execution_id="exec-lc", transient=False, finished=False, failed=False):
+    ctx = MagicMock()
+    ctx.execution_id = execution_id
+    ctx.workflow_name = "wf"
+    ctx.workflow_namespace = "default"
+    ctx.is_transient = transient
+    ctx.is_paused = False
+    ctx.has_finished = finished
+    ctx.has_failed = failed
+    ctx.state.value = "COMPLETED" if finished else "RUNNING"
+    ctx.events = []
+    ctx.to_dict.return_value = {"execution_id": execution_id}
+    return ctx
+
+
+class TestLifecycleRecording:
+    """The worker feeds the collector from its real execution paths."""
+
+    def _worker_with_collector(self):
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        worker = make_worker()
+        worker._metrics_collector = WorkerMetricsCollector()
+        worker.client.post = MagicMock()
+
+        async def ok_post(url, **kwargs):
+            response = MagicMock()
+            response.status_code = 200
+            response.raise_for_status = MagicMock()
+            return response
+
+        worker.client.post = ok_post
+        return worker
+
+    @pytest.mark.asyncio
+    async def test_first_intermediate_checkpoint_records_startup(self):
+        import time as time_mod
+
+        worker = self._worker_with_collector()
+        ctx = _lifecycle_ctx()
+        worker._execution_started[ctx.execution_id] = time_mod.monotonic() - 0.5
+
+        await worker._checkpoint(ctx)
+
+        assert worker._metrics_collector._startups, "startup sample not recorded"
+        assert worker._metrics_collector._startups[0] >= 0.5
+        assert ctx.execution_id not in worker._execution_started
+
+    @pytest.mark.asyncio
+    async def test_terminal_first_checkpoint_is_not_a_startup_signal(self):
+        import time as time_mod
+
+        worker = self._worker_with_collector()
+        ctx = _lifecycle_ctx(finished=True)
+        worker._execution_started[ctx.execution_id] = time_mod.monotonic()
+
+        await worker._checkpoint(ctx)
+
+        assert not worker._metrics_collector._startups
+
+    @pytest.mark.asyncio
+    async def test_transient_checkpoint_is_not_a_startup_signal(self):
+        import time as time_mod
+
+        worker = self._worker_with_collector()
+        ctx = _lifecycle_ctx(transient=True, finished=True)
+        worker._execution_started[ctx.execution_id] = time_mod.monotonic()
+
+        await worker._checkpoint(ctx)
+
+        assert not worker._metrics_collector._startups
+
+    @pytest.mark.asyncio
+    async def test_run_workflow_records_duration_and_outcome(self):
+        worker = self._worker_with_collector()
+        done = _lifecycle_ctx(finished=True)
+
+        class FakeRunner:
+            async def execute(self, request, hooks):
+                return done
+
+        worker._runners = {"subprocess": FakeRunner()}
+        request = MagicMock()
+        request.runner = None
+        request.context = _lifecycle_ctx()
+        request.workflow.name = "wf"
+        request.workflow.namespace = "default"
+        request.workflow.version = 1
+
+        result = await worker._run_workflow(request, hooks=MagicMock())
+
+        assert result is done
+        assert list(worker._metrics_collector._outcomes) == ["completed"]
+        assert len(worker._metrics_collector._durations) == 1
+        assert request.context.execution_id not in worker._execution_started
+
+    @pytest.mark.asyncio
+    async def test_run_workflow_records_failed_outcome(self):
+        worker = self._worker_with_collector()
+        failed = _lifecycle_ctx(finished=True, failed=True)
+
+        class FakeRunner:
+            async def execute(self, request, hooks):
+                return failed
+
+        worker._runners = {"subprocess": FakeRunner()}
+        request = MagicMock()
+        request.runner = None
+        request.context = _lifecycle_ctx()
+        request.workflow.name = "wf"
+        request.workflow.namespace = "default"
+        request.workflow.version = 1
+
+        await worker._run_workflow(request, hooks=MagicMock())
+
+        assert list(worker._metrics_collector._outcomes) == ["failed"]
+
+    @pytest.mark.asyncio
+    async def test_runner_crash_records_crashed_outcome(self):
+        from unittest.mock import AsyncMock
+
+        from flux.errors import WorkerProcessCrashed
+
+        worker = self._worker_with_collector()
+        worker._checkpoint = AsyncMock()
+        worker._release_claim = AsyncMock()
+        request = MagicMock()
+        request.context = _lifecycle_ctx(transient=True)
+        crash = WorkerProcessCrashed("exec-lc", 137, last_context=None)
+
+        await worker._handle_runner_crash(request, crash)
+
+        assert list(worker._metrics_collector._outcomes) == ["crashed"]
+
+
+class TestPerMinuteWindow:
+    def test_old_completions_age_out_of_the_rate(self):
+        from unittest.mock import patch
+
+        from flux.worker_metrics import WorkerMetricsCollector
+
+        collector = WorkerMetricsCollector()
+        with patch("flux.worker_metrics.time") as mock_time:
+            mock_time.monotonic.return_value = 100.0
+            collector.record_outcome("completed")
+            collector.record_outcome("completed")
+            mock_time.monotonic.return_value = 190.0  # 90s later: out of window
+            collector.record_outcome("completed")
+            snapshot = collector.snapshot(running=0)
+
+        assert snapshot["flux.executions_per_minute"] == 1.0
+
+
+class TestLoaderWarmModules:
+    def test_loader_size_counts_only_unexpired(self):
+        import base64
+
+        from flux.runners.loader import WorkflowModuleLoader
+
+        loader = WorkflowModuleLoader(ttl=300, max_size=8)
+        source = base64.b64encode(
+            b"from flux import workflow\n\n\n@workflow\nasync def wf(ctx):\n    return 1\n",
+        ).decode()
+        loader.load("default", "wf", 1, source)
+
+        assert loader.size() == 1
+        # Expire it: size must drop without waiting for eviction-on-load.
+        key, (module, _) = next(iter(loader._cache.items()))
+        loader._cache[key] = (module, -10_000.0)
+        assert loader.size() == 0
+
+    def test_inprocess_runner_exposes_warm_modules(self):
+        from flux.runners.inprocess import InProcessRunner
+
+        runner = InProcessRunner()
+        assert runner.warm_modules() == 0

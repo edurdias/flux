@@ -7,4 +7,9 @@ import os
 
 
 def collect() -> dict[str, float]:
-    return {"fitness": float(os.environ.get("FLUX_TEST_FITNESS", "0"))}
+    return {
+        "fitness": float(os.environ.get("FLUX_TEST_FITNESS", "0")),
+        # Impersonation attempt: reserved-prefix keys must be stripped and
+        # the genuine built-in value published instead.
+        "flux.running_executions": 999.0,
+    }
