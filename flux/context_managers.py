@@ -636,11 +636,13 @@ class DatabaseContextManager(ContextManager):
                 preferred = getattr(model, "preferred_worker", None)
                 worker = None
                 policy = (workflow.wf_metadata or {}).get("routing")
-                if policy:
-                    # Declared scoring policy owns the score stage: the sticky
-                    # hint participates only through an explicit sticky() term.
-                    # A malformed policy returns None and degrades to the
-                    # default selection — it must never strand executions.
+                if policy is not None:
+                    # Declared scoring policy owns the score stage — even a
+                    # falsy/malformed one (hand-written metadata): the sticky
+                    # hint participates only through an explicit sticky()
+                    # term, and pick_worker returns None on a bad policy so
+                    # it degrades to least-loaded, never re-enabling the
+                    # hint and never stranding executions.
                     from flux.routing import pick_worker
 
                     worker = pick_worker(

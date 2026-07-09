@@ -25,7 +25,7 @@ def _create_routed_workflow(name, routing=None, namespace="default", affinity=No
             source=b"async def placeholder(ctx): pass",
             namespace=namespace,
             affinity=affinity,
-            metadata={"routing": routing} if routing else None,
+            metadata={"routing": routing} if routing is not None else None,
         )
         session.add(wf)
         session.commit()
@@ -105,6 +105,23 @@ def test_malformed_policy_degrades_to_least_loaded(clean_env):  # noqa: F811
 
     # Still dispatched — a bad policy must degrade, never strand executions.
     assert [(c.execution_id, w) for c, w in assignments] == [(ctx.execution_id, "a-w")]
+
+
+def test_falsy_policy_owns_the_score_stage(clean_env):  # noqa: F811
+    """A present-but-falsy policy (hand-written metadata) still owns the
+    score stage: it degrades to least-loaded and must NOT re-enable the
+    sticky hint."""
+    cm, registry = clean_env
+    a = _register_worker(registry, "a-w")
+    b = _register_worker(registry, "b-w")
+    wf_id = _create_routed_workflow("falsy", routing={})
+    # Hint points at the busier worker: if the falsy policy wrongly fell
+    # through to the sticky branch, b-w would win despite its load.
+    ctx = _create_execution(cm, wf_id, "falsy", preferred_worker="b-w")
+
+    assignments = {c.execution_id: w for c, w in cm.next_executions_batch([a, b], limit=10)}
+
+    assert assignments[ctx.execution_id] == "a-w"  # least-loaded, hint ignored
 
 
 def test_policy_ranks_only_eligible_workers(clean_env):  # noqa: F811

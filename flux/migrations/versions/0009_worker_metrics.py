@@ -1,9 +1,11 @@
 """Add workers.metrics: latest advertised metrics snapshot.
 
-Workers with a configured ``[flux.workers] metrics_provider`` attach a
-validated ``dict[str, float]`` to their heartbeat pong; routing policies
-read it through ``metric:*`` selectors and ``GET /workers`` surfaces it.
-Additive and nullable — workers without a provider never write it.
+Workers attach a validated ``dict[str, float]`` to their heartbeat pong —
+the built-in ``flux.*`` metrics (published by default) merged with any
+``[flux.workers] metrics_provider`` output; routing policies read it
+through ``metric(...)`` selectors and ``GET /workers`` surfaces it.
+Additive and nullable — the column stays NULL only for workers publishing
+no metrics at all (built-ins disabled and no provider).
 
 Revision ID: 0009_worker_metrics
 Revises: 0008_preferred_worker
