@@ -101,7 +101,9 @@ class workflow:
                     f"runner must be one of {', '.join(KNOWN_RUNNERS)}, got: '{runner}'",
                 )
         if routing is not None and (
-            not isinstance(routing, dict) or not isinstance(routing.get("terms"), list)
+            not isinstance(routing, dict)
+            or not isinstance(routing.get("terms"), list)
+            or not routing["terms"]
         ):
             raise ValueError(
                 f"routing must be a policy built with flux.routing.score(...), got: {routing!r}",

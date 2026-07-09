@@ -357,7 +357,7 @@ class TestWorkflowOption:
     def test_workflow_rejects_non_policy_routing(self):
         from flux.workflow import workflow
 
-        for bad in ("least-loaded", {"terms": "x"}, 42):
+        for bad in ("least-loaded", {"terms": "x"}, {"terms": []}, 42):
             with pytest.raises(ValueError, match="flux.routing.score"):
                 workflow(func=lambda ctx: 1, name="bad", routing=bad)
 

@@ -507,8 +507,10 @@ class WorkerModel(Base):
     # means a legacy worker that executes everything in-process.
     runners = Column(Base64Type(), nullable=True)
     # Latest metrics snapshot advertised on the worker's heartbeat pong
-    # (validated dict[str, float]). Read by routing policies via "metric:*"
-    # selectors and surfaced in GET /workers. NULL when no provider is set.
+    # (validated dict[str, float]): built-in flux.* metrics (on by default)
+    # merged with any metrics_provider output. Read by routing policies via
+    # metric(...) selectors and surfaced in GET /workers. NULL only when the
+    # worker publishes nothing (built-ins disabled and no provider).
     metrics = Column(Base64Type(), nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
