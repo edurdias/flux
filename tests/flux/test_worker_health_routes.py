@@ -134,6 +134,24 @@ class TestPongMetrics:
         assert info.metrics is None
         registry.record_metrics.assert_not_called()
 
+    def test_failed_persist_retries_on_next_identical_pong(self, test_client, server_instance):
+        # Regression: the change-gate must only record a snapshot AFTER the
+        # DB write lands — otherwise a transient persist failure leaves
+        # GET /workers stale until the values happen to change.
+        server_instance._worker_info["w1"] = WorkerInfo(name="w1")
+        body = {"healthy": True, "metrics": {"queue": 3.0}}
+
+        broken = MagicMock()
+        broken.record_metrics.side_effect = RuntimeError("db down")
+        with patch("flux.worker_registry.WorkerRegistry.create", return_value=broken):
+            assert test_client.post("/workers/w1/pong", json=body).status_code == 200
+        broken.record_metrics.assert_called_once()
+
+        healthy = MagicMock()
+        with patch("flux.worker_registry.WorkerRegistry.create", return_value=healthy):
+            assert test_client.post("/workers/w1/pong", json=body).status_code == 200
+        healthy.record_metrics.assert_called_once_with("w1", {"queue": 3.0})
+
     def test_pong_without_metrics_key_leaves_state_untouched(self, test_client, server_instance):
         info = WorkerInfo(name="w1", metrics={"queue": 1.0})
         server_instance._worker_info["w1"] = info

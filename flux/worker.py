@@ -149,7 +149,8 @@ class Worker:
         # Metrics provider: user callable (sync or async) returning
         # dict[str, float], advertised on heartbeat pongs for routing
         # policies ("metric:*" selectors). Collected lazily on pong at
-        # metrics_interval cadence; a broken provider disables itself.
+        # metrics_interval cadence; a provider that fails to LOAD is
+        # disabled, while runtime failures keep the previous snapshot.
         self._metrics_provider = self._load_metrics_provider(config.metrics_provider)
         self._metrics_interval = config.metrics_interval
         self._metrics_snapshot: dict[str, float] | None = None

@@ -672,18 +672,21 @@ class Server(
         if metrics is None:
             logger.warning(f"Worker {name} sent an invalid metrics payload; ignored")
             return
-        if self._worker_metrics_persisted.get(name) == metrics:
-            return
         info = self._worker_info.get(name)
         if info is not None:
             # _worker_info values are WorkerInfo (typed dict[str, object]).
             setattr(info, "metrics", metrics)
-        self._worker_metrics_persisted[name] = metrics
+        if self._worker_metrics_persisted.get(name) == metrics:
+            return
         try:
             from flux.worker_registry import WorkerRegistry
 
             registry = WorkerRegistry.create()
             await asyncio.to_thread(registry.record_metrics, name, metrics)
+            # Gate only after the write lands: a failed persist must be
+            # retried by the next (identical) pong, or GET /workers would
+            # stay stale until the values happen to change.
+            self._worker_metrics_persisted[name] = metrics
         except Exception as e:
             logger.debug(f"Failed to persist metrics for worker {name}: {e}")
 
