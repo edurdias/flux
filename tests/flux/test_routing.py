@@ -259,3 +259,114 @@ class TestPickWorker:
 
     def test_empty_eligible_returns_none(self):
         assert pick_worker([], score(least(load())), loads={}) is None
+
+
+class TestEvaluatorCoverage:
+    """Paths the headline tests don't reach: every operator, resource and
+    load selectors inside conditions, and malformed-at-evaluation specs."""
+
+    def test_all_operators_evaluate(self):
+        w40 = _worker("w40", metrics={"temp": 40}, labels={"zone": "z1"})
+        w90 = _worker("w90", metrics={"temp": 90}, labels={"zone": "z2"})
+
+        cases = [
+            (prefer(label("zone") != "z2", weight=10), "w40"),
+            (prefer(metric("temp") <= 40, weight=10), "w40"),
+            (prefer(metric("temp") > 50, weight=10), "w90"),
+            (prefer(metric("temp") >= 90, weight=10), "w90"),
+        ]
+        for condition, expected in cases:
+            winner = pick_worker([w40, w90], score(condition), loads={})
+            assert winner.name == expected, condition
+
+    def test_resource_selector_evaluates(self):
+        from flux.worker_registry import WorkerResourcesInfo
+
+        def resources(memory: int) -> WorkerResourcesInfo:
+            return WorkerResourcesInfo(
+                cpu_total=4,
+                cpu_available=4,
+                memory_total=memory,
+                memory_available=memory,
+                disk_total=1,
+                disk_free=1,
+                gpus=[],
+            )
+
+        small = WorkerInfo(name="small", resources=resources(1_000))
+        big = WorkerInfo(name="big", resources=resources(9_000))
+        bare = WorkerInfo(name="bare")  # no resources: scores 0 for the term
+
+        policy = score(most(resource("memory_available")))
+        assert pick_worker([small, big, bare], policy, loads={}).name == "big"
+
+    def test_load_selector_in_conditions(self):
+        a = _worker("a")
+        b = _worker("b")
+        policy = score(prefer(load() < 2, weight=10))
+
+        winner = pick_worker([a, b], policy, loads={"a": 5, "b": 0})
+
+        assert winner.name == "b"
+
+    def test_unknown_selector_kind_is_a_missing_value(self):
+        # A spec with an unrecognized selector kind (hand-written or from a
+        # future version) reads as "no value": the term cannot discriminate.
+        a = _worker("a")
+        b = _worker("b")
+        policy = {
+            "terms": [
+                {"kind": "most", "selector": "quantum:flux", "weight": 5.0},
+                {"kind": "least", "selector": "load", "weight": 1.0},
+            ],
+        }
+
+        winner = pick_worker([a, b], policy, loads={"a": 3, "b": 1})
+
+        assert winner.name == "b"
+
+    def test_malformed_at_evaluation_variants_return_none(self):
+        a = _worker("a")
+        bad_specs = [
+            {"terms": [{"kind": "least", "selector": "load", "weight": 0}]},
+            {"terms": [{"kind": "least", "selector": "load", "weight": "heavy"}]},
+            {"terms": [{"kind": "prefer", "selector": "load", "op": "~=", "value": 1}]},
+            {"terms": [{"kind": "prefer", "selector": 42, "op": "==", "value": 1}]},
+            {"terms": [{"kind": "warp", "selector": "load", "weight": 1.0}]},
+        ]
+        for spec in bad_specs:
+            assert pick_worker([a], spec, loads={}) is None, spec
+
+    def test_condition_rejects_non_constant_values(self):
+        with pytest.raises(ValueError, match="constant or input"):
+            Condition(label("x"), "==", [1, 2])
+
+
+class TestWorkflowOption:
+    def test_workflow_accepts_policy_and_exposes_it(self):
+        from flux.workflow import workflow
+
+        policy = score(least(load()))
+
+        @workflow.with_options(routing=policy)
+        async def routed(ctx):
+            return 1
+
+        assert routed.routing == policy
+
+    def test_workflow_rejects_non_policy_routing(self):
+        from flux.workflow import workflow
+
+        for bad in ("least-loaded", {"terms": "x"}, 42):
+            with pytest.raises(ValueError, match="flux.routing.score"):
+                workflow(func=lambda ctx: 1, name="bad", routing=bad)
+
+
+class TestMetricsCaps:
+    def test_total_cap_admits_merged_payloads_beyond_the_provider_budget(self):
+        from flux.routing import MAX_TOTAL_METRICS
+
+        merged = {f"k{i}": 1.0 for i in range(40)}  # > provider budget of 32
+        assert validate_worker_metrics(merged, max_keys=MAX_TOTAL_METRICS) is not None
+        over = {f"k{i}": 1.0 for i in range(MAX_TOTAL_METRICS + 1)}
+        assert validate_worker_metrics(over, max_keys=MAX_TOTAL_METRICS) is None

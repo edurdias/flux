@@ -17,6 +17,7 @@ Flux is a distributed workflow orchestration engine written in Python that enabl
 - **Model Context Protocol (MCP) Support**: Integration with AI development workflows through MCP server capabilities
 - **Workflow Cancellation**: Cancel running workflows with both sync and async modes
 - **Resource Monitoring**: Worker system with CPU, memory, and resource tracking
+- **Dynamic Routing**: Declarative scoring policies rank eligible workers by load, latency, locality, or custom worker-published metrics (built-in `flux.*` metrics included)
 - **Configuration Management**: Flexible configuration system with environment-based settings
 
 ### Task Management

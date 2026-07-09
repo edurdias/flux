@@ -113,3 +113,9 @@ ctx = ai_researcher.run("https://example.com")
 ```
 
 Without the affinity constraint, the workflow might run on a generic worker without browser tools and fail.
+
+## Beyond Hard Constraints
+
+Affinity decides which workers *can* run a workflow. To rank the eligible
+workers — by latency, load, locality, or custom metrics — add a scoring
+policy on top: see [Dynamic Routing](dynamic-routing.md).
