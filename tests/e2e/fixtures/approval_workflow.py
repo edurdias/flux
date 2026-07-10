@@ -26,6 +26,16 @@ async def approval_e2e(ctx):
     return await deploy(prepared)
 
 
+@workflow
+async def approval_multi_e2e(ctx):
+    """Calls the gated `deploy` task once per input item (distinct call_ids),
+    so a standing grant on the first gate must cover the later ones."""
+    results = []
+    for item in ctx.input or ["a", "b"]:
+        results.append(await deploy(item))
+    return results
+
+
 @task.with_options(requires_approval=True, retry_max_attempts=1, retry_delay=1)
 async def flaky_deploy(path: str) -> str:
     """Fails on the first attempt; the attempt count lives in a marker file

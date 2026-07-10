@@ -87,12 +87,41 @@ the event log short-circuits the task call and re-raises the same
 exception, so the workflow body sees identical behavior on the original
 run and on every replay.
 
+## Standing approvals (`--always`)
+
+By default an approval covers exactly one task call. When the same gated
+task runs many times in one execution — an agent's `shell` tool, a deploy
+step in a loop, retry attempts — approving with a **standing grant** covers
+every later gate on the same task *name* within that execution:
+
+```bash
+flux execution approve <exec_id> <task_call_id> --always
+```
+
+Semantics:
+
+- The decided row is stored with `scope="execution"` (a plain approval is
+  `scope="call"`); the scope is visible in `flux execution approvals` output.
+- When a later gate on the same task name registers, the engine finds the
+  grant and auto-approves **without pausing** the workflow. Each auto-approval
+  materializes its own `approved` row — approver copied from the grant,
+  `reason="standing grant"` — so the audit trail still shows one row per
+  gated call.
+- The grant matches on task **name**, not call id, so it also covers retry
+  attempts of gated tasks (their call ids differ, the name doesn't).
+- Grants never cross executions, and a grant cannot be created from a
+  rejection (`scope="execution"` with reject is a validation error).
+- Rejection remains per-call; there is no standing reject.
+- **No revocation (v1).** A grant lasts for the rest of the execution. If
+  approvals must stay per-call, don't use `--always`.
+
 ## Retries and approval
 
 Each retry attempt is a fresh task call: the predicate re-evaluates and a
 new approval is required. Reasoning: the previous attempt may have had
 partial side effects, and the approver should reconsider. "Approve once,
-run forever" is a footgun.
+run forever" is a footgun — which is why covering later gates requires the
+explicit `--always` standing grant described above.
 
 ## Cancellation
 
@@ -117,6 +146,7 @@ not. Cancellation handling at the workflow level takes over from there.
 flux execution approvals                                # list pending
 flux execution approvals --status all --age 1h          # all at least 1h old
 flux execution approve <exec_id> <task_call_id> --reason "..."
+flux execution approve <exec_id> <task_call_id> --always   # standing grant
 flux execution reject  <exec_id> <task_call_id> --reason "..."
 flux execution show    <exec_id>                        # appends pending approvals on stderr
 flux workflow status   <wf> <exec_id>                   # appends 'Blocked on N' on stderr
@@ -136,7 +166,9 @@ POST /executions/{execution_id}/approvals/{task_call_id}/approve
 POST /executions/{execution_id}/approvals/{task_call_id}/reject
 ```
 
-POST body: `{"reason": "optional"}`. `200` returns the post-decision row;
+POST body: `{"reason": "optional", "always": false}` — `always: true` on
+approve creates a standing grant (ignored on reject). `200` returns the
+post-decision row (including its `scope`);
 `409` returns `{"error": "already_decided", "current_status": ..., "decided_at": ...}`
 without leaking the winning approver's identity.
 
@@ -146,8 +178,10 @@ When an agent's tool is gated, the harness pauses with the engine-level
 approval payload and surfaces it through the same UI channel as elicitations:
 
 - **Terminal mode:** prints the task name and pauses on
-  `[a] approve  [r] reject`; the keypress resolves the decision.
-- **Textual mode:** mounts a system message with the same `[a]/[r]`
+  `[a] approve  [A] always  [r] reject`; the keypress resolves the decision
+  (`A` issues a standing grant, so the same tool won't prompt again this
+  session).
+- **Textual mode:** mounts a system message with the same `[a]/[A]/[r]`
   hint in the status bar; the keypress resolves the pending approval.
 - **API mode:** the SSE stream emits an `approval_required` event; the
   consumer posts the decision to `POST /approval/{task_call_id}?session=...`

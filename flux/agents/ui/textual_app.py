@@ -289,9 +289,19 @@ class AgentApp(App):
                 return
 
         if self._approval_future is not None and not self._approval_future.done():
-            if event.key in ("a", "A"):
+            if event.key == "a":
                 self._approval_future.set_result(
                     {"approved": True, "reason": None},
+                )
+                self._approval_future = None
+                self._approval_request = None
+                self._update_status_bar()
+                event.prevent_default()
+                return
+            if event.key == "A":
+                # Standing grant: later gates on this task auto-approve.
+                self._approval_future.set_result(
+                    {"approved": True, "reason": None, "always": True},
                 )
                 self._approval_future = None
                 self._approval_request = None
@@ -481,7 +491,7 @@ class AgentApp(App):
         self._approval_request = message.request
         await self._stop_spinner()
         status = self.query_one("#status-bar", Static)
-        status.update("  [a] approve  │  [r] reject")
+        status.update("  [a] approve  │  [A] always  │  [r] reject")
 
     async def on_session_ended(self, message: SessionEnded) -> None:
         chat = self.query_one("#chat-view", VerticalScroll)

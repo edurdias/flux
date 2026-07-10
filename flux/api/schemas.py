@@ -139,11 +139,14 @@ class RoleCloneRequest(BaseModel):
 class ApprovalDecideRequest(BaseModel):
     """Body for POST /executions/{id}/approvals/{call}/{approve|reject}.
 
-    The decision verb (approve/reject) is path-derived; only the optional reason
-    travels in the body.
+    The decision verb (approve/reject) is path-derived; the body carries the
+    optional reason and, for approvals, the standing-grant flag: ``always``
+    scopes the approval to the whole execution, so later gates on the same
+    task name auto-approve without pausing.
     """
 
     reason: str | None = None
+    always: bool = False
 
 
 class APIKeyRequest(BaseModel):

@@ -213,6 +213,7 @@ class ExecutionRoutesMixin:
                     else None
                 ),
                 "reason": r.reason,
+                "scope": r.scope or "call",
             }
 
         async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
@@ -436,6 +437,7 @@ class ExecutionRoutesMixin:
             *,
             approved: bool,
             reason: str | None,
+            scope: str = "call",
         ):
             """Shared implementation for the approve/reject POST routes.
 
@@ -503,6 +505,7 @@ class ExecutionRoutesMixin:
                         approved=approved,
                         reason=reason,
                         uow=uow,
+                        scope=scope,
                     )
                     event_type = (
                         ExecutionEventType.TASK_APPROVED
@@ -523,6 +526,7 @@ class ExecutionRoutesMixin:
                                 },
                                 "reason": reason,
                                 "decided_at": decided_iso,
+                                "scope": updated.scope or "call",
                             },
                         ),
                     )
@@ -552,12 +556,14 @@ class ExecutionRoutesMixin:
             identity: FluxIdentity = Depends(get_identity),
         ):
             reason = body.reason if body is not None else None
+            always = body.always if body is not None else False
             return await _decide_approval(
                 execution_id,
                 task_call_id,
                 identity,
                 approved=True,
                 reason=reason,
+                scope="execution" if always else "call",
             )
 
         @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/reject")
