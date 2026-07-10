@@ -111,6 +111,9 @@ Semantics:
   attempts of gated tasks (their call ids differ, the name doesn't).
 - Grants never cross executions, and a grant cannot be created from a
   rejection (`scope="execution"` with reject is a validation error).
+- Cancellation wins: if the execution is already cancelling when a later
+  gate registers, the gate surfaces the cancellation instead of
+  auto-approving — a grant never runs a body past a cancel.
 - Rejection remains per-call; there is no standing reject.
 - **No revocation (v1).** A grant lasts for the rest of the execution. If
   approvals must stay per-call, don't use `--always`.

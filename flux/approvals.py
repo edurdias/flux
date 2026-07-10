@@ -183,10 +183,17 @@ class LocalApprovalStore:
 
         # Standing grant ("approve always" for this execution): materialize
         # an approved row for this call instead of a pending one — the gate
-        # reads it back approved and never pauses.
+        # reads it back approved and never pauses. The same state-write
+        # guard as the pending path applies: a concurrent cancel that
+        # already moved the execution to CANCELLING (or a terminal state)
+        # wins, and the gated body must not run on the back of an
+        # auto-approved row.
         grant = mgr.find_standing_grant(ctx.execution_id, task_name)
         if grant is not None:
+            cm = ContextManager.create()
             with UnitOfWork() as uow:
+                if not cm.save_checked(ctx, uow=uow):
+                    return "cancelled"
                 mgr.create_granted(
                     execution_id=ctx.execution_id,
                     task_call_id=task_call_id,

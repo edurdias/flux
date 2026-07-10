@@ -364,3 +364,79 @@ def test_cancel_marks_pending_approvals_cancelled(client):
     statuses = {r.task_call_id: r.status for r in rows}
     assert statuses["call-cncl-1"] == ApprovalStatus.CANCELLED
     assert statuses["call-cncl-2"] == ApprovalStatus.CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# Worker-side approval registration (POST /workers/{name}/approvals/{eid})
+# ---------------------------------------------------------------------------
+
+
+def _set_execution_state(execution_id: str, state) -> None:
+    from flux.models import ExecutionContextModel
+    from flux.unit_of_work import UnitOfWork
+
+    with UnitOfWork() as uow:
+        model = uow.session.get(ExecutionContextModel, execution_id)
+        model.state = state
+        uow.commit()
+
+
+def _seed_standing_grant(execution_id: str, task_call_id: str, *, task: str = "deploy") -> None:
+    _seed_approval(execution_id, task_call_id, task=task)
+    mgr = ApprovalManager()
+    with UnitOfWork() as uow:
+        mgr.decide(
+            execution_id,
+            task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason="grant",
+            uow=uow,
+            scope="execution",
+        )
+        uow.commit()
+
+
+def test_worker_register_materializes_standing_grant(client):
+    """A later gate on a granted task auto-approves through the worker
+    registration route ("granted", no pending row)."""
+    from flux.domain import ExecutionState
+
+    eid = f"exec-grant-{uuid.uuid4().hex[:6]}"
+    _seed_execution(eid, "default", "release")
+    _set_execution_state(eid, ExecutionState.RUNNING)
+    _seed_standing_grant(eid, "call-grant-1")
+
+    r = client.post(
+        f"/workers/w1/approvals/{eid}",
+        json={"task_call_id": "call-grant-2", "task_name": "deploy"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "granted"
+
+    row = ApprovalManager().get_by_call(eid, "call-grant-2")
+    assert row is not None
+    assert row.status.value == "approved"
+    assert row.reason == "standing grant"
+    assert row.approver_subject == "alice"
+
+
+def test_worker_register_grant_yields_to_concurrent_cancel(client):
+    """The grant path shares the pausability guard: once the execution is
+    CANCELLING, registration reports "cancelled" and materializes nothing —
+    an auto-approved row here would run the gated body after cancellation."""
+    from flux.domain import ExecutionState
+
+    eid = f"exec-grant-cncl-{uuid.uuid4().hex[:6]}"
+    _seed_execution(eid, "default", "release")
+    _seed_standing_grant(eid, "call-gc-1")
+    _set_execution_state(eid, ExecutionState.CANCELLING)
+
+    r = client.post(
+        f"/workers/w1/approvals/{eid}",
+        json={"task_call_id": "call-gc-2", "task_name": "deploy"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "cancelled"
+    assert ApprovalManager().get_by_call(eid, "call-gc-2") is None
