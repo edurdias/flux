@@ -848,6 +848,11 @@ class ApprovalRequestModel(Base):
     approver_subject = Column(String, nullable=True)
     approver_provider = Column(String, nullable=True)
     reason = Column(TEXT, nullable=True)
+    # Decision scope: "call" (default; NULL on pre-existing rows reads as
+    # "call") decides this task_call_id only; "execution" is a standing
+    # grant — later gates on the same task name in this execution
+    # auto-approve without pausing (issue #74).
+    scope = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("execution_id", "task_call_id", name="uq_approval_exec_call"),

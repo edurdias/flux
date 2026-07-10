@@ -77,6 +77,7 @@ async def test_dispatch_approval_request_calls_ui_then_posts_approve():
         "deploy_1",
         approved=True,
         reason="lgtm",
+        always=False,
     )
 
 
@@ -95,6 +96,28 @@ async def test_dispatch_approval_request_posts_reject_when_ui_returns_false():
         "deploy_1",
         approved=False,
         reason="no good",
+        always=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_approval_request_threads_always_flag():
+    """A UI answering with ``always: True`` (the ``[A]`` key) must reach the
+    server as a standing grant (issue #74)."""
+    proc = _make_process_with_mock_ui()
+    proc.ui.display_approval_request = AsyncMock(
+        return_value={"approved": True, "reason": None, "always": True},
+    )
+
+    session = _make_session()
+    await proc._dispatch(_approval_event(), session)
+
+    proc.client.decide_approval.assert_awaited_once_with(
+        "exec-1",
+        "deploy_1",
+        approved=True,
+        reason=None,
+        always=True,
     )
 
 
@@ -203,9 +226,9 @@ async def test_terminal_ui_display_approval_request_returns_reject_with_reason(
 
 
 @pytest.mark.asyncio
-async def test_terminal_ui_display_approval_request_capital_a_approves(monkeypatch):
-    """Capital 'A' is a plain approve — the old 'always approve' shortcut
-    was removed (engine-managed standing approval is tracked separately)."""
+async def test_terminal_ui_display_approval_request_capital_a_is_standing_grant(monkeypatch):
+    """Capital 'A' approves with ``always: True`` — the engine-managed
+    standing grant (issue #74), so the same task won't prompt again."""
     from flux.agents.ui.terminal import TerminalUI
 
     monkeypatch.setattr("builtins.input", lambda *_: "A")
@@ -219,4 +242,4 @@ async def test_terminal_ui_display_approval_request_capital_a_approves(monkeypat
             "workflow_name": "w",
         },
     )
-    assert result == {"approved": True, "reason": None}
+    assert result == {"approved": True, "reason": None, "always": True}

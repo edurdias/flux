@@ -936,9 +936,14 @@ def _post_decision(
     verb: Literal["approve", "reject"],
     reason: str | None,
     server_url: str | None,
+    always: bool = False,
 ) -> dict[str, Any]:
     base_url = server_url or get_server_url()
-    body = {"reason": reason} if reason else {}
+    body: dict[str, Any] = {}
+    if reason:
+        body["reason"] = reason
+    if always:
+        body["always"] = True
     with get_http_client() as client:
         response = client.post(
             f"{base_url}/executions/{execution_id}/approvals/{quote(task_call_id, safe='')}/{verb}",
@@ -955,6 +960,15 @@ def _post_decision(
 @click.argument("task_call_id")
 @click.option("--reason", default=None, help="Optional reason for the decision.")
 @click.option(
+    "--always",
+    is_flag=True,
+    default=False,
+    help=(
+        "Standing grant: also auto-approve every later approval gate on the "
+        "same task within this execution (including retry attempts)."
+    ),
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -964,11 +978,19 @@ def execution_approve(
     execution_id: str,
     task_call_id: str,
     reason: str | None,
+    always: bool,
     server_url: str | None,
 ):
     """Approve a pending approval request."""
     try:
-        resp = _post_decision(execution_id, task_call_id, "approve", reason, server_url)
+        resp = _post_decision(
+            execution_id,
+            task_call_id,
+            "approve",
+            reason,
+            server_url,
+            always=always,
+        )
         if resp.get("error"):
             click.echo(
                 f"Error: {resp.get('error')} ({resp.get('current_status', '?')})",

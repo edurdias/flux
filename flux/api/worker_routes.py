@@ -789,6 +789,27 @@ class WorkerRoutesMixin:
                 mgr = ApprovalManager()
                 if mgr.get_by_call(execution_id, task_call_id) is not None:
                     return "exists"
+                # Standing grant ("approve always" for this execution):
+                # materialize an approved row so the worker's gate reads it
+                # back approved and never pauses. No pausability check
+                # needed — nothing is pausing.
+                grant = mgr.find_standing_grant(execution_id, task_name)
+                if grant is not None:
+                    from flux.context_managers import ContextManager
+
+                    granted_ctx = ContextManager.create().get(execution_id)
+                    with UnitOfWork() as uow:
+                        mgr.create_granted(
+                            execution_id=execution_id,
+                            task_call_id=task_call_id,
+                            workflow_namespace=granted_ctx.workflow_namespace,
+                            workflow_name=granted_ctx.workflow_name,
+                            task_name=task_name,
+                            grant=grant,
+                            uow=uow,
+                        )
+                        uow.commit()
+                    return "granted"
                 with UnitOfWork() as uow:
                     model = uow.session.execute(
                         select(ExecutionContextModel)

@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0009_worker_metrics"
+HEAD = "0010_approval_scope"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

@@ -103,6 +103,7 @@ class ApprovalSnapshot:
     approver_subject: str | None = None
     approver_provider: str | None = None
     reason: str | None = None
+    scope: str = "call"
 
     @classmethod
     def from_model(cls, row: ApprovalRequestModel) -> ApprovalSnapshot:
@@ -116,6 +117,7 @@ class ApprovalSnapshot:
             approver_subject=row.approver_subject,
             approver_provider=row.approver_provider,
             reason=row.reason,
+            scope=row.scope or "call",
         )
 
     @classmethod
@@ -130,6 +132,7 @@ class ApprovalSnapshot:
             approver_subject=data.get("approver_subject"),
             approver_provider=data.get("approver_provider"),
             reason=data.get("reason"),
+            scope=data.get("scope") or "call",
         )
 
     def to_dict(self) -> dict:
@@ -143,6 +146,7 @@ class ApprovalSnapshot:
             "approver_subject": self.approver_subject,
             "approver_provider": self.approver_provider,
             "reason": self.reason,
+            "scope": self.scope,
         }
 
 
@@ -176,6 +180,24 @@ class LocalApprovalStore:
         mgr = ApprovalManager()
         if mgr.get_by_call(ctx.execution_id, task_call_id) is not None:
             return "exists"
+
+        # Standing grant ("approve always" for this execution): materialize
+        # an approved row for this call instead of a pending one — the gate
+        # reads it back approved and never pauses.
+        grant = mgr.find_standing_grant(ctx.execution_id, task_name)
+        if grant is not None:
+            with UnitOfWork() as uow:
+                mgr.create_granted(
+                    execution_id=ctx.execution_id,
+                    task_call_id=task_call_id,
+                    workflow_namespace=ctx.workflow_namespace,
+                    workflow_name=ctx.workflow_name,
+                    task_name=task_name,
+                    grant=grant,
+                    uow=uow,
+                )
+                uow.commit()
+            return "granted"
 
         cm = ContextManager.create()
         with UnitOfWork() as uow:
@@ -232,6 +254,70 @@ class ApprovalManager:
             task_name=task_name,
             requested_at=datetime.now(timezone.utc),
             status=ApprovalStatus.PENDING,
+        )
+        uow.session.add(row)
+        uow.session.flush()
+        uow.session.expunge(row)
+        return row
+
+    def find_standing_grant(
+        self,
+        execution_id: str,
+        task_name: str,
+        *,
+        uow: UnitOfWork | None = None,
+    ) -> ApprovalRequestModel | None:
+        """The newest approved scope="execution" row for this task name.
+
+        A standing grant means the approver opted into "always approve" for
+        this execution: later gates on the same task name (including its
+        retry attempts) auto-approve without pausing.
+        """
+        stmt = (
+            select(ApprovalRequestModel)
+            .where(
+                ApprovalRequestModel.execution_id == execution_id,
+                ApprovalRequestModel.task_name == task_name,
+                ApprovalRequestModel.status == ApprovalStatus.APPROVED,
+                ApprovalRequestModel.scope == "execution",
+            )
+            .order_by(ApprovalRequestModel.decided_at.desc())
+            .limit(1)
+        )
+        if uow is not None:
+            return uow.session.execute(stmt).scalar_one_or_none()
+        with self._repository.session() as s:
+            return s.execute(stmt).scalar_one_or_none()
+
+    def create_granted(
+        self,
+        execution_id: str,
+        task_call_id: str,
+        workflow_namespace: str,
+        workflow_name: str,
+        task_name: str,
+        grant: ApprovalRequestModel,
+        *,
+        uow: UnitOfWork,
+    ) -> ApprovalRequestModel:
+        """Materialize an auto-approved row for a call covered by a standing
+        grant, so every gated call stays visible in the audit trail. Caller
+        commits the UoW."""
+        now = datetime.now(timezone.utc)
+        row = ApprovalRequestModel(
+            id=uuid.uuid4().hex,
+            execution_id=execution_id,
+            task_call_id=task_call_id,
+            workflow_namespace=workflow_namespace,
+            workflow_name=workflow_name,
+            task_name=task_name,
+            requested_at=now,
+            status=ApprovalStatus.APPROVED,
+            decided_at=now,
+            approver_subject=grant.approver_subject,
+            approver_provider=grant.approver_provider,
+            reason="standing grant",
+            scope="call",
         )
         uow.session.add(row)
         uow.session.flush()
@@ -420,8 +506,19 @@ class ApprovalManager:
         approved: bool,
         reason: str | None,
         uow: UnitOfWork,
+        scope: str = "call",
     ) -> ApprovalRequestModel:
-        """Record a decision via atomic CAS. Loser raises ApprovalAlreadyDecided."""
+        """Record a decision via atomic CAS. Loser raises ApprovalAlreadyDecided.
+
+        ``scope="execution"`` turns an approval into a standing grant: later
+        gates on the same task name in this execution auto-approve without
+        pausing. Only approvals can carry it — a standing rejection would
+        silently fail every future call.
+        """
+        if scope not in ("call", "execution"):
+            raise ValueError(f"scope must be 'call' or 'execution', got: '{scope}'")
+        if scope == "execution" and not approved:
+            raise ValueError("scope='execution' is only valid for approvals")
         new_status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
         decided_at = datetime.now(timezone.utc)
 
@@ -438,6 +535,7 @@ class ApprovalManager:
                 approver_provider=approver_provider,
                 reason=reason,
                 decided_at=decided_at,
+                scope=scope,
             ),
         )
 
