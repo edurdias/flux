@@ -120,11 +120,12 @@ Semantics:
 
 ## Retries and approval
 
-Each retry attempt is a fresh task call: the predicate re-evaluates and a
-new approval is required. Reasoning: the previous attempt may have had
-partial side effects, and the approver should reconsider. "Approve once,
-run forever" is a footgun — which is why covering later gates requires the
-explicit `--always` standing grant described above.
+By default, each retry attempt is a fresh task call: the predicate
+re-evaluates and a new approval is required. Reasoning: the previous
+attempt may have had partial side effects, and the approver should
+reconsider. "Approve once, run forever" is a footgun — which is why
+covering later gates (including retry attempts) takes the explicit
+`--always` standing grant described above, never a plain approval.
 
 ## Cancellation
 

@@ -170,10 +170,14 @@ class LocalApprovalStore:
     async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
         """Atomically persist the awaiting event and the PENDING row.
 
-        Returns ``"created"``, ``"exists"``, or ``"cancelled"`` (the
-        execution is no longer pausable — a concurrent cancel won). On
-        success the awaiting event has been appended to ``ctx.events``;
-        on ``"cancelled"`` the context is left untouched.
+        Returns ``"created"``, ``"exists"``, ``"granted"``, or
+        ``"cancelled"`` (the execution is no longer pausable — a
+        concurrent cancel won). ``"granted"`` means a standing grant
+        covered the call: an APPROVED row was materialized instead of a
+        PENDING one and the awaiting event is NOT appended — the gate
+        reads the row back approved and never pauses. On ``"created"``
+        the awaiting event has been appended to ``ctx.events``; on
+        ``"cancelled"`` the context is left untouched.
         """
         from flux.context_managers import ContextManager
 
