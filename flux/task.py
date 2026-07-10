@@ -267,6 +267,52 @@ class task:
                 raise retrieved
             return retrieved
 
+        # Mid-retry resume (issue #72): a task suspended at a retry-attempt
+        # approval gate has no terminal event, but its retry history —
+        # including the durable attempt-0 failure marker — is in the log.
+        # Re-enter the retry chain directly instead of re-running the
+        # original attempt (and duplicating its side effects); exhaustion
+        # continues into fallback/rollback exactly like the original run.
+        if self.retry_max_attempts > 0 and any(
+            e.source_id == task_id
+            and e.type
+            in (
+                ExecutionEventType.TASK_RETRY_STARTED,
+                ExecutionEventType.TASK_RETRY_FAILED,
+            )
+            for e in ctx.events
+        ):
+            from flux._task_context import _CURRENT_TASK as _RESUME_TASK
+
+            resume_token = _RESUME_TASK.set((task_id, full_name))
+            try:
+                # Same kwargs enrichment as the normal path: a resumed retry
+                # attempt must see its injected secrets/config/metadata.
+                kwargs = await self.__enrich_kwargs(task_id, full_name, task_args, kwargs)
+                output = await self.__handle_exception(
+                    ctx,
+                    ExecutionError(
+                        message=f"Task '{full_name}' resumed mid-retry (task_id={task_id})",
+                    ),
+                    task_id,
+                    full_name,
+                    task_args,
+                    args,
+                    kwargs,
+                )
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_COMPLETED,
+                        source_id=task_id,
+                        name=full_name,
+                        value=self.output_storage.store(task_id, output),
+                    ),
+                )
+                await ctx.checkpoint()
+                return output
+            finally:
+                _RESUME_TASK.reset(resume_token)
+
         # Approval gate — evaluated after auth and the replay short-circuit.
         # ``task_id`` doubles as the approval ``task_call_id`` for the
         # initial call; each retry attempt is gated under its own id.
@@ -319,19 +365,7 @@ class task:
                         cache_hit = output is not None
 
                     if not cache_hit:
-                        if self.secret_requests:
-                            secrets = await SecretManager.current().get(self.secret_requests)
-                            kwargs = {**kwargs, "secrets": secrets}
-
-                        if self.config_requests:
-                            resolved_keys = [k.format(**task_args) for k in self.config_requests]
-                            from flux.config_manager import ConfigManager
-
-                            configs = await ConfigManager.current().get(resolved_keys)
-                            kwargs = {**kwargs, "config": configs}
-
-                        if self.metadata:
-                            kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
+                        kwargs = await self.__enrich_kwargs(task_id, full_name, task_args, kwargs)
 
                         if self.timeout > 0:
                             try:
@@ -793,6 +827,60 @@ class task:
                 )
                 raise ex
 
+    async def __enrich_kwargs(
+        self,
+        task_id: str,
+        full_name: str,
+        task_args: dict,
+        kwargs: dict,
+    ) -> dict:
+        """Inject the task's requested secrets/config/metadata into kwargs.
+
+        Shared by the normal execution path and the mid-retry resume path so
+        resumed attempts see exactly the kwargs an attempt run through the
+        normal path would.
+        """
+        if self.secret_requests:
+            secrets = await SecretManager.current().get(self.secret_requests)
+            kwargs = {**kwargs, "secrets": secrets}
+
+        if self.config_requests:
+            resolved_keys = [k.format(**task_args) for k in self.config_requests]
+            from flux.config_manager import ConfigManager
+
+            configs = await ConfigManager.current().get(resolved_keys)
+            kwargs = {**kwargs, "config": configs}
+
+        if self.metadata:
+            kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
+
+        return kwargs
+
+    def __recorded_retry_attempts(
+        self,
+        ctx: ExecutionContext,
+        task_id: str,
+    ) -> tuple[set[int], set[int]]:
+        """(started, failed) attempt numbers recorded for this task call.
+
+        Attempt 0 is the original body; attempts 1..retry_max_attempts are
+        the retry loop's. This is the durable state replay resumes from
+        after a mid-retry suspension (issue #72).
+        """
+        started: set[int] = set()
+        failed: set[int] = set()
+        for event in ctx.events:
+            if event.source_id != task_id or not isinstance(event.value, dict):
+                continue
+            attempt = event.value.get("current_attempt")
+            if not isinstance(attempt, int):
+                continue
+            if event.type == ExecutionEventType.TASK_RETRY_STARTED:
+                started.add(attempt)
+            elif event.type == ExecutionEventType.TASK_RETRY_FAILED:
+                failed.add(attempt)
+        return started, failed
+
     async def __handle_retry(
         self,
         ctx: ExecutionContext,
@@ -801,10 +889,59 @@ class task:
         args: tuple,
         kwargs: dict,
     ):
-        attempt = 0
+        started_attempts, failed_attempts = self.__recorded_retry_attempts(ctx, task_id)
+
+        # Durably mark the original attempt's failure BEFORE anything here
+        # can suspend (a retry-attempt approval gate). Replay keys off this
+        # marker to resume into the retry loop instead of re-running the
+        # original body and duplicating its side effects. The pause
+        # checkpoint persists it. Idempotent across replays.
+        if 0 not in failed_attempts:
+            failed_attempts.add(0)
+            ctx.events.append(
+                ExecutionEvent(
+                    type=ExecutionEventType.TASK_RETRY_FAILED,
+                    source_id=task_id,
+                    name=task_full_name,
+                    value={
+                        "current_attempt": 0,
+                        "max_attempts": self.retry_max_attempts,
+                        "current_delay": 0,
+                        "backoff": self.retry_backoff,
+                        "original_attempt": True,
+                    },
+                ),
+            )
+
+        # Resume point: one past the highest recorded failure; an attempt
+        # that started but never terminated was interrupted mid-body
+        # (crash) and is re-run. On a fresh (non-replay) call this is 1.
+        resume_from = max(failed_attempts) + 1
+        interrupted = started_attempts - failed_attempts
+        if interrupted:
+            resume_from = min(resume_from, min(interrupted))
+        if resume_from > self.retry_max_attempts:
+            # Every attempt already failed durably — unreachable through the
+            # gates (exhaustion raises before another suspension point), but
+            # a hand-edited or future event log must not fall through to an
+            # implicit None return.
+            raise RetryError(
+                ExecutionError(
+                    message=f"All {self.retry_max_attempts} retry attempts of "
+                    f"'{task_full_name}' already failed before resume",
+                ),
+                self.retry_max_attempts,
+                self.retry_delay,
+                self.retry_backoff,
+            )
+
+        attempt = resume_from - 1
         # current_delay persists across iterations so retry_backoff actually
         # compounds: attempt 1 waits retry_delay, attempt 2 retry_delay*backoff, …
+        # On resume, replay the same compounding for the skipped attempts.
         current_delay = self.retry_delay
+        for _ in range(resume_from - 1):
+            current_delay = min(current_delay * self.retry_backoff, 600)
         while attempt < self.retry_max_attempts:
             attempt += 1
 
@@ -834,16 +971,20 @@ class task:
             }
 
             try:
-                await asyncio.sleep(current_delay)
-
-                ctx.events.append(
-                    ExecutionEvent(
-                        type=ExecutionEventType.TASK_RETRY_STARTED,
-                        source_id=task_id,
-                        name=task_full_name,
-                        value=retry_args,
-                    ),
-                )
+                # Idempotent across replays: a resumed interrupted attempt
+                # already waited its backoff and has its STARTED event in
+                # the log — sleeping again would double-apply the delay.
+                if attempt not in started_attempts:
+                    await asyncio.sleep(current_delay)
+                    started_attempts.add(attempt)
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_RETRY_STARTED,
+                            source_id=task_id,
+                            name=task_full_name,
+                            value=retry_args,
+                        ),
+                    )
                 if self.timeout > 0:
                     try:
                         output = await asyncio.wait_for(
