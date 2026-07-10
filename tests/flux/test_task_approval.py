@@ -805,3 +805,45 @@ async def test_resumed_interrupted_attempt_skips_backoff_and_started_duplicate(i
         if e.type == ExecutionEventType.TASK_RETRY_STARTED and e.source_id == "tid-interrupted"
     ]
     assert len(started_events) == 1, "STARTED duplicated for the resumed attempt"
+
+
+def test_resumed_retry_attempt_receives_enriched_kwargs(isolated_db):
+    """A retry attempt run via the mid-retry resume path must receive the
+    same injected kwargs (metadata/secrets/config) as attempts run through
+    the normal path."""
+    seen_metadata = []
+
+    @task_decorator.with_options(
+        requires_approval=True,
+        retry_max_attempts=1,
+        retry_delay=0,
+        metadata=True,
+    )
+    async def gated_with_metadata(metadata=None) -> str:
+        seen_metadata.append(metadata)
+        if len(seen_metadata) == 1:
+            raise ValueError("boom")
+        return "ok"
+
+    @workflow
+    async def wf_metadata(ctx: ExecutionContext):
+        return await gated_with_metadata()
+
+    mgr = ApprovalManager()
+
+    ctx = wf_metadata.run()
+    assert ctx.is_paused
+    _approve_single_pending(mgr, ctx.execution_id)
+
+    ctx = wf_metadata.run(execution_id=ctx.execution_id)  # original fails
+    assert ctx.is_paused
+    assert _approve_single_pending(mgr, ctx.execution_id).endswith("~retry1")
+
+    ctx = wf_metadata.run(execution_id=ctx.execution_id)  # resumed retry runs
+    assert ctx.has_succeeded
+    assert ctx.output == "ok"
+    assert len(seen_metadata) == 2
+    # Both the original attempt and the RESUMED retry attempt got the
+    # injected TaskMetadata — the resume path must enrich kwargs too.
+    assert seen_metadata[0] is not None
+    assert seen_metadata[1] is not None, "resumed retry attempt ran without injected kwargs"

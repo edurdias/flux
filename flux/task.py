@@ -286,6 +286,9 @@ class task:
 
             resume_token = _RESUME_TASK.set((task_id, full_name))
             try:
+                # Same kwargs enrichment as the normal path: a resumed retry
+                # attempt must see its injected secrets/config/metadata.
+                kwargs = await self.__enrich_kwargs(task_id, full_name, task_args, kwargs)
                 output = await self.__handle_exception(
                     ctx,
                     ExecutionError(
@@ -362,19 +365,7 @@ class task:
                         cache_hit = output is not None
 
                     if not cache_hit:
-                        if self.secret_requests:
-                            secrets = await SecretManager.current().get(self.secret_requests)
-                            kwargs = {**kwargs, "secrets": secrets}
-
-                        if self.config_requests:
-                            resolved_keys = [k.format(**task_args) for k in self.config_requests]
-                            from flux.config_manager import ConfigManager
-
-                            configs = await ConfigManager.current().get(resolved_keys)
-                            kwargs = {**kwargs, "config": configs}
-
-                        if self.metadata:
-                            kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
+                        kwargs = await self.__enrich_kwargs(task_id, full_name, task_args, kwargs)
 
                         if self.timeout > 0:
                             try:
@@ -835,6 +826,35 @@ class task:
                     ),
                 )
                 raise ex
+
+    async def __enrich_kwargs(
+        self,
+        task_id: str,
+        full_name: str,
+        task_args: dict,
+        kwargs: dict,
+    ) -> dict:
+        """Inject the task's requested secrets/config/metadata into kwargs.
+
+        Shared by the normal execution path and the mid-retry resume path so
+        resumed attempts see exactly the kwargs an attempt run through the
+        normal path would.
+        """
+        if self.secret_requests:
+            secrets = await SecretManager.current().get(self.secret_requests)
+            kwargs = {**kwargs, "secrets": secrets}
+
+        if self.config_requests:
+            resolved_keys = [k.format(**task_args) for k in self.config_requests]
+            from flux.config_manager import ConfigManager
+
+            configs = await ConfigManager.current().get(resolved_keys)
+            kwargs = {**kwargs, "config": configs}
+
+        if self.metadata:
+            kwargs = {**kwargs, "metadata": TaskMetadata(task_id, full_name)}
+
+        return kwargs
 
     def __recorded_retry_attempts(
         self,
