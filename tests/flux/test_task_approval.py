@@ -969,6 +969,57 @@ def test_standing_grant_does_not_leak_to_other_tasks(isolated_db):
     assert pending[0].task_name == "tool_b"
 
 
+def test_standing_grant_yields_to_concurrent_cancel(isolated_db):
+    """A standing grant must not materialize an approved row once a
+    concurrent cancel made the execution non-pausable — otherwise the
+    gated body would run after cancellation."""
+    from flux.domain import ExecutionState
+    from flux.models import ExecutionContextModel
+
+    calls = []
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_race(step: str) -> str:
+        calls.append(step)
+        if step == "one":
+            # Simulate a cancel racing the resumed run: it lands after the
+            # first body starts but before the second call's gate registers
+            # (`flux workflow cancel` moves the row to CANCELLING).
+            exec_ctx = await ExecutionContext.get()
+            with UnitOfWork() as uow:
+                model = uow.session.get(ExecutionContextModel, exec_ctx.execution_id)
+                model.state = ExecutionState.CANCELLING
+                uow.commit()
+        return step
+
+    @workflow
+    async def wf_cancel_race(ctx: ExecutionContext):
+        first = await gated_race("one")
+        second = await gated_race("two")
+        return [first, second]
+
+    mgr = ApprovalManager()
+
+    ctx = wf_cancel_race.run()
+    assert ctx.is_paused
+    _approve_single_pending_always(mgr, ctx.execution_id)
+
+    # On resume, call one runs (its approved row is read back) and the
+    # cancel lands; the second call's grant lookup must yield to it instead
+    # of materializing an approved row and running the body. The gate
+    # surfaces the concurrent cancel as CancelledError, which the inline
+    # path propagates (workers translate it into the cancellation flow).
+    import asyncio
+
+    with pytest.raises(asyncio.CancelledError):
+        wf_cancel_race.run(execution_id=ctx.execution_id)
+    assert calls == ["one"]
+
+    rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
+    assert len(rows) == 1  # the grant itself; nothing materialized
+    assert not any(r.reason == "standing grant" for r in rows)
+
+
 def test_plain_approval_remains_single_call(isolated_db):
     """Default scope is unchanged: a plain approval covers one call only."""
     calls = []
