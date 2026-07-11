@@ -111,6 +111,11 @@ class ExecutionRoutesMixin:
                             detail={
                                 "error": "forbidden",
                                 "missing_permission": "workflow:*:*:read",
+                                "note": (
+                                    "any workflow-scoped read grant "
+                                    "(workflow:{ns}:{name}:read) also allows "
+                                    "listing that workflow's executions"
+                                ),
                             },
                         )
 
