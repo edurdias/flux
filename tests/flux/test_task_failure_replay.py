@@ -158,6 +158,11 @@ def test_failed_rollback_records_terminal_event(isolated_db):
     assert rollback_runs[0] == 1
     failed = [e for e in ctx.events if e.type == ExecutionEventType.TASK_FAILED]
     assert len(failed) == 1, "rollback failure must leave a terminal TASK_FAILED"
+    # Wrapped like every other terminal task failure, so the type survives a
+    # JSON checkpoint hop and replay re-raises the same thing.
+    stored = flaky_rb.output_storage.retrieve(failed[0].value)
+    assert isinstance(stored, ExecutionError)
+    assert isinstance(stored.inner_exception, RuntimeError)
 
 
 def test_wire_degraded_failure_replays_as_exception_not_typeerror(isolated_db):
@@ -219,3 +224,32 @@ def test_revive_stored_failure_reconstructs_types():
 
     passthrough = ValueError("as-is")
     assert task_cls._revive_stored_failure(passthrough, "t") is passthrough
+
+
+def test_approval_rejected_round_trips_the_json_hop():
+    """FluxEncoder carries ApprovalRejected's structured fields across the
+    wire, and the reviver reconstructs an identical exception — workflow code
+    inspecting approver/reason behaves the same on replay as on the original
+    run."""
+    import json
+
+    from flux.approvals import ApprovalRejected
+    from flux.task import task as task_cls
+    from flux.utils import FluxEncoder
+
+    original = ApprovalRejected(
+        task_name="deploy",
+        approver_subject="alice",
+        approver_provider="oidc",
+        reason="not during freeze",
+    )
+    degraded = json.loads(json.dumps(original, cls=FluxEncoder))
+    assert degraded["type"] == "ApprovalRejected"
+
+    revived = task_cls._revive_stored_failure(degraded, "deploy")
+    assert isinstance(revived, ApprovalRejected)
+    assert revived.task_name == original.task_name
+    assert revived.approver_subject == original.approver_subject
+    assert revived.approver_provider == original.approver_provider
+    assert revived.reason == original.reason
+    assert str(revived) == str(original)
