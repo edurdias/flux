@@ -139,6 +139,27 @@ class ScheduleRoutesMixin:
                         detail=f"Workflow '{request.workflow_name}' not found",
                     )
 
+                # The schedule runs the workflow under the service account's
+                # roles at trigger time, so schedule:*:manage alone must not
+                # let a caller schedule work they could never run themselves —
+                # that would be privilege escalation through the SA. Require
+                # the CALLER to be authorized to run the target workflow.
+                if auth_config.enabled and auth_service is not None:
+                    auth_result = await auth_service.authorize(
+                        identity,
+                        _sched_req_ns,
+                        _sched_req_name,
+                        workflow_def.metadata or {},
+                    )
+                    if not auth_result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permissions": auth_result.missing_permissions,
+                            },
+                        )
+
                 # Create schedule from configuration
                 schedule = schedule_factory(request.schedule_config)
 
@@ -309,6 +330,37 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # Rebinding the service account is subject to the same
+                # escalation guard as create: the caller must be authorized
+                # to run the schedule's workflow themselves.
+                if (
+                    auth_config.enabled
+                    and auth_service is not None
+                    and request.run_as_service_account is not None
+                ):
+                    try:
+                        workflow_def = WorkflowCatalog.create().get(
+                            existing_schedule.workflow_namespace,
+                            existing_schedule.workflow_name,
+                        )
+                        workflow_metadata = workflow_def.metadata or {}
+                    except Exception:
+                        workflow_metadata = {}
+                    auth_result = await auth_service.authorize(
+                        identity,
+                        existing_schedule.workflow_namespace,
+                        existing_schedule.workflow_name,
+                        workflow_metadata,
+                    )
+                    if not auth_result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permissions": auth_result.missing_permissions,
+                            },
+                        )
 
                 # Build update parameters
                 schedule_param = None

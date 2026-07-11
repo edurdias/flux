@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func
@@ -200,8 +201,25 @@ class ContextManager(ABC):
         state: ExecutionState | None = None,
         limit: int = 50,
         offset: int = 0,
+        workflows: Sequence[tuple[str, str]] | None = None,
     ) -> tuple[list[ExecutionContext], int]:  # pragma: no cover
-        """List executions with optional filtering and pagination."""
+        """List executions with optional filtering and pagination.
+
+        ``workflows`` restricts results to the given (namespace, name) pairs —
+        the authorization filter for scoped readers. An empty list matches
+        nothing (the caller may read no workflows).
+        """
+        raise NotImplementedError()
+
+    def distinct_workflows(
+        self,
+        workflow_name: str | None = None,
+        workflow_namespace: str | None = None,
+        state: ExecutionState | None = None,
+    ) -> Sequence[tuple[str, str]]:  # pragma: no cover
+        """Distinct (namespace, name) pairs among matching executions —
+        bounded by the workflow catalog, so scoped readers can authorize
+        per workflow before the paginated query."""
         raise NotImplementedError()
 
     @staticmethod
@@ -979,6 +997,7 @@ class DatabaseContextManager(ContextManager):
         state: ExecutionState | None = None,
         limit: int = 50,
         offset: int = 0,
+        workflows: Sequence[tuple[str, str]] | None = None,
     ) -> tuple[list[ExecutionContext], int]:
         """
         List executions with optional filtering and pagination.
@@ -989,10 +1008,15 @@ class DatabaseContextManager(ContextManager):
             state: Optional execution state to filter by
             limit: Maximum number of results to return
             offset: Number of results to skip
+            workflows: Optional (namespace, name) allowlist — the
+                authorization filter for scoped readers; an empty list
+                matches nothing.
 
         Returns:
             Tuple of (list of ExecutionContext, total count)
         """
+        if workflows is not None and not workflows:
+            return [], 0
 
         with self.session() as session:
             query = session.query(ExecutionContextModel)
@@ -1006,6 +1030,16 @@ class DatabaseContextManager(ContextManager):
             if state:
                 query = query.filter(ExecutionContextModel.state == state)
 
+            if workflows is not None:
+                from sqlalchemy import tuple_ as sa_tuple
+
+                query = query.filter(
+                    sa_tuple(
+                        ExecutionContextModel.workflow_namespace,
+                        ExecutionContextModel.workflow_name,
+                    ).in_(workflows),
+                )
+
             # Get total count before pagination
             total = query.count()
 
@@ -1015,3 +1049,22 @@ class DatabaseContextManager(ContextManager):
             )
 
             return [model.to_plain() for model in models], total
+
+    def distinct_workflows(
+        self,
+        workflow_name: str | None = None,
+        workflow_namespace: str | None = None,
+        state: ExecutionState | None = None,
+    ) -> Sequence[tuple[str, str]]:
+        with self.session() as session:
+            query = session.query(
+                ExecutionContextModel.workflow_namespace,
+                ExecutionContextModel.workflow_name,
+            )
+            if workflow_name:
+                query = query.filter(ExecutionContextModel.workflow_name == workflow_name)
+            if workflow_namespace:
+                query = query.filter(ExecutionContextModel.workflow_namespace == workflow_namespace)
+            if state:
+                query = query.filter(ExecutionContextModel.state == state)
+            return [(ns, name) for ns, name in query.distinct().all()]

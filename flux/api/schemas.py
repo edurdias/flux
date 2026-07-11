@@ -212,6 +212,8 @@ class ExecutionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    # True when results were scoped to the workflows the caller may read.
+    auth_filtered: bool = False
 
 
 class WorkerResponse(BaseModel):
