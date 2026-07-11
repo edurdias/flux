@@ -217,9 +217,13 @@ class ContextManager(ABC):
         workflow_namespace: str | None = None,
         state: ExecutionState | None = None,
     ) -> Sequence[tuple[str, str]]:  # pragma: no cover
-        """Distinct (namespace, name) pairs among matching executions —
-        bounded by the workflow catalog, so scoped readers can authorize
-        per workflow before the paginated query."""
+        """Distinct (namespace, name) pairs among matching executions.
+
+        The scan runs over the executions table, but the result-set size is
+        bounded by the number of distinct workflows ever executed (pairs may
+        include workflows since deleted from the catalog — their permission
+        checks simply fail for non-wildcard readers). Scoped readers use this
+        to authorize per workflow before the paginated query."""
         raise NotImplementedError()
 
     @staticmethod
