@@ -264,6 +264,7 @@ class AgentProcess:
             task_call_id,
             approved=bool(decision.get("approved")),
             reason=decision.get("reason"),
+            always=bool(decision.get("always")),
         )
         await self._stream_after_decision(session)
 

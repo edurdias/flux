@@ -761,13 +761,18 @@ class WorkerRoutesMixin:
             payload: dict = Body(...),
             identity: FluxIdentity = Depends(require_permission("worker:*:*")),
         ):
-            """Create the PENDING approval row for a gated task call.
+            """Register the approval row for a gated task call.
 
-            The pausability check and the row insert run in one transaction
-            with the execution row locked, so a concurrent cancel either
-            wins (status "cancelled") or sweeps the row afterwards via
-            cancel_pending_for_execution. The TASK_AWAITING_APPROVAL event
-            arrives through the normal checkpoint path.
+            Normally creates the PENDING row (status "created"); when a
+            standing grant covers the task, materializes an APPROVED row
+            instead (status "granted") so the worker's gate reads it back
+            approved and never pauses. Other statuses: "exists",
+            "cancelled". The pausability check and the row insert run in
+            one transaction with the execution row locked, so a concurrent
+            cancel either wins (status "cancelled") or sweeps the row
+            afterwards via cancel_pending_for_execution. The
+            TASK_AWAITING_APPROVAL event arrives through the normal
+            checkpoint path.
             """
             self._verify_worker_identity(identity, name)
             task_call_id = payload.get("task_call_id")
@@ -789,6 +794,7 @@ class WorkerRoutesMixin:
                 mgr = ApprovalManager()
                 if mgr.get_by_call(execution_id, task_call_id) is not None:
                     return "exists"
+                grant = mgr.find_standing_grant(execution_id, task_name)
                 with UnitOfWork() as uow:
                     model = uow.session.execute(
                         select(ExecutionContextModel)
@@ -803,8 +809,28 @@ class WorkerRoutesMixin:
                         ExecutionState.RESUME_CLAIMED,
                         ExecutionState.RESUMING,
                     )
+                    # The grant path shares the guard: a concurrent cancel
+                    # that already made the execution non-pausable must not
+                    # be raced by an auto-approved row that lets the gated
+                    # body run anyway.
                     if model.state not in pausable:
                         return "cancelled"
+                    if grant is not None:
+                        # Standing grant ("approve always" for this
+                        # execution): materialize an approved row so the
+                        # worker's gate reads it back approved and never
+                        # pauses.
+                        mgr.create_granted(
+                            execution_id=execution_id,
+                            task_call_id=task_call_id,
+                            workflow_namespace=model.workflow_namespace,
+                            workflow_name=model.workflow_name,
+                            task_name=task_name,
+                            grant=grant,
+                            uow=uow,
+                        )
+                        uow.commit()
+                        return "granted"
                     mgr.create(
                         execution_id=execution_id,
                         task_call_id=task_call_id,
