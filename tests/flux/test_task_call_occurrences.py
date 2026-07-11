@@ -67,10 +67,18 @@ def test_identical_calls_replay_their_own_outputs(isolated_db):
     assert resumed.output == ["run-1", "run-2"]
 
 
-def test_cached_task_still_memoizes_identical_calls(isolated_db):
+def test_cached_task_still_memoizes_identical_calls(isolated_db, tmp_path):
     """cache=True is opt-in memoization: the cache key stays the bare
     argument-derived id, so identical calls share the cached output while
     still emitting one event per call."""
+    from flux.config import Configuration
+
+    # isolated_db mocks Configuration.get(); give CacheManager real paths so
+    # cache files land in tmp_path instead of a literal "MagicMock/..." dir.
+    settings = Configuration.get().settings
+    settings.home = str(tmp_path)
+    settings.cache_path = "cache"
+
     calls: list[int] = []
 
     @task_decorator.with_options(cache=True)
