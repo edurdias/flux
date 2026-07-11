@@ -140,6 +140,50 @@ class task:
         )
 
     @staticmethod
+    def _revive_stored_failure(retrieved: Any, full_name: str) -> BaseException:
+        """Turn a stored TASK_FAILED value back into a raisable exception.
+
+        Inline runs and DB-at-rest values round-trip the exception object via
+        pickle, so it comes back as-is. Values that crossed a JSON checkpoint
+        hop (worker → server → worker) were degraded by FluxEncoder into
+        ``{"type": ..., "message": ...}`` — replaying those used to execute
+        ``raise <dict>`` and crash with TypeError. Reconstruct the exception
+        the workflow body originally saw: the engine always wraps terminal
+        task failures in ExecutionError before storing, and rejection stores
+        ApprovalRejected, so both catch-patterns survive the hop.
+        """
+        if isinstance(retrieved, BaseException):
+            return retrieved
+        type_name = None
+        message = None
+        if isinstance(retrieved, dict):
+            type_name = retrieved.get("type")
+            message = retrieved.get("message")
+        if type_name == "ApprovalRejected":
+            from flux.approvals import ApprovalRejected
+
+            assert isinstance(retrieved, dict)
+            if "task_name" in retrieved:
+                # FluxEncoder carries the structured fields across the hop;
+                # reconstruct the identical exception.
+                return ApprovalRejected(
+                    task_name=retrieved.get("task_name") or full_name,
+                    approver_subject=retrieved.get("approver_subject"),
+                    approver_provider=retrieved.get("approver_provider"),
+                    reason=retrieved.get("reason"),
+                )
+            # Legacy degraded form ({type, message} only): keep the rendered
+            # message so at least the text matches the original.
+            revived: BaseException = ApprovalRejected(task_name=full_name)
+            if message:
+                revived.args = (message,)
+            return revived
+        detail = message or repr(retrieved)
+        if type_name and type_name != "ExecutionError":
+            detail = f"{type_name}: {detail}"
+        return ExecutionError(message=detail)
+
+    @staticmethod
     def _compute_task_id(full_name: str, task_args: dict, args: tuple, kwargs: dict) -> str:
         """Deterministic, cross-process-stable id for a task call.
 
@@ -163,6 +207,18 @@ class task:
         task_id = self._compute_task_id(full_name, task_args, args, kwargs)
 
         ctx = await ExecutionContext.get()
+
+        # Repeated identical calls are distinct calls: give each its own id or
+        # the replay short-circuit collapses the second `await send_email(x)`
+        # into the first call's stored output (the body never runs again).
+        # The first occurrence keeps the bare id so existing event logs,
+        # approval rows, and retry markers replay unchanged. The cache key
+        # stays the bare id — `cache=True` is opt-in memoization across
+        # identical calls, which is exactly the collapse users asked for.
+        cache_key = task_id
+        occurrence = ctx.next_task_occurrence(task_id)
+        if occurrence:
+            task_id = f"{task_id}~{occurrence}"
 
         if not self.auth_exempt:
             from flux.config import Configuration
@@ -264,7 +320,7 @@ class task:
                 # original run. Without this branch the replay path would
                 # return the exception object as if it were a successful
                 # output.
-                raise retrieved
+                raise self._revive_stored_failure(retrieved, full_name)
             return retrieved
 
         # Mid-retry resume (issue #72): a task suspended at a retry-attempt
@@ -361,7 +417,7 @@ class task:
                     output = None
                     cache_hit = False
                     if self.cache:
-                        output = CacheManager.get(task_id)
+                        output = CacheManager.get(cache_key)
                         cache_hit = output is not None
 
                     if not cache_hit:
@@ -384,7 +440,7 @@ class task:
                             output = await maybe_awaitable(self._func(*args, **kwargs))
 
                         if self.cache:
-                            CacheManager.set(task_id, output)
+                            CacheManager.set(cache_key, output)
 
                 except Exception as ex:
                     task_failed = True
@@ -688,23 +744,61 @@ class task:
                     kwargs,
                 )
             elif self.fallback:
-                return await self.__handle_fallback(
-                    ctx,
-                    task_id,
-                    task_full_name,
-                    task_args,
-                    args,
-                    kwargs,
-                )
+                try:
+                    return await self.__handle_fallback(
+                        ctx,
+                        task_id,
+                        task_full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
+                except Exception as fallback_ex:
+                    # The fallback itself failed: record the terminal event or
+                    # replay finds no TASK_COMPLETED/TASK_FAILED for this call
+                    # and re-executes the body AND the fallback — duplicated
+                    # side effects, and the workflow can take a different
+                    # branch than the original run. Store the exact exception
+                    # that propagates so replay re-raises the same thing.
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_FAILED,
+                            source_id=task_id,
+                            name=task_full_name,
+                            value=self.output_storage.store(task_id, fallback_ex),
+                        ),
+                    )
+                    raise
             else:
-                await self.__handle_rollback(
-                    ctx,
-                    task_id,
-                    task_full_name,
-                    task_args,
-                    args,
-                    kwargs,
-                )
+                try:
+                    await self.__handle_rollback(
+                        ctx,
+                        task_id,
+                        task_full_name,
+                        task_args,
+                        args,
+                        kwargs,
+                    )
+                except Exception as rollback_ex:
+                    # Same contract as the fallback branch: a failed rollback
+                    # must leave a terminal TASK_FAILED event behind. Wrap in
+                    # ExecutionError like every other terminal task failure —
+                    # a raw exception would degrade over a JSON checkpoint hop
+                    # and replay as a different type than the original run.
+                    final = (
+                        rollback_ex
+                        if isinstance(rollback_ex, ExecutionError)
+                        else ExecutionError(rollback_ex)
+                    )
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_FAILED,
+                            source_id=task_id,
+                            name=task_full_name,
+                            value=self.output_storage.store(task_id, final),
+                        ),
+                    )
+                    raise final from rollback_ex
 
                 # Compute the final exception once, store *that* via
                 # output_storage, then raise the same instance. Storing the
