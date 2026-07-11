@@ -381,3 +381,33 @@ async def test_checkpoint_includes_claim_generation_header():
     await worker._checkpoint(make_ctx(finished=True))
 
     assert seen_headers[0].get("X-Flux-Claim-Generation") == "7"
+
+
+@pytest.mark.asyncio
+async def test_release_claim_is_fenced_even_after_sender_drained():
+    """The sender's closed-exit path pops the claim generation; _release_claim
+    must capture the fence BEFORE flushing the outbox, or the release goes out
+    unfenced and can unclaim a re-dispatched execution that another worker is
+    already running."""
+    worker = make_worker()
+    worker._claim_generations["exec-1"] = "3"
+    seen = []
+
+    async def capture_post(url, headers=None, **kwargs):
+        seen.append((url, headers or {}))
+        return ok_response()
+
+    worker.client.post = capture_post
+
+    # Real outbox with a live sender so the release path drains it (and the
+    # sender's closed-exit path pops the generation) before posting.
+    await worker._checkpoint(make_ctx())
+    box = worker._checkpoint_outboxes["exec-1"]
+    await asyncio.wait_for(_wait_for_ack(box), timeout=5)
+
+    await worker._release_claim("exec-1")
+
+    release_calls = [(url, headers) for url, headers in seen if "/release/" in url]
+    assert len(release_calls) == 1
+    assert release_calls[0][1].get("X-Flux-Claim-Generation") == "3"
+    assert "exec-1" not in worker._claim_generations
