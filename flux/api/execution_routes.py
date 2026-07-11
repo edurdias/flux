@@ -55,6 +55,16 @@ class ExecutionRoutesMixin:
         # Execution Endpoints
         # ===========================================
 
+        async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
+            if not auth_config.enabled:
+                return True
+            if auth_service is None:
+                return False
+            return await auth_service.is_authorized(
+                identity,
+                f"workflow:{ns}:{name}:read",
+            )
+
         @api.get("/executions", response_model=ExecutionListResponse)
         async def executions_list(
             workflow_name: str | None = None,
@@ -64,7 +74,13 @@ class ExecutionRoutesMixin:
             offset: int = 0,
             identity: FluxIdentity = Depends(require_permission("execution:*:read")),
         ):
-            """List executions with optional filtering."""
+            """List executions with optional filtering.
+
+            ``execution:*:read`` alone is not enough to see every workflow's
+            executions: like the approvals listing, results are scoped to the
+            workflows the caller may read, so execution inputs/outputs never
+            leak across workflow read boundaries.
+            """
             try:
                 logger.debug(
                     f"Listing executions (namespace: {namespace}, workflow: {workflow_name}, "
@@ -85,13 +101,44 @@ class ExecutionRoutesMixin:
                             + ", ".join([s.value for s in ExecutionState]),
                         )
 
+                has_broad_read = True
+                if auth_config.enabled and auth_service is not None:
+                    permissions = await auth_service.resolve_permissions(identity)
+                    has_broad_read = identity.has_permission("workflow:*:*:read", permissions)
+                    if not has_broad_read and not _has_any_workflow_read(permissions):
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permission": "workflow:*:*:read",
+                            },
+                        )
+
                 manager = ContextManager.create()
+
+                workflows_filter = None
+                if not has_broad_read:
+                    # Scoped reader: authorize per distinct workflow before
+                    # the paginated query (the approvals-listing pattern), so
+                    # pagination and totals stay correct.
+                    candidates = manager.distinct_workflows(
+                        workflow_name=workflow_name,
+                        workflow_namespace=namespace,
+                        state=state_filter,
+                    )
+                    workflows_filter = [
+                        (ns, nm)
+                        for ns, nm in candidates
+                        if await _check_workflow_read(identity, ns, nm)
+                    ]
+
                 executions, total = manager.list(
                     workflow_name=workflow_name,
                     workflow_namespace=namespace,
                     state=state_filter,
                     limit=limit,
                     offset=offset,
+                    workflows=workflows_filter,
                 )
 
                 result = ExecutionListResponse(
@@ -109,6 +156,7 @@ class ExecutionRoutesMixin:
                     total=total,
                     limit=limit,
                     offset=offset,
+                    auth_filtered=workflows_filter is not None,
                 )
 
                 logger.debug(f"Found {total} executions")
@@ -148,6 +196,24 @@ class ExecutionRoutesMixin:
 
                 manager = ContextManager.create()
                 ctx = manager.get(execution_id)
+
+                # The flat execution:*:read grant does not bypass workflow
+                # read boundaries: the detailed DTO carries the workflow's
+                # inputs and outputs.
+                if not await _check_workflow_read(
+                    identity,
+                    ctx.workflow_namespace,
+                    ctx.workflow_name,
+                ):
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "forbidden",
+                            "missing_permission": (
+                                f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}:read"
+                            ),
+                        },
+                    )
 
                 if mode == "stream":
                     self._execution_events.setdefault(ctx.execution_id, asyncio.Event())
@@ -216,15 +282,8 @@ class ExecutionRoutesMixin:
                 "scope": r.scope or "call",
             }
 
-        async def _check_workflow_read(identity: FluxIdentity, ns: str, name: str) -> bool:
-            if not auth_config.enabled:
-                return True
-            if auth_service is None:
-                return False
-            return await auth_service.is_authorized(
-                identity,
-                f"workflow:{ns}:{name}:read",
-            )
+        # (workflow-read scoping uses the shared _check_workflow_read helper
+        # defined with the execution endpoints above.)
 
         @api.get("/approvals")
         async def list_approvals_cross_execution(
