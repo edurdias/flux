@@ -1242,6 +1242,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#standing-approvals-always" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standing approvals (--always)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#retries-and-approval" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1405,11 +1416,40 @@ exception persisted via the task's configured output storage. On replay,
 the event log short-circuits the task call and re-raises the same
 exception, so the workflow body sees identical behavior on the original
 run and on every replay.</p>
+<h2 id="standing-approvals-always">Standing approvals (<code>--always</code>)<a class="headerlink" href="#standing-approvals-always" title="Permanent link">&para;</a></h2>
+<p>By default an approval covers exactly one task call. When the same gated
+task runs many times in one execution — an agent's <code>shell</code> tool, a deploy
+step in a loop, retry attempts — approving with a <strong>standing grant</strong> covers
+every later gate on the same task <em>name</em> within that execution:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--always
+</code></pre></div>
+<p>Semantics:</p>
+<ul>
+<li>The decided row is stored with <code>scope="execution"</code> (a plain approval is
+  <code>scope="call"</code>); the scope is visible in <code>flux execution approvals</code> output.</li>
+<li>When a later gate on the same task name registers, the engine finds the
+  grant and auto-approves <strong>without pausing</strong> the workflow. Each auto-approval
+  materializes its own <code>approved</code> row — approver copied from the grant,
+  <code>reason="standing grant"</code> — so the audit trail still shows one row per
+  gated call.</li>
+<li>The grant matches on task <strong>name</strong>, not call id, so it also covers retry
+  attempts of gated tasks (their call ids differ, the name doesn't).</li>
+<li>Grants never cross executions, and a grant cannot be created from a
+  rejection (<code>scope="execution"</code> with reject is a validation error).</li>
+<li>Cancellation wins: if the execution is already cancelling when a later
+  gate registers, the gate surfaces the cancellation instead of
+  auto-approving — a grant never runs a body past a cancel.</li>
+<li>Rejection remains per-call; there is no standing reject.</li>
+<li><strong>No revocation (v1).</strong> A grant lasts for the rest of the execution. If
+  approvals must stay per-call, don't use <code>--always</code>.</li>
+</ul>
 <h2 id="retries-and-approval">Retries and approval<a class="headerlink" href="#retries-and-approval" title="Permanent link">&para;</a></h2>
-<p>Each retry attempt is a fresh task call: the predicate re-evaluates and a
-new approval is required. Reasoning: the previous attempt may have had
-partial side effects, and the approver should reconsider. "Approve once,
-run forever" is a footgun.</p>
+<p>By default, each retry attempt is a fresh task call: the predicate
+re-evaluates and a new approval is required. Reasoning: the previous
+attempt may have had partial side effects, and the approver should
+reconsider. "Approve once, run forever" is a footgun — which is why
+covering later gates (including retry attempts) takes the explicit
+<code>--always</code> standing grant described above, never a plain approval.</p>
 <h2 id="cancellation">Cancellation<a class="headerlink" href="#cancellation" title="Permanent link">&para;</a></h2>
 <p>If a workflow is cancelled while paused on approval, all pending approval
 rows for that execution transition to <code>cancelled</code>. They do <em>not</em> emit
@@ -1426,24 +1466,27 @@ not. Cancellation handling at the workflow level takes over from there.</p>
 <li><strong>Single approver.</strong> No N-of-M policies; no role-scoped approver lists.</li>
 </ul>
 <h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w">                                </span><span class="c1"># list pending</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w"> </span>--status<span class="w"> </span>all<span class="w"> </span>--age<span class="w"> </span>1h<span class="w">          </span><span class="c1"># all at least 1h old</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>flux<span class="w"> </span>execution<span class="w"> </span>reject<span class="w">  </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>flux<span class="w"> </span>execution<span class="w"> </span>show<span class="w">    </span>&lt;exec_id&gt;<span class="w">                        </span><span class="c1"># appends pending approvals on stderr</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>flux<span class="w"> </span>workflow<span class="w"> </span>status<span class="w">   </span>&lt;wf&gt;<span class="w"> </span>&lt;exec_id&gt;<span class="w">                   </span><span class="c1"># appends &#39;Blocked on N&#39; on stderr</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w">                                </span><span class="c1"># list pending</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w"> </span>--status<span class="w"> </span>all<span class="w"> </span>--age<span class="w"> </span>1h<span class="w">          </span><span class="c1"># all at least 1h old</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--always<span class="w">   </span><span class="c1"># standing grant</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>flux<span class="w"> </span>execution<span class="w"> </span>reject<span class="w">  </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>flux<span class="w"> </span>execution<span class="w"> </span>show<span class="w">    </span>&lt;exec_id&gt;<span class="w">                        </span><span class="c1"># appends pending approvals on stderr</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>flux<span class="w"> </span>workflow<span class="w"> </span>status<span class="w">   </span>&lt;wf&gt;<span class="w"> </span>&lt;exec_id&gt;<span class="w">                   </span><span class="c1"># appends &#39;Blocked on N&#39; on stderr</span>
 </code></pre></div>
 <p>The <code>Pending approvals:</code> block in <code>execution show</code> and the
 <code>Blocked on N approval(s)</code> line in <code>workflow status</code> are written to <strong>stderr</strong>,
 so callers piping stdout to <code>json.loads</code> continue to work unchanged.</p>
 <h2 id="http-api">HTTP API<a class="headerlink" href="#http-api" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>GET  /approvals[?status=&amp;execution_id=&amp;workflow_namespace=&amp;workflow_name=&amp;task_name=&amp;age_min=&amp;limit=&amp;offset=]
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>GET  /executions/{execution_id}/approvals
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>GET  /executions/{execution_id}/approvals/{task_call_id}
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>POST /executions/{execution_id}/approvals/{task_call_id}/approve
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>POST /executions/{execution_id}/approvals/{task_call_id}/reject
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>GET  /approvals[?status=&amp;execution_id=&amp;workflow_namespace=&amp;workflow_name=&amp;task_name=&amp;age_min=&amp;limit=&amp;offset=]
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>GET  /executions/{execution_id}/approvals
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>GET  /executions/{execution_id}/approvals/{task_call_id}
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>POST /executions/{execution_id}/approvals/{task_call_id}/approve
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>POST /executions/{execution_id}/approvals/{task_call_id}/reject
 </code></pre></div>
-<p>POST body: <code>{"reason": "optional"}</code>. <code>200</code> returns the post-decision row;
+<p>POST body: <code>{"reason": "optional", "always": false}</code> — <code>always: true</code> on
+approve creates a standing grant (ignored on reject). <code>200</code> returns the
+post-decision row (including its <code>scope</code>);
 <code>409</code> returns <code>{"error": "already_decided", "current_status": ..., "decided_at": ...}</code>
 without leaking the winning approver's identity.</p>
 <h2 id="agent-harness">Agent harness<a class="headerlink" href="#agent-harness" title="Permanent link">&para;</a></h2>
@@ -1451,8 +1494,10 @@ without leaking the winning approver's identity.</p>
 approval payload and surfaces it through the same UI channel as elicitations:</p>
 <ul>
 <li><strong>Terminal mode:</strong> prints the task name and pauses on
-  <code>[a] approve  [r] reject</code>; the keypress resolves the decision.</li>
-<li><strong>Textual mode:</strong> mounts a system message with the same <code>[a]/[r]</code>
+  <code>[a] approve  [A] always  [r] reject</code>; the keypress resolves the decision
+  (<code>A</code> issues a standing grant, so the same tool won't prompt again this
+  session).</li>
+<li><strong>Textual mode:</strong> mounts a system message with the same <code>[a]/[A]/[r]</code>
   hint in the status bar; the keypress resolves the pending approval.</li>
 <li><strong>API mode:</strong> the SSE stream emits an <code>approval_required</code> event; the
   consumer posts the decision to <code>POST /approval/{task_call_id}?session=...</code>
@@ -1469,15 +1514,15 @@ engine-level approval gate is skipped for those tool invocations.</p>
 <h2 id="migration-from-the-old-wrapper">Migration from the old wrapper<a class="headerlink" href="#migration-from-the-old-wrapper" title="Permanent link">&para;</a></h2>
 <p>If your code uses <code>flux.tasks.ai.approval.requires_approval</code> (removed in
 v0.36.0), migrate to per-task <code>with_options</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="gd">-from flux.tasks.ai.approval import requires_approval</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="gd">-tools = requires_approval(system_tools(&quot;.&quot;), only=[&quot;shell&quot;])</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="gi">+tools_raw = system_tools(&quot;.&quot;)</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="gi">+tools = [</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="gi">+    t.with_options(requires_approval=True)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="gi">+    if (t.func.__name__ if hasattr(t, &quot;func&quot;) else t.__name__) == &quot;shell&quot;</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="gi">+    else t</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="gi">+    for t in tools_raw</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="gi">+]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="gd">-from flux.tasks.ai.approval import requires_approval</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="gd">-tools = requires_approval(system_tools(&quot;.&quot;), only=[&quot;shell&quot;])</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="gi">+tools_raw = system_tools(&quot;.&quot;)</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="gi">+tools = [</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="gi">+    t.with_options(requires_approval=True)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="gi">+    if (t.func.__name__ if hasattr(t, &quot;func&quot;) else t.__name__) == &quot;shell&quot;</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="gi">+    else t</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="gi">+    for t in tools_raw</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="gi">+]</span>
 </code></pre></div>
 <p>The agent harness's tool-approval prompt still works the same way — only
 the underlying mechanism changed.</p>
