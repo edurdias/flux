@@ -62,6 +62,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
         # durable-only features (pause, approvals) must refuse to engage.
         # In-memory only — deliberately absent from to_dict()/pickle.
         self._transient = False
+        # Per-run occurrence counter for repeated identical task calls.
+        # Runtime-only (never serialized): workflow code is deterministic, so
+        # each run — original or replay — consumes occurrences in the same
+        # order and derives the same per-call ids.
+        self._task_occurrences: dict[str, int] = {}
 
     def mark_transient(self) -> ExecutionContext:
         self._transient = True
@@ -120,9 +125,21 @@ class ExecutionContext(Generic[WorkflowInputType]):
     def state(self) -> ExecutionState:
         return self._state
 
+    def next_task_occurrence(self, task_id: str) -> int:
+        """Return how many times ``task_id`` was already called this run.
+
+        The task engine uses this to give repeated identical calls distinct
+        per-call ids: without it, the replay short-circuit collapses the
+        second ``await send_email(x)`` into the first call's stored output.
+        """
+        occurrence = self._task_occurrences.get(task_id, 0)
+        self._task_occurrences[task_id] = occurrence + 1
+        return occurrence
+
     @property
     def has_finished(self) -> bool:
-        return len(self.events) > 0 and self.events[-1].type in (
+        last = self._last_workflow_event()
+        return last is not None and last.type in (
             ExecutionEventType.WORKFLOW_COMPLETED,
             ExecutionEventType.WORKFLOW_FAILED,
             ExecutionEventType.WORKFLOW_CANCELLED,
@@ -518,6 +535,9 @@ class ExecutionContext(Generic[WorkflowInputType]):
         state["_checkpoint"] = None
         state["_progress_callback"] = None
         state.pop("_exec_token", None)
+        # Runtime-only: a rebuilt context derives occurrences afresh as the
+        # replay re-enters each task call in program order.
+        state.pop("_task_occurrences", None)
         return state
 
     def __setstate__(self, state):
@@ -528,6 +548,8 @@ class ExecutionContext(Generic[WorkflowInputType]):
             self._progress_callback = lambda *_: None
         if not hasattr(self, "_exec_token"):
             self._exec_token = None
+        if not hasattr(self, "_task_occurrences"):
+            self._task_occurrences = {}
 
     def summary(self):
         return {key: value for key, value in self.to_dict().items() if key != "events"}
@@ -556,16 +578,30 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return ctx
 
+    def _last_workflow_event(self) -> ExecutionEvent | None:
+        """The most recent workflow-lifecycle (``WORKFLOW_*``) event, if any.
+
+        Lifecycle flags must key off this rather than ``events[-1]``: a
+        still-running ``parallel()`` sibling can append its TASK_COMPLETED
+        *after* WORKFLOW_FAILED/WORKFLOW_PAUSED lands (gather does not cancel
+        siblings), and that interleaved task event must not flip a finished
+        or paused execution back to "running".
+        """
+        for event in reversed(self.events):
+            # Wire-rebuilt events (from_json) carry the type as a plain str;
+            # ExecutionEventType is a str-enum with value == name, so both
+            # forms stringify to the same "WORKFLOW_*" token.
+            event_type = event.type
+            type_name = (
+                event_type.value if isinstance(event_type, ExecutionEventType) else str(event_type)
+            )
+            if type_name.startswith("WORKFLOW_"):
+                return event
+        return None
+
     def _is_last_event(self, event_type: ExecutionEventType) -> bool:
-        """
-        Check if the last event in the context matches the given event type.
-
-        Args:
-            event_type (ExecutionEventType): The event type to check against.
-
-        Returns:
-            bool: True if the last event matches the given type, False otherwise.
-        """
-        if not self.events:
-            return False
-        return self.events[-1].type == event_type
+        """Check whether the most recent workflow-lifecycle event matches
+        ``event_type`` (interleaved task events are ignored — see
+        ``_last_workflow_event``)."""
+        last = self._last_workflow_event()
+        return last is not None and last.type == event_type
