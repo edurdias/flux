@@ -131,6 +131,47 @@ def test_workflow_status_blocked_line_on_stderr(cli):
     cli.wait_for_state("approval_e2e", exec_id, "COMPLETED", timeout=30)
 
 
+def test_approve_always_covers_later_gates_on_same_task(cli):
+    """#74 e2e: `flux execution approve --always` is a standing grant — later
+    approval gates on the same task within the execution auto-approve without
+    pausing, each leaving a materialized audit row."""
+    cli.register(str(FIXTURES / "approval_workflow.py"))
+
+    r = cli.run("approval_multi_e2e", '["one", "two", "three"]', mode="async")
+    exec_id = r["execution_id"]
+
+    # First `deploy` call pauses at its gate; grant it for the whole execution.
+    cli.wait_for_state("approval_multi_e2e", exec_id, "PAUSED", timeout=30)
+    pending = _wait_for_pending_approval(cli, exec_id)
+    assert pending["task_name"] == "deploy"
+
+    proc = cli._server_ok(
+        ["execution", "approve", exec_id, pending["task_call_id"], "--always"],
+    )
+    assert "Approved" in proc.stdout
+
+    # The remaining two `deploy` calls must ride the grant: one resume drives
+    # the workflow to completion with no further pending approvals.
+    final = cli.wait_for_state("approval_multi_e2e", exec_id, "COMPLETED", timeout=60)
+    assert final["state"] == "COMPLETED"
+    assert final.get("output") == ["deployed:one", "deployed:two", "deployed:three"]
+
+    out = cli._server_json(
+        ["execution", "approvals", "--execution", exec_id, "--status", "all", "--json"],
+    )
+    rows = out.get("approvals", [])
+    assert all(row["status"] == "approved" for row in rows), rows
+    assert len(rows) == 3, rows
+    # One operator decision carrying the execution scope...
+    grants = [row for row in rows if row["scope"] == "execution"]
+    assert len(grants) == 1, rows
+    assert grants[0]["task_call_id"] == pending["task_call_id"]
+    # ...and one materialized audit row per auto-approved later gate.
+    materialized = [row for row in rows if row["reason"] == "standing grant"]
+    assert len(materialized) == 2, rows
+    assert all(row["scope"] == "call" for row in materialized), rows
+
+
 def test_retry_approval_resumes_into_the_retry_attempt(cli):
     """#72 e2e: approving a retry-attempt gate resumes INTO that attempt —
     the original attempt's side effects are not duplicated by the replay,

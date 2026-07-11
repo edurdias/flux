@@ -208,6 +208,7 @@ class FluxClient:
         *,
         approved: bool,
         reason: str | None = None,
+        always: bool = False,
     ) -> dict:
         """POST a decision to the Flux approval routes.
 
@@ -220,7 +221,11 @@ class FluxClient:
             f"{self.server_url}/executions/{execution_id}"
             f"/approvals/{quote(task_call_id, safe='')}/{verb}"
         )
-        body = {"reason": reason} if reason else {}
+        body: dict = {}
+        if reason:
+            body["reason"] = reason
+        if always and approved:
+            body["always"] = True
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,

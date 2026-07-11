@@ -847,3 +847,241 @@ def test_resumed_retry_attempt_receives_enriched_kwargs(isolated_db):
     # injected TaskMetadata — the resume path must enrich kwargs too.
     assert seen_metadata[0] is not None
     assert seen_metadata[1] is not None, "resumed retry attempt ran without injected kwargs"
+
+
+def _approve_single_pending_always(mgr: ApprovalManager, execution_id: str) -> str:
+    """Approve the one pending approval as a standing grant (scope=execution)."""
+    pending = mgr.list(execution_id=execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1
+    with UnitOfWork() as uow:
+        mgr.decide(
+            pending[0].execution_id,
+            pending[0].task_call_id,
+            approver_subject="alice",
+            approver_provider="oidc",
+            approved=True,
+            reason="looks safe",
+            uow=uow,
+            scope="execution",
+        )
+        uow.commit()
+    return pending[0].task_call_id
+
+
+def test_standing_grant_skips_pause_on_later_calls(isolated_db):
+    """#74: an approval decided with scope=execution auto-approves every
+    later gate on the same task in this execution — no pause, no round-trip."""
+    calls = []
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_tool(step: str) -> str:
+        calls.append(step)
+        return f"ran-{step}"
+
+    @workflow
+    async def wf_grant(ctx: ExecutionContext):
+        first = await gated_tool("one")
+        second = await gated_tool("two")
+        third = await gated_tool("three")
+        return [first, second, third]
+
+    mgr = ApprovalManager()
+
+    ctx = wf_grant.run()  # pauses at the first call's gate
+    assert ctx.is_paused
+    _approve_single_pending_always(mgr, ctx.execution_id)
+
+    # One resume completes the whole workflow: calls two and three are
+    # covered by the standing grant and never pause.
+    ctx = wf_grant.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == ["ran-one", "ran-two", "ran-three"]
+    assert calls == ["one", "two", "three"]
+
+    # Every gated call stays in the audit trail: the grant row plus one
+    # materialized auto-approved row per covered call.
+    rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
+    assert len(rows) == 3
+    granted = [r for r in rows if (r.scope or "call") == "execution"]
+    materialized = [r for r in rows if r.reason == "standing grant"]
+    assert len(granted) == 1
+    assert len(materialized) == 2
+    assert all(r.approver_subject == "alice" for r in materialized)
+
+
+def test_standing_grant_covers_retry_attempt_gates(isolated_db):
+    """A standing grant matches by task name, so retry-attempt gates
+    (task_id~retryN) auto-approve too — no re-pause per attempt."""
+    calls = [0]
+
+    @task_decorator.with_options(requires_approval=True, retry_max_attempts=2, retry_delay=0)
+    async def flaky_granted() -> str:
+        calls[0] += 1
+        if calls[0] <= 2:
+            raise ValueError(f"boom {calls[0]}")
+        return "recovered"
+
+    @workflow
+    async def wf_grant_retry(ctx: ExecutionContext):
+        return await flaky_granted()
+
+    mgr = ApprovalManager()
+
+    ctx = wf_grant_retry.run()
+    assert ctx.is_paused
+    _approve_single_pending_always(mgr, ctx.execution_id)
+
+    # One resume: the original attempt fails, both retry gates are covered
+    # by the grant, attempts run back-to-back to success.
+    ctx = wf_grant_retry.run(execution_id=ctx.execution_id)
+    assert ctx.has_succeeded
+    assert ctx.output == "recovered"
+    assert calls[0] == 3
+
+
+def test_standing_grant_does_not_leak_to_other_tasks(isolated_db):
+    """The grant is per task name: a different gated task still pauses."""
+
+    @task_decorator.with_options(requires_approval=True)
+    async def tool_a() -> str:
+        return "a"
+
+    @task_decorator.with_options(requires_approval=True)
+    async def tool_b() -> str:
+        return "b"
+
+    @workflow
+    async def wf_two_tools(ctx: ExecutionContext):
+        first = await tool_a()
+        second = await tool_b()
+        return [first, second]
+
+    mgr = ApprovalManager()
+
+    ctx = wf_two_tools.run()
+    assert ctx.is_paused
+    _approve_single_pending_always(mgr, ctx.execution_id)  # grant covers tool_a only
+
+    ctx = wf_two_tools.run(execution_id=ctx.execution_id)
+    assert ctx.is_paused  # tool_b's gate still pauses
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+    assert len(pending) == 1
+    assert pending[0].task_name == "tool_b"
+
+
+def test_standing_grant_yields_to_concurrent_cancel(isolated_db):
+    """A standing grant must not materialize an approved row once a
+    concurrent cancel made the execution non-pausable — otherwise the
+    gated body would run after cancellation."""
+    from flux.domain import ExecutionState
+    from flux.models import ExecutionContextModel
+
+    calls = []
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_race(step: str) -> str:
+        calls.append(step)
+        if step == "one":
+            # Simulate a cancel racing the resumed run: it lands after the
+            # first body starts but before the second call's gate registers
+            # (`flux workflow cancel` moves the row to CANCELLING).
+            exec_ctx = await ExecutionContext.get()
+            with UnitOfWork() as uow:
+                model = uow.session.get(ExecutionContextModel, exec_ctx.execution_id)
+                model.state = ExecutionState.CANCELLING
+                uow.commit()
+        return step
+
+    @workflow
+    async def wf_cancel_race(ctx: ExecutionContext):
+        first = await gated_race("one")
+        second = await gated_race("two")
+        return [first, second]
+
+    mgr = ApprovalManager()
+
+    ctx = wf_cancel_race.run()
+    assert ctx.is_paused
+    _approve_single_pending_always(mgr, ctx.execution_id)
+
+    # On resume, call one runs (its approved row is read back) and the
+    # cancel lands; the second call's grant lookup must yield to it instead
+    # of materializing an approved row and running the body. The gate
+    # surfaces the concurrent cancel as CancelledError, which the inline
+    # path propagates (workers translate it into the cancellation flow).
+    import asyncio
+
+    with pytest.raises(asyncio.CancelledError):
+        wf_cancel_race.run(execution_id=ctx.execution_id)
+    assert calls == ["one"]
+
+    rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
+    assert len(rows) == 1  # the grant itself; nothing materialized
+    assert not any(r.reason == "standing grant" for r in rows)
+
+
+def test_plain_approval_remains_single_call(isolated_db):
+    """Default scope is unchanged: a plain approval covers one call only."""
+    calls = []
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_twice(step: str) -> str:
+        calls.append(step)
+        return step
+
+    @workflow
+    async def wf_plain(ctx: ExecutionContext):
+        first = await gated_twice("one")
+        second = await gated_twice("two")
+        return [first, second]
+
+    mgr = ApprovalManager()
+
+    ctx = wf_plain.run()
+    assert ctx.is_paused
+    _approve_single_pending(mgr, ctx.execution_id)  # scope defaults to "call"
+
+    ctx = wf_plain.run(execution_id=ctx.execution_id)
+    assert ctx.is_paused  # the second call pauses again
+    assert calls == ["one"]
+
+
+def test_execution_scope_rejected_for_rejections(isolated_db):
+    """A standing rejection would silently fail every future call — refuse it."""
+
+    @task_decorator.with_options(requires_approval=True)
+    async def gated_rej_scope() -> str:
+        return "x"
+
+    @workflow
+    async def wf_rej_scope(ctx: ExecutionContext):
+        return await gated_rej_scope()
+
+    mgr = ApprovalManager()
+    ctx = wf_rej_scope.run()
+    pending = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.PENDING)
+
+    with UnitOfWork() as uow:
+        with pytest.raises(ValueError, match="only valid for approvals"):
+            mgr.decide(
+                pending[0].execution_id,
+                pending[0].task_call_id,
+                approver_subject="alice",
+                approver_provider="oidc",
+                approved=False,
+                reason=None,
+                uow=uow,
+                scope="execution",
+            )
+    with UnitOfWork() as uow:
+        with pytest.raises(ValueError, match="scope must be"):
+            mgr.decide(
+                pending[0].execution_id,
+                pending[0].task_call_id,
+                approver_subject="alice",
+                approver_provider="oidc",
+                approved=True,
+                reason=None,
+                uow=uow,
+                scope="forever",
+            )
