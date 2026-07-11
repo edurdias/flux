@@ -946,6 +946,12 @@ class Worker:
         claim is stale, another worker already owns the execution and there
         is nothing to release.
         """
+        # Capture the fence before flushing: every sender exit path pops
+        # self._claim_generations, and a release without the header bypasses
+        # the server's stale-claim check — a late unfenced release could
+        # unclaim an execution already re-dispatched to another worker.
+        generation = self._claim_generations.get(execution_id)
+
         # Flush pending checkpoints first: they carry the task completions
         # replay resumes from, and after release the bumped claim generation
         # would fence them.
@@ -964,7 +970,6 @@ class Worker:
 
         base_url = f"{self.base_url}/{self.name}"
         headers = {}
-        generation = self._claim_generations.get(execution_id)
         if generation is not None:
             headers["X-Flux-Claim-Generation"] = generation
 
