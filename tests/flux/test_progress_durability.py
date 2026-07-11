@@ -61,7 +61,18 @@ def test_replay_skips_task_with_progress():
         assert result1 == "result_1"
         assert call_count == 1
 
-        token2 = ExecutionContext.set(ctx)
+        # Replay = a REBUILT context carrying the same event log (what
+        # resume/reclaim does), not a second call on the live context — a
+        # second call on the live context is a genuinely new call and runs
+        # the body (each call gets its own occurrence id).
+        replay_ctx = ExecutionContext(
+            workflow_id="wf1",
+            workflow_namespace="default",
+            workflow_name="test",
+            events=list(ctx.events),
+        )
+        replay_ctx.set_progress_callback(lambda *_: None)
+        token2 = ExecutionContext.set(replay_ctx)
         try:
             result2 = await counting_task()
         finally:

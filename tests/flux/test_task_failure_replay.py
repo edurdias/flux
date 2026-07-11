@@ -94,3 +94,162 @@ def test_completed_workflow_reload_preserves_output(isolated_db):
     second = wf_ok.run(execution_id=first.execution_id)
     assert second.has_succeeded
     assert second.output == "first-result"
+
+
+def test_failed_fallback_records_terminal_event_and_replay_skips(isolated_db):
+    """When the fallback itself fails, a terminal TASK_FAILED event must be
+    recorded — without it, replay after a pause finds no terminal event and
+    re-executes the body AND the fallback (duplicated side effects, and a
+    possibly different branch than the original run)."""
+    from flux.tasks import pause
+
+    body_runs = [0]
+    fallback_runs = [0]
+
+    async def bad_fallback() -> str:
+        fallback_runs[0] += 1
+        raise RuntimeError("fallback also broke")
+
+    @task_decorator.with_options(fallback=bad_fallback)
+    async def flaky() -> str:
+        body_runs[0] += 1
+        raise ValueError("body broke")
+
+    @workflow
+    async def wf_fb(ctx: ExecutionContext):
+        try:
+            await flaky()
+        except ExecutionError:
+            pass
+        await pause("gate")
+        return "done"
+
+    ctx = wf_fb.run()
+    assert ctx.is_paused
+    assert body_runs[0] == 1 and fallback_runs[0] == 1
+    failed = [e for e in ctx.events if e.type == ExecutionEventType.TASK_FAILED]
+    assert len(failed) == 1, "fallback failure must leave a terminal TASK_FAILED"
+
+    resumed = wf_fb.run(execution_id=ctx.execution_id)
+    assert resumed.has_succeeded
+    assert resumed.output == "done"
+    # Replay re-raised the stored failure instead of re-running body/fallback.
+    assert body_runs[0] == 1 and fallback_runs[0] == 1
+
+
+def test_failed_rollback_records_terminal_event(isolated_db):
+    """A failing rollback must also leave a terminal TASK_FAILED behind."""
+    rollback_runs = [0]
+
+    async def bad_rollback() -> None:
+        rollback_runs[0] += 1
+        raise RuntimeError("rollback broke")
+
+    @task_decorator.with_options(rollback=bad_rollback)
+    async def flaky_rb() -> str:
+        raise ValueError("body broke")
+
+    @workflow
+    async def wf_rb(ctx: ExecutionContext):
+        return await flaky_rb()
+
+    ctx = wf_rb.run()
+    assert ctx.has_failed
+    assert rollback_runs[0] == 1
+    failed = [e for e in ctx.events if e.type == ExecutionEventType.TASK_FAILED]
+    assert len(failed) == 1, "rollback failure must leave a terminal TASK_FAILED"
+    # Wrapped like every other terminal task failure, so the type survives a
+    # JSON checkpoint hop and replay re-raises the same thing.
+    stored = flaky_rb.output_storage.retrieve(failed[0].value)
+    assert isinstance(stored, ExecutionError)
+    assert isinstance(stored.inner_exception, RuntimeError)
+
+
+def test_wire_degraded_failure_replays_as_exception_not_typeerror(isolated_db):
+    """A TASK_FAILED value that crossed a JSON checkpoint hop degrades to
+    {"type", "message"} (FluxEncoder); replaying it used to execute
+    `raise <dict>` -> TypeError. It must re-raise a real exception with the
+    recorded detail."""
+    import pytest
+
+    @task_decorator
+    async def fails_wire() -> str:
+        raise ValueError("nope")
+
+    @workflow
+    async def wf_wire(ctx: ExecutionContext):
+        return await fails_wire()
+
+    first = wf_wire.run()
+    assert first.has_failed
+
+    # Simulate the distributed hop: to_dict (FluxEncoder JSON) -> from_json,
+    # exactly what worker claims and runner children do. The stored exception
+    # degrades to {"type", "message"} on that hop.
+    rebuilt = ExecutionContext.from_json(first.to_dict())
+
+    async def _replay():
+        token = ExecutionContext.set(rebuilt)
+        try:
+            # Direct call with the same args -> same occurrence-0 task id,
+            # so the replay short-circuit consumes the degraded TASK_FAILED.
+            await fails_wire()
+        finally:
+            ExecutionContext.reset(token)
+
+    import asyncio
+
+    with pytest.raises(ExecutionError) as excinfo:
+        asyncio.run(_replay())
+    assert "nope" in str(excinfo.value)
+
+
+def test_revive_stored_failure_reconstructs_types():
+    """Unit contract for the degraded-value reviver."""
+    from flux.approvals import ApprovalRejected
+    from flux.task import task as task_cls
+
+    revived = task_cls._revive_stored_failure(
+        {"type": "ExecutionError", "message": "boom"},
+        "t",
+    )
+    assert isinstance(revived, ExecutionError)
+    assert "boom" in str(revived)
+
+    rejected = task_cls._revive_stored_failure(
+        {"type": "ApprovalRejected", "message": "denied by alice"},
+        "deploy",
+    )
+    assert isinstance(rejected, ApprovalRejected)
+
+    passthrough = ValueError("as-is")
+    assert task_cls._revive_stored_failure(passthrough, "t") is passthrough
+
+
+def test_approval_rejected_round_trips_the_json_hop():
+    """FluxEncoder carries ApprovalRejected's structured fields across the
+    wire, and the reviver reconstructs an identical exception — workflow code
+    inspecting approver/reason behaves the same on replay as on the original
+    run."""
+    import json
+
+    from flux.approvals import ApprovalRejected
+    from flux.task import task as task_cls
+    from flux.utils import FluxEncoder
+
+    original = ApprovalRejected(
+        task_name="deploy",
+        approver_subject="alice",
+        approver_provider="oidc",
+        reason="not during freeze",
+    )
+    degraded = json.loads(json.dumps(original, cls=FluxEncoder))
+    assert degraded["type"] == "ApprovalRejected"
+
+    revived = task_cls._revive_stored_failure(degraded, "deploy")
+    assert isinstance(revived, ApprovalRejected)
+    assert revived.task_name == original.task_name
+    assert revived.approver_subject == original.approver_subject
+    assert revived.approver_provider == original.approver_provider
+    assert revived.reason == original.reason
+    assert str(revived) == str(original)
