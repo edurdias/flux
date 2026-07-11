@@ -239,6 +239,40 @@ def test_schedule_update_denies_sa_rebind_without_workflow_run(client):
     assert resp.status_code == 403, resp.text
 
 
+def test_schedule_update_sa_rebind_fails_closed_when_workflow_unregistered(client):
+    """If the schedule's workflow is gone from the catalog, the rebind guard
+    cannot derive task-level permission requirements — it must refuse rather
+    than authorize against empty metadata."""
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    _seed_service_account(f"sa-x-{suffix}")
+
+    # Schedule references a workflow that was never registered (SQLite does
+    # not enforce the schedules -> workflows FK, mirroring a post-deletion row).
+    manager = create_schedule_manager()
+    schedule_model = manager.create_schedule(
+        workflow_id=f"default/ghost_{suffix}",
+        workflow_namespace="default",
+        workflow_name=f"ghost_{suffix}",
+        name=f"ghost-sched-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+        run_as_service_account=f"sa-x-{suffix}",
+    )
+
+    _seed_role(f"full_{suffix}", ["schedule:*:manage", "workflow:*:*:*"])
+    identity = FluxIdentity(subject="operator", roles=frozenset({f"full_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            f"/schedules/{schedule_model.id}",
+            headers=_headers(),
+            json={"run_as_service_account": f"sa-x-{suffix}"},
+        )
+    assert resp.status_code == 409, resp.text
+
+
 # ---------------------------------------------------------------------------
 # Execution reads: workflow-scoped like the approvals listing
 # ---------------------------------------------------------------------------

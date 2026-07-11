@@ -333,7 +333,10 @@ class ScheduleRoutesMixin:
 
                 # Rebinding the service account is subject to the same
                 # escalation guard as create: the caller must be authorized
-                # to run the schedule's workflow themselves.
+                # to run the schedule's workflow themselves. A failed catalog
+                # lookup fails CLOSED — authorizing against empty metadata
+                # would silently drop the per-task and nested-workflow
+                # permission requirements derived from it.
                 if (
                     auth_config.enabled
                     and auth_service is not None
@@ -344,14 +347,22 @@ class ScheduleRoutesMixin:
                             existing_schedule.workflow_namespace,
                             existing_schedule.workflow_name,
                         )
-                        workflow_metadata = workflow_def.metadata or {}
                     except Exception:
-                        workflow_metadata = {}
+                        workflow_def = None
+                    if workflow_def is None:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Cannot rebind service account: workflow "
+                                f"'{existing_schedule.workflow_namespace}/"
+                                f"{existing_schedule.workflow_name}' is not in the catalog"
+                            ),
+                        )
                     auth_result = await auth_service.authorize(
                         identity,
                         existing_schedule.workflow_namespace,
                         existing_schedule.workflow_name,
-                        workflow_metadata,
+                        workflow_def.metadata or {},
                     )
                     if not auth_result.ok:
                         raise HTTPException(
