@@ -125,7 +125,9 @@ class ExecutionRoutesMixin:
                 if not has_broad_read:
                     # Scoped reader: authorize per distinct workflow before
                     # the paginated query (the approvals-listing pattern), so
-                    # pagination and totals stay correct.
+                    # pagination and totals stay correct. Reuse the permission
+                    # set already resolved above instead of re-resolving per
+                    # candidate workflow.
                     candidates = manager.distinct_workflows(
                         workflow_name=workflow_name,
                         workflow_namespace=namespace,
@@ -134,7 +136,7 @@ class ExecutionRoutesMixin:
                     workflows_filter = [
                         (ns, nm)
                         for ns, nm in candidates
-                        if await _check_workflow_read(identity, ns, nm)
+                        if identity.has_permission(f"workflow:{ns}:{nm}:read", permissions)
                     ]
 
                 executions, total = manager.list(
