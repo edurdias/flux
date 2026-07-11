@@ -265,7 +265,20 @@ class FluxEncoder(json.JSONEncoder):
             return {"type": type(obj).__name__, "message": str(obj)}
 
         if isinstance(obj, Exception):
-            return {"type": type(obj).__name__, "message": str(obj)}
+            payload = {"type": type(obj).__name__, "message": str(obj)}
+            from flux.approvals import ApprovalRejected
+
+            if isinstance(obj, ApprovalRejected):
+                # Structured fields are part of the contract (workflow code
+                # inspects approver/reason); carry them across the JSON hop
+                # so replay revives an identical exception.
+                payload.update(
+                    task_name=obj.task_name,
+                    approver_subject=obj.approver_subject,
+                    approver_provider=obj.approver_provider,
+                    reason=obj.reason,
+                )
+            return payload
 
         if inspect.isclass(type(obj)) and isinstance(obj, Callable):
             return type(obj).__name__

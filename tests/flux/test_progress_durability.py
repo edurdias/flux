@@ -69,7 +69,7 @@ def test_replay_skips_task_with_progress():
             workflow_id="wf1",
             workflow_namespace="default",
             workflow_name="test",
-            events=ctx.events,
+            events=list(ctx.events),
         )
         replay_ctx.set_progress_callback(lambda *_: None)
         token2 = ExecutionContext.set(replay_ctx)

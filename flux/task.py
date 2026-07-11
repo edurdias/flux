@@ -162,6 +162,18 @@ class task:
         if type_name == "ApprovalRejected":
             from flux.approvals import ApprovalRejected
 
+            assert isinstance(retrieved, dict)
+            if "task_name" in retrieved:
+                # FluxEncoder carries the structured fields across the hop;
+                # reconstruct the identical exception.
+                return ApprovalRejected(
+                    task_name=retrieved.get("task_name") or full_name,
+                    approver_subject=retrieved.get("approver_subject"),
+                    approver_provider=retrieved.get("approver_provider"),
+                    reason=retrieved.get("reason"),
+                )
+            # Legacy degraded form ({type, message} only): keep the rendered
+            # message so at least the text matches the original.
             revived: BaseException = ApprovalRejected(task_name=full_name)
             if message:
                 revived.args = (message,)
@@ -769,16 +781,24 @@ class task:
                     )
                 except Exception as rollback_ex:
                     # Same contract as the fallback branch: a failed rollback
-                    # must leave a terminal TASK_FAILED event behind.
+                    # must leave a terminal TASK_FAILED event behind. Wrap in
+                    # ExecutionError like every other terminal task failure —
+                    # a raw exception would degrade over a JSON checkpoint hop
+                    # and replay as a different type than the original run.
+                    final = (
+                        rollback_ex
+                        if isinstance(rollback_ex, ExecutionError)
+                        else ExecutionError(rollback_ex)
+                    )
                     ctx.events.append(
                         ExecutionEvent(
                             type=ExecutionEventType.TASK_FAILED,
                             source_id=task_id,
                             name=task_full_name,
-                            value=self.output_storage.store(task_id, rollback_ex),
+                            value=self.output_storage.store(task_id, final),
                         ),
                     )
-                    raise
+                    raise final from rollback_ex
 
                 # Compute the final exception once, store *that* via
                 # output_storage, then raise the same instance. Storing the
