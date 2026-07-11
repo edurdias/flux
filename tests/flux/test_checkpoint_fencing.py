@@ -96,10 +96,55 @@ def test_generation_bumps_again_on_reassignment(env):
         ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"),
     )
 
-    _dispatch(cm, w1)
-    cm.unclaim(saved.execution_id)  # eviction path: back to CREATED
-    _dispatch(cm, w1)
+    _dispatch(cm, w1)  # generation 1
+    cm.unclaim(saved.execution_id)  # eviction fences the old owner: 2
+    _dispatch(cm, w1)  # re-dispatch: 3
 
+    assert cm.get_claim_generation(saved.execution_id) == 3
+
+
+def test_unclaim_fences_the_old_owner(env):
+    """unclaim() must bump the claim generation: without it, a partitioned
+    worker's late checkpoint (old generation) is accepted after the reaper
+    reset the row, dragging it back to RUNNING with no owner — invisible to
+    dispatch (CREATED-only) and never re-dispatched."""
+    cm, registry = env
+    w1 = _register(registry, "w1")
+    wf_id = _create_workflow(cm)
+    cm.save(ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"))
+    ctx = _dispatch(cm, w1)  # generation 1, owned by w1
+
+    cm.unclaim(ctx.execution_id)  # reaper resets the row
+
+    assert cm.get_claim_generation(ctx.execution_id) == 2
+    # The old owner's late checkpoint is fenced instead of accepted.
+    with pytest.raises(StaleClaimError):
+        cm.update(ctx, expected_claim_generation=1)
+
+
+def test_unclaim_resume_recovery_also_fences(env):
+    """The RESUME_SCHEDULED/RESUME_CLAIMED → RESUMING recovery branch fences
+    the old owner too."""
+    from flux.domain import ExecutionState
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    cm, registry = env
+    w1 = _register(registry, "w1")
+    wf_id = _create_workflow(cm)
+    saved = cm.save(
+        ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"),
+    )
+    _dispatch(cm, w1)  # generation 1
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, saved.execution_id)
+        model.state = ExecutionState.RESUME_SCHEDULED
+        session.commit()
+
+    recovered = cm.unclaim(saved.execution_id)
+
+    assert recovered.state == ExecutionState.RESUMING
     assert cm.get_claim_generation(saved.execution_id) == 2
 
 

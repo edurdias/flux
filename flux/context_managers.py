@@ -876,11 +876,17 @@ class DatabaseContextManager(ContextManager):
             if model.state in resume_recovery:
                 model.state = ExecutionState.RESUMING
                 model.worker_name = None
+                # Fence the old owner: without the bump, a partitioned-but-
+                # alive worker's late checkpoint (same generation) is accepted
+                # and can drag the reset row back to RUNNING with no owner —
+                # invisible to dispatch (CREATED-only) and to reaping.
+                model.claim_generation = (model.claim_generation or 0) + 1
                 session.commit()
                 return model.to_plain()
             if model.state in initial_recovery:
                 model.state = ExecutionState.CREATED
                 model.worker_name = None
+                model.claim_generation = (model.claim_generation or 0) + 1
                 session.commit()
                 return model.to_plain()
             return model.to_plain()
