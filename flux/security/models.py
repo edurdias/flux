@@ -7,6 +7,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, JSON, String, Uniq
 from sqlalchemy.orm import relationship
 
 from flux.models import Base
+from flux.security import join_tokens as _join_tokens  # noqa: F401 — register WorkerJoinTokenModel with Base
 from flux.security import principals as _principals  # noqa: F401 — register PrincipalModel with Base
 
 

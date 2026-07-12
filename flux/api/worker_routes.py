@@ -102,6 +102,31 @@ class WorkerRoutesMixin:
         def _register_limited(fn):
             return limiter.limit(register_rate_limit)(fn) if register_rate_limit else fn
 
+        @api.post("/admin/workers/join-tokens")
+        async def mint_join_token(
+            body: dict | None = Body(None),
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Mint a one-time worker join token (SEC3).
+
+            The plaintext is returned exactly once; only its hash is stored.
+            Hand it to one new worker as its registration Bearer token — it
+            is consumed on first use and expires after the TTL.
+            """
+            from flux.security import join_tokens
+
+            workers_config = Configuration.get().settings.workers
+            ttl = int((body or {}).get("ttl_seconds") or workers_config.join_token_ttl)
+            try:
+                token, expires_at = await asyncio.to_thread(
+                    join_tokens.mint,
+                    ttl,
+                    created_by=identity.subject,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return {"token": token, "expires_at": expires_at.isoformat()}
+
         @api.post("/workers/register")
         @_register_limited
         async def workers_register(
@@ -113,11 +138,26 @@ class WorkerRoutesMixin:
                 logger.debug(f"Worker registration request: {registration.name}")
                 token = self._extract_token(authorization)
                 expected = self._bootstrap_token
-                if not expected or not token or not hmac.compare_digest(expected, token):
-                    logger.warning(f"Invalid bootstrap token for worker: {registration.name}")
+                workers_config = Configuration.get().settings.workers
+
+                # Two accepted credentials: the shared bootstrap token (unless
+                # the fleet has migrated off it) or a one-time join token,
+                # consumed atomically so it cannot be replayed.
+                authorized = bool(
+                    workers_config.bootstrap_token_enabled
+                    and expected
+                    and token
+                    and hmac.compare_digest(expected, token),
+                )
+                if not authorized and token:
+                    from flux.security import join_tokens
+
+                    authorized = join_tokens.claim(token, registration.name)
+                if not authorized:
+                    logger.warning(f"Invalid registration token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,
-                        detail="Invalid bootstrap token.",
+                        detail="Invalid bootstrap or join token.",
                     )
 
                 registry = WorkerRegistry.create()
