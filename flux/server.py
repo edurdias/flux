@@ -1255,6 +1255,19 @@ class Server(
             lifespan=lifespan,
         )
 
+        # Global request-body cap (SEC5): checkpoint/run-input/progress bodies
+        # are dill payloads read into memory; without this a single request
+        # can exhaust the server. Added FIRST so it is the INNERMOST layer:
+        # its streamed-body 413 is raised from receive() during body parsing,
+        # and a BaseHTTPMiddleware (SlowAPI, the anonymous-policy hook) in
+        # between would launder that HTTPException into a generic 400 through
+        # its receive bridge.
+        from flux.api.body_limit import BodySizeLimitMiddleware
+
+        _max_body = Configuration.get().settings.server_max_body_size
+        if _max_body > 0:
+            api.add_middleware(BodySizeLimitMiddleware, max_body_size=_max_body)
+
         limiter = Limiter(key_func=get_remote_address)
         api.state.limiter = limiter
         api.add_middleware(SlowAPIMiddleware)
