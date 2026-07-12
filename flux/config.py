@@ -34,6 +34,24 @@ class WorkersConfig(BaseConfig):
         ),
     )
 
+    bootstrap_token_enabled: bool = Field(
+        default=True,
+        description=(
+            "Accept the shared bootstrap token on POST /workers/register. "
+            "Disable once a fleet has migrated to one-time join tokens "
+            "('flux server join-token') so the fleet-wide secret stops "
+            "being a registration credential."
+        ),
+    )
+    join_token_ttl: int = Field(
+        default=3600,
+        description=(
+            "Default lifetime in seconds for one-time worker join tokens "
+            "minted via 'flux server join-token' or POST "
+            "/admin/workers/join-tokens"
+        ),
+    )
+
     server_url: str = Field(
         default="http://localhost:8000",
         description="Default server URL to connect to",
@@ -338,6 +356,15 @@ class FluxConfig(BaseSettings):
         description="Date format in log messages",
     )
     server_port: int = Field(default=8000, description="Port for the server")
+    server_max_body_size: int = Field(
+        default=64 * 1024 * 1024,
+        description=(
+            "Maximum HTTP request body size in bytes accepted by the server "
+            "(413 beyond it); checkpoint, run-input, and progress bodies are "
+            "otherwise unbounded dill payloads read into memory. 0 disables "
+            "the limit."
+        ),
+    )
     server_host: str = Field(default="localhost", description="Host for the server")
     cors_allow_origins: list[str] = Field(
         default_factory=lambda: ["*"],

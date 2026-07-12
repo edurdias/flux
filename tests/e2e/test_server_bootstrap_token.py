@@ -60,7 +60,7 @@ def test_workers_register_rejects_wrong_bootstrap_token(cli):
     assert resp.status_code == 403, (
         f"expected 403 for wrong bootstrap token; got {resp.status_code}: {resp.text}"
     )
-    assert "Invalid bootstrap token" in resp.text
+    assert "Invalid bootstrap or join token" in resp.text
 
 
 def test_workers_register_rejects_missing_bootstrap_token(cli):

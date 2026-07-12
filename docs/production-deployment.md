@@ -61,6 +61,18 @@ review (`docs/production-readiness-review.md`).
    (`FLUX_WORKERS__BOOTSTRAP_TOKEN`), store it in your secret manager, and
    rotate it deliberately — rotation invalidates the whole fleet's ability
    to re-register until workers get the new value.
+10. **Prefer one-time join tokens.** Instead of sharing the fleet secret with
+    every new worker, mint a single-use, short-lived token per registration:
+    `flux server join-token` (or `POST /admin/workers/join-tokens` with
+    `admin:workers:manage`). The plaintext is shown once and stored hashed;
+    it is consumed atomically on first use and expires after
+    `[flux.workers] join_token_ttl` (default 3600s). Once the fleet has
+    migrated, set `[flux.workers] bootstrap_token_enabled = false` so the
+    shared secret stops being a registration credential.
+11. **Request body cap.** The server rejects request bodies over
+    `server_max_body_size` (default 64 MiB) with 413 — declared or streamed.
+    Raise it only if your workflows legitimately ship larger inputs/outputs
+    through checkpoints.
 
 ## Multi-replica topology
 

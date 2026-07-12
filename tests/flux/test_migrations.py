@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0010_approval_scope"
+HEAD = "0011_worker_join_tokens"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to
