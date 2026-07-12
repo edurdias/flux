@@ -117,7 +117,10 @@ class WorkerRoutesMixin:
 
             workers_config = Configuration.get().settings.workers
             try:
-                ttl = int((body or {}).get("ttl_seconds") or workers_config.join_token_ttl)
+                raw_ttl = (body or {}).get("ttl_seconds")
+                # None means "not provided" — an explicit 0 must reach mint()
+                # and be rejected there, not silently become the default.
+                ttl = workers_config.join_token_ttl if raw_ttl is None else int(raw_ttl)
                 token, expires_at = await asyncio.to_thread(
                     join_tokens.mint,
                     ttl,

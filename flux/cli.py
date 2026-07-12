@@ -1307,7 +1307,8 @@ def server_join_token(ttl_seconds: int | None):
     from flux.security import join_tokens
 
     settings = Configuration.get().settings
-    ttl = ttl_seconds or settings.workers.join_token_ttl
+    # --ttl 0 must surface mint()'s ValueError, not silently use the default.
+    ttl = settings.workers.join_token_ttl if ttl_seconds is None else ttl_seconds
     try:
         token, expires_at = join_tokens.mint(ttl, created_by="cli")
     except ValueError as e:

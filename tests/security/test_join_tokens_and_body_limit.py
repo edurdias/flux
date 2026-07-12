@@ -142,6 +142,21 @@ class TestJoinTokenLifecycle:
         assert join_tokens.purge_expired(older_than_seconds=86400) == 1
 
 
+class TestMintRoute:
+    def test_explicit_zero_ttl_is_rejected(self, make_client):
+        """ttl_seconds: 0 must be a 400 from mint(), not silently replaced
+        by the default TTL."""
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={"ttl_seconds": 0})
+        assert resp.status_code == 400, resp.text
+
+    def test_omitted_ttl_uses_default(self, make_client):
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["token"]
+
+
 class TestRegistrationCredentials:
     def test_join_token_registers_and_is_consumed(self, make_client):
         client = make_client()
