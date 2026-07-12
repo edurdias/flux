@@ -1352,6 +1352,18 @@ review (<code>docs/production-readiness-review.md</code>).</p>
    (<code>FLUX_WORKERS__BOOTSTRAP_TOKEN</code>), store it in your secret manager, and
    rotate it deliberately — rotation invalidates the whole fleet's ability
    to re-register until workers get the new value.</li>
+<li><strong>Prefer one-time join tokens.</strong> Instead of sharing the fleet secret with
+    every new worker, mint a single-use, short-lived token per registration:
+    <code>flux server join-token</code> (or <code>POST /admin/workers/join-tokens</code> with
+    <code>admin:workers:manage</code>). The plaintext is shown once and stored hashed;
+    it is consumed atomically on first use and expires after
+    <code>[flux.workers] join_token_ttl</code> (default 3600s). Once the fleet has
+    migrated, set <code>[flux.workers] bootstrap_token_enabled = false</code> so the
+    shared secret stops being a registration credential.</li>
+<li><strong>Request body cap.</strong> The server rejects request bodies over
+    <code>server_max_body_size</code> (default 64 MiB) with 413 — declared or streamed.
+    Raise it only if your workflows legitimately ship larger inputs/outputs
+    through checkpoints.</li>
 </ol>
 <h2 id="multi-replica-topology">Multi-replica topology<a class="headerlink" href="#multi-replica-topology" title="Permanent link">&para;</a></h2>
 <p>Multiple server replicas coordinate through PostgreSQL; there is no leader
