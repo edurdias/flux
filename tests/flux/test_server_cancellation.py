@@ -271,22 +271,18 @@ class TestExecutionEndpoints:
 
     @patch("flux.server.ContextManager.create")
     def test_execution_get(self, mock_cm_create, test_client):
-        """Test getting a specific execution."""
+        """Test getting a specific execution (summary fast path)."""
         mock_cm = MagicMock()
-        mock_exec = MagicMock()
-        mock_exec.execution_id = "exec-123"
-        mock_exec.workflow_id = "wf-123"
-        mock_exec.workflow_name = "test_workflow"
-        mock_exec.workflow_namespace = "default"
-        mock_exec.state = ExecutionState.COMPLETED
-        mock_exec.worker_name = "worker-1"
-        mock_exec.to_dict.return_value = {
-            "execution_id": "exec-123",
+        mock_cm.get_summary.return_value = {
+            "workflow_id": "wf-123",
+            "workflow_namespace": "default",
             "workflow_name": "test_workflow",
+            "execution_id": "exec-123",
+            "input": None,
+            "output": None,
             "state": "COMPLETED",
+            "current_worker": "worker-1",
         }
-
-        mock_cm.get.return_value = mock_exec
         mock_cm_create.return_value = mock_cm
 
         response = test_client.get("/executions/exec-123")
@@ -294,7 +290,9 @@ class TestExecutionEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["execution_id"] == "exec-123"
-        mock_cm.get.assert_called_once_with("exec-123")
+        mock_cm.get_summary.assert_called_once_with("exec-123")
+        # The summary path must not hydrate the full context.
+        mock_cm.get.assert_not_called()
 
     @patch("flux.server.ContextManager.create")
     def test_execution_not_found(self, mock_cm_create, test_client):
@@ -303,6 +301,7 @@ class TestExecutionEndpoints:
 
         mock_cm = MagicMock()
         mock_cm.get.side_effect = ExecutionContextNotFoundError("nonexistent")
+        mock_cm.get_summary.side_effect = ExecutionContextNotFoundError("nonexistent")
         mock_cm_create.return_value = mock_cm
 
         response = test_client.get("/executions/nonexistent")
@@ -315,6 +314,7 @@ class TestExecutionEndpoints:
         """Test that server errors return 500, not 404."""
         mock_cm = MagicMock()
         mock_cm.get.side_effect = Exception("Database connection failed")
+        mock_cm.get_summary.side_effect = Exception("Database connection failed")
         mock_cm_create.return_value = mock_cm
 
         response = test_client.get("/executions/exec-123")

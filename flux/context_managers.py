@@ -90,6 +90,22 @@ class ContextManager(ABC):
     def get(self, execution_id: str | None) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
+    def get_summary(self, execution_id: str) -> dict:  # pragma: no cover
+        """Summary fields for an execution WITHOUT hydrating its event log.
+
+        Returns the same shape as ``ExecutionContextDTO.summary()`` — status
+        polls and sync-wait loops call this instead of ``get()`` so a long
+        execution's own status checks don't load and unpickle its entire
+        history (D5).
+        """
+        raise NotImplementedError()
+
+    def last_event_ordinal(self, execution_id: str) -> int | None:  # pragma: no cover
+        """Highest event row id persisted for the execution (None when no
+        events). A cheap change signal: callers re-hydrate the full context
+        only when this advances."""
+        raise NotImplementedError()
+
     @abstractmethod
     def exists(self, execution_id: str) -> bool:  # pragma: no cover
         raise NotImplementedError()
@@ -251,6 +267,66 @@ class DatabaseContextManager(ContextManager):
             if model:
                 return model.to_plain()
             raise ExecutionContextNotFoundError(execution_id)
+
+    def get_summary(self, execution_id: str) -> dict:
+        from flux.domain.events import ExecutionEventType
+
+        with self.session() as session:
+            row = (
+                session.query(
+                    ExecutionContextModel.workflow_id,
+                    ExecutionContextModel.workflow_namespace,
+                    ExecutionContextModel.workflow_name,
+                    ExecutionContextModel.execution_id,
+                    ExecutionContextModel.input,
+                    ExecutionContextModel.output,
+                    ExecutionContextModel.state,
+                    ExecutionContextModel.worker_name,
+                )
+                .filter(ExecutionContextModel.execution_id == execution_id)
+                .first()
+            )
+            if row is None:
+                raise ExecutionContextNotFoundError(execution_id)
+
+            output = row.output
+            if output is None and row.state == ExecutionState.PAUSED:
+                # Mirror ExecutionContextDTO.summary(): a paused execution
+                # surfaces the pause payload as its output. One targeted
+                # event lookup instead of hydrating the whole log.
+                paused = (
+                    session.query(ExecutionEventModel.value)
+                    .filter(
+                        ExecutionEventModel.execution_id == execution_id,
+                        ExecutionEventModel.type == ExecutionEventType.WORKFLOW_PAUSED,
+                    )
+                    .order_by(ExecutionEventModel.id.desc())
+                    .first()
+                )
+                if paused is not None and paused.value is not None:
+                    value = paused.value
+                    output = value.get("output") if isinstance(value, dict) else value
+
+            return {
+                "workflow_id": row.workflow_id,
+                "workflow_namespace": row.workflow_namespace,
+                "workflow_name": row.workflow_name,
+                "execution_id": row.execution_id,
+                "input": row.input,
+                "output": output,
+                "state": row.state.value if row.state is not None else None,
+                # DTO parity: the domain context coalesces a missing worker
+                # to "" (see ExecutionContext.current_worker).
+                "current_worker": row.worker_name or "",
+            }
+
+    def last_event_ordinal(self, execution_id: str) -> int | None:
+        with self.session() as session:
+            return (
+                session.query(func.max(ExecutionEventModel.id))
+                .filter(ExecutionEventModel.execution_id == execution_id)
+                .scalar()
+            )
 
     def exists(self, execution_id: str) -> bool:
         with self.session() as session:

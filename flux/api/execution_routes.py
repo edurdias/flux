@@ -202,6 +202,32 @@ class ExecutionRoutesMixin:
                 logger.debug(f"Fetching execution: {execution_id}")
 
                 manager = ContextManager.create()
+
+                if mode == "sync" and not detailed:
+                    # Status-poll fast path: summary fields come from the
+                    # execution row alone — no event hydration, so a long
+                    # execution's own status checks stay cheap (D5).
+                    summary = manager.get_summary(execution_id)
+                    if not await _check_workflow_read(
+                        identity,
+                        summary["workflow_namespace"],
+                        summary["workflow_name"],
+                    ):
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permission": (
+                                    f"workflow:{summary['workflow_namespace']}:"
+                                    f"{summary['workflow_name']}:read"
+                                ),
+                            },
+                        )
+                    logger.debug(
+                        f"Found execution {execution_id} in state: {summary['state']}",
+                    )
+                    return summary
+
                 ctx = manager.get(execution_id)
 
                 # The flat execution:*:read grant does not bypass workflow

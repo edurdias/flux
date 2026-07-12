@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
 
 from flux.security.dependencies import require_permission
 from flux.security.identity import FluxIdentity
@@ -49,10 +50,19 @@ class RbacRoutesMixin:
 
         @api.get("/admin/roles")
         async def admin_list_roles(
+            limit: int | None = Query(None, ge=1, le=1000),
+            offset: int = Query(0, ge=0),
             identity: FluxIdentity = Depends(require_permission("admin:roles:read")),
         ):
             try:
                 roles = await auth_service.list_roles()
+                # Deterministic order so offset pagination yields stable
+                # pages (the underlying query has no ORDER BY).
+                roles = sorted(roles, key=lambda r: r.name)
+                if offset:
+                    roles = roles[offset:]
+                if limit is not None:
+                    roles = roles[:limit]
                 return [
                     {
                         "name": r.name,
@@ -166,6 +176,8 @@ class RbacRoutesMixin:
         @api.get("/admin/principals")
         async def admin_list_principals(
             type: str | None = None,
+            limit: int | None = Query(None, ge=1, le=1000),
+            offset: int = Query(0, ge=0),
             identity: FluxIdentity = Depends(require_permission("admin:principals:read")),
         ):
             try:
@@ -173,6 +185,14 @@ class RbacRoutesMixin:
 
                 registry = PrincipalRegistry(session_factory=self._get_db_session)
                 principals = registry.list_all(type=type)
+                # Deterministic order, then slice before the per-principal
+                # role lookups so pagination yields stable pages and bounds
+                # the N+1 role queries, not just the payload.
+                principals = sorted(principals, key=lambda p: (p.subject, p.id))
+                if offset:
+                    principals = principals[offset:]
+                if limit is not None:
+                    principals = principals[:limit]
                 return [
                     {
                         "id": str(p.id),

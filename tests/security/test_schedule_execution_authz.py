@@ -293,11 +293,19 @@ def test_execution_get_denies_cross_workflow_reader(client):
     identity = _scoped_reader(suffix)
 
     with _auth_as(identity):
+        # Default params take the summary fast path; detailed=true takes the
+        # fully-hydrated path. Both must enforce the workflow-read boundary.
         allowed = client.get(f"/executions/exec-ns1-{suffix}", headers=_headers())
         denied = client.get(f"/executions/exec-ns2-{suffix}", headers=_headers())
+        denied_detailed = client.get(
+            f"/executions/exec-ns2-{suffix}",
+            params={"detailed": True},
+            headers=_headers(),
+        )
 
     assert allowed.status_code == 200, allowed.text
     assert denied.status_code == 403, denied.text
+    assert denied_detailed.status_code == 403, denied_detailed.text
 
 
 def test_executions_list_scopes_to_readable_workflows(client):
