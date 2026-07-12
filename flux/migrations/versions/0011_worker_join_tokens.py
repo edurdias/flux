@@ -38,7 +38,8 @@ def upgrade() -> None:
         sa.Column("used_by", sa.String(), nullable=True),
         sa.Column("created_by", sa.String(), nullable=True),
     )
-    op.create_index("ix_worker_join_tokens_token_hash", _TABLE, ["token_hash"])
+    # No extra index: the UNIQUE constraint on token_hash already provides
+    # the lookup index on both SQLite and PostgreSQL.
 
 
 def downgrade() -> None:

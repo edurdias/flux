@@ -33,7 +33,8 @@ class WorkerJoinTokenModel(Base):
     __tablename__ = "worker_join_tokens"
 
     id = Column(String, primary_key=True, nullable=False, default=lambda: uuid4().hex)
-    token_hash = Column(String, unique=True, nullable=False, index=True)
+    # unique=True already creates the lookup index on every backend we support.
+    token_hash = Column(String, unique=True, nullable=False)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)

@@ -1312,8 +1312,10 @@ def server_join_token(ttl_seconds: int | None):
         token, expires_at = join_tokens.mint(ttl, created_by="cli")
     except ValueError as e:
         raise click.ClickException(str(e))
+    from datetime import timezone as _tz
+
     click.echo(token)
-    click.echo(f"expires: {expires_at.isoformat()}Z", err=True)
+    click.echo(f"expires: {expires_at.replace(tzinfo=_tz.utc).isoformat()}", err=True)
 
 
 @server_group.command("bootstrap-token")

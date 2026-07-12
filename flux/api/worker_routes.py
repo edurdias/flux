@@ -116,16 +116,21 @@ class WorkerRoutesMixin:
             from flux.security import join_tokens
 
             workers_config = Configuration.get().settings.workers
-            ttl = int((body or {}).get("ttl_seconds") or workers_config.join_token_ttl)
             try:
+                ttl = int((body or {}).get("ttl_seconds") or workers_config.join_token_ttl)
                 token, expires_at = await asyncio.to_thread(
                     join_tokens.mint,
                     ttl,
                     created_by=identity.subject,
                 )
-            except ValueError as e:
+            except (TypeError, ValueError) as e:
                 raise HTTPException(status_code=400, detail=str(e))
-            return {"token": token, "expires_at": expires_at.isoformat()}
+            from datetime import timezone as _tz
+
+            return {
+                "token": token,
+                "expires_at": expires_at.replace(tzinfo=_tz.utc).isoformat(),
+            }
 
         @api.post("/workers/register")
         @_register_limited
@@ -152,7 +157,11 @@ class WorkerRoutesMixin:
                 if not authorized and token:
                     from flux.security import join_tokens
 
-                    authorized = join_tokens.claim(token, registration.name)
+                    authorized = await asyncio.to_thread(
+                        join_tokens.claim,
+                        token,
+                        registration.name,
+                    )
                 if not authorized:
                     logger.warning(f"Invalid registration token for worker: {registration.name}")
                     raise HTTPException(
