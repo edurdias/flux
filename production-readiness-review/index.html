@@ -601,6 +601,8 @@
       
         
       
+        
+      
     
     
     
@@ -747,6 +749,34 @@
     
   
     Execution Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core-concepts/replay-determinism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay & Determinism
   
 
     
@@ -2285,6 +2315,7 @@ candidate for role-resolution caching.</p>
 <hr />
 <h2 id="decisions-log">Decisions log<a class="headerlink" href="#decisions-log" title="Permanent link">&para;</a></h2>
 <ul>
+<li><strong>2026-07-12 — Replay-determinism contract documented (D6).</strong> New user-facing page (<code>docs/core-concepts/replay-determinism.md</code>, in the mkdocs nav): the event-sourced replay model, the contract ("everything outside @task calls re-runs on every replay and must reach the same task calls in the same order with the same arguments"), what breaks it (wall clock, randomness, non-task I/O, environment-dependent branching) with the silent-divergence failure mode spelled out, the deterministic built-ins (<code>now()</code>, <code>uuid4()</code>, <code>randint()</code>, <code>choice()</code>, replay-aware <code>sleep()</code>), the runtime's own guarantees (content-addressed per-call identity with occurrence counters, retry-attempt tracking, logged failure paths, cache-vs-replay separation), and a pre-flight self-audit checklist. A debug-mode replay-divergence detector remains future work.</li>
 <li><strong>2026-07-12 — One-time worker join tokens; global request-body cap.</strong> SEC3's remainder and SEC5's body-limit item. Registration now accepts a second credential class: single-use join tokens minted per worker (<code>flux server join-token</code> / <code>POST /admin/workers/join-tokens</code>, <code>admin:workers:manage</code>), stored as SHA-256 hashes with a TTL (default 1h) and consumed by one atomic UPDATE so a race cannot double-spend one; used rows are kept inside a 24h grace window as a join audit trail. The shared bootstrap token still works by default (<code>[flux.workers] bootstrap_token_enabled = true</code>) so fleets migrate at their own pace, then turn the master secret off. Separately, a pure-ASGI body-size middleware (<code>server_max_body_size</code>, default 64 MiB, 0 disables) rejects oversized bodies with 413 — up front when Content-Length declares it, mid-stream via a counting receive wrapper when chunked. It is registered innermost deliberately: the streamed-body 413 is raised from <code>receive()</code> during body parsing, and a BaseHTTPMiddleware between it and the router (SlowAPI, the anonymous-policy hook) would launder that HTTPException into a generic 400 through its receive bridge.</li>
 <li><strong>2026-07-12 — Status reads skip event hydration; listings gained opt-in pagination.</strong> <code>ContextManager.get_summary</code> serves the <code>GET /executions/{id}</code> summary path (and its workflow-read check) from the execution row alone — no event loading or unpickling — with one targeted event lookup only for the paused-payload case; <code>last_event_ordinal</code> gives the sync-wait/stream loop a cheap change signal so it re-hydrates the full context only when the persisted log actually advanced (D5). <code>GET /workers</code>, <code>/admin/roles</code>, and <code>/admin/principals</code> accept optional <code>limit</code>/<code>offset</code> (unpaginated calls keep the full-list contract); the principals route slices before its per-principal role lookups. S3's least-loaded aggregate was left as-is: the composite <code>(state, worker_name)</code> index makes it an index-only scan, and the event dispatcher already bypasses it for fleets.</li>
 <li><strong>2026-07-03 — PostgreSQL-only for multi-node.</strong> Multi-node deployments require PostgreSQL; SQLite remains fully supported for dev and single-node inline use. The dispatcher, LISTEN/NOTIFY signal plane, and fencing all assume PG semantics. Add a startup warning when more than one worker registers against SQLite.</li>
