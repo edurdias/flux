@@ -972,6 +972,8 @@ class WorkerRoutesMixin:
         @api.get("/workers", response_model=list[WorkerResponse])
         async def workers_list(
             status: Literal["online", "offline"] | None = Query(None),
+            limit: int | None = Query(None, ge=1, le=1000),
+            offset: int = Query(0, ge=0),
             identity: FluxIdentity = Depends(get_identity),
         ):
             """List workers fleet-wide. Optional ?status=online|offline filter.
@@ -1034,6 +1036,15 @@ class WorkerRoutesMixin:
                         )
 
                 logger.debug(f"Found {len(result)} workers")
+                # Deterministic order so offset pagination yields stable,
+                # non-overlapping pages (the DB query has no ORDER BY).
+                result.sort(key=lambda w: w.name)
+                # Opt-in pagination: unpaginated calls keep the full-list
+                # contract, large fleets can bound the response.
+                if offset:
+                    result = result[offset:]
+                if limit is not None:
+                    result = result[:limit]
                 return result
 
             except Exception as e:

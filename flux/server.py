@@ -484,6 +484,23 @@ class Server(
         event = self._execution_events[ctx.execution_id]
         progress_buffer = self._progress_buffers.get(ctx.execution_id)
         active_tasks: set[asyncio.Task] = set()
+        # Cheap change signal: the loop re-hydrates the full context (all
+        # events, unpickled) only when the persisted event log has actually
+        # advanced past what `ctx` already holds. The hydrated flag (not the
+        # ordinal itself) marks "seen at least once" so an execution with an
+        # empty event log (ordinal None) also skips repeat hydration.
+        last_seen_ordinal: int | None = None
+        hydrated_once = False
+
+        def _get_if_changed() -> ExecutionContext | None:
+            nonlocal last_seen_ordinal, hydrated_once
+            ordinal = manager.last_event_ordinal(ctx.execution_id)
+            if hydrated_once and ordinal == last_seen_ordinal:
+                return None
+            last_seen_ordinal = ordinal
+            hydrated_once = True
+            return manager.get(ctx.execution_id)
+
         if emit_initial:
             # Emit the current state immediately so a consumer attaching after
             # the execution already finished still receives the terminal
@@ -535,9 +552,11 @@ class Server(
 
                     if checkpoint_task in done or event.is_set():
                         event.clear()
-                        new_ctx = manager.get(ctx.execution_id)
-                        if new_ctx.events and (
-                            not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                        new_ctx = _get_if_changed()
+                        if (
+                            new_ctx is not None
+                            and new_ctx.events
+                            and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
                         ):
                             ctx = new_ctx
                             dto = ExecutionContextDTO.from_domain(ctx)
@@ -551,9 +570,11 @@ class Server(
                     except TimeoutError:
                         pass
                     event.clear()
-                    new_ctx = manager.get(ctx.execution_id)
-                    if new_ctx.events and (
-                        not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time
+                    new_ctx = _get_if_changed()
+                    if (
+                        new_ctx is not None
+                        and new_ctx.events
+                        and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
                     ):
                         ctx = new_ctx
                         dto = ExecutionContextDTO.from_domain(ctx)
