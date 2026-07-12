@@ -56,6 +56,9 @@ class RbacRoutesMixin:
         ):
             try:
                 roles = await auth_service.list_roles()
+                # Deterministic order so offset pagination yields stable
+                # pages (the underlying query has no ORDER BY).
+                roles = sorted(roles, key=lambda r: r.name)
                 if offset:
                     roles = roles[offset:]
                 if limit is not None:
@@ -182,8 +185,10 @@ class RbacRoutesMixin:
 
                 registry = PrincipalRegistry(session_factory=self._get_db_session)
                 principals = registry.list_all(type=type)
-                # Slice before the per-principal role lookups so pagination
-                # also bounds the N+1 role queries, not just the payload.
+                # Deterministic order, then slice before the per-principal
+                # role lookups so pagination yields stable pages and bounds
+                # the N+1 role queries, not just the payload.
+                principals = sorted(principals, key=lambda p: (p.subject, p.id))
                 if offset:
                     principals = principals[offset:]
                 if limit is not None:

@@ -1036,6 +1036,9 @@ class WorkerRoutesMixin:
                         )
 
                 logger.debug(f"Found {len(result)} workers")
+                # Deterministic order so offset pagination yields stable,
+                # non-overlapping pages (the DB query has no ORDER BY).
+                result.sort(key=lambda w: w.name)
                 # Opt-in pagination: unpaginated calls keep the full-list
                 # contract, large fleets can bound the response.
                 if offset:

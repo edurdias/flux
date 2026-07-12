@@ -486,15 +486,19 @@ class Server(
         active_tasks: set[asyncio.Task] = set()
         # Cheap change signal: the loop re-hydrates the full context (all
         # events, unpickled) only when the persisted event log has actually
-        # advanced past what `ctx` already holds. None = unknown, hydrate.
+        # advanced past what `ctx` already holds. The hydrated flag (not the
+        # ordinal itself) marks "seen at least once" so an execution with an
+        # empty event log (ordinal None) also skips repeat hydration.
         last_seen_ordinal: int | None = None
+        hydrated_once = False
 
         def _get_if_changed() -> ExecutionContext | None:
-            nonlocal last_seen_ordinal
+            nonlocal last_seen_ordinal, hydrated_once
             ordinal = manager.last_event_ordinal(ctx.execution_id)
-            if last_seen_ordinal is not None and ordinal == last_seen_ordinal:
+            if hydrated_once and ordinal == last_seen_ordinal:
                 return None
             last_seen_ordinal = ordinal
+            hydrated_once = True
             return manager.get(ctx.execution_id)
 
         if emit_initial:
