@@ -256,6 +256,23 @@ approval rows.
   containers are ephemeral, so without baked `.pyc` files every execution
   re-compiles flux's imports from source — measured, that alone halves
   per-execution latency.
+- **`docker-airgapped`** (opt-in) — the docker runner with a **locked
+  isolation profile** for untrusted or model-authored workflow code:
+  `--network=none`, read-only rootfs with a size-capped tmpfs `/tmp`,
+  `--cap-drop=ALL`, `--security-opt=no-new-privileges`, pids/memory/cpu
+  limits, and a wall-clock ceiling (`airgapped_execution_timeout`, default
+  900s) that fails the execution **terminally for both durabilities** — a
+  timeout would repeat deterministically, so it is never re-dispatched.
+  The profile is emitted from code after any `airgapped_extra_args`
+  (docker's last-wins parsing favors it), and extra args that would weaken
+  it (`--network`, `--volume`, `--privileged`, `--cap-add`, host
+  namespaces, DNS, ...) are rejected at worker startup. The container's
+  only I/O channel is the stdio protocol to the parent worker, where every
+  secret/config/approval/checkpoint is permission-checked — and with no
+  network, `pip install` is impossible, so the image's packages are the
+  code's whole world (`airgapped_image`, falling back to `docker_image`).
+  Pin untrusted workflows to it with
+  `@workflow.with_options(runner="docker-airgapped")`.
 
 Measured on a single machine (1-task workflow, warm caches, overlayfs;
 sequential median / 8-concurrent effective throughput per worker):

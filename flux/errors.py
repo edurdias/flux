@@ -196,6 +196,31 @@ class WorkerProcessCrashed(Exception):
         )
 
 
+class ExecutionTimedOut(Exception):
+    """An execution exceeded its runner's wall-clock ceiling and was killed.
+
+    Deliberately NOT a WorkerProcessCrashed: the crash path releases durable
+    executions for re-dispatch, but a timeout is a policy violation the next
+    attempt would deterministically repeat — the worker maps this to a
+    terminal FAILED for both durabilities to avoid an infinite re-dispatch
+    loop.
+    """
+
+    def __init__(
+        self,
+        execution_id: str,
+        timeout_seconds: float,
+        last_context=None,
+    ):
+        self.execution_id = execution_id
+        self.timeout_seconds = timeout_seconds
+        self.last_context = last_context
+        super().__init__(
+            f"Execution {execution_id} exceeded the runner's execution "
+            f"timeout ({timeout_seconds:g}s) and was killed",
+        )
+
+
 class RunnerNotAvailableError(ExecutionError):
     """An execution requested a runner this worker does not have enabled."""
 
