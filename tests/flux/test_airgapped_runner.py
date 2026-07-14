@@ -240,6 +240,26 @@ class TestExecutionTimeout:
         assert result.has_finished and not result.has_failed
 
     @pytest.mark.asyncio
+    async def test_crash_under_armed_ceiling_stays_a_crash(self):
+        """A child that dies on its own must keep WorkerProcessCrashed (and
+        its durable-release semantics) even with the watchdog armed — the
+        timeout verdict is only for children still alive at the deadline."""
+        from flux.errors import WorkerProcessCrashed
+
+        source = """
+        import os
+        from flux import ExecutionContext, workflow
+
+        @workflow
+        async def hard_crash(ctx: ExecutionContext):
+            os._exit(9)
+        """
+        runner = SubprocessRunner(term_grace=5, execution_timeout=60)
+
+        with pytest.raises(WorkerProcessCrashed):
+            await runner.execute(self._request(source, "hard_crash"), self._hooks())
+
+    @pytest.mark.asyncio
     async def test_zero_timeout_disables_the_ceiling(self):
         source = """
         from flux import ExecutionContext, workflow

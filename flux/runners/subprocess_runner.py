@@ -111,6 +111,13 @@ class SubprocessRunner(Runner):
             async def _watchdog():
                 nonlocal timed_out
                 await asyncio.sleep(self._execution_timeout)
+                if proc.returncode is not None:
+                    # The child already exited on its own; whatever ended it
+                    # (a result or a crash) owns the outcome. Claiming a
+                    # timeout here would misroute a crash's durability
+                    # handling (durable crashes release for re-dispatch;
+                    # timeouts are terminal).
+                    return
                 timed_out = True
                 logger.warning(
                     f"Execution {execution_id} exceeded the runner execution "

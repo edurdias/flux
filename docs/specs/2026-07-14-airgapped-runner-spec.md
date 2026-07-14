@@ -131,9 +131,12 @@ already owns `term_grace` and `_force_kill`, so subprocess and plain docker
 gain an optional per-execution ceiling for free; the airgapped runner merely
 defaults it to `airgapped_execution_timeout` (900s). On expiry the runner
 force-kills the child/container and reports a **terminal FAILED** with a
-distinct error
-(`Execution exceeded airgapped_execution_timeout (900s)`), for **both**
-durabilities. This intentionally diverges from the crash mapping (durable →
+distinct error — `ExecutionTimedOut`, whose message reads
+`Execution <id> exceeded the runner's execution timeout (900s) and was
+killed` — for **both** durabilities. The watchdog only claims the outcome
+when the child is still alive at the deadline; a child that already exited
+keeps its own verdict (a result, or a crash with the crash path's
+durability handling). This intentionally diverges from the crash mapping (durable →
 claim release → re-dispatch): a timeout is a policy violation the next
 attempt would deterministically repeat, and mapping it to release would
 produce an infinite re-dispatch loop. Task-level timeouts still apply inside
