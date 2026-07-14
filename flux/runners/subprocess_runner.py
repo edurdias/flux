@@ -15,7 +15,7 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any
 
-from flux.errors import WorkerProcessCrashed
+from flux.errors import ExecutionTimedOut, WorkerProcessCrashed
 from flux.runners.base import Runner, RunnerHooks
 from flux.utils import get_logger
 
@@ -59,9 +59,19 @@ class SubprocessRunner(Runner):
 
     name = "subprocess"
 
-    def __init__(self, term_grace: float = 10.0, memory_limit: int = 0):
+    def __init__(
+        self,
+        term_grace: float = 10.0,
+        memory_limit: int = 0,
+        execution_timeout: float = 0,
+    ):
         self._term_grace = term_grace
         self._memory_limit = memory_limit
+        # Wall-clock ceiling per execution; 0 disables. On expiry the child
+        # is force-killed and ExecutionTimedOut raised — the worker maps that
+        # to terminal FAILED for BOTH durabilities (see flux.errors), unlike
+        # a crash. Generic here so every pipe-speaking runner can use it.
+        self._execution_timeout = execution_timeout
 
     async def _spawn(self, request: WorkflowExecutionRequest):
         return await asyncio.create_subprocess_exec(
@@ -93,6 +103,25 @@ class SubprocessRunner(Runner):
         execution_id = request.context.execution_id
         proc = await self._spawn(request)
         assert proc.stdin and proc.stdout and proc.stderr
+
+        timed_out = False
+        watchdog: asyncio.Task | None = None
+        if self._execution_timeout > 0:
+
+            async def _watchdog():
+                nonlocal timed_out
+                await asyncio.sleep(self._execution_timeout)
+                timed_out = True
+                logger.warning(
+                    f"Execution {execution_id} exceeded the runner execution "
+                    f"timeout ({self._execution_timeout:g}s); killing the child",
+                )
+                # Kill without the SIGTERM grace dance: a graceful shutdown
+                # could land a terminal CANCELLED checkpoint and mask the
+                # timeout; the frame loop below ends on the pipe EOF.
+                await self._force_kill(proc)
+
+            watchdog = asyncio.create_task(_watchdog())
 
         stderr_pump = asyncio.create_task(self._pump_stderr(proc.stderr, execution_id))
         stdin_lock = asyncio.Lock()
@@ -152,6 +181,8 @@ class SubprocessRunner(Runner):
             await self._shutdown(proc, hooks)
             raise
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             self._close_stdin(proc)
             stderr_pump.cancel()
             for task in rpc_tasks:
@@ -159,6 +190,14 @@ class SubprocessRunner(Runner):
             self._reap(proc)
 
         if result_ctx is None:
+            # A result that raced the deadline still wins (result_ctx set);
+            # only a kill that actually preempted the result is a timeout.
+            if timed_out:
+                raise ExecutionTimedOut(
+                    execution_id,
+                    timeout_seconds=self._execution_timeout,
+                    last_context=last_ctx or request.context,
+                )
             raise WorkerProcessCrashed(
                 execution_id,
                 exit_code=proc.returncode,
