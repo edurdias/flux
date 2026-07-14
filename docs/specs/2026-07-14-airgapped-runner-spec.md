@@ -58,7 +58,17 @@ ships” is enforced by physics, not policy.
 `name = "docker-airgapped"`, added to `KNOWN_RUNNERS` and `create_runners`.
 Same child entrypoint (`python -m flux.runners.child`), same frame protocol,
 same cancellation path (SIGTERM via `--sig-proxy` → grace → `docker kill`),
-same crash-to-durability mapping — everything inherited.
+same crash-to-durability mapping, same startup probe / spawn / force-kill /
+reap — everything inherited.
+
+**Reuse structure.** `DockerRunner._build_command` is refactored into a
+template method (`prefix + _resource_args() + extra_args + _locked_args() +
+image/entrypoint`, where `_locked_args()` returns `[]` in the base); the
+airgapped subclass only overrides `_locked_args()`. The
+locked-flags-after-extra-args ordering guarantee (docker's last-wins parsing
+must favor the profile) is thereby structural, not conventional. Total new
+runner code is ~80–100 lines: validation, the profile as data, and factory
+wiring.
 
 ### Locked profile (non-configurable)
 
@@ -115,8 +125,13 @@ or a host-namespace/device/mount/DNS reopening.
 
 ### Wall-clock ceiling
 
-The runner arms a timer per execution; on expiry it force-kills the container
-and reports a **terminal FAILED** with a distinct error
+Implemented **once in `SubprocessRunner`** as a generic `execution_timeout`
+(default `0` = disabled) rather than as airgapped-specific logic — the base
+already owns `term_grace` and `_force_kill`, so subprocess and plain docker
+gain an optional per-execution ceiling for free; the airgapped runner merely
+defaults it to `airgapped_execution_timeout` (900s). On expiry the runner
+force-kills the child/container and reports a **terminal FAILED** with a
+distinct error
 (`Execution exceeded airgapped_execution_timeout (900s)`), for **both**
 durabilities. This intentionally diverges from the crash mapping (durable →
 claim release → re-dispatch): a timeout is a policy violation the next
