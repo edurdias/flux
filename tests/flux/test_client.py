@@ -279,3 +279,39 @@ class TestFluxClientErrorHandling:
 
         with pytest.raises(httpx.HTTPStatusError):
             await client.run_workflow_sync("my-workflow", {"key": "val"})
+
+
+class TestFluxClientDetailedSync:
+    @pytest.mark.asyncio
+    async def test_run_workflow_sync_detailed_adds_param(self):
+        client = FluxClient("http://server")
+        client._http_client = AsyncMock()
+        response = MagicMock()
+        response.json.return_value = {"execution_id": "e1"}
+        response.raise_for_status = MagicMock()
+        client._http_client.post.return_value = response
+
+        await client.run_workflow_sync("my-workflow", {"k": "v"}, detailed=True)
+
+        client._http_client.post.assert_called_once_with(
+            "/workflows/default/my-workflow/run/sync",
+            json={"k": "v"},
+            params={"detailed": "true"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_register_dynamic_workflow_posts_source(self):
+        client = FluxClient("http://server")
+        client._http_client = AsyncMock()
+        response = MagicMock()
+        response.json.return_value = {"namespace": "dyn-a", "name": "wf", "version": 1}
+        response.raise_for_status = MagicMock()
+        client._http_client.post.return_value = response
+
+        result = await client.register_dynamic_workflow("source-code")
+
+        client._http_client.post.assert_called_once_with(
+            "/workflows/dynamic",
+            json={"source": "source-code"},
+        )
+        assert result["namespace"] == "dyn-a"

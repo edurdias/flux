@@ -278,6 +278,42 @@ class WorkersConfig(BaseConfig):
     )
 
 
+class DynamicWorkflowsConfig(BaseConfig):
+    """Agent-authored dynamic workflows (ephemeral registration)."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for the dynamic registration endpoint; when off "
+            "the endpoint returns 404 and no agent can author workflows"
+        ),
+    )
+    require_runner: str = Field(
+        default="docker-airgapped",
+        description=(
+            "Runner stamped server-side on every dynamically registered "
+            "workflow, overriding anything the source declares. Relax only "
+            "for development"
+        ),
+    )
+    max_source_bytes: int = Field(
+        default=65536,
+        description="Registration size cap for dynamic workflow source",
+    )
+    max_per_agent: int = Field(
+        default=50,
+        description="Distinct workflow names allowed per agent namespace",
+    )
+    ttl: int = Field(
+        default=604800,
+        description=(
+            "Seconds since last use before an unused dynamic workflow is "
+            "garbage-collected (0 disables GC). Entries with non-terminal "
+            "executions are never collected"
+        ),
+    )
+
+
 class RetentionConfig(BaseConfig):
     """Configuration for execution-history retention."""
 
@@ -476,6 +512,7 @@ class FluxConfig(BaseSettings):
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     dispatch: DispatchConfig = Field(default_factory=DispatchConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
+    dynamic_workflows: DynamicWorkflowsConfig = Field(default_factory=DynamicWorkflowsConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 

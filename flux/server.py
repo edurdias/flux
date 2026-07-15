@@ -36,6 +36,7 @@ from flux.api.worker_routes import WorkerRoutesMixin
 from flux.api.admin_routes import AdminRoutesMixin
 from flux.api.schedule_routes import ScheduleRoutesMixin
 from flux.api.execution_routes import ExecutionRoutesMixin
+from flux.api.dynamic_routes import DynamicRoutesMixin
 from flux.api.service_routes import ServiceRoutesMixin
 from flux.api.rbac_routes import RbacRoutesMixin
 from datetime import datetime, timedelta, timezone
@@ -94,6 +95,7 @@ class Server(
     AdminRoutesMixin,
     ScheduleRoutesMixin,
     ExecutionRoutesMixin,
+    DynamicRoutesMixin,
     ServiceRoutesMixin,
     RbacRoutesMixin,
     AuthRoutesMixin,
@@ -462,6 +464,17 @@ class Server(
             ),
             preferred_worker=preferred_worker or None,
         )
+
+        # Every run of a dynamic workflow refreshes its GC clock — this is
+        # the single choke point all run paths (API, call(), run_workflow by
+        # ref or source) pass through, so a frequently used entry can never
+        # be collected just because callers stopped re-registering it.
+        from flux._namespace import RESERVED_DYNAMIC_PREFIX
+
+        if workflow.namespace.startswith(RESERVED_DYNAMIC_PREFIX):
+            from flux.dynamic_workflows import touch_last_used
+
+            touch_last_used(workflow.namespace, workflow.name)
 
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
@@ -1385,6 +1398,14 @@ class Server(
         )
 
         self._register_execution_routes(
+            api,
+            auth_config=auth_config,
+            auth_service=auth_service,
+            principal_registry=principal_registry,
+            limiter=limiter,
+        )
+
+        self._register_dynamic_routes(
             api,
             auth_config=auth_config,
             auth_service=auth_service,
