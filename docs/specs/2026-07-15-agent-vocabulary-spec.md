@@ -95,23 +95,21 @@ Close the two real gaps in `parallel` itself:
 results = await parallel(
     *[process(d) for d in docs],
     max_concurrent=8,        # semaphore; None (default) = unlimited
-    raise_on_error=False,    # default
+    raise_on_error=False,    # default True = today's fail-fast behavior
 )
 ```
 
 - **`max_concurrent`** — caps in-flight coroutines with a semaphore;
   `None` (default) preserves today's unbounded behavior.
-- **`raise_on_error=False`** (default) — a failed coroutine's slot in the
-  result list becomes `None` and the remaining items keep running; the
-  exception is recorded on the corresponding task's events as usual, so
-  nothing is silently swallowed — the failure is visible in the execution
-  log, it just doesn't kill the batch. `raise_on_error=True` restores
-  fail-fast propagation (the pre-change behavior).
+- **`raise_on_error=True`** (default) — fail-fast propagation, exactly
+  today's behavior. With `raise_on_error=False`, a failed coroutine's slot
+  in the result list becomes `None` and the remaining items keep running;
+  the exception is recorded on the corresponding task's events as usual,
+  so nothing is silently swallowed — the failure is visible in the
+  execution log, it just doesn't kill the batch.
 - Results return in input order, `None` for dropped items.
-- **Compatibility note:** the *default* failure behavior changes — code
-  that relied on `parallel` raising on the first item failure must now
-  pass `raise_on_error=True` or check for `None` entries. Called out in
-  the changelog; the failure events themselves are unchanged.
+- Fully backwards compatible: both parameters default to today's
+  semantics.
 
 ## 3. Budget — a spend ceiling for LLM work
 
@@ -170,11 +168,11 @@ parameter (default 1). Budget is explicit-object-only — no ambient global.
   provider); malformed-then-corrected retry path; retry exhaustion fails
   with field-level detail; delegation surfaces validated instances;
   tool-less path unchanged (existing tests keep passing).
-- **parallel:** ordering preserved; error-drop default (`None` slot, batch
-  survives, failure event recorded) vs `raise_on_error=True` fail-fast;
-  `max_concurrent` cap actually bounds in-flight count; staged per-item
-  idiom replays correctly (pause mid-batch, resume, completed stage calls
-  not re-run).
+- **parallel:** ordering preserved; fail-fast default unchanged (existing
+  tests keep passing) vs `raise_on_error=False` error-drop (`None` slot,
+  batch survives, failure event recorded); `max_concurrent` cap actually
+  bounds in-flight count; staged per-item idiom replays correctly (pause
+  mid-batch, resume, completed stage calls not re-run).
 - **Budget:** per-provider `extract_usage` (fixture responses); accumulation
   across calls sharing one budget; pre-flight ceiling raises
   `BudgetExceededError`; `None` ceiling tracks without enforcement;
@@ -182,9 +180,8 @@ parameter (default 1). Budget is explicit-object-only — no ambient global.
 
 ## Rollout / compatibility
 
-Mostly additive: new optional parameters and a new formatter method with a
-`None`-returning default (existing custom formatters keep working; budget
-enforcement simply sees no usage from them and only tracking-only budgets
-are useful until they implement it). One behavior change: `parallel`'s
-default failure mode moves from fail-fast to drop-to-`None`
-(`raise_on_error=True` restores the old behavior). Version: 0.59.0.
+Additive: new optional parameters (all defaulting to today's semantics)
+and a new formatter method with a `None`-returning default (existing
+custom formatters keep working; budget enforcement simply sees no usage
+from them and only tracking-only budgets are useful until they implement
+it). Version: 0.59.0.
