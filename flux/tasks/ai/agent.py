@@ -93,7 +93,8 @@ async def agent(
             loop checks it before every LLM call and raises BudgetExceededError
             once spent() reaches max_tokens. Setting a budget disables token-level
             content streaming (the final text still arrives as progress) because
-            usage is only reported on non-streamed calls.
+            the raw token-stream path bypasses the LLM task wrapper and cannot
+            capture the usage the budget needs.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel

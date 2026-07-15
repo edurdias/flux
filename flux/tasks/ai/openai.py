@@ -217,11 +217,14 @@ class OpenAIFormatter(LLMFormatter):
         tool_calls_by_index: dict[int, dict] = {}
         usage: Usage | None = None
 
+        request_kwargs = dict(call_kwargs)
+        stream_options = {"include_usage": True, **request_kwargs.pop("stream_options", {})}
+
         async for chunk in await self._client.chat.completions.create(
             messages=messages,
-            **call_kwargs,
+            **request_kwargs,
             stream=True,
-            stream_options={"include_usage": True},
+            stream_options=stream_options,
         ):
             if getattr(chunk, "usage", None) is not None:
                 usage = _to_usage(chunk.usage)

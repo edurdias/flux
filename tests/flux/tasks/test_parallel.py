@@ -68,6 +68,32 @@ def test_pause_propagates_even_with_error_drop():
     assert not ctx.has_finished
 
 
+def test_pause_is_not_delayed_by_running_siblings():
+    """A pause must surface as soon as it happens — not after every other
+    item in the batch completes."""
+    import time
+
+    @task
+    async def pausing() -> str:
+        raise PauseRequested(name="gate")
+
+    @task
+    async def slow() -> str:
+        await asyncio.sleep(10)
+        return "too late"
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        return await parallel(slow(), pausing(), raise_on_error=False)
+
+    start = time.monotonic()
+    ctx = wf.run()
+    elapsed = time.monotonic() - start
+
+    assert ctx.is_paused
+    assert elapsed < 5, f"pause was delayed {elapsed:.1f}s by a running sibling"
+
+
 def test_max_concurrent_bounds_in_flight():
     in_flight = {"now": 0, "peak": 0}
 
