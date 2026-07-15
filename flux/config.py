@@ -162,6 +162,50 @@ class WorkersConfig(BaseConfig):
             "(e.g. volumes, env vars, --user)"
         ),
     )
+    airgapped_image: str = Field(
+        default="",
+        description=(
+            "Image for the docker-airgapped runner; falls back to "
+            "docker_image. One of the two is required when 'docker-airgapped' "
+            "is in runners"
+        ),
+    )
+    airgapped_memory: str = Field(
+        default="512m",
+        description=(
+            "Per-container memory limit for the airgapped runner (docker "
+            "syntax). Required non-empty: unlimited memory defeats the profile"
+        ),
+    )
+    airgapped_cpus: float = Field(
+        default=1.0,
+        description="Per-container CPU limit for the airgapped runner (must be > 0)",
+    )
+    airgapped_pids_limit: int = Field(
+        default=256,
+        description="Per-container pids limit for the airgapped runner (must be > 0)",
+    )
+    airgapped_tmp_size: str = Field(
+        default="64m",
+        description="Size cap of the airgapped container's tmpfs /tmp",
+    )
+    airgapped_execution_timeout: int = Field(
+        default=900,
+        description=(
+            "Wall-clock ceiling in seconds per airgapped execution; on expiry "
+            "the container is killed and the execution fails terminally for "
+            "both durabilities (0 disables — discouraged)"
+        ),
+    )
+    airgapped_extra_args: list[str] = Field(
+        default=[],
+        description=(
+            "Extra 'docker run' arguments for the airgapped runner. Flags "
+            "that would weaken the isolation profile (--network, --volume, "
+            "--privileged, --cap-add, host namespaces, DNS, ...) are rejected "
+            "at worker startup"
+        ),
+    )
     loop_lag_threshold: float = Field(
         default=1.0,
         ge=0,

@@ -19,7 +19,7 @@ from flux.runners.inprocess import InProcessRunner
 from flux.runners.loader import WorkflowModuleLoader
 from flux.runners.subprocess_runner import SubprocessRunner
 
-KNOWN_RUNNERS = ("inprocess", "subprocess", "docker")
+KNOWN_RUNNERS = ("inprocess", "subprocess", "docker", "docker-airgapped")
 
 
 def create_runners(names: list[str], config) -> dict[str, Runner]:
@@ -52,6 +52,25 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
                 memory=config.docker_memory,
                 cpus=config.docker_cpus,
                 extra_args=list(config.docker_extra_args),
+            )
+        elif name == "docker-airgapped":
+            from flux.runners.docker import AirgappedDockerRunner
+
+            image = config.airgapped_image or config.docker_image
+            if not image:
+                raise ValueError(
+                    "[flux.workers] airgapped_image (or docker_image) must be "
+                    "set when the 'docker-airgapped' runner is enabled",
+                )
+            runners[name] = AirgappedDockerRunner(
+                image=image,
+                term_grace=config.subprocess_term_grace,
+                memory=config.airgapped_memory,
+                cpus=config.airgapped_cpus,
+                pids_limit=config.airgapped_pids_limit,
+                tmp_size=config.airgapped_tmp_size,
+                execution_timeout=config.airgapped_execution_timeout,
+                extra_args=list(config.airgapped_extra_args),
             )
         else:
             raise ValueError(
