@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import Any
 from collections.abc import Callable
 
+from flux.errors import PauseRequested
 from flux.task import task
 
 
@@ -38,9 +39,45 @@ async def randrange(start: int, stop: int | None = None, step: int = 1):
 
 
 @task
-async def parallel(*functions: Coroutine[Any, Any, Any]) -> list[Any]:
-    tasks: list[asyncio.Task] = [asyncio.create_task(f) for f in functions]
-    return await asyncio.gather(*tasks)
+async def parallel(
+    *functions: Coroutine[Any, Any, Any],
+    max_concurrent: int | None = None,
+    raise_on_error: bool = True,
+) -> list[Any]:
+    """Run coroutines concurrently and return their results in input order.
+
+    :param max_concurrent: Maximum number of coroutines running at once.
+        None (default) runs everything concurrently.
+    :param raise_on_error: If True (default), the first exception propagates
+        and fails the whole batch. If False, a failed coroutine's slot in the
+        result list becomes None and the remaining coroutines keep running;
+        the failure is still recorded on the corresponding task's events.
+    """
+    if max_concurrent is not None and max_concurrent < 1:
+        for function in functions:
+            function.close()
+        raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+
+    semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
+
+    async def bounded(function: Coroutine[Any, Any, Any]) -> Any:
+        if semaphore is None:
+            return await function
+        async with semaphore:
+            return await function
+
+    tasks: list[asyncio.Task] = [asyncio.create_task(bounded(f)) for f in functions]
+    if raise_on_error:
+        return await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for result in results:
+        # Pause and cancellation are control flow, not item failures — they
+        # must keep propagating or a paused branch would silently become None.
+        if isinstance(result, (PauseRequested, asyncio.CancelledError)):
+            raise result
+        if isinstance(result, BaseException) and not isinstance(result, Exception):
+            raise result
+    return [None if isinstance(r, BaseException) else r for r in results]
 
 
 @task
