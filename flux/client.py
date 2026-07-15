@@ -128,11 +128,14 @@ class FluxClient:
         detailed: bool = False,
     ) -> dict[str, Any]:
         namespace, name = resolve_workflow_ref(workflow_ref)
-        params = {"detailed": "true"} if detailed else None
+        # Only add params when asked: existing callers (and their tests) pin
+        # the exact call signature of the non-detailed path.
+        kwargs: dict[str, Any] = {"json": input_data}
+        if detailed:
+            kwargs["params"] = {"detailed": "true"}
         response = await self._http_client.post(
             f"/workflows/{namespace}/{name}/run/sync",
-            json=input_data,
-            params=params,
+            **kwargs,
         )
         response.raise_for_status()
         return response.json()
