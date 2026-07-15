@@ -15,11 +15,50 @@ DEFAULT_TIMEOUT: float = 10.0
 class FluxClient:
     """Async HTTP client for the Flux REST API."""
 
-    def __init__(self, server_url: str, timeout: float | None = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        server_url: str,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        headers: dict[str, str] | None = None,
+    ):
+        """``headers`` apply to every request — in-workflow callers pass
+        their execution token (Authorization) and the sticky-routing hint
+        (X-Flux-Preferred-Worker) here."""
         self.server_url = server_url
         self._http_client = httpx.AsyncClient(
             base_url=server_url,
             timeout=timeout,
+            headers=headers,
+        )
+
+    @classmethod
+    async def for_current_execution(cls) -> FluxClient:
+        """A client carrying the calling execution's credentials and hints.
+
+        Inside a workflow this attaches the execution token (Authorization)
+        so server-side authorization lands on the execution's identity, and
+        the sticky-routing hint (X-Flux-Preferred-Worker) so dispatch
+        prefers the calling worker while eligible. Outside a workflow it is
+        a plain client.
+        """
+        from flux.config import Configuration
+        from flux.domain.execution_context import ExecutionContext
+
+        settings = Configuration.get().settings
+        headers: dict[str, str] = {}
+        try:
+            current = await ExecutionContext.get()
+        except Exception:
+            current = None
+        if current is not None:
+            if current.exec_token:
+                headers["Authorization"] = f"Bearer {current.exec_token}"
+            if current.current_worker:
+                headers["X-Flux-Preferred-Worker"] = current.current_worker
+        return cls(
+            settings.workers.server_url,
+            timeout=settings.workers.default_timeout or None,
+            headers=headers or None,
         )
 
     async def close(self):
@@ -82,11 +121,35 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
-    async def run_workflow_sync(self, workflow_ref: str, input_data: Any = None) -> dict[str, Any]:
+    async def run_workflow_sync(
+        self,
+        workflow_ref: str,
+        input_data: Any = None,
+        detailed: bool = False,
+    ) -> dict[str, Any]:
         namespace, name = resolve_workflow_ref(workflow_ref)
+        # Only add params when asked: existing callers (and their tests) pin
+        # the exact call signature of the non-detailed path.
+        kwargs: dict[str, Any] = {"json": input_data}
+        if detailed:
+            kwargs["params"] = {"detailed": "true"}
         response = await self._http_client.post(
             f"/workflows/{namespace}/{name}/run/sync",
-            json=input_data,
+            **kwargs,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def register_dynamic_workflow(self, source: str) -> dict[str, Any]:
+        """Register agent-authored source (POST /workflows/dynamic).
+
+        Requires the client to carry an execution token when auth is
+        enabled; policy rejections surface as 422 HTTPStatusError with a
+        structured detail.
+        """
+        response = await self._http_client.post(
+            "/workflows/dynamic",
+            json={"source": source},
         )
         response.raise_for_status()
         return response.json()

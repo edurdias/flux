@@ -71,6 +71,15 @@ class RetentionJob:
                 deleted = await asyncio.to_thread(self._sweep)
                 if deleted:
                     logger.info(f"Retention sweep deleted {deleted} execution(s)")
+                # Dynamic-workflow GC rides the same cadence. No advisory
+                # lock needed: the sweep is idempotent and bounded by
+                # max_per_agent x agents, so a rare cross-replica overlap
+                # only costs a redundant scan.
+                dynamic_config = Configuration.get().settings.dynamic_workflows
+                if dynamic_config.enabled and dynamic_config.ttl > 0:
+                    from flux.dynamic_workflows import gc_sweep
+
+                    await asyncio.to_thread(gc_sweep, ttl_seconds=dynamic_config.ttl)
             except asyncio.CancelledError:
                 raise
             except Exception:

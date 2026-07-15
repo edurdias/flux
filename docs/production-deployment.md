@@ -274,6 +274,23 @@ approval rows.
   Pin untrusted workflows to it with
   `@workflow.with_options(runner="docker-airgapped")`.
 
+### Dynamic workflows (agent-authored, opt-in)
+
+With `[flux.dynamic_workflows] enabled = true`, code running inside Flux
+(agents) can register workflows at runtime via `POST /workflows/dynamic` —
+accepted **only** with an execution token, into a per-principal `dyn-*`
+namespace derived from the token subject, with `require_runner` (default
+`docker-airgapped`) stamped server-side regardless of what the source
+declares. Policy allowlist: dynamic source may set `name`, `durability`,
+`secret_requests`, `output_storage` — schedules, services, resource
+requests, affinity, routing, namespace, and runner are rejected. Bound the
+blast radius with `max_per_agent` and `max_source_bytes`; unused entries
+are garbage-collected after `ttl` (rides the retention job — enable
+`[flux.retention]`), never while an execution is live. Grant
+`workflow:dyn-<derived>:*:register` (+ `:run`) explicitly to the principal
+the agent runs under; the `dyn-` prefix is reserved and unregisterable
+through the ordinary path.
+
 Measured on a single machine (1-task workflow, warm caches, overlayfs;
 sequential median / 8-concurrent effective throughput per worker):
 

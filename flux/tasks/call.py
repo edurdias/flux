@@ -109,35 +109,25 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
 
     import httpx
 
-    server_url = settings.workers.server_url
+    from flux.client import FluxClient
 
-    # Sticky-routing hint: when relaying from a worker, tag the child with
-    # this worker's name so dispatch prefers it (warm module cache) whenever
-    # it is eligible. A hint only — the server's matching still decides.
-    headers: dict[str, str] = {}
-    try:
-        current = await ExecutionContext.get()
-        if current is not None and current.current_worker:
-            headers["X-Flux-Preferred-Worker"] = current.current_worker
-    except Exception:
-        pass
+    server_url = settings.workers.server_url
+    workflow_ref = f"{namespace}/{name}"
 
     try:
         payload = args[0] if len(args) == 1 else args
-        url = f"{server_url}/workflows/{namespace}/{name}/run/{mode}"
 
-        async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
+        # for_current_execution() carries the execution token and the
+        # sticky-routing hint (X-Flux-Preferred-Worker), so relayed calls
+        # are authorized as this execution and prefer this worker while
+        # eligible. A hint only — the server's matching still decides.
+        async with await FluxClient.for_current_execution() as client:
             if mode == "async":
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                data = response.json()
+                data = await client.run_workflow(workflow_ref, payload)
                 return data["execution_id"]
 
-            url = f"{url}?detailed=true"
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
+            data = await client.run_workflow_sync(workflow_ref, payload, detailed=True)
 
-            data = response.json()
             ctx: ExecutionContext = ExecutionContext(
                 workflow_id=data["workflow_id"],
                 workflow_namespace=data.get("workflow_namespace", "default"),

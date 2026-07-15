@@ -64,6 +64,10 @@ def _resolve_tool_group(name: str, config: dict) -> list[task]:
         from flux.tasks.ai.tools.directory import build_directory_tools
 
         return list(build_directory_tools(sys_config))
+    elif name == "dynamic_workflows":
+        from flux.tasks.dynamic import create_workflow, run_workflow
+
+        return [create_workflow, run_workflow]
     else:
         raise ValueError(f"Unknown tool group: '{name}'")
 
@@ -73,5 +77,5 @@ def _resolve_by_name(name: str) -> list[task]:
         return _resolve_tool_group(name, {})
     except ValueError:
         raise ValueError(
-            f"Unknown tool: '{name}'. Available: system_tools, shell, files, search, directory",
+            f"Unknown tool: '{name}'. Available: system_tools, shell, files, search, directory, dynamic_workflows",
         )
