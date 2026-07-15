@@ -72,7 +72,15 @@ async def create_workflow(source: str) -> dict[str, Any]:
                 f"this identity (HTTP {response.status_code})"
             ),
         )
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as ex:
+        raise ExecutionError(
+            message=(
+                f"Dynamic workflow registration failed: HTTP "
+                f"{ex.response.status_code}: {ex.response.text[:500]}"
+            ),
+        ) from ex
     return response.json()
 
 

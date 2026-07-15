@@ -137,6 +137,22 @@ async def wf(ctx: ExecutionContext):
         with pytest.raises(DynamicRegistrationError, match="not allowed"):
             validate_policy(source.encode())
 
+    def test_kwargs_splat_rejected(self):
+        """with_options(**opts) is dynamic — it could smuggle any option
+        past the allowlist, so it is rejected outright."""
+        source = """
+from flux import ExecutionContext, workflow
+
+opts = {"schedule": "sneaky"}
+
+
+@workflow.with_options(**opts)
+async def wf(ctx: ExecutionContext):
+    return 1
+"""
+        with pytest.raises(DynamicRegistrationError, match=r"with_options\(\*\*"):
+            validate_policy(source.encode())
+
     def test_zero_workflows_rejected(self):
         with pytest.raises(DynamicRegistrationError, match="exactly one"):
             validate_policy(b"x = 1")
@@ -288,6 +304,21 @@ class TestGC:
         )
 
         assert gc_sweep(ttl_seconds=7 * 86400) == 0
+
+    def test_run_refreshes_gc_clock(self, db):
+        """Creating an execution of a dyn-* workflow refreshes last_used_at
+        (the server's _create_execution choke point), so frequently run
+        workflows are never collected just because nobody re-registers."""
+        result = register(GOOD_SOURCE.encode(), subject="agent-gc4", config=_config())
+        self._age(result["namespace"], "crunch", days=30)
+
+        from flux.server import Server
+
+        server = Server("127.0.0.1", 0)
+        ctx = server._create_execution(result["namespace"], "crunch", None)
+        assert ctx.execution_id
+
+        assert gc_sweep(ttl_seconds=7 * 86400) == 0  # clock refreshed by the run
 
     def test_zero_ttl_disables(self, db):
         result = register(GOOD_SOURCE.encode(), subject="agent-gc3", config=_config())

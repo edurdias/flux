@@ -40,10 +40,16 @@ An agent (and only an agent — no human/API authoring surface in this PR)
 gains two tools:
 
 ```
-create_workflow(source) -> {namespace, name, version} | {errors}
-run_workflow(ref | source, input=None, mode="sync"|"async",
-             durability="durable"|"transient") -> result | execution_id
+create_workflow(source) -> {namespace, name, version, existing}
+run_workflow(source=... | ref="ns/name", input=None,
+             mode="sync"|"async") -> result | execution_id
 ```
+
+Durability is declared in the authored source itself
+(`@workflow.with_options(durability="transient")`), not per call — the
+workflow's durability is part of what was authored and reviewed, so a
+caller cannot flip it at run time. Policy rejections raise with the
+server's structured, actionable message.
 
 `run_workflow` with `source` is register-then-run, idempotent by source hash.
 Results return to the agent loop like `call()`/`workflow_agent` results do
@@ -110,7 +116,9 @@ dynamic workflow — uses the existing surfaces unchanged.
    deletion or reuse.
 7. **Bookkeeping** — `created_by` (principal subject), `created_at`,
    `last_used_at` recorded in entry metadata; `last_used_at` refreshed on
-   each run.
+   each run at the server's execution-creation choke point, so every run
+   path (API, `call()`, `run_workflow` by ref or source) feeds the GC
+   clock.
 
 ## Execution
 
@@ -120,10 +128,10 @@ like any other. Consequences, stated for the record:
 
 - Dispatch routes only to workers advertising `docker-airgapped`; a fleet
   without one fails the run with the existing runner-matching error.
-- `durability="transient"` is the sensible default for cheap one-shots
-  (at-most-once, agent retries); `"durable"` is available and — because the
-  event log is the forensic record of what model-authored code did — is the
-  default for `run_workflow` unless the agent asks otherwise.
+- Durability comes from the authored source (`with_options(durability=...)`);
+  the workflow default is durable, which is the right default here — the
+  event log is the forensic record of what model-authored code did.
+  Transient is the authored opt-in for cheap at-most-once one-shots.
 - Secrets/configs/approvals requested inside a dynamic workflow relay
   through the parent worker and are authorized against the execution's
   identity, i.e. the agent's grants — nothing widens.

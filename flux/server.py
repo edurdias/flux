@@ -465,6 +465,17 @@ class Server(
             preferred_worker=preferred_worker or None,
         )
 
+        # Every run of a dynamic workflow refreshes its GC clock — this is
+        # the single choke point all run paths (API, call(), run_workflow by
+        # ref or source) pass through, so a frequently used entry can never
+        # be collected just because callers stopped re-registering it.
+        from flux._namespace import RESERVED_DYNAMIC_PREFIX
+
+        if workflow.namespace.startswith(RESERVED_DYNAMIC_PREFIX):
+            from flux.dynamic_workflows import touch_last_used
+
+            touch_last_used(workflow.namespace, workflow.name)
+
         self._execution_queue_times[ctx.execution_id] = time.monotonic()
 
         from flux.observability import get_metrics
