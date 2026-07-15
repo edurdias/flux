@@ -15,11 +15,20 @@ DEFAULT_TIMEOUT: float = 10.0
 class FluxClient:
     """Async HTTP client for the Flux REST API."""
 
-    def __init__(self, server_url: str, timeout: float | None = DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        server_url: str,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        headers: dict[str, str] | None = None,
+    ):
+        """``headers`` apply to every request — in-workflow callers pass
+        their execution token (Authorization) and the sticky-routing hint
+        (X-Flux-Preferred-Worker) here."""
         self.server_url = server_url
         self._http_client = httpx.AsyncClient(
             base_url=server_url,
             timeout=timeout,
+            headers=headers,
         )
 
     async def close(self):
@@ -82,11 +91,32 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
-    async def run_workflow_sync(self, workflow_ref: str, input_data: Any = None) -> dict[str, Any]:
+    async def run_workflow_sync(
+        self,
+        workflow_ref: str,
+        input_data: Any = None,
+        detailed: bool = False,
+    ) -> dict[str, Any]:
         namespace, name = resolve_workflow_ref(workflow_ref)
+        params = {"detailed": "true"} if detailed else None
         response = await self._http_client.post(
             f"/workflows/{namespace}/{name}/run/sync",
             json=input_data,
+            params=params,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def register_dynamic_workflow(self, source: str) -> dict[str, Any]:
+        """Register agent-authored source (POST /workflows/dynamic).
+
+        Requires the client to carry an execution token when auth is
+        enabled; policy rejections surface as 422 HTTPStatusError with a
+        structured detail.
+        """
+        response = await self._http_client.post(
+            "/workflows/dynamic",
+            json={"source": source},
         )
         response.raise_for_status()
         return response.json()

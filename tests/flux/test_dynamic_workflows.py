@@ -97,6 +97,16 @@ class TestReservedPrefix:
                 pass
 
 
+class TestReferenceResolution:
+    def test_dyn_references_resolve(self):
+        """The reservation binds at authoring; REFERRING to a dynamic
+        workflow (call(), FluxClient, run_workflow ref=...) must work."""
+        from flux.catalogs import resolve_workflow_ref
+
+        ns = namespace_for_subject("agent-ref")
+        assert resolve_workflow_ref(f"{ns}/crunch") == (ns, "crunch")
+
+
 class TestPolicyValidation:
     def test_plain_workflow_accepted(self):
         node = validate_policy(GOOD_SOURCE.encode())

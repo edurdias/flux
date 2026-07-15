@@ -17,10 +17,15 @@ _NAMESPACE_MAX_LEN = 64
 RESERVED_DYNAMIC_PREFIX = "dyn-"
 
 
-def validate_namespace(namespace: str | None) -> str:
+def validate_namespace(namespace: str | None, *, allow_reserved: bool = False) -> str:
     """Normalize and validate a namespace string.
 
-    Returns ``"default"`` for ``None``/``""``. Raises ``ValueError`` for invalid input.
+    Returns ``"default"`` for ``None``/``""``. Raises ``ValueError`` for invalid
+    input. By default the reserved dynamic prefix is rejected — that is the
+    authoring-context behavior (decorators, AST parsing, uploads), which is
+    what keeps un-stamped workflows out of ``dyn-*``. Reference-resolution
+    contexts (``call()``, clients, schedules) pass ``allow_reserved=True``:
+    *referring* to a dynamic workflow is always legitimate.
     """
     if namespace is None or namespace == "":
         return DEFAULT_NAMESPACE
@@ -32,7 +37,7 @@ def validate_namespace(namespace: str | None) -> str:
         raise ValueError(
             f"Invalid namespace '{namespace}': must match {_NAMESPACE_RE.pattern}",
         )
-    if namespace.startswith(RESERVED_DYNAMIC_PREFIX):
+    if not allow_reserved and namespace.startswith(RESERVED_DYNAMIC_PREFIX):
         raise ValueError(
             f"Invalid namespace '{namespace}': the '{RESERVED_DYNAMIC_PREFIX}' prefix is "
             "reserved for agent-authored dynamic workflows",
