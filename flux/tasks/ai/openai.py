@@ -218,7 +218,9 @@ class OpenAIFormatter(LLMFormatter):
         usage: Usage | None = None
 
         request_kwargs = dict(call_kwargs)
-        stream_options = {"include_usage": True, **request_kwargs.pop("stream_options", {})}
+        # include_usage is forced last: without it the terminal chunk carries
+        # no usage and Budget accounting silently sees zero spend.
+        stream_options = {**request_kwargs.pop("stream_options", {}), "include_usage": True}
 
         async for chunk in await self._client.chat.completions.create(
             messages=messages,

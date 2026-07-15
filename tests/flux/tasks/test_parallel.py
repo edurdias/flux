@@ -94,6 +94,32 @@ def test_pause_is_not_delayed_by_running_siblings():
     assert elapsed < 5, f"pause was delayed {elapsed:.1f}s by a running sibling"
 
 
+def test_siblings_cancelled_on_fail_fast():
+    """When the batch fails, still-running siblings are cancelled instead of
+    running on (and emitting events) past the failure."""
+    finished = {"slow": False}
+
+    @task
+    async def slow() -> str:
+        await asyncio.sleep(10)
+        finished["slow"] = True
+        return "too late"
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        return await parallel(slow(), boom("b"))
+
+    import time
+
+    start = time.monotonic()
+    ctx = wf.run()
+    elapsed = time.monotonic() - start
+
+    assert ctx.has_failed
+    assert not finished["slow"]
+    assert elapsed < 5, f"failure waited {elapsed:.1f}s on a running sibling"
+
+
 def test_max_concurrent_bounds_in_flight():
     in_flight = {"now": 0, "peak": 0}
 
