@@ -1269,6 +1269,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Runners: where workflow code executes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dynamic-workflows-agent-authored-opt-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dynamic workflows (agent-authored, opt-in)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1614,6 +1631,21 @@ approval rows.</p>
   Pin untrusted workflows to it with
   <code>@workflow.with_options(runner="docker-airgapped")</code>.</li>
 </ul>
+<h3 id="dynamic-workflows-agent-authored-opt-in">Dynamic workflows (agent-authored, opt-in)<a class="headerlink" href="#dynamic-workflows-agent-authored-opt-in" title="Permanent link">&para;</a></h3>
+<p>With <code>[flux.dynamic_workflows] enabled = true</code>, code running inside Flux
+(agents) can register workflows at runtime via <code>POST /workflows/dynamic</code> —
+accepted <strong>only</strong> with an execution token, into a per-principal <code>dyn-*</code>
+namespace derived from the token subject, with <code>require_runner</code> (default
+<code>docker-airgapped</code>) stamped server-side regardless of what the source
+declares. Policy allowlist: dynamic source may set <code>name</code>, <code>durability</code>,
+<code>secret_requests</code>, <code>output_storage</code> — schedules, services, resource
+requests, affinity, routing, namespace, and runner are rejected. Bound the
+blast radius with <code>max_per_agent</code> and <code>max_source_bytes</code>; unused entries
+are garbage-collected after <code>ttl</code> (rides the retention job — enable
+<code>[flux.retention]</code>), never while an execution is live. Grant
+<code>workflow:dyn-&lt;derived&gt;:*:register</code> (+ <code>:run</code>) explicitly to the principal
+the agent runs under; the <code>dyn-</code> prefix is reserved and unregisterable
+through the ordinary path.</p>
 <p>Measured on a single machine (1-task workflow, warm caches, overlayfs;
 sequential median / 8-concurrent effective throughput per worker):</p>
 <table>
