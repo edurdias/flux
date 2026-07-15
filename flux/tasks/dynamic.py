@@ -18,7 +18,6 @@ from typing import Any, Literal
 import httpx
 
 from flux.client import FluxClient
-from flux.config import Configuration
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.domain.execution_context import ExecutionContext
 from flux.errors import ExecutionError
@@ -26,28 +25,6 @@ from flux.task import task
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
-
-
-async def _client() -> FluxClient:
-    """A FluxClient carrying the calling execution's credentials/hints."""
-    settings = Configuration.get().settings
-    headers: dict[str, str] = {}
-    try:
-        current = await ExecutionContext.get()
-    except Exception:
-        current = None
-    if current is not None:
-        if current.exec_token:
-            headers["Authorization"] = f"Bearer {current.exec_token}"
-        # Sticky-routing hint, same as call(): prefer this worker while
-        # eligible (warm module cache for repeated dynamic runs).
-        if current.current_worker:
-            headers["X-Flux-Preferred-Worker"] = current.current_worker
-    return FluxClient(
-        settings.workers.server_url,
-        timeout=settings.workers.default_timeout or None,
-        headers=headers or None,
-    )
 
 
 def _registration_error(ex: httpx.HTTPStatusError) -> ExecutionError:
@@ -83,7 +60,7 @@ async def create_workflow(source: str) -> dict[str, Any]:
     Rejections (policy violations, quota, size) raise ExecutionError with
     the server's actionable message.
     """
-    async with await _client() as client:
+    async with await FluxClient.for_current_execution() as client:
         try:
             return await client.register_dynamic_workflow(source)
         except httpx.HTTPStatusError as ex:
@@ -122,7 +99,7 @@ async def run_workflow(
             raise ValueError(f"ref must be 'namespace/name', got: '{ref}'")
         workflow_ref = ref
 
-    async with await _client() as client:
+    async with await FluxClient.for_current_execution() as client:
         try:
             if mode == "async":
                 data = await client.run_workflow(workflow_ref, input)

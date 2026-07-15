@@ -31,6 +31,36 @@ class FluxClient:
             headers=headers,
         )
 
+    @classmethod
+    async def for_current_execution(cls) -> FluxClient:
+        """A client carrying the calling execution's credentials and hints.
+
+        Inside a workflow this attaches the execution token (Authorization)
+        so server-side authorization lands on the execution's identity, and
+        the sticky-routing hint (X-Flux-Preferred-Worker) so dispatch
+        prefers the calling worker while eligible. Outside a workflow it is
+        a plain client.
+        """
+        from flux.config import Configuration
+        from flux.domain.execution_context import ExecutionContext
+
+        settings = Configuration.get().settings
+        headers: dict[str, str] = {}
+        try:
+            current = await ExecutionContext.get()
+        except Exception:
+            current = None
+        if current is not None:
+            if current.exec_token:
+                headers["Authorization"] = f"Bearer {current.exec_token}"
+            if current.current_worker:
+                headers["X-Flux-Preferred-Worker"] = current.current_worker
+        return cls(
+            settings.workers.server_url,
+            timeout=settings.workers.default_timeout or None,
+            headers=headers or None,
+        )
+
     async def close(self):
         await self._http_client.aclose()
 
