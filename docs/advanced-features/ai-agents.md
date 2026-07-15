@@ -262,8 +262,9 @@ async def research(ctx: ExecutionContext):
   by populating `LLMResponse.usage`; without it, a budget sees no spend and
   only tracking-only use is meaningful.
 - Setting a budget disables token-level content streaming for that agent
-  (the final text still arrives as a progress event) because usage is only
-  reported on non-streamed calls.
+  (the final text still arrives as a progress event). The raw token-stream
+  path bypasses the LLM task wrapper and cannot capture usage; the
+  checkpointed call paths — including reasoning streams — report it.
 - Scope: a budget bounds one run attempt. On resume, replayed LLM calls
   short-circuit from the event log — their recorded usage is re-counted
   without re-spending real tokens.

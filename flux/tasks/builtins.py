@@ -66,18 +66,21 @@ async def parallel(
         async with semaphore:
             return await function
 
-    tasks: list[asyncio.Task] = [asyncio.create_task(bounded(f)) for f in functions]
-    if raise_on_error:
-        return await asyncio.gather(*tasks)
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for result in results:
+    async def dropping(function: Coroutine[Any, Any, Any]) -> Any:
         # Pause and cancellation are control flow, not item failures — they
-        # must keep propagating or a paused branch would silently become None.
-        if isinstance(result, (PauseRequested, asyncio.CancelledError)):
-            raise result
-        if isinstance(result, BaseException) and not isinstance(result, Exception):
-            raise result
-    return [None if isinstance(r, BaseException) else r for r in results]
+        # must keep propagating (immediately, through the plain gather below)
+        # or a paused branch would silently become None. CancelledError and
+        # other BaseExceptions are not caught by `except Exception`.
+        try:
+            return await bounded(function)
+        except PauseRequested:
+            raise
+        except Exception:
+            return None
+
+    runner = bounded if raise_on_error else dropping
+    tasks: list[asyncio.Task] = [asyncio.create_task(runner(f)) for f in functions]
+    return await asyncio.gather(*tasks)
 
 
 @task
