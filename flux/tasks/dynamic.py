@@ -1,11 +1,12 @@
 """Agent-facing dynamic workflow tasks: ``create_workflow`` / ``run_workflow``.
 
-Both run inside a workflow (typically an agent loop) and authenticate to the
-server with the calling execution's own token — the credential the child
-already holds — so authorization lands on the agent's grants and the server
-derives the ``dyn-*`` namespace from that identity. Registration is
-idempotent by source hash, which also makes ``create_workflow`` replay-safe:
-a resumed workflow re-registering identical source gets the same entry back.
+Both run inside a workflow (typically an agent loop) and talk to the server
+through :class:`flux.client.FluxClient`, carrying the calling execution's
+own token — the credential the child already holds — so authorization lands
+on the agent's grants and the server derives the ``dyn-*`` namespace from
+that identity. Registration is idempotent by source hash, which also makes
+``create_workflow`` replay-safe: a resumed workflow re-registering identical
+source gets the same entry back.
 
 See docs/specs/2026-07-15-dynamic-workflows-spec.md.
 """
@@ -14,6 +15,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+import httpx
+
+from flux.client import FluxClient
 from flux.config import Configuration
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.domain.execution_context import ExecutionContext
@@ -24,12 +28,14 @@ from flux.utils import get_logger
 logger = get_logger(__name__)
 
 
-async def _auth_headers() -> dict[str, str]:
+async def _client() -> FluxClient:
+    """A FluxClient carrying the calling execution's credentials/hints."""
+    settings = Configuration.get().settings
     headers: dict[str, str] = {}
     try:
         current = await ExecutionContext.get()
     except Exception:
-        return headers
+        current = None
     if current is not None:
         if current.exec_token:
             headers["Authorization"] = f"Bearer {current.exec_token}"
@@ -37,7 +43,36 @@ async def _auth_headers() -> dict[str, str]:
         # eligible (warm module cache for repeated dynamic runs).
         if current.current_worker:
             headers["X-Flux-Preferred-Worker"] = current.current_worker
-    return headers
+    return FluxClient(
+        settings.workers.server_url,
+        timeout=settings.workers.default_timeout or None,
+        headers=headers or None,
+    )
+
+
+def _registration_error(ex: httpx.HTTPStatusError) -> ExecutionError:
+    if ex.response.status_code == 422:
+        detail: dict[str, Any] = {}
+        try:
+            detail = ex.response.json().get("detail") or {}
+        except ValueError:
+            pass
+        return ExecutionError(
+            message=f"Dynamic workflow rejected: {detail.get('message', ex.response.text[:500])}",
+        )
+    if ex.response.status_code in (403, 404):
+        return ExecutionError(
+            message=(
+                "Dynamic workflows are not enabled for this deployment or "
+                f"this identity (HTTP {ex.response.status_code})"
+            ),
+        )
+    return ExecutionError(
+        message=(
+            f"Dynamic workflow registration failed: HTTP "
+            f"{ex.response.status_code}: {ex.response.text[:500]}"
+        ),
+    )
 
 
 @task
@@ -48,40 +83,15 @@ async def create_workflow(source: str) -> dict[str, Any]:
     Rejections (policy violations, quota, size) raise ExecutionError with
     the server's actionable message.
     """
-    import httpx
-
-    settings = Configuration.get().settings
-    headers = await _auth_headers()
-    url = f"{settings.workers.server_url}/workflows/dynamic"
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, json={"source": source}, headers=headers)
-    except httpx.ConnectError as ex:
-        raise ExecutionError(
-            message=f"Could not connect to the Flux server at {settings.workers.server_url}.",
-        ) from ex
-    if response.status_code == 422:
-        detail = response.json().get("detail") or {}
-        raise ExecutionError(
-            message=f"Dynamic workflow rejected: {detail.get('message', response.text)}",
-        )
-    if response.status_code in (403, 404):
-        raise ExecutionError(
-            message=(
-                "Dynamic workflows are not enabled for this deployment or "
-                f"this identity (HTTP {response.status_code})"
-            ),
-        )
-    try:
-        response.raise_for_status()
-    except httpx.HTTPStatusError as ex:
-        raise ExecutionError(
-            message=(
-                f"Dynamic workflow registration failed: HTTP "
-                f"{ex.response.status_code}: {ex.response.text[:500]}"
-            ),
-        ) from ex
-    return response.json()
+    async with await _client() as client:
+        try:
+            return await client.register_dynamic_workflow(source)
+        except httpx.HTTPStatusError as ex:
+            raise _registration_error(ex) from ex
+        except httpx.ConnectError as ex:
+            raise ExecutionError(
+                message=f"Could not connect to the Flux server at {client.server_url}.",
+            ) from ex
 
 
 @task
@@ -97,8 +107,6 @@ async def run_workflow(
     ``sync`` waits and returns the workflow's output (raising ExecutionError
     on failure); ``async`` returns the execution id.
     """
-    import httpx
-
     if (source is None) == (ref is None):
         raise ValueError("provide exactly one of 'source' or 'ref'")
     if mode not in ("sync", "async"):
@@ -106,66 +114,59 @@ async def run_workflow(
 
     if source is not None:
         registered = await create_workflow(source)
-        namespace, name = registered["namespace"], registered["name"]
+        workflow_ref = f"{registered['namespace']}/{registered['name']}"
     else:
         assert ref is not None
         namespace, _, name = ref.partition("/")
         if not namespace or not name:
             raise ValueError(f"ref must be 'namespace/name', got: '{ref}'")
+        workflow_ref = ref
 
-    settings = Configuration.get().settings
-    headers = await _auth_headers()
-    url = f"{settings.workers.server_url}/workflows/{namespace}/{name}/run/{mode}"
-
-    # Mirrors flux.tasks.call's response handling, plus the Authorization
-    # header a dyn-* run needs when auth is enabled.
-    try:
-        async with httpx.AsyncClient(timeout=settings.workers.default_timeout) as client:
+    async with await _client() as client:
+        try:
             if mode == "async":
-                response = await client.post(url, json=input, headers=headers)
-                response.raise_for_status()
-                return response.json()["execution_id"]
+                data = await client.run_workflow(workflow_ref, input)
+                return data["execution_id"]
 
-            response = await client.post(f"{url}?detailed=true", json=input, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            ctx: ExecutionContext = ExecutionContext(
-                workflow_id=data["workflow_id"],
-                workflow_namespace=data.get("workflow_namespace", "default"),
-                workflow_name=data["workflow_name"],
-                input=data["input"],
-                execution_id=data["execution_id"],
-                state=data["state"],
-                events=[
-                    ExecutionEvent(
-                        type=ExecutionEventType(event["type"]),
-                        source_id=event["source_id"],
-                        name=event["name"],
-                        value=event.get("value"),
-                    )
-                    for event in data["events"]
-                ],
-                requests=data.get("requests", []),
-            )
-            if ctx.has_succeeded:
-                return ctx.output
-            if ctx.has_failed:
-                raise ExecutionError(ctx.output)
+            data = await client.run_workflow_sync(workflow_ref, input, detailed=True)
+        except httpx.ConnectError as ex:
+            raise ExecutionError(
+                message=f"Could not connect to the Flux server at {client.server_url}.",
+            ) from ex
+        except httpx.HTTPStatusError as ex:
             raise ExecutionError(
                 message=(
-                    f"Dynamic workflow {namespace}/{name} finished in state "
-                    f"{ctx.state.value}; pause/approval flows are not supported "
-                    "through run_workflow"
+                    f"Running dynamic workflow {workflow_ref} failed: "
+                    f"HTTP {ex.response.status_code}: {ex.response.text[:500]}"
                 ),
+            ) from ex
+
+    ctx: ExecutionContext = ExecutionContext(
+        workflow_id=data["workflow_id"],
+        workflow_namespace=data.get("workflow_namespace", "default"),
+        workflow_name=data["workflow_name"],
+        input=data["input"],
+        execution_id=data["execution_id"],
+        state=data["state"],
+        events=[
+            ExecutionEvent(
+                type=ExecutionEventType(event["type"]),
+                source_id=event["source_id"],
+                name=event["name"],
+                value=event.get("value"),
             )
-    except httpx.ConnectError as ex:
-        raise ExecutionError(
-            message=f"Could not connect to the Flux server at {settings.workers.server_url}.",
-        ) from ex
-    except httpx.HTTPStatusError as ex:
-        raise ExecutionError(
-            message=(
-                f"Running dynamic workflow {namespace}/{name} failed: "
-                f"HTTP {ex.response.status_code}: {ex.response.text[:500]}"
-            ),
-        ) from ex
+            for event in data["events"]
+        ],
+        requests=data.get("requests", []),
+    )
+    if ctx.has_succeeded:
+        return ctx.output
+    if ctx.has_failed:
+        raise ExecutionError(ctx.output)
+    raise ExecutionError(
+        message=(
+            f"Dynamic workflow {workflow_ref} finished in state "
+            f"{ctx.state.value}; pause/approval flows are not supported "
+            "through run_workflow"
+        ),
+    )

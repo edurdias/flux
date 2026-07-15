@@ -183,7 +183,7 @@ def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
         namespace, name = parts
         if not namespace or not name:
             raise ValueError("Workflow reference has empty namespace or name")
-        return (validate_namespace(namespace), name)
+        return (validate_namespace(namespace, allow_reserved=True), name)
     raise ValueError(
         f"Workflow reference '{ref}' is invalid: flat namespaces only (expected 'name' or 'namespace/name')",
     )
