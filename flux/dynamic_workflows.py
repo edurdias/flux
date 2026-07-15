@@ -93,6 +93,14 @@ def validate_policy(source: bytes) -> ast.AsyncFunctionDef:
             ):
                 workflow_nodes.append(node)
                 for kw in decorator.keywords:
+                    if kw.arg is None:
+                        # A **splat is dynamic: it could smuggle any option
+                        # past the allowlist, so it is rejected outright.
+                        raise DynamicRegistrationError(
+                            "with_options(**...) is not allowed in a dynamic "
+                            "workflow; declare options explicitly "
+                            f"(allowed: {', '.join(sorted(_ALLOWED_WITH_OPTIONS))})",
+                        )
                     if kw.arg not in _ALLOWED_WITH_OPTIONS:
                         raise DynamicRegistrationError(
                             f"with_options '{kw.arg}' is not allowed in a dynamic "
@@ -213,9 +221,13 @@ def touch_last_used(namespace: str, name: str) -> None:
 
 
 def _latest(catalog, namespace: str, name: str):
+    from flux.errors import WorkflowNotFoundError
+
     try:
         return catalog.get(namespace, name)
-    except Exception:
+    except WorkflowNotFoundError:
+        # Only the missing case means "register fresh" — a real DB/catalog
+        # failure must surface, not silently restart versioning at 1.
         return None
 
 
