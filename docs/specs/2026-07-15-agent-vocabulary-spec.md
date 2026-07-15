@@ -1,4 +1,4 @@
-# Spec: agent vocabulary layer — structured output, staged pipeline, budget
+# Spec: agent vocabulary layer — structured output, bounded fan-out, budget
 
 **Date:** 2026-07-15 · **Status:** draft for review (PR 3 of the
 dynamic-workflows series) · **Depends on:** nothing at runtime — composes
@@ -9,14 +9,13 @@ with #130/#131 but each primitive stands alone.
 PR 1 gave model-authored code a safe place to run; PR 2 gave agents a way to
 author workflows. This PR makes what they author (and what agent loops do in
 general) *expressive and bounded*: subagent calls that return validated
-structured data instead of prose to re-parse, a fan-out combinator that
-streams items through stages without artificial barriers, and a spend
-ceiling that turns "the agent looped and burned tokens all night" into a
-structured, catchable failure.
+structured data instead of prose to re-parse, fan-out that survives one bad
+item and caps its own concurrency, and a spend ceiling that turns "the agent
+looped and burned tokens all night" into a structured, catchable failure.
 
 Each primitive replicates a proven shape from orchestration harnesses
-(schema-forced subagent output, per-item pipelines, shared token budgets)
-on Flux's own machinery.
+(schema-forced subagent output, bounded map over items, shared token
+budgets) on Flux's own machinery.
 
 ## 1. Structured output that survives tools
 
@@ -55,48 +54,64 @@ requested. There is also no validation-retry: a malformed response raises
 Streaming structured output (stream stays auto-disabled when a format is
 set, as today).
 
-## 2. `pipeline_map` — per-item staged fan-out
+## 2. `parallel` — bounded, partial-failure-tolerant fan-out
 
 ### Today
 
-`parallel(*coros)` is a gather (barrier at the end); `pipeline(*tasks,
-input)` threads ONE value through a chain. There is no way to run N items
-through M stages where item A can be in stage 3 while item B is still in
-stage 1 — the natural shape for "summarize every document, then judge every
-summary".
+`parallel(*coros)` is a bare `asyncio.gather`. Two gaps for agent-scale
+fan-out:
+
+1. **No concurrency cap.** 200 items where each is an `agent()` call means
+   200 concurrent LLM requests — there is no primitive to bound in-flight
+   work.
+2. **All-or-nothing failure.** `gather` without `return_exceptions`
+   propagates the first exception, and since `parallel` is itself a
+   `@task`, one bad item fails the whole combinator — retry then re-runs
+   the entire batch, including everything that already succeeded.
+
+Notably, *staged* per-item flow ("summarize every document, then judge
+every summary" with no barrier between stages) needs **no new combinator**:
+chain the stages in a plain async function and fan it out —
+
+```python
+async def process(doc):
+    fetched = await fetch(doc)
+    summary = await summarize(fetched)
+    return await judge(summary)
+
+results = await parallel(*[process(d) for d in docs])
+```
+
+Each stage is an ordinary task call with per-call occurrence identity, so
+replay/resume of a half-finished batch works for free. This idiom is the
+recommended shape and gets documented; an earlier draft proposed a
+dedicated `pipeline_map` combinator, rejected as sugar over the above.
 
 ### Design
 
+Close the two real gaps in `parallel` itself:
+
 ```python
-results = await pipeline_map(
-    items,
-    fetch,        # stage 1: receives (item)
-    summarize,    # stage 2+: receives (previous_result, item, index)
-    judge,
-    max_concurrent=8,
-    on_error="none",   # "none" (default) | "raise"
+results = await parallel(
+    *[process(d) for d in docs],
+    max_concurrent=8,        # semaphore; None (default) = unlimited
+    raise_on_error=False,    # default
 )
 ```
 
-- Each item flows through all stages **independently** — no barrier between
-  stages. Wall-clock is the slowest single-item chain, not the sum of the
-  slowest stage per phase.
-- Stage 1 receives the item; later stages receive
-  `(previous_result, item, index)` so context need not be threaded through
-  return values. Callables with a single parameter are called with just the
-  previous result (inspected once, at submission).
-- **Failure policy:** `on_error="none"` (default) — a stage exception drops
-  that item's result to `None` and skips its remaining stages, so one bad
-  item never kills the batch; the exception is recorded as a task event as
-  usual. `on_error="raise"` propagates the first failure.
-- `max_concurrent` caps in-flight items (semaphore); default unlimited.
+- **`max_concurrent`** — caps in-flight coroutines with a semaphore;
+  `None` (default) preserves today's unbounded behavior.
+- **`raise_on_error=False`** (default) — a failed coroutine's slot in the
+  result list becomes `None` and the remaining items keep running; the
+  exception is recorded on the corresponding task's events as usual, so
+  nothing is silently swallowed — the failure is visible in the execution
+  log, it just doesn't kill the batch. `raise_on_error=True` restores
+  fail-fast propagation (the pre-change behavior).
 - Results return in input order, `None` for dropped items.
-- Composition with replay is free: stages are ordinary task calls, each with
-  per-call occurrence identity, so a resumed pipeline replays completed
-  stage calls and re-runs only what never finished.
-
-Ships in `flux/tasks/builtins.py` next to `parallel`/`pipeline`; exported
-from `flux.tasks`.
+- **Compatibility note:** the *default* failure behavior changes — code
+  that relied on `parallel` raising on the first item failure must now
+  pass `raise_on_error=True` or check for `None` entries. Called out in
+  the changelog; the failure events themselves are unchanged.
 
 ## 3. Budget — a spend ceiling for LLM work
 
@@ -155,10 +170,11 @@ parameter (default 1). Budget is explicit-object-only — no ambient global.
   provider); malformed-then-corrected retry path; retry exhaustion fails
   with field-level detail; delegation surfaces validated instances;
   tool-less path unchanged (existing tests keep passing).
-- **pipeline_map:** ordering, no-barrier interleaving (stage timestamps),
-  single-param stage calling convention, error-drop vs error-raise,
-  max_concurrent cap, replay-resume mid-pipeline (pause between stages,
-  resume, completed stage calls not re-run).
+- **parallel:** ordering preserved; error-drop default (`None` slot, batch
+  survives, failure event recorded) vs `raise_on_error=True` fail-fast;
+  `max_concurrent` cap actually bounds in-flight count; staged per-item
+  idiom replays correctly (pause mid-batch, resume, completed stage calls
+  not re-run).
 - **Budget:** per-provider `extract_usage` (fixture responses); accumulation
   across calls sharing one budget; pre-flight ceiling raises
   `BudgetExceededError`; `None` ceiling tracks without enforcement;
@@ -166,7 +182,9 @@ parameter (default 1). Budget is explicit-object-only — no ambient global.
 
 ## Rollout / compatibility
 
-Additive: new combinator, new optional parameters, a new formatter method
-with a `None`-returning default (existing custom formatters keep working;
-budget enforcement simply sees no usage from them and only tracking-only
-budgets are useful until they implement it). Version: 0.59.0.
+Mostly additive: new optional parameters and a new formatter method with a
+`None`-returning default (existing custom formatters keep working; budget
+enforcement simply sees no usage from them and only tracking-only budgets
+are useful until they implement it). One behavior change: `parallel`'s
+default failure mode moves from fail-fast to drop-to-`None`
+(`raise_on_error=True` restores the old behavior). Version: 0.59.0.
