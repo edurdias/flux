@@ -80,7 +80,16 @@ async def parallel(
 
     runner = bounded if raise_on_error else dropping
     tasks: list[asyncio.Task] = [asyncio.create_task(runner(f)) for f in functions]
-    return await asyncio.gather(*tasks)
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # A propagated failure/pause/cancellation discards the batch — stop
+        # the siblings too, or they would keep running (and emitting events)
+        # after the workflow has already failed or paused past this point.
+        for pending in tasks:
+            pending.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 @task
