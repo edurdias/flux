@@ -20,6 +20,7 @@ from flux.errors import (
     RunnerNotAvailableError,
     StaleClaimError,
     WorkerProcessCrashed,
+    ExecutionTimedOut,
 )
 from flux.runners import create_runners
 from flux.runners.base import RunnerHooks
@@ -881,6 +882,8 @@ class Worker:
             ctx = await task
         except WorkerProcessCrashed as crash:
             return await self._handle_runner_crash(request, crash)
+        except ExecutionTimedOut as timeout:
+            return await self._handle_runner_timeout(request, timeout)
         finally:
             self._running_workflows.pop(request.context.execution_id, None)
             self._execution_started.pop(request.context.execution_id, None)
@@ -935,6 +938,28 @@ class Worker:
             await self._checkpoint(ctx)
             return ctx
         await self._release_claim(ctx.execution_id)
+        return ctx
+
+    async def _handle_runner_timeout(
+        self,
+        request: WorkflowExecutionRequest,
+        timeout: ExecutionTimedOut,
+    ) -> ExecutionContext:
+        """Fail an execution that exceeded the runner's wall-clock ceiling.
+
+        Terminal FAILED for BOTH durabilities — unlike a crash, releasing a
+        durable execution would re-dispatch work whose next attempt times out
+        deterministically again, looping forever.
+        """
+        ctx = timeout.last_context or request.context
+        logger.error(str(timeout))
+        if self._metrics_collector:
+            self._metrics_collector.record_outcome("failed")
+        ctx.fail(
+            ctx.execution_id,
+            {"type": "ExecutionTimedOut", "message": str(timeout)},
+        )
+        await self._checkpoint(ctx)
         return ctx
 
     async def _release_claim(self, execution_id: str):

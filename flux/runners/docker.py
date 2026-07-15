@@ -45,8 +45,9 @@ class DockerRunner(SubprocessRunner):
         memory: str = "",
         cpus: float = 0.0,
         extra_args: list[str] | None = None,
+        execution_timeout: float = 0,
     ):
-        super().__init__(term_grace=term_grace)
+        super().__init__(term_grace=term_grace, execution_timeout=execution_timeout)
         if not image:
             raise ValueError(
                 "[flux.workers] docker_image must be set when the 'docker' runner is enabled",
@@ -86,16 +87,30 @@ class DockerRunner(SubprocessRunner):
         return f"flux-exec-{execution_id[:24]}-{uuid4().hex[:6]}"
 
     def _build_command(self, container_name: str) -> list[str]:
+        """Template method. Sections in order: fixed prefix, config-derived
+        resource args, operator extra_args, then ``_locked_args()`` — LAST so
+        docker's last-wins flag parsing structurally favors a hardened
+        profile over anything an operator (or config-file attacker) adds."""
         command = ["docker", "run", "-i", "--rm", "--name", container_name]
-        if self._network:
-            command += ["--network", self._network]
-        if self._memory:
-            command += ["--memory", self._memory]
-        if self._cpus:
-            command += ["--cpus", str(self._cpus)]
+        command += self._resource_args()
         command += self._extra_args
+        command += self._locked_args()
         command += [self._image, "python", "-m", "flux.runners.child"]
         return command
+
+    def _resource_args(self) -> list[str]:
+        args: list[str] = []
+        if self._network:
+            args += ["--network", self._network]
+        if self._memory:
+            args += ["--memory", self._memory]
+        if self._cpus:
+            args += ["--cpus", str(self._cpus)]
+        return args
+
+    def _locked_args(self) -> list[str]:
+        """Non-configurable flags a hardened subclass emits; none here."""
+        return []
 
     async def _spawn(self, request: WorkflowExecutionRequest):
         container_name = self._container_name(request.context.execution_id)
@@ -131,3 +146,123 @@ class DockerRunner(SubprocessRunner):
 
     def _reap(self, proc):
         self._containers.pop(proc.pid, None)
+
+
+# extra_args must not be able to re-open what the airgapped profile closed:
+# network, host namespaces, devices, mounts, privileges, DNS. A denylist (not
+# an allowlist) on purpose — benign operator knobs (--env, --user, --tmpfs)
+# can't be enumerated, while the guarantees to protect can.
+_AIRGAPPED_VETOED_FLAGS = frozenset(
+    {
+        "--network",
+        "--net",
+        "--privileged",
+        "--cap-add",
+        "--device",
+        "--volume",
+        "-v",
+        "--mount",
+        "--volumes-from",
+        "--pid",
+        "--ipc",
+        "--uts",
+        "--userns",
+        "--security-opt",
+        "--group-add",
+        "--add-host",
+        "--dns",
+        "--dns-search",
+        "--dns-option",
+        "--link",
+        "--publish",
+        "-p",
+        "--publish-all",
+        "-P",
+        "--expose",
+        "--sysctl",
+        "--cgroup-parent",
+        "--cgroupns",
+        "--device-cgroup-rule",
+        "--oom-kill-disable",
+    },
+)
+
+
+class AirgappedDockerRunner(DockerRunner):
+    """Docker runner with a locked isolation profile for untrusted workflows.
+
+    The container's only capability channel is the stdio protocol to the
+    parent worker (where every secret/config/approval/checkpoint is
+    permission-checked); the profile removes everything else: no network
+    (which also makes ``pip install`` impossible — the image's packages are
+    the whole world), read-only rootfs with a size-capped tmpfs ``/tmp``,
+    no capabilities, no privilege escalation, pids/memory/cpu limits, and a
+    wall-clock ceiling that fails the execution terminally (see
+    ``ExecutionTimedOut``) instead of re-dispatching a deterministic repeat.
+
+    The profile is emitted from code (``_locked_args``), after operator
+    ``extra_args``, so configuration cannot weaken it; ``extra_args`` that
+    would re-open a closed surface are rejected at worker startup.
+    """
+
+    name = "docker-airgapped"
+
+    def __init__(
+        self,
+        image: str,
+        term_grace: float = 10.0,
+        memory: str = "512m",
+        cpus: float = 1.0,
+        pids_limit: int = 256,
+        tmp_size: str = "64m",
+        execution_timeout: float = 900,
+        extra_args: list[str] | None = None,
+    ):
+        if not memory:
+            raise ValueError(
+                "[flux.workers] airgapped_memory must be non-empty: an "
+                "unlimited-memory container defeats the airgapped profile",
+            )
+        if cpus <= 0:
+            raise ValueError("[flux.workers] airgapped_cpus must be > 0")
+        if pids_limit <= 0:
+            raise ValueError("[flux.workers] airgapped_pids_limit must be > 0")
+        for token in extra_args or []:
+            flag = token.split("=", 1)[0]
+            if flag in _AIRGAPPED_VETOED_FLAGS:
+                raise ValueError(
+                    f"[flux.workers] airgapped_extra_args contains '{token}': "
+                    f"'{flag}' would weaken the airgapped isolation profile "
+                    "and is not allowed",
+                )
+        super().__init__(
+            image=image,
+            term_grace=term_grace,
+            # Base resource args stay empty: the profile owns the limits so
+            # they land in _locked_args, after extra_args.
+            network="",
+            memory="",
+            cpus=0.0,
+            extra_args=extra_args,
+            execution_timeout=execution_timeout,
+        )
+        self._airgapped_memory = memory
+        self._airgapped_cpus = cpus
+        self._pids_limit = pids_limit
+        self._tmp_size = tmp_size
+
+    def _locked_args(self) -> list[str]:
+        return [
+            "--network=none",
+            "--read-only",
+            "--tmpfs",
+            f"/tmp:rw,size={self._tmp_size}",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit",
+            str(self._pids_limit),
+            "--memory",
+            self._airgapped_memory,
+            "--cpus",
+            str(self._airgapped_cpus),
+        ]
