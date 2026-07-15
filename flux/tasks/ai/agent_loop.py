@@ -5,7 +5,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from flux.errors import PauseRequested
 from flux.tasks.ai.models import LLMResponse
@@ -14,6 +14,7 @@ from flux.tasks.progress import progress
 
 if TYPE_CHECKING:
     from flux.task import task as TaskType
+    from flux.tasks.ai.budget import Budget
     from flux.tasks.ai.formatter import LLMFormatter
     from flux.tasks.ai.memory.working_memory import WorkingMemory
 
@@ -65,7 +66,10 @@ async def _call_llm(
     working_memory: Any,
     stream: bool,
     call_counter: int,
+    budget: Budget | None = None,
 ) -> LLMResponse:
+    if budget is not None:
+        budget.check()
     if stream and formatter.supports_reasoning_stream:
         from flux.domain.execution_context import CURRENT_CONTEXT
 
@@ -105,6 +109,8 @@ async def _call_llm(
         response = _ensure_llm_response(result)
         if stream and response.reasoning and response.reasoning.text:
             await progress({"type": "reasoning", "text": response.reasoning.text})
+    if budget is not None:
+        budget.record(response.usage)
     await _store_reasoning(working_memory, response)
     return response
 
@@ -119,6 +125,7 @@ async def run_agent_loop(
     tools: list[Any] | None = None,
     tool_schemas: list[Any] | None = None,
     response_format: type[BaseModel] | None = None,
+    max_schema_retries: int = 1,
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
     max_concurrent_tools: int | None = None,
@@ -128,13 +135,14 @@ async def run_agent_loop(
     on_complete: list[Any] | None = None,
     on_pause: list[Any] | None = None,
     agent_name: str = "agent",
+    budget: Budget | None = None,
 ) -> str | BaseModel:
     user_content = instruction
     if context:
         user_content = f"{instruction}\n\nContext from previous work:\n\n{context}"
 
     sys_prompt = system_prompt
-    if response_format and not tools:
+    if response_format:
         schema_json = json.dumps(response_format.model_json_schema())
         sys_prompt += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
 
@@ -142,7 +150,10 @@ async def run_agent_loop(
 
     if response_format and not tools:
         # Let providers with native structured-output support enforce the
-        # schema at the API level rather than relying only on the prompt.
+        # schema at the API level. Only possible on the tool-less path:
+        # Anthropic's enforcement is a forced tool call, which commandeers
+        # the tools/tool_choice kwargs. With tools, the schema in the system
+        # prompt plus post-hoc validation (with retry) takes over.
         formatter.apply_structured_output(response_format, call_kwargs)
 
     if tool_schemas:
@@ -150,7 +161,10 @@ async def run_agent_loop(
 
     call_counter = 0
 
-    if stream and not tools:
+    # Token-level streaming bypasses the LLM task wrapper, so provider usage
+    # is never captured on this path — with a budget, fall through to the
+    # non-streaming call (the final text is still emitted as progress).
+    if stream and not tools and budget is None:
         content = ""
         async for token in formatter.stream(messages, call_kwargs):
             content += token
@@ -161,7 +175,7 @@ async def run_agent_loop(
             await working_memory.memorize("assistant", content)
 
         if response_format:
-            return_value = response_format.model_validate_json(content)
+            return_value = response_format.model_validate_json(_json_candidate(content))
             await _fire_hooks(on_complete, agent_name, return_value)
             return return_value
 
@@ -176,6 +190,7 @@ async def run_agent_loop(
         working_memory,
         stream,
         call_counter,
+        budget,
     )
     call_counter += 1
 
@@ -276,6 +291,7 @@ async def run_agent_loop(
             working_memory,
             stream,
             call_counter,
+            budget,
         )
         call_counter += 1
 
@@ -299,6 +315,7 @@ async def run_agent_loop(
                 working_memory,
                 stream,
                 call_counter,
+                budget,
             )
             call_counter += 1
 
@@ -318,6 +335,7 @@ async def run_agent_loop(
             working_memory,
             stream,
             call_counter,
+            budget,
         )
         call_counter += 1
 
@@ -340,11 +358,67 @@ async def run_agent_loop(
         await working_memory.memorize("assistant", content)
 
     if response_format:
-        return_value = response_format.model_validate_json(content)
+        retries_left = max_schema_retries
+        while True:
+            try:
+                return_value = response_format.model_validate_json(_json_candidate(content))
+                break
+            except ValidationError as validation_error:
+                if retries_left <= 0:
+                    raise
+                retries_left -= 1
+                # Feed the validation errors back for a corrective turn.
+                # Tools are stripped (same pattern as the forced final
+                # answer) so the model can only answer, not act.
+                if content:
+                    messages.append(
+                        formatter.format_assistant_message(LLMResponse(text=content)),
+                    )
+                schema_json = json.dumps(response_format.model_json_schema())
+                messages.append(
+                    formatter.format_user_message(
+                        "Your response did not match the required schema. "
+                        f"Validation errors:\n{validation_error}\n\n"
+                        "Respond again with ONLY valid JSON matching this "
+                        f"schema:\n{schema_json}",
+                    ),
+                )
+                no_tool_kwargs = formatter.remove_tools_from_kwargs(call_kwargs)
+                response = await _call_llm(
+                    llm_task,
+                    formatter,
+                    messages,
+                    no_tool_kwargs,
+                    working_memory,
+                    stream,
+                    call_counter,
+                    budget,
+                )
+                call_counter += 1
+                content = response.text
+                if working_memory:
+                    await working_memory.memorize("assistant", content)
         await _fire_hooks(on_complete, agent_name, return_value)
         return return_value
 
     await _fire_hooks(on_complete, agent_name, content)
+    return content
+
+
+def _json_candidate(content: str) -> str:
+    """Strip a markdown code fence around an otherwise-JSON answer.
+
+    Models answering mid-conversation (especially after tool use, where no
+    native structured output constrains them) routinely wrap JSON in
+    ```json fences. Anything more exotic still fails validation and goes
+    through the corrective retry.
+    """
+    stripped = content.strip()
+    if stripped.startswith("```") and stripped.endswith("```"):
+        stripped = stripped[3:-3]
+        if stripped.startswith("json"):
+            stripped = stripped[4:]
+        return stripped.strip()
     return content
 
 

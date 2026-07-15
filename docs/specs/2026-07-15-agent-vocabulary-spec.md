@@ -22,11 +22,12 @@ budgets) on Flux's own machinery.
 ### Today
 
 `agent(response_format=SomeModel)` exists and uses native provider
-enforcement — but only on the **tool-less** path. Every structured-output
-branch in the loop is guarded by `response_format and not tools`, so an
-agent that has tools silently returns prose even when a schema was
-requested. There is also no validation-retry: a malformed response raises
-`ValidationError` and fails the task outright.
+enforcement — but only on the **tool-less** path. The schema-communication
+branches in the loop are guarded by `response_format and not tools`, while
+the final `model_validate_json` runs unconditionally — so an agent with
+tools is validated against a schema the model was never shown, and almost
+always fails with a raw `ValidationError` on prose. There is also no
+validation-retry: a malformed response fails the task outright.
 
 ### Design
 
@@ -41,11 +42,14 @@ requested. There is also no validation-retry: a malformed response raises
   a structured error naming the field-level problems. Mirrors how
   harness-side structured output behaves: the model corrects itself on
   mismatch instead of the caller eating a parse failure.
-- **Delegation carries contracts.** `workflow_agent(...)` and `delegate`
-  sub-agents accept `response_format` and surface the validated model to
-  the parent — the parent agent (or authored workflow) receives data, not
-  prose. `DelegationResult.value` is the validated instance when a format
-  was declared.
+- **Delegation carries contracts.** A sub-agent built with
+  `response_format` returns a validated model; `delegate` surfaces it to
+  the parent as plain data (`model_dump()` in `DelegationResult.output`) so
+  the parent LLM sees clean JSON. `workflow_agent(...,
+  response_format=...)` validates a completed workflow's output against the
+  model — a contract violation turns the delegation into a `failed` status
+  instead of handing the parent unchecked data. Direct callers (workflow
+  code awaiting an agent task) receive the validated instance itself.
 - **Replay:** validated models already round-trip through task events
   (pickled outputs); no new event types.
 
@@ -122,13 +126,17 @@ own spend.
 
 ### Design
 
-**Usage plumbing (the bulk of the work).** The `LLMFormatter` ABC gains
-`extract_usage(response) -> Usage | None` where
-`Usage(input_tokens, output_tokens)`; each provider module implements it
-from its native response shape (all four expose token counts). The agent
-loop records usage after every LLM call — including streamed calls, whose
-final usage arrives on the terminal chunk for every supported provider —
-and attaches it to the agent task's progress/telemetry.
+**Usage plumbing (the bulk of the work).** `LLMResponse` gains
+`usage: Usage | None` where `Usage(input_tokens, output_tokens)`; each
+provider module populates it from its native response shape (all four
+expose token counts), including the reasoning-stream paths, whose final
+usage arrives on the terminal chunk. Custom providers opt in by populating
+the field. Usage rides the checkpointed LLM task output, so it is visible
+in the execution's events. The agent loop records it into the budget after
+every LLM call. One consequence: setting a budget disables token-level
+content streaming for that agent (the final text still arrives as a
+progress event), because the raw token-stream path bypasses the LLM task
+and reports no usage.
 
 **The primitive.**
 
@@ -151,11 +159,14 @@ if budget.remaining() < 20_000:
   any task error. A call in flight is never killed mid-stream; the ceiling
   is a pre-flight gate, so overshoot is bounded by one call's output.
 - **Scope & replay semantics (stated honestly):** a `Budget` bounds spend
-  within one *run attempt*. On resume, replayed agent calls short-circuit
-  from the event log without re-spending, and the in-memory counter starts
-  fresh — so the ceiling applies to *new* spend after resume. Durable
-  cumulative accounting across attempts (usage as persisted events) is
-  future work, noted in the doc.
+  within one *run attempt*. On resume, the workflow re-runs and replayed
+  LLM task calls short-circuit from the event log — their recorded usage
+  (it rides `LLMResponse`) is re-counted into the fresh budget in the same
+  order, so a resumed attempt's accounting stays consistent without
+  re-spending real tokens. Sharing one budget across *concurrently running*
+  agents makes the exact enforcement point nondeterministic across replays.
+  Durable cumulative accounting across attempts (usage as persisted
+  events) is future work, noted in the doc.
 
 ## Config
 
@@ -173,10 +184,12 @@ parameter (default 1). Budget is explicit-object-only — no ambient global.
   batch survives, failure event recorded); `max_concurrent` cap actually
   bounds in-flight count; staged per-item idiom replays correctly (pause
   mid-batch, resume, completed stage calls not re-run).
-- **Budget:** per-provider `extract_usage` (fixture responses); accumulation
-  across calls sharing one budget; pre-flight ceiling raises
-  `BudgetExceededError`; `None` ceiling tracks without enforcement;
-  streamed-call usage capture.
+- **Budget:** per-provider usage extraction (fixture responses);
+  accumulation across calls sharing one budget; pre-flight ceiling raises
+  `BudgetExceededError` (catchable in workflow code); `None` ceiling tracks
+  without enforcement; budget forces the usage-reporting path for
+  otherwise-streaming tool-less agents; retry turns count against the
+  budget.
 
 ## Rollout / compatibility
 

@@ -118,7 +118,9 @@ async def agent(
 | `name` | `str \| None` | `None` | Task name used in events and traces. Defaults to `"agent_{provider}_{model}"`. |
 | `tools` | `list[task] \| None` | `None` | Flux `@task` functions the agent can call as tools. |
 | `skills` | `SkillCatalog \| None` | `None` | Skill catalog providing reusable instruction bundles the LLM can activate. |
-| `response_format` | `type[BaseModel] \| None` | `None` | Pydantic model class for structured JSON output. Disables streaming. |
+| `response_format` | `type[BaseModel] \| None` | `None` | Pydantic model class for structured JSON output. Composes with `tools`. Disables streaming. |
+| `max_schema_retries` | `int` | `1` | Corrective turns allowed when the final answer fails schema validation. `0` fails on the first invalid answer. |
+| `budget` | `Budget \| None` | `None` | Token-spend ceiling shared across every agent the instance is passed to. |
 | `working_memory` | `WorkingMemory \| None` | `None` | Conversation history across invocations within the same workflow execution. |
 | `long_term_memory` | `LongTermMemory \| None` | `None` | Persistent fact storage across workflow executions. |
 | `max_tool_calls` | `int` | `10` | Maximum tool call iterations before forcing a final answer. |
@@ -205,6 +207,66 @@ async def analyze(ctx: ExecutionContext):
 When `response_format` is set:
 - The return type changes from `str` to the Pydantic model instance.
 - Streaming is automatically disabled (`stream=True` is ignored).
+
+### Structured Output with Tools
+
+`response_format` composes with `tools`: the agent runs its tool loop as
+usual, and the final (non-tool-call) answer is validated against the schema.
+On the tool-less path, providers with native structured-output support
+enforce the schema at the API level; with tools, the schema travels in the
+system prompt and validation happens post-hoc.
+
+If the final answer fails validation, the validation errors are fed back to
+the model for a corrective turn (tools stripped, so it can only answer).
+`max_schema_retries` (default `1`) controls how many corrective turns are
+allowed before the agent task fails with the field-level validation errors.
+
+```python
+analyst = await agent(
+    "You are a research analyst.",
+    model="openai/gpt-4o",
+    tools=[search_web],
+    response_format=Sentiment,   # validated final answer, even with tools
+    max_schema_retries=2,
+)
+```
+
+## Token Budgets
+
+`Budget` puts a spend ceiling on LLM work. Create one instance and pass it
+to every agent whose usage should count against the same ceiling:
+
+```python
+from flux.tasks.ai import agent, Budget
+
+@workflow
+async def research(ctx: ExecutionContext):
+    budget = Budget(max_tokens=200_000)
+
+    researcher = await agent("...", model="openai/gpt-4o", budget=budget)
+    summarizer = await agent("...", model="openai/gpt-4o", budget=budget)
+
+    findings = await researcher(ctx.input)
+    if budget.remaining() < 20_000:
+        return findings  # not enough left for the summary pass
+    return await summarizer(str(findings))
+```
+
+- `budget.spent()` / `budget.remaining()` report accumulated usage;
+  `Budget()` with no ceiling tracks without enforcing.
+- Enforcement is a **pre-flight gate**: the loop checks the budget before
+  every LLM call and raises `BudgetExceededError` (a catchable
+  `ExecutionError`) once `spent()` reaches `max_tokens`. A call in flight is
+  never interrupted, so overshoot is bounded by one call's usage.
+- Usage is reported by all four built-in providers. Custom providers opt in
+  by populating `LLMResponse.usage`; without it, a budget sees no spend and
+  only tracking-only use is meaningful.
+- Setting a budget disables token-level content streaming for that agent
+  (the final text still arrives as a progress event) because usage is only
+  reported on non-streamed calls.
+- Scope: a budget bounds one run attempt. On resume, replayed LLM calls
+  short-circuit from the event log — their recorded usage is re-counted
+  without re-spending real tokens.
 
 ## Streaming
 
