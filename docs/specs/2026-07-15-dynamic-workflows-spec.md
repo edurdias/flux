@@ -1,6 +1,6 @@
 # Spec: dynamic workflows — ephemeral agent registration
 
-**Date:** 2026-07-15 · **Status:** draft for review (PR 2 of the
+**Date:** 2026-07-15 · **Status:** implemented (PR 2 of the
 dynamic-workflows series) · **Depends on:** `docker-airgapped` runner
 (merged, #130).
 
@@ -56,13 +56,18 @@ dynamic workflow — uses the existing surfaces unchanged.
   of the calling agent's own execution (the established mechanism for
   in-workflow server callbacks). No API key / OIDC path — this keeps the
   surface agent-only by construction.
-- **Principal & namespace:** the token resolves to the execution's principal;
-  the agent's workflows live in a per-agent namespace `dyn-<agent-slug>`
-  (flat namespaces only — fits `^[a-z0-9][a-z0-9_-]*$`, ≤64 chars; the slug
-  is derived from the agent name, collision-checked at agent creation).
-- **Permission:** `workflow:dyn-<agent-slug>:*:register` plus the matching
-  `:run`, granted to the agent's service principal when dynamic workflows
-  are enabled for that agent — never part of built-in roles.
+- **Principal & namespace:** the token resolves to the execution's
+  principal; workflows live in a per-principal namespace
+  `dyn-<subject-slug>-<hash8>` **derived server-side from the token's
+  subject, never from the request** — so one principal cannot write into
+  another's namespace by construction (the deterministic hash suffix keeps
+  distinct subjects distinct even when slugging collides). Flat namespaces
+  only: fits `^[a-z0-9][a-z0-9_-]*$`, ≤64 chars.
+- **Permission:** `workflow:<derived-namespace>:*:register` plus the
+  matching `:run`, granted to the principal the agent's executions run
+  under — never part of built-in roles. (Auto-provisioning the grant from
+  an agents-table flag is follow-up work: agents do not currently own
+  service principals, so enablement today is an explicit operator grant.)
 - **Reserved prefix:** the ordinary registration path
   (`POST /workflows`, inline auto-registration) **rejects namespaces starting
   with `dyn-`**, so nothing can squat an agent's namespace or sneak an
@@ -83,9 +88,13 @@ dynamic workflow — uses the existing surfaces unchanged.
      one-shot authoring call install permanent recurring execution).
    - Service exposure (HTTP/MCP service options) is **rejected** — no
      agent-authored public endpoints.
-   - `requests=` (ResourceRequest) is **ignored with a warning** — the
-     airgapped profile owns resource limits.
-   - `namespace=`/`name` in source are overridden by the per-agent namespace.
+   - `requests=`, `affinity=`, `routing=` are **rejected** — the airgapped
+     profile and placement are platform-owned.
+   - `namespace=` and `runner=` in source are **rejected** (not silently
+     overridden): the server owns both, and an explicit error teaches the
+     authoring model faster than a silent rewrite. Implementation is a
+     with_options **allowlist** (`name`, `durability`, `secret_requests`,
+     `output_storage`); anything outside it is a structured error.
 4. **Stamping** — the server writes `runner="docker-airgapped"` into the
    entry's metadata regardless of what the source declares (the author is
    the adversary; AST-extracted options cannot be the enforcement point).
