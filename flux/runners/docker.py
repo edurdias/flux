@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
+import re
 import shutil
 import subprocess
 from typing import TYPE_CHECKING
@@ -194,6 +196,81 @@ _AIRGAPPED_VETOED_FLAGS = frozenset(
 )
 
 
+_SERVICE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+SERVICE_SOCKET_FILENAME = "service.sock"
+SERVICE_MOUNT_PREFIX = "/run/flux/services"
+
+
+def _validate_service_sockets(services: dict[str, str]) -> dict[str, str]:
+    """Validate the ``airgapped_service_sockets`` map (name -> host dir).
+
+    The directory contract: mode ``0555`` (no write bits at all), socket
+    ``service.sock`` inside at ``0666``. The mount must be rw — connecting
+    to a UDS requires write permission on the socket inode — but the
+    profile's ``--cap-drop=ALL`` strips ``CAP_DAC_OVERRIDE``, so the
+    write-less directory mode binds every container uid, root included:
+    executions can connect to the sockets, never create files (no
+    dead-drop between executions). Host-side root (the sidecar or its unit
+    manager) keeps ``CAP_DAC_OVERRIDE`` and can still create or replace
+    the socket across restarts.
+    """
+    validated: dict[str, str] = {}
+    seen_dirs: set[str] = set()
+    for name, host_dir in services.items():
+        if len(name) > 32 or not _SERVICE_NAME_RE.match(name):
+            raise ValueError(
+                f"[flux.workers] airgapped_service_sockets name '{name}' is "
+                "invalid: use lowercase letters, digits, and single hyphens "
+                "(max 32 chars) — it becomes the worker label "
+                f"'flux.service.{name}'",
+            )
+        if not os.path.isabs(host_dir):
+            raise ValueError(
+                f"[flux.workers] airgapped_service_sockets['{name}']: host "
+                f"directory '{host_dir}' must be an absolute path",
+            )
+        if "," in host_dir:
+            # --mount options are comma-separated; a comma in the path
+            # would silently change the mount spec.
+            raise ValueError(
+                f"[flux.workers] airgapped_service_sockets['{name}']: host "
+                "directory must not contain commas",
+            )
+        host_dir = os.path.normpath(host_dir)
+        if host_dir in seen_dirs:
+            raise ValueError(
+                f"[flux.workers] airgapped_service_sockets['{name}']: host "
+                f"directory '{host_dir}' is already used by another service",
+            )
+        if not os.path.exists(host_dir):
+            os.makedirs(host_dir)
+            os.chmod(host_dir, 0o555)
+        elif not os.path.isdir(host_dir):
+            raise ValueError(
+                f"[flux.workers] airgapped_service_sockets['{name}']: "
+                f"'{host_dir}' exists but is not a directory",
+            )
+        else:
+            mode = os.stat(host_dir).st_mode & 0o777
+            if mode & 0o222:
+                raise ValueError(
+                    f"[flux.workers] airgapped_service_sockets['{name}']: "
+                    f"'{host_dir}' has mode {mode:o}; the directory must "
+                    "carry no write bits (chmod 0555) so sealed executions "
+                    "cannot use it as a shared writable surface",
+                )
+        socket_path = os.path.join(host_dir, SERVICE_SOCKET_FILENAME)
+        if not os.path.exists(socket_path):
+            logger.warning(
+                f"Service '{name}': no socket at {socket_path} yet — the "
+                "sidecar may not be running; executions using this service "
+                "will fail to connect until it is",
+            )
+        seen_dirs.add(host_dir)
+        validated[name] = host_dir
+    return validated
+
+
 def _parse_airgapped_mounts(mounts: list[str]) -> list[tuple[str, str]]:
     """Validate ``airgapped_mounts`` entries into (source, target) pairs.
 
@@ -267,14 +344,18 @@ class AirgappedDockerRunner(DockerRunner):
     ``extra_args``, so configuration cannot weaken it; ``extra_args`` that
     would re-open a closed surface are rejected at worker startup.
 
-    Three capabilities are grantable — each only through its named config
-    key, never through ``extra_args``, so the config file is the audit
-    trail: ``airgapped_gpus`` (compute device, no data path out),
+    Capabilities are grantable — each only through its named config key,
+    never through ``extra_args``, so the config file is the audit trail:
+    ``airgapped_gpus`` (compute device, no data path out),
     ``airgapped_mounts`` (bind mounts with read-only forced by the runner —
-    an input channel for reference data and static assets), and
+    an input channel for reference data and static assets),
     ``airgapped_shm_size`` (``/dev/shm`` sizing for workloads that pass
-    large buffers between processes). None of them opens an output channel:
-    results still leave only through the worker-mediated stdio protocol.
+    large buffers between processes), and ``airgapped_service_sockets``
+    (Unix-socket access to long-lived, operator-managed sidecars on the
+    worker host — warm runtimes consumed point-to-point, with no network
+    stack anywhere; see ``_validate_service_sockets`` for the directory
+    contract). Socket traffic is the one channel the worker does not
+    mediate; everything else still leaves only through the stdio protocol.
     """
 
     name = "docker-airgapped"
@@ -292,6 +373,7 @@ class AirgappedDockerRunner(DockerRunner):
         gpus: str = "",
         mounts: list[str] | None = None,
         shm_size: str = "",
+        service_sockets: dict[str, str] | None = None,
     ):
         if not memory:
             raise ValueError(
@@ -320,6 +402,7 @@ class AirgappedDockerRunner(DockerRunner):
         self._mounts = _parse_airgapped_mounts(list(mounts or []))
         self._gpus = gpus
         self._shm_size = shm_size
+        self._service_sockets = _validate_service_sockets(dict(service_sockets or {}))
         super().__init__(
             image=image,
             term_grace=term_grace,
@@ -335,6 +418,11 @@ class AirgappedDockerRunner(DockerRunner):
         self._airgapped_cpus = cpus
         self._pids_limit = pids_limit
         self._tmp_size = tmp_size
+
+    @property
+    def service_names(self) -> list[str]:
+        """Granted service-socket names; advertised as worker labels."""
+        return sorted(self._service_sockets)
 
     def _locked_args(self) -> list[str]:
         args = [
@@ -360,4 +448,24 @@ class AirgappedDockerRunner(DockerRunner):
             args += ["--gpus", self._gpus]
         if self._shm_size:
             args += ["--shm-size", self._shm_size]
+        # Service sockets: the one deliberately-rw mount family (UDS connect
+        # needs write on the socket inode); the 0555 directory contract plus
+        # --cap-drop=ALL keeps it write-proof for every container uid. The
+        # env var is emitted here, after extra_args, so docker's last-wins
+        # parsing keeps the advertised map authoritative.
+        for name in sorted(self._service_sockets):
+            args += [
+                "--mount",
+                f"type=bind,source={self._service_sockets[name]},"
+                f"target={SERVICE_MOUNT_PREFIX}/{name}",
+            ]
+        if self._service_sockets:
+            socket_map = {
+                name: f"{SERVICE_MOUNT_PREFIX}/{name}/{SERVICE_SOCKET_FILENAME}"
+                for name in self._service_sockets
+            }
+            args += [
+                "--env",
+                f"FLUX_SERVICE_SOCKETS={json.dumps(socket_map, sort_keys=True, separators=(',', ':'))}",
+            ]
         return args

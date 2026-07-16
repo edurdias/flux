@@ -129,7 +129,21 @@ class Worker:
         self._progress_queues: dict[str, asyncio.Queue] = {}
         self._progress_flushers: dict[str, asyncio.Task | None] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
+        # The flux. label prefix is reserved for platform-derived labels so
+        # user labels cannot spoof capability grants (service sockets below).
+        reserved = sorted(k for k in self.labels if k.startswith("flux."))
+        if reserved:
+            raise ValueError(
+                f"Worker labels {reserved} use the reserved 'flux.' prefix; "
+                "these labels are derived from worker configuration and "
+                "cannot be set directly",
+            )
         self._runners = create_runners(list(config.runners), config)
+        airgapped = self._runners.get("docker-airgapped")
+        for service_name in getattr(airgapped, "service_names", []):
+            # Advertised so workflows can target service-bearing workers via
+            # the existing affinity mechanism.
+            self.labels[f"flux.service.{service_name}"] = "true"
         self._default_runner = config.default_runner
         if self._default_runner not in self._runners:
             raise ValueError(

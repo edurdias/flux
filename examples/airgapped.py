@@ -124,6 +124,43 @@ async def sealed_redact(ctx: ExecutionContext[str]):
     return await redact(ctx.input)
 
 
+@task
+async def classify(text: str) -> dict:
+    """Call a warm local service over its Unix socket, if granted.
+
+    Workers grant long-lived sidecars to sealed executions via
+    ``[flux.workers] airgapped_service_sockets`` — the runtime loads its
+    state once at startup and every execution reaches it point-to-point,
+    with no network stack anywhere. When the grant is absent (or running
+    inline), fall back to a local heuristic so the workflow stays
+    functional everywhere.
+    """
+    from flux.errors import ExecutionError
+    from flux.tasks import service_client
+
+    try:
+        async with service_client("classifier") as client:
+            response = await client.post("/classify", json={"text": text})
+            response.raise_for_status()
+            return {"label": response.json()["label"], "via": "service"}
+    except ExecutionError:
+        # Service not granted here — degrade to the built-in heuristic.
+        label = "question" if text.rstrip().endswith("?") else "statement"
+        return {"label": label, "via": "fallback"}
+
+
+@workflow.with_options(
+    runner="docker-airgapped",
+    affinity={"flux.service.classifier": "true"},
+)
+async def sealed_classify(ctx: ExecutionContext[str]):
+    """Warm-sidecar consumption: the affinity routes this workflow to
+    workers that advertise the ``classifier`` service socket."""
+    if not ctx.input:
+        raise TypeError("Input not provided")
+    return await classify(ctx.input)
+
+
 if __name__ == "__main__":  # pragma: no cover
     ctx = sealed_keyword_count.run("the quick brown fox jumps over the lazy dog")
     print(ctx.to_json())

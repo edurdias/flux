@@ -74,6 +74,7 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
                 gpus=config.airgapped_gpus,
                 mounts=list(config.airgapped_mounts),
                 shm_size=config.airgapped_shm_size,
+                service_sockets=dict(config.airgapped_service_sockets),
             )
         else:
             raise ValueError(

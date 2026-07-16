@@ -58,16 +58,17 @@ redaction of sensitive data).
 
 ## Capability knobs
 
-Three capabilities can be granted. Each is grantable **only through its
-named config key** — the raw flags (`--gpus`, `--shm-size`, and all mount
-flags) are rejected in `airgapped_extra_args` — so a grep of `flux.toml`
-for `airgapped_` is the complete audit trail of opened surfaces:
+Capabilities are granted **only through named config keys** — the raw
+flags (`--gpus`, `--shm-size`, and all mount flags) are rejected in
+`airgapped_extra_args` — so a grep of `flux.toml` for `airgapped_` is the
+complete audit trail of opened surfaces:
 
 | Key | Grants | Why it's safe to grant |
 |---|---|---|
 | `airgapped_gpus` | `--gpus all` / `"device=0"` | a compute device; no data path out |
 | `airgapped_mounts` | read-only bind mounts | an *input* channel — data can enter, results still leave only via the stdio protocol |
 | `airgapped_shm_size` | `/dev/shm` sizing | RAM allocation (large inter-process buffers); accounted next to `airgapped_memory` |
+| `airgapped_service_sockets` | UDS access to local sidecars | point-to-point to loopback-bound trusted infrastructure; no network stack, no lateral channel, no egress |
 
 `airgapped_mounts` entries are `"/host/path:/container/path"`. Read-only
 is **forced by the runner** regardless of what the entry says; `rw`,
@@ -81,6 +82,66 @@ privileges, host namespaces, and writable mounts cannot be enabled on this
 runner. Operators who need them switch to the plain `docker` runner —
 changing the runner *name*, and therefore the guarantee that dispatch and
 the dynamic-workflows server rely on.
+
+## Service sockets — warm runtimes for sealed executions
+
+A runtime whose startup is expensive (state loaded into memory over
+minutes) cannot live inside a single-use container. `airgapped_service_sockets`
+lets it live *outside* as a long-lived, operator-managed sidecar on the
+worker host, reached over a Unix domain socket — no network stack
+anywhere, point-to-point by construction:
+
+```toml
+[flux.workers]
+runners = ["docker-airgapped"]
+airgapped_service_sockets = { inference = "/run/flux-services/inference" }
+```
+
+Each value is a host directory containing the service's socket at
+`<dir>/service.sock`; it is bind-mounted into containers at
+`/run/flux/services/<name>`. The directory contract keeps the mount
+write-proof: mode `0555` (validated at worker startup; created if
+absent), sockets `0666`. The mount is `rw` — connecting to a UDS requires
+write permission on the socket inode — but `--cap-drop=ALL` strips
+`CAP_DAC_OVERRIDE`, so the write-less directory binds every container
+uid, root included: executions can connect, never create files. A
+missing socket at startup is only a warning (the sidecar may start
+later); a down sidecar surfaces to workflows as a normal connect error.
+
+Granted services are advertised as `flux.service.<name>` worker labels
+(the `flux.` label prefix is reserved — user labels can't spoof grants),
+so workflows target service-bearing workers with the existing affinity
+mechanism. In workflow code:
+
+```python
+from flux.tasks import service_client
+
+@task
+async def generate(prompt: str) -> dict:
+    async with service_client("inference") as client:   # httpx over UDS
+        response = await client.post("/v1/completions", json={"prompt": prompt})
+        return response.json()
+
+@workflow.with_options(
+    runner="docker-airgapped",
+    affinity={"flux.service.inference": "true"},
+)
+async def sealed_generate(ctx: ExecutionContext[str]):
+    return await generate(ctx.input)
+```
+
+Streaming is native HTTP over the socket (SSE/chunked responses work
+as-is; tee tokens into `progress()` for live visibility), and because
+service calls live inside ordinary tasks, replay short-circuits from the
+event log without re-contacting the sidecar.
+
+The honest tradeoff, documented deliberately: socket traffic is the one
+channel the worker does **not** mediate — no per-call allowlist, audit,
+or rate limit (the grant granularity is the service, and the sidecar
+enforces its own limits). The sidecar receives data, not code, from
+processes with no other capabilities; run it as its own hardened unit
+(dedicated user, no egress, GPU pinned) — it is trusted infrastructure,
+like a database. Sidecar recipes (llama-server, vLLM) are in DOCKER.md.
 
 ## Sizing for data- and compute-heavy workloads
 

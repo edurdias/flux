@@ -122,6 +122,52 @@ Notes:
   isolate at the worker level (one airgapped worker per GPU tenant) if
   that matters to you.
 
+## Service sidecars for the airgapped runner
+
+Long-lived runtimes with expensive startup live *outside* the sandbox as
+operator-managed sidecars, reached over a Unix domain socket
+(`[flux.workers] airgapped_service_sockets` — see the Airgapped Execution
+docs for semantics). The sidecar is trusted infrastructure, like a
+database: run it as its own hardened unit — dedicated user, no egress,
+GPU pinned — serving only its socket.
+
+Directory contract (validated at worker startup): the configured host
+directory carries no write bits (`chmod 0555`) and the socket inside is
+world-connectable (`0666`). Host-side root keeps `CAP_DAC_OVERRIDE`, so a
+root-managed sidecar can create and replace its socket across restarts
+even in the write-less directory; sealed containers cannot, because the
+profile drops all capabilities.
+
+llama.cpp (binds a UDS when the host ends in `.sock`):
+
+```bash
+llama-server -m /srv/models/model.gguf \
+  --host /run/flux-services/inference/service.sock
+```
+
+vLLM (uvicorn UDS):
+
+```bash
+vllm serve <model> --uds /run/flux-services/inference/service.sock
+```
+
+Example systemd shape — create the directory, bind the socket, lock the
+directory down:
+
+```ini
+[Service]
+ExecStartPre=/usr/bin/install -d -m 0755 /run/flux-services/inference
+ExecStart=/usr/local/bin/llama-server -m /srv/models/model.gguf \
+  --host /run/flux-services/inference/service.sock
+ExecStartPost=/bin/sh -c 'chmod 0666 /run/flux-services/inference/service.sock; \
+  chmod 0555 /run/flux-services/inference'
+Restart=always
+```
+
+(`0755` during bind so a non-root `User=` can create the socket; locked
+to `0555` once it exists. A root-run sidecar can keep the directory at
+`0555` permanently.)
+
 ## Running the Server
 
 ```bash
