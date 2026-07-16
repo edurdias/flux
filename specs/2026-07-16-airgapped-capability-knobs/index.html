@@ -11,10 +11,6 @@
       
       
       
-        <link rel="prev" href="../features/">
-      
-      
-        <link rel="next" href="../../getting-started/installation/">
       
       
         
@@ -25,7 +21,7 @@
     
     
       
-        <title>Use Cases - Flux Documentation</title>
+        <title>Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory - Flux Documentation</title>
       
     
     
@@ -78,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#use-cases" class="md-skip">
+        <a href="#spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Use Cases
+              Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory
             
           </span>
         </div>
@@ -286,10 +282,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -308,11 +302,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -333,7 +329,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -351,7 +347,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../../introduction/overview/" class="md-nav__link">
         
   
   
@@ -379,7 +375,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../features/" class="md-nav__link">
+      <a href="../../introduction/features/" class="md-nav__link">
         
   
   
@@ -404,37 +400,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Use Cases
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../introduction/use-cases/" class="md-nav__link">
         
   
   
@@ -450,92 +419,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#data-processing-pipelines" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Data Processing Pipelines
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#integration-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Integration Workflows
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#business-process-automation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Business Process Automation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#machine-learning-operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Machine Learning Operations
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#ai-agent-workflows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        AI Agent Workflows
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#mcp-tool-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP Tool Integration
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1364,10 +1247,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#data-processing-pipelines" class="md-nav__link">
+  <a href="#motivation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Data Processing Pipelines
+        Motivation
       
     </span>
   </a>
@@ -1375,10 +1258,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#integration-workflows" class="md-nav__link">
+  <a href="#design-principle-named-knobs-not-veto-opt-outs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Integration Workflows
+        Design principle: named knobs, not veto opt-outs
       
     </span>
   </a>
@@ -1386,10 +1269,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#business-process-automation" class="md-nav__link">
+  <a href="#new-config-keys-fluxworkers" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Business Process Automation
+        New config keys ([flux.workers])
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="New config keys ([flux.workers])">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#airgapped_mounts-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        airgapped_mounts semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#airgapped_gpus-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        airgapped_gpus semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#veto-list-additions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Veto list additions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wiring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wiring
       
     </span>
   </a>
@@ -1397,10 +1330,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#machine-learning-operations" class="md-nav__link">
+  <a href="#dockermd-heavy-workload-profile-guidance" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Machine Learning Operations
+        DOCKER.md: heavy-workload profile guidance
       
     </span>
   </a>
@@ -1408,10 +1341,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#ai-agent-workflows" class="md-nav__link">
+  <a href="#testing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        AI Agent Workflows
+        Testing
       
     </span>
   </a>
@@ -1419,10 +1352,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#mcp-tool-integration" class="md-nav__link">
+  <a href="#rollout-compatibility" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MCP Tool Integration
+        Rollout / compatibility
       
     </span>
   </a>
@@ -1449,51 +1382,160 @@
   
 
 
-<h1 id="use-cases">Use Cases<a class="headerlink" href="#use-cases" title="Permanent link">&para;</a></h1>
-<p>Flux is particularly well-suited for:</p>
-<h3 id="data-processing-pipelines"><strong>Data Processing Pipelines</strong><a class="headerlink" href="#data-processing-pipelines" title="Permanent link">&para;</a></h3>
+<h1 id="spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory">Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory<a class="headerlink" href="#spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-07-16 · <strong>Status:</strong> draft for review (follow-up to the
+docker-airgapped runner, #130) · <strong>Motivating use case:</strong> data- and
+compute-heavy workloads inside the airgapped sandbox.</p>
+<h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h2>
+<p>The <code>docker-airgapped</code> runner exists so untrusted (often model-authored)
+workflows can run with the stdio protocol as their <em>only</em> capability
+channel. Sealed processing of sensitive data is a natural workload for
+it — the whole point is that inputs and intermediate state never leave the
+box — but today the profile can't express what heavier workloads need:</p>
 <ul>
-<li>ETL workflows</li>
-<li>Data transformation</li>
-<li>Batch processing</li>
-<li>Stream processing</li>
+<li><strong>GPUs</strong> work only by accident: <code>--gpus</code> is absent from
+  <code>_AIRGAPPED_VETOED_FLAGS</code>, so it slips through <code>airgapped_extra_args</code>.
+  Granting a capability by denylist omission is the wrong mechanism — it is
+  invisible, unaudited, and would be silently revoked if the flag were ever
+  added to the veto list.</li>
+<li><strong>Reference data</strong> must be baked into the image: <code>--network=none</code> rules
+  out runtime downloads and <code>--volume</code>/<code>--mount</code> are vetoed. Large
+  datasets change more often than code; forcing an image rebuild per
+  refresh pushes operators toward the unprotected <code>docker</code> runner — the
+  opposite of what the profile is for.</li>
+<li><strong>Shared memory</strong>: workloads that pass large buffers between processes
+  go through <code>/dev/shm</code>, and Docker's default is 64 MB. <code>--shm-size</code> also
+  slips through <code>extra_args</code> today — RAM allocation in disguise,
+  unaccounted next to <code>airgapped_memory</code>.</li>
 </ul>
-<h3 id="integration-workflows"><strong>Integration Workflows</strong><a class="headerlink" href="#integration-workflows" title="Permanent link">&para;</a></h3>
+<h2 id="design-principle-named-knobs-not-veto-opt-outs">Design principle: named knobs, not veto opt-outs<a class="headerlink" href="#design-principle-named-knobs-not-veto-opt-outs" title="Permanent link">&para;</a></h2>
+<p>The runner name is a dispatch contract — the dynamic-workflows server
+stamps <code>require_runner="docker-airgapped"</code> and trusts any worker
+advertising it. Two rules keep the name meaningful:</p>
+<ol>
+<li><strong>The knob set is enumerated in code, not generic.</strong> Each knob is a
+   deliberate judgment that the isolation <em>output</em> guarantee survives it.
+   Capability channels (network, DNS, publish, privileged, caps, host
+   namespaces, writable mounts) are never knobs — operators who need those
+   switch to the plain <code>docker</code> runner, changing the <em>name</em> and therefore
+   the dispatched guarantee.</li>
+<li><strong>Each capability is grantable only through its named config key.</strong> The
+   raw flags (<code>--gpus</code>, <code>--shm-size</code>, and the already-vetoed mount flags)
+   are rejected in <code>airgapped_extra_args</code>, so a grep of <code>flux.toml</code> for
+   <code>airgapped_</code> shows exactly which surfaces were opened. Config choice,
+   not runtime surface: workflow authors (the adversary in this model)
+   never touch worker config.</li>
+</ol>
+<p>CPU/RAM/pids/tmpfs/timeout already follow this pattern
+(<code>airgapped_memory</code>, <code>airgapped_cpus</code>, <code>airgapped_pids_limit</code>,
+<code>airgapped_tmp_size</code>, <code>airgapped_execution_timeout</code>) — resizable, never
+unset. This PR adds the three missing knobs.</p>
+<h2 id="new-config-keys-fluxworkers">New config keys (<code>[flux.workers]</code>)<a class="headerlink" href="#new-config-keys-fluxworkers" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type / default</th>
+<th>Emitted as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>airgapped_gpus</code></td>
+<td><code>str</code>, <code>""</code> (off)</td>
+<td><code>--gpus &lt;value&gt;</code> (e.g. <code>all</code>, <code>"device=0"</code>)</td>
+</tr>
+<tr>
+<td><code>airgapped_mounts</code></td>
+<td><code>list[str]</code>, <code>[]</code></td>
+<td><code>--mount type=bind,source=&lt;src&gt;,target=&lt;dst&gt;,readonly</code> per entry</td>
+</tr>
+<tr>
+<td><code>airgapped_shm_size</code></td>
+<td><code>str</code>, <code>""</code> (docker default, 64m)</td>
+<td><code>--shm-size &lt;value&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>All three are emitted from <code>_locked_args()</code> — after <code>extra_args</code>, so
+docker's last-wins parsing keeps the profile authoritative.</p>
+<h3 id="airgapped_mounts-semantics"><code>airgapped_mounts</code> semantics<a class="headerlink" href="#airgapped_mounts-semantics" title="Permanent link">&para;</a></h3>
 <ul>
-<li>API orchestration</li>
-<li>Service integration</li>
-<li>Event-driven processes</li>
-<li>Microservice coordination</li>
+<li>Entry format <code>"/host/path:/container/path"</code>. Both paths must be
+  absolute. A trailing <code>:ro</code> is accepted (and redundant); any other
+  option — <code>rw</code> above all — is rejected at worker startup.</li>
+<li><strong>Read-only is forced by the runner</strong>, not trusted from config: the
+  emitted <code>--mount</code> always carries <code>readonly</code>. A read-only bind is an
+  <em>input</em> channel — data can enter the sandbox but still cannot leave
+  except through the worker-mediated stdio protocol.</li>
+<li>Validation at worker startup (fail fast, same philosophy as the docker
+  probe): absolute paths, host path exists, no duplicate targets, target
+  is not <code>/</code>.</li>
+<li>Security note (documented): mounted content is readable by <strong>every</strong>
+  airgapped workflow on that worker. Mount reference data and static
+  assets; never mount directories containing secrets.</li>
 </ul>
-<h3 id="business-process-automation"><strong>Business Process Automation</strong><a class="headerlink" href="#business-process-automation" title="Permanent link">&para;</a></h3>
+<h3 id="airgapped_gpus-semantics"><code>airgapped_gpus</code> semantics<a class="headerlink" href="#airgapped_gpus-semantics" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Order processing</li>
-<li>Document handling</li>
-<li>Approval workflows</li>
-<li>Multi-step operations</li>
+<li>String passed through to <code>--gpus</code>. Empty = no GPU (today's effective
+  default, now explicit).</li>
+<li>A GPU is a compute device, not an exfiltration path; it is the knob that
+  makes GPU-accelerated sealed compute possible at all. Documented caveat:
+  GPUs are a shared-hardware side channel in the strictest threat models —
+  operators who care isolate at the worker level (one airgapped worker per
+  GPU tenant).</li>
 </ul>
-<h3 id="machine-learning-operations"><strong>Machine Learning Operations</strong><a class="headerlink" href="#machine-learning-operations" title="Permanent link">&para;</a></h3>
+<h3 id="veto-list-additions">Veto list additions<a class="headerlink" href="#veto-list-additions" title="Permanent link">&para;</a></h3>
+<p><code>--gpus</code> and <code>--shm-size</code> join <code>_AIRGAPPED_VETOED_FLAGS</code>. This is the
+counterpart of making them knobs: the named key becomes the <em>only</em> grant
+path. (Both currently pass the veto — for <code>--gpus</code> that is exactly the
+accident this spec removes.)</p>
+<h2 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Model training pipelines</li>
-<li>Data preparation workflows</li>
-<li>Feature engineering</li>
-<li>Model deployment processes</li>
+<li><code>flux/config.py</code> — three new fields on the workers config.</li>
+<li><code>flux/runners/docker.py</code> — constructor params + validation +
+  <code>_locked_args()</code> emission; veto list additions.</li>
+<li><code>flux/runners/__init__.py</code> — pass the new config through (same shape as
+  the existing airgapped params).</li>
 </ul>
-<h3 id="ai-agent-workflows"><strong>AI Agent Workflows</strong><a class="headerlink" href="#ai-agent-workflows" title="Permanent link">&para;</a></h3>
+<p>No server, dispatch, or protocol changes: the runner name and its
+guarantee semantics are unchanged.</p>
+<h2 id="dockermd-heavy-workload-profile-guidance">DOCKER.md: heavy-workload profile guidance<a class="headerlink" href="#dockermd-heavy-workload-profile-guidance" title="Permanent link">&para;</a></h2>
+<p>New section covering the sized-up setup end to end:</p>
 <ul>
-<li>Multi-agent pipelines (research → write → edit)</li>
-<li>Conversational agents with stateful pause/resume</li>
-<li>Code review with specialized skills (security, performance)</li>
-<li>RAG (Retrieval Augmented Generation) systems</li>
-<li>Function-calling agents with real-time tool use</li>
+<li>Image recipe: <code>FROM flux:&lt;version&gt;</code> + the workload's libraries;
+  reference data comes from <code>airgapped_mounts</code>, not the image.</li>
+<li>Sizing: raise <code>airgapped_memory</code> / <code>airgapped_cpus</code> /
+  <code>airgapped_tmp_size</code> / <code>airgapped_execution_timeout</code>; set
+  <code>airgapped_shm_size</code> for workloads that pass large buffers between
+  processes. <strong>tmpfs pages (<code>/tmp</code>, <code>/dev/shm</code>) count against the
+  container's memory cgroup</strong> — <code>airgapped_memory</code> must cover process +
+  caches + shm.</li>
+<li>Read-only rootfs: point cache locations (<code>XDG_CACHE_HOME</code>, ...) at
+  <code>/tmp</code> via <code>airgapped_extra_args = ["--env", ...]</code>.</li>
+<li>Helper processes: <code>--network=none</code> keeps the container's own loopback,
+  so a workflow may spawn a helper server on <code>127.0.0.1</code> <em>inside</em> the
+  container — nothing is reachable from outside, and results still flow
+  only through the stdio protocol.</li>
 </ul>
-<h3 id="mcp-tool-integration"><strong>MCP Tool Integration</strong><a class="headerlink" href="#mcp-tool-integration" title="Permanent link">&para;</a></h3>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Dynamic tool discovery from MCP servers</li>
-<li>LLM-driven workflow management assistants</li>
-<li>Multi-server tool orchestration</li>
-<li>Authenticated external service integration</li>
+<li>Veto: <code>airgapped_extra_args</code> containing <code>--gpus</code> / <code>--shm-size</code> /
+  <code>--mount</code> (and <code>=</code>-joined forms) rejected at construction.</li>
+<li>Mounts: relative host or container path rejected; <code>rw</code> option rejected;
+  trailing <code>:ro</code> accepted; duplicate targets rejected; missing host path
+  rejected; emitted <code>--mount</code> string always contains <code>readonly</code>.</li>
+<li><code>_locked_args()</code> contains <code>--gpus</code>/<code>--shm-size</code>/<code>--mount</code> exactly when
+  configured, in the locked section (after extra_args in the assembled
+  command).</li>
+<li>Config plumbing: runner built from <code>[flux.workers]</code> keys carries the
+  values (mirrors existing airgapped construction tests).</li>
 </ul>
+<h2 id="rollout-compatibility">Rollout / compatibility<a class="headerlink" href="#rollout-compatibility" title="Permanent link">&para;</a></h2>
+<p>Additive config; default behavior identical except that <code>--gpus</code> /
+<code>--shm-size</code> in <code>airgapped_extra_args</code> now fail worker startup with a
+pointer to the named key (previously they silently worked — any operator
+relying on that moves the value to the new key). Version: 0.60.0.</p>
 
 
 
