@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall, Usage
 
 try:
     from google import genai
@@ -260,12 +260,17 @@ class GeminiFormatter(LLMFormatter):
         reasoning_parts: list[str] = []
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
+        usage: Usage | None = None
 
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=model,
             contents=messages,
             config=config,
         ):
+            # usage_metadata is cumulative; the last chunk carries the totals.
+            chunk_usage = _to_usage(chunk)
+            if chunk_usage is not None:
+                usage = chunk_usage
             candidates = getattr(chunk, "candidates", None)
             if not candidates:
                 continue
@@ -292,7 +297,7 @@ class GeminiFormatter(LLMFormatter):
                 opaque={"text": reasoning_text, "thought": True},
             )
 
-        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
+        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning, usage=usage)
 
 
 def _config_with_tools(config: Any, tools: list) -> Any:
@@ -368,7 +373,24 @@ def _to_llm_response(response: Any) -> LLMResponse:
                     ),
                 )
 
-    return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
+    return LLMResponse(
+        text=text,
+        tool_calls=tool_calls,
+        reasoning=reasoning,
+        usage=_to_usage(response),
+    )
+
+
+def _to_usage(response: Any) -> Usage | None:
+    metadata = getattr(response, "usage_metadata", None)
+    if metadata is None:
+        return None
+    input_tokens = getattr(metadata, "prompt_token_count", 0) or 0
+    # Thinking tokens are billed output but reported separately.
+    output_tokens = (getattr(metadata, "candidates_token_count", 0) or 0) + (
+        getattr(metadata, "thoughts_token_count", 0) or 0
+    )
+    return Usage(input_tokens=input_tokens, output_tokens=output_tokens)
 
 
 def _to_gemini_tools(schemas: list[dict[str, Any]]) -> list:

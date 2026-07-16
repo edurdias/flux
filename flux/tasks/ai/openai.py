@@ -6,7 +6,7 @@ from typing import Any
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall, Usage
 
 try:
     from openai import AsyncOpenAI
@@ -215,12 +215,24 @@ class OpenAIFormatter(LLMFormatter):
         reasoning_parts: list[str] = []
         content_parts: list[str] = []
         tool_calls_by_index: dict[int, dict] = {}
+        usage: Usage | None = None
+
+        request_kwargs = dict(call_kwargs)
+        # include_usage is forced last: without it the terminal chunk carries
+        # no usage and Budget accounting silently sees zero spend.
+        stream_options = {**request_kwargs.pop("stream_options", {}), "include_usage": True}
 
         async for chunk in await self._client.chat.completions.create(
             messages=messages,
-            **call_kwargs,
+            **request_kwargs,
             stream=True,
+            stream_options=stream_options,
         ):
+            if getattr(chunk, "usage", None) is not None:
+                usage = _to_usage(chunk.usage)
+            if not chunk.choices:
+                # The include_usage terminal chunk carries usage only.
+                continue
             delta = chunk.choices[0].delta
             if getattr(delta, "reasoning_content", None):
                 reasoning_parts.append(delta.reasoning_content)
@@ -265,7 +277,7 @@ class OpenAIFormatter(LLMFormatter):
                 opaque={"reasoning_content": reasoning_text},
             )
 
-        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
+        return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning, usage=usage)
 
 
 def _to_llm_response(response: Any) -> LLMResponse:
@@ -288,7 +300,21 @@ def _to_llm_response(response: Any) -> LLMResponse:
             text=reasoning_text,
             opaque={"reasoning_content": reasoning_text},
         )
-    return LLMResponse(text=text, tool_calls=tool_calls, reasoning=reasoning)
+    return LLMResponse(
+        text=text,
+        tool_calls=tool_calls,
+        reasoning=reasoning,
+        usage=_to_usage(getattr(response, "usage", None)),
+    )
+
+
+def _to_usage(usage: Any) -> Usage | None:
+    if usage is None:
+        return None
+    return Usage(
+        input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+    )
 
 
 def _to_openai_tools(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:

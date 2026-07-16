@@ -95,6 +95,38 @@ async def parallel_workflow(ctx: WorkflowExecutionContext):
     return results
 ```
 
+Results come back in input order. Two optional parameters tune large fan-outs:
+
+```python
+results = await parallel(
+    *[process(item) for item in items],
+    max_concurrent=8,        # cap in-flight coroutines; None (default) = unlimited
+    raise_on_error=False,    # default True: first failure fails the batch
+)
+```
+
+With `raise_on_error=False`, a failed item's slot in the result list becomes
+`None` and the remaining items keep running — the failure is still recorded
+on the corresponding task's events, it just doesn't kill the batch. Pauses
+and cancellations always propagate.
+
+For staged per-item flow ("fetch every document, then summarize each, then
+judge each summary") chain the stages in a plain async function and fan it
+out — each item moves through its stages independently, with no barrier
+between stages:
+
+```python
+async def process(doc):
+    fetched = await fetch(doc)
+    summary = await summarize(fetched)
+    return await judge(summary)
+
+results = await parallel(*[process(d) for d in docs], max_concurrent=8)
+```
+
+Each stage is an ordinary task call, so a resumed workflow replays completed
+stage calls and re-runs only what never finished.
+
 ### Pipeline Processing
 ```python
 from flux.tasks import pipeline

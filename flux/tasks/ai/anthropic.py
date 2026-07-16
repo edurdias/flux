@@ -6,7 +6,7 @@ from typing import Any
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall, Usage
 
 try:
     from anthropic import AsyncAnthropic
@@ -265,10 +265,18 @@ def _to_llm_response(response: Any) -> LLMResponse:
                 tool_calls.append(
                     ToolCall(id=block.id, name=block.name, arguments=block.input),
                 )
+    usage: Usage | None = None
+    raw_usage = getattr(response, "usage", None)
+    if raw_usage is not None:
+        usage = Usage(
+            input_tokens=getattr(raw_usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(raw_usage, "output_tokens", 0) or 0,
+        )
     return LLMResponse(
         text="\n".join(text_parts) if text_parts else "",
         tool_calls=tool_calls,
         reasoning=reasoning,
+        usage=usage,
     )
 
 

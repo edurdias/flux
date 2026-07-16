@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from flux.task import task
 from flux.tasks.ai.formatter import LLMFormatter
-from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall
+from flux.tasks.ai.models import LLMResponse, ReasoningContent, ToolCall, Usage
 from flux.tasks.ai.tool_executor import (
     extract_tool_calls_from_content,
     strip_tool_calls_from_content,
@@ -117,9 +117,10 @@ class OllamaFormatter(LLMFormatter):
             messages[-1]["content"] += f"\n\nRespond with JSON matching this schema:\n{schema_json}"
             call_kwargs["format"] = "json"
         elif self._response_format and self._tool_names:
-            logger.warning(
-                "Ollama: response_format is ignored when tools are in use; "
-                "the model output will not be constrained to the schema.",
+            logger.debug(
+                "Ollama: native format constraint is not applied when tools "
+                "are in use; the agent loop validates the final answer "
+                "against the schema instead.",
             )
 
         if self._tool_names:
@@ -195,12 +196,17 @@ class OllamaFormatter(LLMFormatter):
         thinking_parts: list[str] = []
         content_parts: list[str] = []
         tool_calls_raw: list[dict] = []
+        usage: Usage | None = None
 
         async for chunk in await self._client.chat(
             messages=messages,
             **stream_kwargs,
             stream=True,
         ):
+            # Token counts arrive on the terminal (done) chunk.
+            chunk_usage = _to_usage(chunk)
+            if chunk_usage is not None:
+                usage = chunk_usage
             msg = chunk.get("message", {})
             if msg.get("thinking"):
                 thinking_parts.append(msg["thinking"])
@@ -237,7 +243,7 @@ class OllamaFormatter(LLMFormatter):
                 content = strip_tool_calls_from_content(content)
 
         reasoning = ReasoningContent(text=thinking, opaque=None) if thinking else None
-        return LLMResponse(text=content, tool_calls=tool_calls, reasoning=reasoning)
+        return LLMResponse(text=content, tool_calls=tool_calls, reasoning=reasoning, usage=usage)
 
 
 def _to_llm_response(
@@ -273,7 +279,23 @@ def _to_llm_response(
     thinking = message.get("thinking")
     reasoning = ReasoningContent(text=thinking, opaque=None) if thinking else None
 
-    return LLMResponse(text=content, tool_calls=tool_calls, reasoning=reasoning)
+    return LLMResponse(
+        text=content,
+        tool_calls=tool_calls,
+        reasoning=reasoning,
+        usage=_to_usage(response),
+    )
+
+
+def _to_usage(chunk: Any) -> Usage | None:
+    prompt_tokens = chunk.get("prompt_eval_count")
+    completion_tokens = chunk.get("eval_count")
+    if prompt_tokens is None and completion_tokens is None:
+        return None
+    return Usage(
+        input_tokens=prompt_tokens or 0,
+        output_tokens=completion_tokens or 0,
+    )
 
 
 def _to_ollama_tools(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
