@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import shutil
 import subprocess
 from typing import TYPE_CHECKING
@@ -151,7 +152,10 @@ class DockerRunner(SubprocessRunner):
 # extra_args must not be able to re-open what the airgapped profile closed:
 # network, host namespaces, devices, mounts, privileges, DNS. A denylist (not
 # an allowlist) on purpose — benign operator knobs (--env, --user, --tmpfs)
-# can't be enumerated, while the guarantees to protect can.
+# can't be enumerated, while the guarantees to protect can. Capabilities that
+# ARE grantable (GPUs, read-only mounts, shared memory) are vetoed here too:
+# each one is grantable only through its named airgapped_* config key, so the
+# config file is the complete audit trail of opened surfaces.
 _AIRGAPPED_VETOED_FLAGS = frozenset(
     {
         "--network",
@@ -184,8 +188,67 @@ _AIRGAPPED_VETOED_FLAGS = frozenset(
         "--cgroupns",
         "--device-cgroup-rule",
         "--oom-kill-disable",
+        "--gpus",
+        "--shm-size",
     },
 )
+
+
+def _parse_airgapped_mounts(mounts: list[str]) -> list[tuple[str, str]]:
+    """Validate ``airgapped_mounts`` entries into (source, target) pairs.
+
+    Entry format is ``/host/path:/container/path`` with an optional,
+    redundant ``:ro`` suffix. Read-only is forced by the runner regardless;
+    anything else after the target (``rw`` above all) is rejected.
+    """
+    parsed: list[tuple[str, str]] = []
+    seen_targets: set[str] = set()
+    for entry in mounts:
+        parts = entry.split(":")
+        if len(parts) == 3 and parts[2] == "ro":
+            parts = parts[:2]
+        if len(parts) != 2:
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}' is invalid: "
+                "expected '/host/path:/container/path' (optionally ':ro'; "
+                "mounts are always read-only)",
+            )
+        source, target = parts
+        if not (os.path.isabs(source) and os.path.isabs(target)):
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}': both the "
+                "host and container paths must be absolute",
+            )
+        if "," in source or "," in target:
+            # --mount options are comma-separated; a comma in a path would
+            # silently change the mount spec.
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}': paths must not contain commas",
+            )
+        # Normalize before the guards below: '/.', '/models/..' and trailing
+        # slashes would otherwise slip past the root-target and duplicate
+        # checks while resolving to the same location in the container.
+        source = os.path.normpath(source)
+        target = os.path.normpath(target)
+        # POSIX normpath preserves '//', so test all-slash rather than '/'.
+        if target.rstrip("/") == "":
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}': mounting "
+                "over '/' is not allowed",
+            )
+        if target in seen_targets:
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}': duplicate "
+                f"container target '{target}'",
+            )
+        if not os.path.exists(source):
+            raise ValueError(
+                f"[flux.workers] airgapped_mounts entry '{entry}': host path "
+                f"'{source}' does not exist",
+            )
+        seen_targets.add(target)
+        parsed.append((source, target))
+    return parsed
 
 
 class AirgappedDockerRunner(DockerRunner):
@@ -203,6 +266,15 @@ class AirgappedDockerRunner(DockerRunner):
     The profile is emitted from code (``_locked_args``), after operator
     ``extra_args``, so configuration cannot weaken it; ``extra_args`` that
     would re-open a closed surface are rejected at worker startup.
+
+    Three capabilities are grantable — each only through its named config
+    key, never through ``extra_args``, so the config file is the audit
+    trail: ``airgapped_gpus`` (compute device, no data path out),
+    ``airgapped_mounts`` (bind mounts with read-only forced by the runner —
+    an input channel for reference data and static assets), and
+    ``airgapped_shm_size`` (``/dev/shm`` sizing for workloads that pass
+    large buffers between processes). None of them opens an output channel:
+    results still leave only through the worker-mediated stdio protocol.
     """
 
     name = "docker-airgapped"
@@ -217,6 +289,9 @@ class AirgappedDockerRunner(DockerRunner):
         tmp_size: str = "64m",
         execution_timeout: float = 900,
         extra_args: list[str] | None = None,
+        gpus: str = "",
+        mounts: list[str] | None = None,
+        shm_size: str = "",
     ):
         if not memory:
             raise ValueError(
@@ -230,11 +305,21 @@ class AirgappedDockerRunner(DockerRunner):
         for token in extra_args or []:
             flag = token.split("=", 1)[0]
             if flag in _AIRGAPPED_VETOED_FLAGS:
+                hint = ""
+                if flag == "--gpus":
+                    hint = " (grant GPUs via [flux.workers] airgapped_gpus)"
+                elif flag == "--shm-size":
+                    hint = " (size /dev/shm via [flux.workers] airgapped_shm_size)"
+                elif flag in ("--volume", "-v", "--mount"):
+                    hint = " (read-only mounts go through [flux.workers] airgapped_mounts)"
                 raise ValueError(
                     f"[flux.workers] airgapped_extra_args contains '{token}': "
                     f"'{flag}' would weaken the airgapped isolation profile "
-                    "and is not allowed",
+                    f"and is not allowed{hint}",
                 )
+        self._mounts = _parse_airgapped_mounts(list(mounts or []))
+        self._gpus = gpus
+        self._shm_size = shm_size
         super().__init__(
             image=image,
             term_grace=term_grace,
@@ -252,7 +337,7 @@ class AirgappedDockerRunner(DockerRunner):
         self._tmp_size = tmp_size
 
     def _locked_args(self) -> list[str]:
-        return [
+        args = [
             "--network=none",
             "--read-only",
             "--tmpfs",
@@ -266,3 +351,13 @@ class AirgappedDockerRunner(DockerRunner):
             "--cpus",
             str(self._airgapped_cpus),
         ]
+        # Named capability knobs. Emitted here — not accepted in extra_args —
+        # so each grant is explicit config; read-only is forced on mounts no
+        # matter what the entry said.
+        for source, target in self._mounts:
+            args += ["--mount", f"type=bind,source={source},target={target},readonly"]
+        if self._gpus:
+            args += ["--gpus", self._gpus]
+        if self._shm_size:
+            args += ["--shm-size", self._shm_size]
+        return args

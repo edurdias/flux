@@ -88,6 +88,7 @@ nav:
       - Workflow Controls: advanced-features/workflow-controls.md
       - Worker Affinity: advanced-features/worker-affinity.md
       - Dynamic Routing: advanced-features/dynamic-routing.md
+      - Airgapped Execution: advanced-features/airgapped-execution.md
       - Observability: advanced-features/observability.md
       - Task Progress Streaming: advanced-features/task-progress.md
       - Agent Skills: advanced-features/agent-skills.md

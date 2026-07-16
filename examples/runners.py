@@ -15,6 +15,9 @@ workflow only goes to workers that advertise that runner.
 - ``docker``: one container per execution (workers must enable it and set
   ``docker_image``). Full filesystem/dependency isolation for untrusted
   code.
+- ``docker-airgapped``: the docker runner with a locked isolation profile
+  (no network, read-only rootfs, capability drops, resource + wall-clock
+  limits). For code you do not trust at all — see ``examples/airgapped.py``.
 
 The runner option matters when executions are dispatched to workers;
 running a workflow inline (``workflow.run()``, as below) executes in the
