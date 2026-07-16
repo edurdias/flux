@@ -11,10 +11,6 @@
       
       
       
-        <link rel="prev" href="../dynamic-routing/">
-      
-      
-        <link rel="next" href="../observability/">
       
       
         
@@ -25,7 +21,7 @@
     
     
       
-        <title>Airgapped Execution - Flux Documentation</title>
+        <title>Spec: airgapped service sockets — warm runtimes for sealed executions - Flux Documentation</title>
       
     
     
@@ -78,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#airgapped-execution" class="md-skip">
+        <a href="#spec-airgapped-service-sockets-warm-runtimes-for-sealed-executions" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Airgapped Execution
+              Spec: airgapped service sockets — warm runtimes for sealed executions
             
           </span>
         </div>
@@ -805,10 +801,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -845,11 +839,13 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -870,7 +866,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -888,7 +884,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task-patterns/" class="md-nav__link">
+      <a href="../../advanced-features/task-patterns/" class="md-nav__link">
         
   
   
@@ -916,7 +912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../workflow-controls/" class="md-nav__link">
+      <a href="../../advanced-features/workflow-controls/" class="md-nav__link">
         
   
   
@@ -944,7 +940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../worker-affinity/" class="md-nav__link">
+      <a href="../../advanced-features/worker-affinity/" class="md-nav__link">
         
   
   
@@ -972,7 +968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dynamic-routing/" class="md-nav__link">
+      <a href="../../advanced-features/dynamic-routing/" class="md-nav__link">
         
   
   
@@ -997,37 +993,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Airgapped Execution
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../advanced-features/airgapped-execution/" class="md-nav__link">
         
   
   
@@ -1043,103 +1012,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#the-locked-profile" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The locked profile
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#enabling-the-runner" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Enabling the runner
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#capability-knobs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Capability knobs
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#service-sockets-warm-runtimes-for-sealed-executions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Service sockets — warm runtimes for sealed executions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sizing-for-data-and-compute-heavy-workloads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sizing for data- and compute-heavy workloads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#dynamic-workflows-run-here-by-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dynamic workflows run here by default
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#failure-semantics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Failure semantics
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1152,7 +1024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../observability/" class="md-nav__link">
+      <a href="../../advanced-features/observability/" class="md-nav__link">
         
   
   
@@ -1180,7 +1052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task-progress/" class="md-nav__link">
+      <a href="../../advanced-features/task-progress/" class="md-nav__link">
         
   
   
@@ -1208,7 +1080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-skills/" class="md-nav__link">
+      <a href="../../advanced-features/agent-skills/" class="md-nav__link">
         
   
   
@@ -1236,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-harness/" class="md-nav__link">
+      <a href="../../advanced-features/agent-harness/" class="md-nav__link">
         
   
   
@@ -1264,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../mcp-client/" class="md-nav__link">
+      <a href="../../advanced-features/mcp-client/" class="md-nav__link">
         
   
   
@@ -1292,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-memory/" class="md-nav__link">
+      <a href="../../advanced-features/ai-memory/" class="md-nav__link">
         
   
   
@@ -1320,7 +1192,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../database-migrations/" class="md-nav__link">
+      <a href="../../advanced-features/database-migrations/" class="md-nav__link">
         
   
   
@@ -1375,10 +1247,88 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-locked-profile" class="md-nav__link">
+  <a href="#motivation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The locked profile
+        Motivation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Motivation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-a-directory-and-the-permission-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why a directory, and the permission contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mount-emission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mount emission
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knob-vs-new-runner-name-decision-for-review" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knob vs. new runner name — decision for review
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dispatch
       
     </span>
   </a>
@@ -1386,10 +1336,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#enabling-the-runner" class="md-nav__link">
+  <a href="#child-side-surface" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enabling the runner
+        Child-side surface
       
     </span>
   </a>
@@ -1397,10 +1347,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#capability-knobs" class="md-nav__link">
+  <a href="#security-analysis-delta-from-today" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Capability knobs
+        Security analysis (delta from today)
       
     </span>
   </a>
@@ -1408,10 +1358,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#service-sockets-warm-runtimes-for-sealed-executions" class="md-nav__link">
+  <a href="#sidecar-recipes-docs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Service sockets — warm runtimes for sealed executions
+        Sidecar recipes (docs)
       
     </span>
   </a>
@@ -1419,10 +1369,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sizing-for-data-and-compute-heavy-workloads" class="md-nav__link">
+  <a href="#wiring" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sizing for data- and compute-heavy workloads
+        Wiring
       
     </span>
   </a>
@@ -1430,10 +1380,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dynamic-workflows-run-here-by-default" class="md-nav__link">
+  <a href="#testing" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dynamic workflows run here by default
+        Testing
       
     </span>
   </a>
@@ -1441,10 +1391,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#failure-semantics" class="md-nav__link">
+  <a href="#rollout-compatibility" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Failure semantics
+        Rollout / compatibility
       
     </span>
   </a>
@@ -1471,213 +1421,247 @@
   
 
 
-<h1 id="airgapped-execution">Airgapped Execution<a class="headerlink" href="#airgapped-execution" title="Permanent link">&para;</a></h1>
-<p>The <code>docker-airgapped</code> runner executes workflows you do not trust — above
-all, model-authored (dynamic) workflows — and workflows over data that must
-not leave the box. Each execution runs in its own container whose <strong>only
-capability channel is the stdio protocol to the parent worker</strong>:
-checkpoints, secrets, configs, and approval-gate operations all flow
-through the worker, where every request is permission-checked. Everything
-else is closed.</p>
-<h2 id="the-locked-profile">The locked profile<a class="headerlink" href="#the-locked-profile" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Surface</th>
-<th>Enforcement</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Network</td>
-<td><code>--network=none</code> — no egress, no DNS, no <code>pip install</code></td>
-</tr>
-<tr>
-<td>Filesystem</td>
-<td><code>--read-only</code> rootfs; size-capped tmpfs <code>/tmp</code></td>
-</tr>
-<tr>
-<td>Privileges</td>
-<td><code>--cap-drop=ALL</code>, <code>--security-opt=no-new-privileges</code></td>
-</tr>
-<tr>
-<td>Resources</td>
-<td>memory / cpus / pids limits (required, never unlimited)</td>
-</tr>
-<tr>
-<td>Time</td>
-<td>wall-clock ceiling; on expiry the container is killed and the execution fails terminally for both durabilities</td>
-</tr>
-<tr>
-<td>Credentials</td>
-<td>none — the child holds no worker or fleet credentials</td>
-</tr>
-</tbody>
-</table>
-<p>The profile is emitted from code <em>after</em> any operator <code>extra_args</code>, so
-docker's last-wins flag parsing keeps it authoritative; <code>extra_args</code> that
-would re-open a closed surface are rejected at worker startup.</p>
-<h2 id="enabling-the-runner">Enabling the runner<a class="headerlink" href="#enabling-the-runner" title="Permanent link">&para;</a></h2>
+<h1 id="spec-airgapped-service-sockets-warm-runtimes-for-sealed-executions">Spec: airgapped service sockets — warm runtimes for sealed executions<a class="headerlink" href="#spec-airgapped-service-sockets-warm-runtimes-for-sealed-executions" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-07-16 · <strong>Status:</strong> draft for review (follow-up to #130/#133)
+· <strong>Motivating use case:</strong> long-lived local runtimes whose state takes
+minutes to load, consumed from sealed, single-use executions.</p>
+<h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h2>
+<p>A <code>docker-airgapped</code> execution container lives exactly as long as one
+execution. Any runtime whose startup is expensive — state loaded into
+(GPU) memory measured in minutes — pays that cost <em>per execution</em> if it
+runs inside the container. The state must outlive executions, so it must
+live outside the sandbox.</p>
+<p>The design that preserves every current guarantee: the runtime runs as a
+<strong>long-lived, operator-managed sidecar</strong> on the worker host, and sealed
+executions reach it over a <strong>Unix domain socket</strong> mounted into the
+container. No network stack is involved anywhere — <code>--network=none</code>
+stays literally true — and the wire is point-to-point by construction:
+no lateral channel between executions, no egress, nothing reachable
+from outside the host.</p>
+<p>With the heavy state out of the container, the sealed image goes back to
+being slim and the measured cold start is ~1–1.5 s per execution
+(container create ~0.2–0.5 s + <code>flux.runners.child</code> import ~0.6 s,
+measured; no GPU hook — the sidecar owns the device).</p>
+<h3 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Warm container pools</strong> — rejected: at ~1 s cold start they buy back
+  sub-second docker overhead at the cost of pool lifecycle, idle-health,
+  and refill machinery. If a future latency-sensitive path cares, the
+  cheaper lever is trimming the child's import graph.</li>
+<li><strong>Worker-brokered <code>service_call</code> frames</strong> — deferred, complementary:
+  per-call allowlisting/audit/rate-limiting through the stdio protocol,
+  at the cost of a new frame family and double serialization. Sockets
+  win on protocol fidelity and latency; the broker can be layered on
+  later where auditability matters more.</li>
+<li><strong>Internal docker networks</strong> (shared or per-execution) — parked: a
+  shared net creates lateral channels between untrusted executions; a
+  per-execution net avoids that but reintroduces a network stack and
+  churn. Only needed for TCP-only runtimes; both major local runtimes
+  serve UDS natively (<code>llama-server --host &lt;path&gt;.sock</code>, vLLM <code>--uds</code>).</li>
+<li><strong>Long-lived pod containers</strong> (state inside a reused container) —
+  parked: executions sharing a container share its filesystem and
+  process state, which is a different guarantee and therefore a
+  different runner name, and a much larger protocol change
+  (exec-based dispatch).</li>
+</ul>
+<h2 id="config">Config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">[flux.workers]</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">airgapped_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;&lt;registry&gt;/flux:&lt;version&gt;&quot;</span><span class="w">   </span><span class="c1"># falls back to docker_image</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">airgapped_memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;512m&quot;</span><span class="w">          </span><span class="c1"># required non-empty</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">airgapped_cpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">airgapped_pids_limit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">256</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="n">airgapped_tmp_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;64m&quot;</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="n">airgapped_execution_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">900</span><span class="w">  </span><span class="c1"># seconds; 0 disables (discouraged)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">airgapped_service_sockets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">inference</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;/run/flux-services/inference&quot;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
-<p>The image contract is minimal: it must run <code>python -m flux.runners.child</code>,
-i.e. have <code>flux-core</code> installed at a worker-compatible version. The
-official image satisfies this when its tag matches the worker (see
-DOCKER.md).</p>
-<p>Pin workflows to the sealed runner with
-<code>@workflow.with_options(runner="docker-airgapped")</code> — this also constrains
-dispatch, so the workflow only reaches workers advertising the runner:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sealed_keyword_count</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="o">...</span>
+<ul>
+<li>Key = service name: <code>[a-z0-9]([a-z0-9-]*[a-z0-9])?</code>, ≤ 32 chars (it
+  becomes a worker label; see Dispatch).</li>
+<li>Value = <strong>host directory</strong> that contains (or will contain) the
+  service's socket at <code>&lt;dir&gt;/service.sock</code>.</li>
+</ul>
+<h3 id="why-a-directory-and-the-permission-contract">Why a directory, and the permission contract<a class="headerlink" href="#why-a-directory-and-the-permission-contract" title="Permanent link">&para;</a></h3>
+<p>Mounting the socket <em>file</em> pins its inode: a sidecar restart re-creates
+the socket and running mounts silently point at the dead one. Mounting
+the <em>directory</em> is restart-safe — but a shared writable directory would
+be a dead-drop channel between untrusted executions. The contract closes
+that:</p>
+<ul>
+<li>Host directory: <strong>no write bits</strong> (<code>0555</code> or stricter). Socket: mode
+  <code>0666</code> (<code>service.sock</code>). Ownership is deliberately <em>not</em> part of the
+  enforced contract — the guarantee rests on mode bits alone, which is
+  what keeps non-root worker deployments and non-root sidecar recipes
+  viable.</li>
+<li>The mount is emitted <strong>rw</strong> — connecting to a UDS requires write
+  permission on the socket inode, and a read-only mount fails the
+  connect with <code>EROFS</code>. This is a deliberate, structural exception to
+  the "mounts are always read-only" rule (#133), confined to the
+  service directories.</li>
+<li>The write-less directory is binding <strong>even for container root</strong>: the
+  profile's <code>--cap-drop=ALL</code> removes <code>CAP_DAC_OVERRIDE</code>, which is what
+  lets uid 0 ignore mode bits. Executions can connect to sockets; they
+  cannot create, replace, or delete files in the directory. (Running
+  <code>--user</code> non-root remains recommended defense in depth. Host-side
+  root keeps the capability, so a root-managed sidecar can still
+  create/replace its socket across restarts.)</li>
+</ul>
+<p>The worker validates at startup (fail fast, same philosophy as the
+docker probe): service-name validity, no duplicate directories, and the
+directory exists with no write bits — created if absent, with creation
+failures re-raised against the specific config entry. Socket problems
+are <em>warnings</em>, not errors, because the sidecar may start after the
+worker: missing socket, path that is not a unix socket, or a socket
+that is not world-connectable each log a pointed warning.</p>
+<h3 id="mount-emission">Mount emission<a class="headerlink" href="#mount-emission" title="Permanent link">&para;</a></h3>
+<p><code>AirgappedDockerRunner._locked_args()</code> emits, per service:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>--mount type=bind,source=/run/flux-services/inference,target=/run/flux/services/inference
 </code></pre></div>
-<p>See <code>examples/airgapped.py</code> for runnable examples (sealed text processing
-with read-only asset mounts and graceful fallback, and privacy-preserving
-redaction of sensitive data).</p>
-<h2 id="capability-knobs">Capability knobs<a class="headerlink" href="#capability-knobs" title="Permanent link">&para;</a></h2>
-<p>Capabilities are granted <strong>only through named config keys</strong> — the raw
-flags (<code>--gpus</code>, <code>--shm-size</code>, and all mount flags) are rejected in
-<code>airgapped_extra_args</code> — so a grep of <code>flux.toml</code> for <code>airgapped_</code> is the
-complete audit trail of opened surfaces:</p>
+<p>Fixed in-container prefix <code>/run/flux/services/&lt;name&gt;</code>. The raw mount
+flags stay vetoed in <code>airgapped_extra_args</code> — the named key is the only
+grant path, so <code>flux.toml</code> remains the complete audit trail.</p>
+<h3 id="knob-vs-new-runner-name-decision-for-review">Knob vs. new runner name — decision for review<a class="headerlink" href="#knob-vs-new-runner-name-decision-for-review" title="Permanent link">&para;</a></h3>
+<p>"No network" stays literally true and the grant is enumerable config —
+knob-shaped. But "every effect passes through the permission-checked
+worker" stops being strictly true — name-shaped. <strong>Recommendation:</strong>
+ship as a knob on <code>docker-airgapped</code>, advertise granted services in the
+worker registration (labels below), and revisit a distinct
+<code>docker-enclave</code> name only if a mediated/unmediated distinction ever
+needs to be dispatch-visible on its own. Flagged here because it is a
+judgment call about what the runner name promises.</p>
+<h2 id="dispatch">Dispatch<a class="headerlink" href="#dispatch" title="Permanent link">&para;</a></h2>
+<p>Workers derive one label per granted service at registration:
+<code>flux.service.&lt;name&gt; = "true"</code>. Workflows that need a service target it
+with the existing affinity mechanism — no new matching machinery:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;flux.service.inference&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sealed_generate</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span> <span class="o">...</span>
+</code></pre></div>
+<p>The <code>flux.</code> label prefix is already reserved (worker metrics, #120), so
+user labels cannot spoof service grants. Dynamic workflows can have
+service affinities stamped from declared needs later; v1 leaves that to
+the author's <code>with_options</code>.</p>
+<h2 id="child-side-surface">Child-side surface<a class="headerlink" href="#child-side-surface" title="Permanent link">&para;</a></h2>
+<p>The runner passes the mounted map to the child through its sanitized
+env (parent-set): <code>FLUX_SERVICE_SOCKETS={"inference":
+"/run/flux/services/inference/service.sock"}</code>.</p>
+<p>New helpers in <code>flux/tasks</code> (usable in any runner — inline and
+subprocess executions simply see no services unless the env is set):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">service_client</span><span class="p">,</span> <span class="n">service_socket</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nd">@task</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">service_client</span><span class="p">(</span><span class="s2">&quot;inference&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>      <span class="c1"># httpx over UDS</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">r</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/v1/completions&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">,</span> <span class="o">...</span><span class="p">})</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>        <span class="k">return</span> <span class="n">r</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s2">&quot;choices&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;text&quot;</span><span class="p">]</span>
+</code></pre></div>
+<ul>
+<li><code>service_socket(name) -&gt; str</code> — the socket path; raises a clear
+  <code>ExecutionError</code> naming the service and the affinity hint when absent.</li>
+<li><code>service_client(name, **httpx_kwargs) -&gt; httpx.AsyncClient</code> —
+  preconfigured UDS transport, base_url <code>http://flux-service</code> (host is
+  ignored over UDS). OpenAI-compatible SDKs work by passing this client
+  as their http client.</li>
+</ul>
+<p>Semantics that come free from existing machinery:</p>
+<ul>
+<li><strong>Replay:</strong> service calls happen inside ordinary tasks; outputs are
+  checkpointed, resume short-circuits, the sidecar is never
+  re-contacted for completed calls.</li>
+<li><strong>Failures:</strong> a down sidecar is <code>ECONNREFUSED</code> → a normal task error →
+  retry/fallback/rollback chain.</li>
+<li><strong>Streaming:</strong> native HTTP/SSE over the socket (no frames, kernel
+  flow control); workflow code tees tokens into <code>progress()</code> for live
+  visibility, exactly as the agent loop does.</li>
+<li><strong>Cancellation/timeouts:</strong> SIGTERM into the container ends client
+  connections; the execution ceiling bounds total time.</li>
+</ul>
+<h2 id="security-analysis-delta-from-today">Security analysis (delta from today)<a class="headerlink" href="#security-analysis-delta-from-today" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Key</th>
-<th>Grants</th>
-<th>Why it's safe to grant</th>
+<th>Property</th>
+<th>Today</th>
+<th>With service sockets</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>airgapped_gpus</code></td>
-<td><code>--gpus all</code> / <code>"device=0"</code></td>
-<td>a compute device; no data path out</td>
+<td>Network stack</td>
+<td>none</td>
+<td>none</td>
 </tr>
 <tr>
-<td><code>airgapped_mounts</code></td>
-<td>read-only bind mounts</td>
-<td>an <em>input</em> channel — data can enter, results still leave only via the stdio protocol</td>
+<td>Lateral channel between executions</td>
+<td>none</td>
+<td>none direct; the sidecar is the only shared point</td>
 </tr>
 <tr>
-<td><code>airgapped_shm_size</code></td>
-<td><code>/dev/shm</code> sizing</td>
-<td>RAM allocation (large inter-process buffers); accounted next to <code>airgapped_memory</code></td>
+<td>Egress</td>
+<td>impossible</td>
+<td>impossible (sidecar is UDS-bound, no egress of its own)</td>
 </tr>
 <tr>
-<td><code>airgapped_service_sockets</code></td>
-<td>UDS access to local sidecars</td>
-<td>point-to-point to loopback-bound trusted infrastructure; no network stack, no lateral channel, no egress</td>
+<td>Worker mediates every effect</td>
+<td>yes</td>
+<td><strong>no</strong> — socket traffic bypasses the broker</td>
 </tr>
 </tbody>
 </table>
-<p><code>airgapped_mounts</code> entries are <code>"/host/path:/container/path"</code>. Read-only
-is <strong>forced by the runner</strong> regardless of what the entry says; <code>rw</code>,
-relative paths, missing host paths, and duplicate targets fail worker
-startup. Mounted content is readable by every airgapped workflow on the
-worker — mount reference datasets and static assets, never directories
-containing secrets.</p>
-<p>Capability channels are <strong>never</strong> knobs: network, DNS, published ports,
-privileges, host namespaces, and writable mounts cannot be enabled on this
-runner. Operators who need them switch to the plain <code>docker</code> runner —
-changing the runner <em>name</em>, and therefore the guarantee that dispatch and
-the dynamic-workflows server rely on.</p>
-<h2 id="service-sockets-warm-runtimes-for-sealed-executions">Service sockets — warm runtimes for sealed executions<a class="headerlink" href="#service-sockets-warm-runtimes-for-sealed-executions" title="Permanent link">&para;</a></h2>
-<p>A runtime whose startup is expensive (state loaded into memory over
-minutes) cannot live inside a single-use container. <code>airgapped_service_sockets</code>
-lets it live <em>outside</em> as a long-lived, operator-managed sidecar on the
-worker host, reached over a Unix domain socket — no network stack
-anywhere, point-to-point by construction:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">airgapped_service_sockets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">inference</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;/run/flux-services/inference&quot;</span><span class="w"> </span><span class="p">}</span>
-</code></pre></div>
-<p>Each value is a host directory containing the service's socket at
-<code>&lt;dir&gt;/service.sock</code>; it is bind-mounted into containers at
-<code>/run/flux/services/&lt;name&gt;</code>. The directory contract keeps the mount
-write-proof: mode <code>0555</code> (validated at worker startup; created if
-absent), sockets <code>0666</code>. The mount is <code>rw</code> — connecting to a UDS requires
-write permission on the socket inode — but <code>--cap-drop=ALL</code> strips
-<code>CAP_DAC_OVERRIDE</code>, so the write-less directory binds every container
-uid, root included: executions can connect, never create files. A
-missing socket at startup is only a warning (the sidecar may start
-later); a down sidecar surfaces to workflows as a normal connect error.</p>
-<p>Granted services are advertised as <code>flux.service.&lt;name&gt;</code> worker labels
-(the <code>flux.</code> label prefix is reserved — user labels can't spoof grants),
-so workflows target service-bearing workers with the existing affinity
-mechanism. In workflow code:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">service_client</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nd">@task</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">service_client</span><span class="p">(</span><span class="s2">&quot;inference&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>   <span class="c1"># httpx over UDS</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/v1/completions&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">})</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>        <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;flux.service.inference&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">)</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sealed_generate</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">generate</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
-</code></pre></div>
-<p>Streaming is native HTTP over the socket (SSE/chunked responses work
-as-is; tee tokens into <code>progress()</code> for live visibility), and because
-service calls live inside ordinary tasks, replay short-circuits from the
-event log without re-contacting the sidecar.</p>
-<p>The honest tradeoff, documented deliberately: socket traffic is the one
-channel the worker does <strong>not</strong> mediate — no per-call allowlist, audit,
-or rate limit (the grant granularity is the service, and the sidecar
-enforces its own limits). The sidecar receives data, not code, from
-processes with no other capabilities; run it as its own hardened unit
-(dedicated user, no egress, GPU pinned) — it is trusted infrastructure,
-like a database. Sidecar recipes (llama-server, vLLM) are in DOCKER.md.</p>
-<h2 id="sizing-for-data-and-compute-heavy-workloads">Sizing for data- and compute-heavy workloads<a class="headerlink" href="#sizing-for-data-and-compute-heavy-workloads" title="Permanent link">&para;</a></h2>
-<p>The profile's defaults are sized for untrusted glue code. Heavier sealed
-workloads — numeric simulation, media processing, large dataset
-transforms — raise the limits and grant what they need (image recipe,
-sizing guidance, and cache environment variables for the read-only rootfs
-are documented in DOCKER.md under "Sizing the airgapped runner for heavy
-workloads"):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">airgapped_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-registry/flux-compute:0.60.0&quot;</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">airgapped_gpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;all&quot;</span><span class="w">                        </span><span class="c1"># GPU-accelerated compute</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">airgapped_mounts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;/srv/datasets:/data&quot;</span><span class="p">]</span><span class="w">    </span><span class="c1"># reference data, read-only</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">airgapped_shm_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span><span class="w">                     </span><span class="c1"># large inter-process buffers</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">airgapped_memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;32g&quot;</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">airgapped_tmp_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">airgapped_execution_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
-</code></pre></div>
-<p><code>--network=none</code> keeps the container's own loopback, so a workflow can
-spawn helper processes and talk to them on <code>127.0.0.1</code> <em>inside</em> the
-sandbox — nothing is reachable from outside.</p>
-<h2 id="dynamic-workflows-run-here-by-default">Dynamic workflows run here by default<a class="headerlink" href="#dynamic-workflows-run-here-by-default" title="Permanent link">&para;</a></h2>
-<p>Workflows registered by agents through the dynamic-registration endpoint
-get <code>runner="docker-airgapped"</code> stamped <strong>server-side</strong>
-(<code>[flux.dynamic_workflows] require_runner</code>), overriding anything the
-authored source declares. The author is the adversary in that model; the
-sealed runner is what makes accepting model-authored code tenable. Relax
-<code>require_runner</code> only in development.</p>
-<h2 id="failure-semantics">Failure semantics<a class="headerlink" href="#failure-semantics" title="Permanent link">&para;</a></h2>
+<p>Documented operator caveats:</p>
 <ul>
-<li><strong>Crash</strong> (OOM kill, segfault, hard exit): durable executions are
-  released for re-dispatch and deterministic replay resumes from the last
-  checkpoint; transient executions fail terminally.</li>
-<li><strong>Wall-clock timeout</strong> (<code>ExecutionTimedOut</code>): terminal FAILED for <em>both</em>
-  durabilities — a deterministic timeout would re-dispatch forever, so it
-  is a policy violation, not a crash.</li>
-<li><strong>Cancellation</strong>: SIGTERM is forwarded into the container
-  (<code>docker run</code> sig-proxying), with a grace period before the container is
-  killed.</li>
+<li><strong>Unmediated channel:</strong> no per-call allowlist/audit/rate-limit; the
+  worker never sees payloads (an observability loss and a privacy
+  gain). The grant granularity is the service, not the request.</li>
+<li><strong>Sidecar-side DoS:</strong> nothing throttles an execution hammering the
+  socket except the sidecar's own limits and the container's cpu/pids
+  caps.</li>
+<li><strong>Shared-runtime state:</strong> all executions multiplex into one runtime;
+  cross-request state (caches) is a potential side channel — identical
+  exposure to a brokered design, noted for completeness.</li>
+<li>The sidecar receives <strong>data, not code</strong>, from processes with no other
+  capabilities.</li>
 </ul>
+<h2 id="sidecar-recipes-docs">Sidecar recipes (docs)<a class="headerlink" href="#sidecar-recipes-docs" title="Permanent link">&para;</a></h2>
+<p>DOCKER.md gains a section with systemd/compose examples:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>llama-server<span class="w"> </span>-m<span class="w"> </span>model.gguf<span class="w"> </span>--host<span class="w"> </span>/run/flux-services/inference/service.sock
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># or</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>vllm<span class="w"> </span>serve<span class="w"> </span>&lt;model&gt;<span class="w"> </span>--uds<span class="w"> </span>/run/flux-services/inference/service.sock
+</code></pre></div>
+<p>plus the permission contract, and the note that the sidecar should be
+its own hardened unit (no egress, dedicated user, GPU pinned) — it is
+trusted infrastructure, like a database.</p>
+<h2 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>flux/config.py</code> — <code>airgapped_service_sockets: dict[str, str]</code>.</li>
+<li><code>flux/runners/docker.py</code> — validation (names, directory contract) +
+  <code>_locked_args()</code> emission + child-env injection.</li>
+<li><code>flux/worker.py</code> / registration — derive <code>flux.service.*</code> labels.</li>
+<li><code>flux/tasks/service_socket.py</code> — <code>service_socket</code> / <code>service_client</code>;
+  exported from <code>flux.tasks</code>.</li>
+<li>Docs: <code>docs/advanced-features/airgapped-execution.md</code> section +
+  DOCKER.md recipes; example in <code>examples/airgapped.py</code> with graceful
+  inline fallback.</li>
+</ul>
+<p>No server or protocol changes.</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Name validation (shape, length, duplicates) and directory-contract
+  validation (missing dir, wrong owner/mode) fail worker startup with
+  pointed messages; missing socket only warns.</li>
+<li><code>_locked_args()</code> emits one rw <code>--mount</code> per service at the fixed
+  in-container prefix; nothing emitted when the map is empty; raw mount
+  flags in <code>extra_args</code> still rejected.</li>
+<li>Registration carries <code>flux.service.&lt;name&gt;</code> labels; user labels under
+  <code>flux.</code> are still rejected/stripped.</li>
+<li><code>service_socket</code>/<code>service_client</code>: env parsing; absent-service error
+  names the affinity hint; round-trip against a real UDS server
+  (asyncio <code>start_unix_server</code> / uvicorn UDS fixture), including a
+  streamed response.</li>
+<li>Example test: inline run with graceful fallback when no service env.</li>
+</ul>
+<h2 id="rollout-compatibility">Rollout / compatibility<a class="headerlink" href="#rollout-compatibility" title="Permanent link">&para;</a></h2>
+<p>Additive: empty map (default) changes nothing. Version: 0.61.0.
+Future work, explicitly out of scope: worker-managed sidecar lifecycle
+(command/restart/health in <code>flux.toml</code>), brokered <code>service_call</code> frames
+for audited access, per-execution internal networks for TCP-only
+runtimes.</p>
 
 
 
