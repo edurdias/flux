@@ -72,6 +72,35 @@ class ExecutionTimeoutError(ExecutionError):
         return (self.__class__, (self._type, self._name, self._id, self._timeout))
 
 
+class BudgetExceededError(ExecutionError):
+    """Raised before an LLM call when a Budget's ceiling has been reached.
+
+    The gate is pre-flight: a call in flight is never interrupted, so the
+    overshoot is bounded by a single call's usage.
+    """
+
+    def __init__(self, spent_tokens: int, max_tokens: int):
+        super().__init__(
+            message=(
+                f"LLM token budget exceeded: {spent_tokens} tokens spent "
+                f"of a {max_tokens}-token ceiling."
+            ),
+        )
+        self._spent_tokens = spent_tokens
+        self._max_tokens = max_tokens
+
+    @property
+    def spent_tokens(self) -> int:
+        return self._spent_tokens
+
+    @property
+    def max_tokens(self) -> int:
+        return self._max_tokens
+
+    def __reduce__(self):
+        return (self.__class__, (self._spent_tokens, self._max_tokens))
+
+
 class PauseRequested(ExecutionError):
     def __init__(self, name: str, output: Any = None):
         super().__init__(

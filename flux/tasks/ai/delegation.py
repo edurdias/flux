@@ -8,6 +8,9 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 from collections.abc import Callable
 
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
+
 from flux.errors import ExecutionError, PauseRequested
 from flux.task import task
 
@@ -201,6 +204,10 @@ def build_delegate(agents: list) -> task:
                     execution_id=raw.execution_id,
                 )
             else:
+                # Sub-agents with a response_format return a validated model;
+                # surface it as plain data so the parent LLM sees clean JSON.
+                if isinstance(raw, BaseModel):
+                    raw = raw.model_dump()
                 result = DelegationResult(
                     agent=agent,
                     status="completed",
@@ -230,11 +237,17 @@ def workflow_agent(
     name: str,
     description: str,
     workflow: str,
+    response_format: type[BaseModel] | None = None,
 ) -> task:
     """Create an agent backed by a remote Flux workflow.
 
     The returned task uses FluxClient to call the workflow synchronously
     and returns a WorkflowAgentResult with status, output, and execution_id.
+
+    When ``response_format`` is set, a completed workflow's output is
+    validated against the model before being surfaced — a contract violation
+    turns the delegation into a failure instead of handing the parent
+    unchecked data.
     """
     _validate_agent_name(name)
 
@@ -260,9 +273,25 @@ def workflow_agent(
                     payload,
                 )
 
+        status = _map_execution_state(response)
+        output = response.get("output")
+        if response_format is not None and status == "completed":
+            try:
+                validated = response_format.model_validate(output)
+            except PydanticValidationError as e:
+                return WorkflowAgentResult(
+                    status="failed",
+                    output=(
+                        f"Workflow '{workflow}' completed but its output did "
+                        f"not match the expected schema "
+                        f"{response_format.__name__}: {e}"
+                    ),
+                    execution_id=response.get("execution_id"),
+                )
+            output = validated.model_dump()
         return WorkflowAgentResult(
-            status=_map_execution_state(response),
-            output=response.get("output"),
+            status=status,
+            output=output,
             execution_id=response.get("execution_id"),
         )
 

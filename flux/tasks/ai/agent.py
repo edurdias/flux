@@ -10,6 +10,7 @@ from flux.task import task
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from flux.tasks.ai.budget import Budget
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
     from flux.tasks.ai.memory.working_memory import WorkingMemory
     from flux.tasks.ai.skills import SkillCatalog
@@ -31,6 +32,7 @@ async def agent(
     strict_dependencies: bool = False,
     approve_plan: bool = False,
     response_format: type[BaseModel] | None = None,
+    max_schema_retries: int = 1,
     working_memory: WorkingMemory | None = None,
     long_term_memory: LongTermMemory | None = None,
     max_tool_calls: int = 10,
@@ -41,6 +43,7 @@ async def agent(
     on_complete: list[Callable] | None = None,
     on_pause: list[Callable] | None = None,
     reasoning_effort: str | None = None,
+    budget: Budget | None = None,
 ) -> task:
     """Create a Flux @task that calls an LLM.
 
@@ -65,6 +68,11 @@ async def agent(
         approve_plan: If True, pause for human approval before activating a new plan.
             Defaults to False.
         response_format: Pydantic BaseModel subclass for structured JSON output.
+            Composes with tools: the final (non-tool-call) answer is validated
+            against the schema.
+        max_schema_retries: Corrective turns allowed when the final answer fails
+            schema validation — the validation errors are fed back and the model
+            answers again. 0 fails on the first invalid answer. Defaults to 1.
         working_memory: WorkingMemory instance for conversation history across invocations.
         long_term_memory: LongTermMemory instance for persistent fact storage.
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
@@ -80,6 +88,13 @@ async def agent(
             Same signature as on_complete. Fired before the pause propagates.
         reasoning_effort: Configure reasoning/thinking depth. "low", "medium", "high",
             or None (disabled). Provider-specific mapping is applied internally.
+        budget: Budget instance this agent's token spend counts against. Share one
+            instance across several agents to give them a collective ceiling; the
+            loop checks it before every LLM call and raises BudgetExceededError
+            once spent() reaches max_tokens. Setting a budget disables token-level
+            content streaming (the final text still arrives as progress) because
+            the raw token-stream path bypasses the LLM task wrapper and cannot
+            capture the usage the budget needs.
 
     Returns:
         A Flux @task callable with signature (instruction: str, *, context: str = "") -> str | BaseModel
@@ -181,6 +196,7 @@ async def agent(
                 tools=tools,
                 tool_schemas=ollama_tools,
                 response_format=response_format,
+                max_schema_retries=max_schema_retries,
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
@@ -190,6 +206,7 @@ async def agent(
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
+                budget=budget,
             )
 
         result = _ollama_agent
@@ -221,6 +238,7 @@ async def agent(
                 tools=tools,
                 tool_schemas=openai_tools,
                 response_format=response_format,
+                max_schema_retries=max_schema_retries,
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
@@ -230,6 +248,7 @@ async def agent(
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
+                budget=budget,
             )
 
         result = _openai_agent
@@ -261,6 +280,7 @@ async def agent(
                 tools=tools,
                 tool_schemas=anthropic_tools,
                 response_format=response_format,
+                max_schema_retries=max_schema_retries,
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
@@ -270,6 +290,7 @@ async def agent(
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
+                budget=budget,
             )
 
         result = _anthropic_agent
@@ -301,6 +322,7 @@ async def agent(
                 tools=tools,
                 tool_schemas=gemini_tools,
                 response_format=response_format,
+                max_schema_retries=max_schema_retries,
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
@@ -310,6 +332,7 @@ async def agent(
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
+                budget=budget,
             )
 
         result = _google_agent
