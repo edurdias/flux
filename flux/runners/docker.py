@@ -225,7 +225,13 @@ def _parse_airgapped_mounts(mounts: list[str]) -> list[tuple[str, str]]:
             raise ValueError(
                 f"[flux.workers] airgapped_mounts entry '{entry}': paths must not contain commas",
             )
-        if target == "/":
+        # Normalize before the guards below: '/.', '/models/..' and trailing
+        # slashes would otherwise slip past the root-target and duplicate
+        # checks while resolving to the same location in the container.
+        source = os.path.normpath(source)
+        target = os.path.normpath(target)
+        # POSIX normpath preserves '//', so test all-slash rather than '/'.
+        if target.rstrip("/") == "":
             raise ValueError(
                 f"[flux.workers] airgapped_mounts entry '{entry}': mounting "
                 "over '/' is not allowed",
