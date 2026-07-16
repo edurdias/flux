@@ -228,6 +228,9 @@ class TestServiceSockets:
             sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
             sock.bind(str(service_dir / "service.sock"))
             sock.close()
+            # Sockets honor the process umask at bind; pin the contract mode
+            # so tests don't depend on the environment's umask.
+            (service_dir / "service.sock").chmod(0o666)
         service_dir.chmod(mode)
         return service_dir
 
@@ -273,11 +276,12 @@ class TestServiceSockets:
             make_runner(service_sockets={"inference": str(service_dir)})
         assert any("no socket" in r.message for r in caplog.records)
 
-    def test_present_socket_no_warning(self, tmp_path, caplog):
+    def test_healthy_socket_emits_no_warnings(self, tmp_path, caplog):
         service_dir = self._service_dir(tmp_path, with_socket=True)
         with caplog.at_level("WARNING"):
             make_runner(service_sockets={"inference": str(service_dir)})
-        assert not any("no socket" in r.message for r in caplog.records)
+        runner_warnings = [r for r in caplog.records if r.name == "flux.runners.docker"]
+        assert runner_warnings == []
 
     @pytest.mark.parametrize(
         "name",
