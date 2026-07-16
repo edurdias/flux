@@ -279,10 +279,42 @@ class TestServiceSockets:
             make_runner(service_sockets={"inference": str(service_dir)})
         assert not any("no socket" in r.message for r in caplog.records)
 
-    @pytest.mark.parametrize("name", ["", "Bad", "with_underscore", "-lead", "trail-", "a" * 33])
+    @pytest.mark.parametrize(
+        "name",
+        ["", "Bad", "with_underscore", "-lead", "trail-", "a--b", "a" * 33],
+    )
     def test_invalid_names_rejected(self, name, tmp_path):
         with pytest.raises(ValueError, match="airgapped_service_sockets"):
             make_runner(service_sockets={name: str(tmp_path)})
+
+    def test_uncreatable_directory_names_the_config_entry(self, tmp_path):
+        blocker = tmp_path / "blocker"
+        blocker.write_text("a file, not a directory")
+        with pytest.raises(ValueError, match=r"airgapped_service_sockets\['svc'\].*create"):
+            make_runner(service_sockets={"svc": str(blocker / "nested")})
+
+    def test_non_socket_file_warns(self, tmp_path, caplog):
+        service_dir = tmp_path / "svc"
+        service_dir.mkdir()
+        (service_dir / "service.sock").write_text("plain file")
+        service_dir.chmod(0o555)
+        with caplog.at_level("WARNING"):
+            make_runner(service_sockets={"svc": str(service_dir)})
+        assert any("not a unix socket" in r.message for r in caplog.records)
+
+    def test_restricted_socket_warns(self, tmp_path, caplog):
+        import socket as socket_mod
+
+        service_dir = tmp_path / "svc"
+        service_dir.mkdir()
+        sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+        sock.bind(str(service_dir / "service.sock"))
+        sock.close()
+        (service_dir / "service.sock").chmod(0o600)
+        service_dir.chmod(0o555)
+        with caplog.at_level("WARNING"):
+            make_runner(service_sockets={"svc": str(service_dir)})
+        assert any("world-connectable" in r.message for r in caplog.records)
 
     def test_relative_and_comma_paths_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="absolute"):
