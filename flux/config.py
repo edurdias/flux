@@ -210,7 +210,7 @@ class WorkersConfig(BaseConfig):
         description=(
             "Read-only bind mounts for airgapped containers, entries "
             "'/host/path:/container/path'. Read-only is forced by the "
-            "runner; an input channel for model weights and static assets. "
+            "runner; an input channel for reference data and static assets. "
             "Mounted content is readable by every airgapped workflow on "
             "this worker — never mount directories containing secrets"
         ),

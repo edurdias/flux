@@ -63,44 +63,44 @@ operations flow through the parent worker over the container's stdio. The
 only credential inside the container is the short-lived, single-execution
 token used for `call()` hops back into the server.
 
-## Local model inference in the airgapped runner
+## Sizing the airgapped runner for heavy workloads
 
-The `docker-airgapped` runner is a natural home for local inference
-(vLLM, llama.cpp, transformers): prompts and outputs never leave the
-sandbox, and the container's only way out is the worker-mediated stdio
-protocol. Three named capability knobs make it practical — each is
-grantable **only** through its config key (the equivalent raw flags are
-rejected in `airgapped_extra_args`), so `flux.toml` is the complete audit
-trail of opened surfaces:
+The `docker-airgapped` runner's defaults are sized for untrusted glue
+code. Data- and compute-heavy sealed workloads — numeric simulation, media
+processing, large dataset transforms — raise the limits and grant the
+capabilities they need. Three named knobs exist, each grantable **only**
+through its config key (the equivalent raw flags are rejected in
+`airgapped_extra_args`), so `flux.toml` is the complete audit trail of
+opened surfaces:
 
 ```toml
 [flux.workers]
 runners = ["docker-airgapped"]
-airgapped_image = "my-registry/flux-vllm:0.60.0"
+airgapped_image = "my-registry/flux-compute:0.60.0"
 
 # Capability grants (all default off)
 airgapped_gpus = "all"                            # or "device=0"
-airgapped_mounts = ["/srv/models:/models"]        # read-only, forced by the runner
-airgapped_shm_size = "8g"                         # /dev/shm for tensor passing
+airgapped_mounts = ["/srv/datasets:/data"]        # read-only, forced by the runner
+airgapped_shm_size = "8g"                         # /dev/shm for large buffers
 
-# Inference-sized limits (defaults are sized for untrusted glue code)
+# Workload-sized limits (defaults are sized for untrusted glue code)
 airgapped_memory = "32g"        # must cover process + tmpfs + shm (tmpfs pages
                                 # count against the container's memory cgroup)
 airgapped_cpus = 8.0
-airgapped_tmp_size = "8g"       # compile/tokenizer caches live here
-airgapped_execution_timeout = 3600   # model load counts against the ceiling
+airgapped_tmp_size = "8g"       # scratch space and caches live here
+airgapped_execution_timeout = 3600
 airgapped_extra_args = [
-    "--env", "HF_HOME=/tmp/hf",         # rootfs is read-only; caches go to /tmp
-    "--env", "XDG_CACHE_HOME=/tmp/cache",
+    "--env", "XDG_CACHE_HOME=/tmp/cache",   # rootfs is read-only; caches go to /tmp
 ]
 ```
 
-Build the image on the official base — weights come from the read-only
-mount, not the image, so a model revision does not mean an image rebuild:
+Build the image on the official base with your workload's libraries;
+reference data comes from the read-only mount, not the image, so a data
+refresh does not mean an image rebuild:
 
 ```dockerfile
 FROM <dockerhub-user>/flux:0.60.0
-RUN pip install --no-cache-dir vllm
+RUN pip install --no-cache-dir numpy scipy pillow
 ```
 
 Notes:
@@ -110,13 +110,13 @@ Notes:
   `readonly`, and `rw` is rejected at worker startup. A read-only bind is
   an input channel — data can enter, results still leave only through the
   stdio protocol. Mounted content is readable by every airgapped workflow
-  on the worker: mount weights and static assets, never secret-bearing
-  directories.
-- **Serving works inside the sandbox.** `--network=none` removes external
-  connectivity but keeps the container's own loopback, so a workflow can
-  run the vLLM engine in-process or spawn `vllm serve` on `127.0.0.1`
-  inside the container and call it from the same workflow. Nothing is
-  reachable from outside.
+  on the worker: mount reference data and static assets, never
+  secret-bearing directories.
+- **Helper processes work inside the sandbox.** `--network=none` removes
+  external connectivity but keeps the container's own loopback, so a
+  workflow can spawn a helper server on `127.0.0.1` inside the container
+  and call it from the same workflow (within the pids/memory limits).
+  Nothing is reachable from outside.
 - **GPUs are a deliberate grant.** A GPU is a compute device, not a data
   path out; in the strictest threat models it is still shared hardware —
   isolate at the worker level (one airgapped worker per GPU tenant) if
