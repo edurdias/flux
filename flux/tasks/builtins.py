@@ -55,7 +55,12 @@ async def parallel(
     """
     if max_concurrent is not None and max_concurrent < 1:
         for function in functions:
-            function.close()
+            # Close bare coroutines so they don't warn about never being
+            # awaited; other awaitables (e.g. tasks) have no close() and
+            # must not mask the ValueError below with an AttributeError.
+            close = getattr(function, "close", None)
+            if close is not None:
+                close()
         raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
 
     semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
