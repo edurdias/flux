@@ -68,25 +68,31 @@ the *directory* is restart-safe — but a shared writable directory would
 be a dead-drop channel between untrusted executions. The contract closes
 that:
 
-- Host directory: `root:root`, mode `0555`. Socket: mode `0666`
-  (`service.sock`, and any additional sockets the operator places there).
+- Host directory: **no write bits** (`0555` or stricter). Socket: mode
+  `0666` (`service.sock`). Ownership is deliberately *not* part of the
+  enforced contract — the guarantee rests on mode bits alone, which is
+  what keeps non-root worker deployments and non-root sidecar recipes
+  viable.
 - The mount is emitted **rw** — connecting to a UDS requires write
   permission on the socket inode, and a read-only mount fails the
   connect with `EROFS`. This is a deliberate, structural exception to
   the "mounts are always read-only" rule (#133), confined to the
   service directories.
-- The `0555` directory is binding **even for container root**: the
+- The write-less directory is binding **even for container root**: the
   profile's `--cap-drop=ALL` removes `CAP_DAC_OVERRIDE`, which is what
   lets uid 0 ignore mode bits. Executions can connect to sockets; they
   cannot create, replace, or delete files in the directory. (Running
-  `--user` non-root remains recommended defense in depth.)
+  `--user` non-root remains recommended defense in depth. Host-side
+  root keeps the capability, so a root-managed sidecar can still
+  create/replace its socket across restarts.)
 
-The worker validates the contract at startup (fail fast, same
-philosophy as the docker probe): directory exists (created with the
-right owner/mode if absent and the worker has the privilege; otherwise
-error), owner is root, mode is `0555`, service-name validity, no
-duplicate directories. A missing *socket* is a warning, not an error —
-the sidecar may start after the worker.
+The worker validates at startup (fail fast, same philosophy as the
+docker probe): service-name validity, no duplicate directories, and the
+directory exists with no write bits — created if absent, with creation
+failures re-raised against the specific config entry. Socket problems
+are *warnings*, not errors, because the sidecar may start after the
+worker: missing socket, path that is not a unix socket, or a socket
+that is not world-connectable each log a pointed warning.
 
 ### Mount emission
 

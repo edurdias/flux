@@ -24,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -217,7 +218,7 @@ def _validate_service_sockets(services: dict[str, str]) -> dict[str, str]:
     validated: dict[str, str] = {}
     seen_dirs: set[str] = set()
     for name, host_dir in services.items():
-        if len(name) > 32 or not _SERVICE_NAME_RE.match(name):
+        if len(name) > 32 or "--" in name or not _SERVICE_NAME_RE.match(name):
             raise ValueError(
                 f"[flux.workers] airgapped_service_sockets name '{name}' is "
                 "invalid: use lowercase letters, digits, and single hyphens "
@@ -243,8 +244,15 @@ def _validate_service_sockets(services: dict[str, str]) -> dict[str, str]:
                 f"directory '{host_dir}' is already used by another service",
             )
         if not os.path.exists(host_dir):
-            os.makedirs(host_dir)
-            os.chmod(host_dir, 0o555)
+            try:
+                os.makedirs(host_dir)
+                os.chmod(host_dir, 0o555)
+            except OSError as e:
+                raise ValueError(
+                    f"[flux.workers] airgapped_service_sockets['{name}']: "
+                    f"could not create '{host_dir}' ({e}); create it "
+                    "manually with mode 0555",
+                ) from e
         elif not os.path.isdir(host_dir):
             raise ValueError(
                 f"[flux.workers] airgapped_service_sockets['{name}']: "
@@ -266,6 +274,21 @@ def _validate_service_sockets(services: dict[str, str]) -> dict[str, str]:
                 "sidecar may not be running; executions using this service "
                 "will fail to connect until it is",
             )
+        else:
+            socket_stat = os.stat(socket_path)
+            if not stat.S_ISSOCK(socket_stat.st_mode):
+                logger.warning(
+                    f"Service '{name}': {socket_path} exists but is not a "
+                    "unix socket; executions will fail to connect to it",
+                )
+            elif socket_stat.st_mode & 0o002 == 0:
+                logger.warning(
+                    f"Service '{name}': {socket_path} is not "
+                    "world-connectable (mode "
+                    f"{socket_stat.st_mode & 0o777:o}, expected 0666); "
+                    "container uids without write permission on the socket "
+                    "will fail to connect",
+                )
         seen_dirs.add(host_dir)
         validated[name] = host_dir
     return validated

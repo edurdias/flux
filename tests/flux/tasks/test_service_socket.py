@@ -112,8 +112,8 @@ class TestServiceClient:
             with pytest.raises(httpx.ConnectError):
                 await client.get("/health")
 
-    def test_client_kwargs_pass_through(self, monkeypatch, tmp_path):
+    async def test_client_kwargs_pass_through(self, monkeypatch, tmp_path):
         _set_services(monkeypatch, {"echo": str(tmp_path / "service.sock")})
-        client = service_client("echo", timeout=42.0, base_url="http://custom")
-        assert client.timeout.read == 42.0
-        assert str(client.base_url) == "http://custom"
+        async with service_client("echo", timeout=42.0, base_url="http://custom") as client:
+            assert client.timeout.read == 42.0
+            assert str(client.base_url) == "http://custom"
