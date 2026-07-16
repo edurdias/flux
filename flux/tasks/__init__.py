@@ -5,3 +5,4 @@ from flux.tasks.call import call
 from flux.tasks.graph import Graph
 from flux.tasks.progress import progress
 from flux.tasks.dynamic import create_workflow, run_workflow
+from flux.tasks.service_socket import service_client, service_socket

@@ -49,6 +49,45 @@ def worker(mock_config):
     return Worker(name="test-worker", server_url="http://localhost:8000")
 
 
+def test_reserved_flux_labels_rejected(mock_config):
+    with pytest.raises(ValueError, match="reserved 'flux.' prefix"):
+        Worker(
+            name="test-worker",
+            server_url="http://localhost:8000",
+            labels={"flux.service.inference": "true"},
+        )
+
+
+def test_service_socket_labels_derived_from_runner(mock_config, tmp_path):
+    service_dir = tmp_path / "inference"
+    service_dir.mkdir()
+    service_dir.chmod(0o555)
+    mock_config.settings.workers.runners = ["subprocess", "docker-airgapped"]
+    mock_config.settings.workers.docker_image = "flux:test"
+    mock_config.settings.workers.airgapped_image = ""
+    mock_config.settings.workers.airgapped_memory = "512m"
+    mock_config.settings.workers.airgapped_cpus = 1.0
+    mock_config.settings.workers.airgapped_pids_limit = 256
+    mock_config.settings.workers.airgapped_tmp_size = "64m"
+    mock_config.settings.workers.airgapped_execution_timeout = 900
+    mock_config.settings.workers.airgapped_extra_args = []
+    mock_config.settings.workers.airgapped_gpus = ""
+    mock_config.settings.workers.airgapped_mounts = []
+    mock_config.settings.workers.airgapped_shm_size = ""
+    mock_config.settings.workers.airgapped_service_sockets = {"inference": str(service_dir)}
+
+    from flux.runners.docker import DockerRunner
+
+    with patch.object(DockerRunner, "_verify_docker_available"):
+        worker = Worker(
+            name="test-worker",
+            server_url="http://localhost:8000",
+            labels={"gpu": "true"},
+        )
+    assert worker.labels["flux.service.inference"] == "true"
+    assert worker.labels["gpu"] == "true"
+
+
 def test_worker_init_fails_fast_when_bootstrap_token_missing():
     """A worker started without a configured bootstrap_token must fail at __init__,
     not silently send 'Bearer None' to the server.
