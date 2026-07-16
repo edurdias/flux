@@ -215,6 +215,107 @@ class TestCapabilityKnobs:
         assert env_at < command.index("--mount")
 
 
+class TestServiceSockets:
+    """Named UDS grants: directory contract, mount + env emission, labels."""
+
+    @staticmethod
+    def _service_dir(tmp_path, name="inference", with_socket=False, mode=0o555):
+        service_dir = tmp_path / name
+        service_dir.mkdir()
+        if with_socket:
+            import socket as socket_mod
+
+            sock = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+            sock.bind(str(service_dir / "service.sock"))
+            sock.close()
+        service_dir.chmod(mode)
+        return service_dir
+
+    def test_mount_and_env_emitted(self, tmp_path):
+        service_dir = self._service_dir(tmp_path)
+        runner = make_runner(service_sockets={"inference": str(service_dir)})
+        joined = " ".join(runner._build_command("c"))
+        assert (
+            f"--mount type=bind,source={service_dir},target=/run/flux/services/inference" in joined
+        )
+        assert (
+            '--env FLUX_SERVICE_SOCKETS={"inference":"/run/flux/services/inference/service.sock"}'
+            in joined
+        )
+
+    def test_service_mount_is_rw_not_readonly(self, tmp_path):
+        """UDS connect requires write on the socket inode; the 0555 dir plus
+        cap-drop ALL is what keeps the mount write-proof, not the ro flag."""
+        service_dir = self._service_dir(tmp_path)
+        runner = make_runner(service_sockets={"inference": str(service_dir)})
+        command = runner._build_command("c")
+        service_mounts = [a for a in command if "flux/services" in a]
+        assert service_mounts and all("readonly" not in a for a in service_mounts)
+
+    def test_nothing_emitted_without_grants(self):
+        command = make_runner()._build_command("c")
+        assert "FLUX_SERVICE_SOCKETS" not in " ".join(command)
+
+    def test_missing_directory_created_write_less(self, tmp_path):
+        target = tmp_path / "fresh"
+        make_runner(service_sockets={"svc": str(target)})
+        assert target.is_dir()
+        assert (target.stat().st_mode & 0o777) == 0o555
+
+    def test_writable_directory_rejected(self, tmp_path):
+        service_dir = self._service_dir(tmp_path, mode=0o755)
+        with pytest.raises(ValueError, match="no write bits"):
+            make_runner(service_sockets={"inference": str(service_dir)})
+
+    def test_missing_socket_warns_but_starts(self, tmp_path, caplog):
+        service_dir = self._service_dir(tmp_path)
+        with caplog.at_level("WARNING"):
+            make_runner(service_sockets={"inference": str(service_dir)})
+        assert any("no socket" in r.message for r in caplog.records)
+
+    def test_present_socket_no_warning(self, tmp_path, caplog):
+        service_dir = self._service_dir(tmp_path, with_socket=True)
+        with caplog.at_level("WARNING"):
+            make_runner(service_sockets={"inference": str(service_dir)})
+        assert not any("no socket" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("name", ["", "Bad", "with_underscore", "-lead", "trail-", "a" * 33])
+    def test_invalid_names_rejected(self, name, tmp_path):
+        with pytest.raises(ValueError, match="airgapped_service_sockets"):
+            make_runner(service_sockets={name: str(tmp_path)})
+
+    def test_relative_and_comma_paths_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="absolute"):
+            make_runner(service_sockets={"svc": "relative/dir"})
+        weird = tmp_path / "a,b"
+        with pytest.raises(ValueError, match="commas"):
+            make_runner(service_sockets={"svc": str(weird)})
+
+    def test_duplicate_directories_rejected(self, tmp_path):
+        service_dir = self._service_dir(tmp_path)
+        with pytest.raises(ValueError, match="already used"):
+            make_runner(
+                service_sockets={"one": str(service_dir), "two": str(service_dir) + "/"},
+            )
+
+    def test_grants_land_in_locked_section(self, tmp_path):
+        service_dir = self._service_dir(tmp_path)
+        runner = make_runner(
+            extra_args=["--env", "TZ=UTC"],
+            service_sockets={"inference": str(service_dir)},
+        )
+        command = runner._build_command("c")
+        env_at = command.index("--env")  # operator's, first
+        mount_at = next(i for i, a in enumerate(command) if "flux/services" in a)
+        assert env_at < mount_at
+
+    def test_service_names_property(self, tmp_path):
+        a = self._service_dir(tmp_path, "svc-a")
+        b = self._service_dir(tmp_path, "svc-b")
+        runner = make_runner(service_sockets={"svc-b": str(b), "svc-a": str(a)})
+        assert runner.service_names == ["svc-a", "svc-b"]
+
+
 class TestLimitValidation:
     def test_empty_memory_rejected(self):
         with pytest.raises(ValueError, match="airgapped_memory"):
@@ -247,6 +348,7 @@ class TestFactoryWiring:
         cfg.airgapped_gpus = ""
         cfg.airgapped_mounts = []
         cfg.airgapped_shm_size = ""
+        cfg.airgapped_service_sockets = {}
         for key, value in overrides.items():
             setattr(cfg, key, value)
         return cfg
@@ -290,6 +392,22 @@ class TestFactoryWiring:
         assert "--gpus device=0" in joined
         assert f"type=bind,source={tmp_path},target=/models,readonly" in joined
         assert "--shm-size 4g" in joined
+
+    def test_service_sockets_flow_from_config(self, tmp_path):
+        service_dir = tmp_path / "inference"
+        service_dir.mkdir()
+        service_dir.chmod(0o555)
+        with patch.object(DockerRunner, "_verify_docker_available"):
+            runners = create_runners(
+                ["docker-airgapped"],
+                self._config(
+                    docker_image="flux:base",
+                    airgapped_service_sockets={"inference": str(service_dir)},
+                ),
+            )
+        runner = runners["docker-airgapped"]
+        assert runner.service_names == ["inference"]
+        assert "FLUX_SERVICE_SOCKETS" in " ".join(runner._build_command("c"))
 
 
 class TestExecutionTimeout:

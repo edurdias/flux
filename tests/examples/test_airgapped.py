@@ -38,6 +38,18 @@ def test_sealed_redact_clean_text_untouched():
     assert ctx.output == {"text": "Nothing sensitive here.", "redactions": 0}
 
 
+def test_sealed_classify_falls_back_without_the_service():
+    from examples.airgapped import sealed_classify
+
+    ctx = sealed_classify.run("Is this sealed?")
+    assert ctx.has_finished and ctx.has_succeeded
+    assert ctx.output == {"label": "question", "via": "fallback"}
+
+
 def test_examples_declare_the_sealed_runner():
+    from examples.airgapped import sealed_classify
+
     assert sealed_keyword_count.runner == "docker-airgapped"
     assert sealed_redact.runner == "docker-airgapped"
+    assert sealed_classify.runner == "docker-airgapped"
+    assert sealed_classify.affinity == {"flux.service.classifier": "true"}

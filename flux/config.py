@@ -223,6 +223,18 @@ class WorkersConfig(BaseConfig):
             "against airgapped_memory"
         ),
     )
+    airgapped_service_sockets: dict[str, str] = Field(
+        default={},
+        description=(
+            "Service name -> host directory containing that service's Unix "
+            "socket at <dir>/service.sock. Each directory is bind-mounted "
+            "into airgapped containers at /run/flux/services/<name> so "
+            "sealed executions can reach long-lived local sidecars (warm "
+            "runtimes) with no network stack. Directory must carry no "
+            "write bits (0555); granted services are advertised as "
+            "flux.service.<name> worker labels"
+        ),
+    )
     airgapped_extra_args: list[str] = Field(
         default=[],
         description=(
