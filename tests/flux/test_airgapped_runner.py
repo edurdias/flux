@@ -178,9 +178,17 @@ class TestCapabilityKnobs:
         with pytest.raises(ValueError, match="duplicate"):
             make_runner(mounts=[f"{a}:/models", f"{b}:/models"])
 
-    def test_root_target_rejected(self, tmp_path):
+    @pytest.mark.parametrize("target", ["/", "/.", "/models/..", "//"])
+    def test_root_target_rejected_even_unnormalized(self, target, tmp_path):
         with pytest.raises(ValueError, match="mounting"):
-            make_runner(mounts=[f"{tmp_path}:/"])
+            make_runner(mounts=[f"{tmp_path}:{target}"])
+
+    def test_duplicate_detection_survives_trailing_slash(self, tmp_path):
+        a, b = tmp_path / "a", tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        with pytest.raises(ValueError, match="duplicate"):
+            make_runner(mounts=[f"{a}:/models", f"{b}:/models/"])
 
     def test_comma_in_path_rejected(self, tmp_path):
         weird = tmp_path / "a,b"
