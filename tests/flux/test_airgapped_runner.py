@@ -92,10 +92,26 @@ class TestVetoList:
             ["--add-host=evil:1.2.3.4"],
             ["--sysctl", "net.ipv4.ip_forward=1"],
             ["--oom-kill-disable"],
+            ["--gpus=all"],
+            ["--gpus", "all"],
+            ["--shm-size=4g"],
+            ["--shm-size", "4g"],
         ],
     )
     def test_profile_weakening_args_rejected(self, args):
         with pytest.raises(ValueError, match="airgapped isolation profile"):
+            make_runner(extra_args=args)
+
+    @pytest.mark.parametrize(
+        ("args", "hint"),
+        [
+            (["--gpus=all"], "airgapped_gpus"),
+            (["--shm-size=4g"], "airgapped_shm_size"),
+            (["--mount", "type=bind,src=/,dst=/host"], "airgapped_mounts"),
+        ],
+    )
+    def test_rejection_points_at_the_named_knob(self, args, hint):
+        with pytest.raises(ValueError, match=hint):
             make_runner(extra_args=args)
 
     @pytest.mark.parametrize(
@@ -111,6 +127,84 @@ class TestVetoList:
         runner = make_runner(extra_args=args)
         command = runner._build_command("c")
         assert args[0] in command
+
+
+class TestCapabilityKnobs:
+    """GPUs, read-only mounts, and shm sizing are grantable only through
+    their named config keys and always land in the locked section."""
+
+    def test_off_by_default(self):
+        command = make_runner()._build_command("c")
+        assert "--gpus" not in command
+        assert "--shm-size" not in command
+        assert "--mount" not in command
+
+    def test_gpus_emitted_when_configured(self):
+        command = make_runner(gpus="all")._build_command("c")
+        assert "--gpus all" in " ".join(command)
+
+    def test_shm_size_emitted_when_configured(self):
+        command = make_runner(shm_size="4g")._build_command("c")
+        assert "--shm-size 4g" in " ".join(command)
+
+    def test_mount_emitted_read_only(self, tmp_path):
+        runner = make_runner(mounts=[f"{tmp_path}:/models"])
+        joined = " ".join(runner._build_command("c"))
+        assert f"--mount type=bind,source={tmp_path},target=/models,readonly" in joined
+
+    def test_redundant_ro_suffix_accepted(self, tmp_path):
+        runner = make_runner(mounts=[f"{tmp_path}:/models:ro"])
+        joined = " ".join(runner._build_command("c"))
+        assert "target=/models,readonly" in joined
+
+    def test_rw_suffix_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="always read-only"):
+            make_runner(mounts=[f"{tmp_path}:/models:rw"])
+
+    def test_relative_paths_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="absolute"):
+            make_runner(mounts=["models:/models"])
+        with pytest.raises(ValueError, match="absolute"):
+            make_runner(mounts=[f"{tmp_path}:models"])
+
+    def test_missing_host_path_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="does not exist"):
+            make_runner(mounts=[f"{tmp_path / 'nope'}:/models"])
+
+    def test_duplicate_targets_rejected(self, tmp_path):
+        a, b = tmp_path / "a", tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        with pytest.raises(ValueError, match="duplicate"):
+            make_runner(mounts=[f"{a}:/models", f"{b}:/models"])
+
+    def test_root_target_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="mounting"):
+            make_runner(mounts=[f"{tmp_path}:/"])
+
+    def test_comma_in_path_rejected(self, tmp_path):
+        weird = tmp_path / "a,b"
+        weird.mkdir()
+        with pytest.raises(ValueError, match="commas"):
+            make_runner(mounts=[f"{weird}:/models"])
+
+    def test_malformed_entry_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="expected"):
+            make_runner(mounts=[str(tmp_path)])
+
+    def test_knobs_land_in_locked_section(self, tmp_path):
+        """Capability grants sit with the profile, after operator extra_args."""
+        runner = make_runner(
+            extra_args=["--env", "TZ=UTC"],
+            gpus="all",
+            shm_size="2g",
+            mounts=[f"{tmp_path}:/models"],
+        )
+        command = runner._build_command("c")
+        env_at = command.index("--env")
+        assert env_at < command.index("--gpus")
+        assert env_at < command.index("--shm-size")
+        assert env_at < command.index("--mount")
 
 
 class TestLimitValidation:
@@ -142,6 +236,9 @@ class TestFactoryWiring:
         cfg.airgapped_tmp_size = "64m"
         cfg.airgapped_execution_timeout = 900
         cfg.airgapped_extra_args = []
+        cfg.airgapped_gpus = ""
+        cfg.airgapped_mounts = []
+        cfg.airgapped_shm_size = ""
         for key, value in overrides.items():
             setattr(cfg, key, value)
         return cfg
@@ -169,6 +266,22 @@ class TestFactoryWiring:
         with patch.object(DockerRunner, "_verify_docker_available"):
             with pytest.raises(ValueError, match="airgapped_image"):
                 create_runners(["docker-airgapped"], self._config())
+
+    def test_capability_knobs_flow_from_config(self, tmp_path):
+        with patch.object(DockerRunner, "_verify_docker_available"):
+            runners = create_runners(
+                ["docker-airgapped"],
+                self._config(
+                    docker_image="flux:base",
+                    airgapped_gpus="device=0",
+                    airgapped_mounts=[f"{tmp_path}:/models"],
+                    airgapped_shm_size="4g",
+                ),
+            )
+        joined = " ".join(runners["docker-airgapped"]._build_command("c"))
+        assert "--gpus device=0" in joined
+        assert f"type=bind,source={tmp_path},target=/models,readonly" in joined
+        assert "--shm-size 4g" in joined
 
 
 class TestExecutionTimeout:

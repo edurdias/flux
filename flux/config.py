@@ -197,13 +197,40 @@ class WorkersConfig(BaseConfig):
             "both durabilities (0 disables — discouraged)"
         ),
     )
+    airgapped_gpus: str = Field(
+        default="",
+        description=(
+            "GPUs exposed to airgapped containers ('all', 'device=0', ...); "
+            "empty (default) grants none. The only way to grant GPUs — "
+            "--gpus in airgapped_extra_args is rejected"
+        ),
+    )
+    airgapped_mounts: list[str] = Field(
+        default=[],
+        description=(
+            "Read-only bind mounts for airgapped containers, entries "
+            "'/host/path:/container/path'. Read-only is forced by the "
+            "runner; an input channel for model weights and static assets. "
+            "Mounted content is readable by every airgapped workflow on "
+            "this worker — never mount directories containing secrets"
+        ),
+    )
+    airgapped_shm_size: str = Field(
+        default="",
+        description=(
+            "Size of /dev/shm in airgapped containers (docker syntax, e.g. "
+            "'4g'); empty keeps docker's 64m default. tmpfs pages count "
+            "against airgapped_memory"
+        ),
+    )
     airgapped_extra_args: list[str] = Field(
         default=[],
         description=(
             "Extra 'docker run' arguments for the airgapped runner. Flags "
             "that would weaken the isolation profile (--network, --volume, "
             "--privileged, --cap-add, host namespaces, DNS, ...) are rejected "
-            "at worker startup"
+            "at worker startup, as are flags with a named airgapped_* key "
+            "(--gpus, --shm-size, mounts)"
         ),
     )
     loop_lag_threshold: float = Field(

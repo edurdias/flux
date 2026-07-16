@@ -71,6 +71,9 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
                 tmp_size=config.airgapped_tmp_size,
                 execution_timeout=config.airgapped_execution_timeout,
                 extra_args=list(config.airgapped_extra_args),
+                gpus=config.airgapped_gpus,
+                mounts=list(config.airgapped_mounts),
+                shm_size=config.airgapped_shm_size,
             )
         else:
             raise ValueError(
