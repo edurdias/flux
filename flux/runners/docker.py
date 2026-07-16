@@ -271,10 +271,10 @@ class AirgappedDockerRunner(DockerRunner):
     key, never through ``extra_args``, so the config file is the audit
     trail: ``airgapped_gpus`` (compute device, no data path out),
     ``airgapped_mounts`` (bind mounts with read-only forced by the runner —
-    an input channel for model weights and static assets), and
-    ``airgapped_shm_size`` (``/dev/shm`` sizing for tensor-passing
-    workloads). None of them opens an output channel: results still leave
-    only through the worker-mediated stdio protocol.
+    an input channel for reference data and static assets), and
+    ``airgapped_shm_size`` (``/dev/shm`` sizing for workloads that pass
+    large buffers between processes). None of them opens an output channel:
+    results still leave only through the worker-mediated stdio protocol.
     """
 
     name = "docker-airgapped"

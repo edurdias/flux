@@ -1,11 +1,12 @@
 # Airgapped Execution
 
 The `docker-airgapped` runner executes workflows you do not trust — above
-all, model-authored (dynamic) workflows. Each execution runs in its own
-container whose **only capability channel is the stdio protocol to the
-parent worker**: checkpoints, secrets, configs, and approval-gate
-operations all flow through the worker, where every request is
-permission-checked. Everything else is closed.
+all, model-authored (dynamic) workflows — and workflows over data that must
+not leave the box. Each execution runs in its own container whose **only
+capability channel is the stdio protocol to the parent worker**:
+checkpoints, secrets, configs, and approval-gate operations all flow
+through the worker, where every request is permission-checked. Everything
+else is closed.
 
 ## The locked profile
 
@@ -51,9 +52,9 @@ async def sealed_keyword_count(ctx: ExecutionContext[str]):
     ...
 ```
 
-See `examples/airgapped.py` for runnable examples (sealed text processing,
-read-only asset mounts with graceful fallback, and the local-inference
-pattern).
+See `examples/airgapped.py` for runnable examples (sealed text processing
+with read-only asset mounts and graceful fallback, and privacy-preserving
+redaction of sensitive data).
 
 ## Capability knobs
 
@@ -66,13 +67,13 @@ for `airgapped_` is the complete audit trail of opened surfaces:
 |---|---|---|
 | `airgapped_gpus` | `--gpus all` / `"device=0"` | a compute device; no data path out |
 | `airgapped_mounts` | read-only bind mounts | an *input* channel — data can enter, results still leave only via the stdio protocol |
-| `airgapped_shm_size` | `/dev/shm` sizing | RAM allocation (tensor passing); accounted next to `airgapped_memory` |
+| `airgapped_shm_size` | `/dev/shm` sizing | RAM allocation (large inter-process buffers); accounted next to `airgapped_memory` |
 
 `airgapped_mounts` entries are `"/host/path:/container/path"`. Read-only
 is **forced by the runner** regardless of what the entry says; `rw`,
 relative paths, missing host paths, and duplicate targets fail worker
 startup. Mounted content is readable by every airgapped workflow on the
-worker — mount model weights and static assets, never directories
+worker — mount reference datasets and static assets, never directories
 containing secrets.
 
 Capability channels are **never** knobs: network, DNS, published ports,
@@ -81,29 +82,30 @@ runner. Operators who need them switch to the plain `docker` runner —
 changing the runner *name*, and therefore the guarantee that dispatch and
 the dynamic-workflows server rely on.
 
-## Local model inference
+## Sizing for data- and compute-heavy workloads
 
-The sealed runner is a natural home for local inference: prompts and
-outputs never leave the container. The working setup (image recipe, sizing
-guidance, cache environment variables for the read-only rootfs, and the
-in-container loopback serving pattern) is documented in DOCKER.md under
-"Local model inference in the airgapped runner". The short version:
+The profile's defaults are sized for untrusted glue code. Heavier sealed
+workloads — numeric simulation, media processing, large dataset
+transforms — raise the limits and grant what they need (image recipe,
+sizing guidance, and cache environment variables for the read-only rootfs
+are documented in DOCKER.md under "Sizing the airgapped runner for heavy
+workloads"):
 
 ```toml
 [flux.workers]
 runners = ["docker-airgapped"]
-airgapped_image = "my-registry/flux-vllm:0.60.0"
-airgapped_gpus = "all"
-airgapped_mounts = ["/srv/models:/models"]   # weights, read-only
-airgapped_shm_size = "8g"
+airgapped_image = "my-registry/flux-compute:0.60.0"
+airgapped_gpus = "all"                        # GPU-accelerated compute
+airgapped_mounts = ["/srv/datasets:/data"]    # reference data, read-only
+airgapped_shm_size = "8g"                     # large inter-process buffers
 airgapped_memory = "32g"
 airgapped_tmp_size = "8g"
 airgapped_execution_timeout = 3600
 ```
 
-`--network=none` keeps the container's own loopback, so a workflow can run
-the inference engine in-process or spawn a server on `127.0.0.1` *inside*
-the sandbox — nothing is reachable from outside.
+`--network=none` keeps the container's own loopback, so a workflow can
+spawn helper processes and talk to them on `127.0.0.1` *inside* the
+sandbox — nothing is reachable from outside.
 
 ## Dynamic workflows run here by default
 

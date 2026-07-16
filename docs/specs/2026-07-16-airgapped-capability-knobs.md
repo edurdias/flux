@@ -1,31 +1,31 @@
 # Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory
 
 **Date:** 2026-07-16 · **Status:** draft for review (follow-up to the
-docker-airgapped runner, #130) · **Motivating use case:** local model
-inference (e.g. vLLM) inside the airgapped sandbox.
+docker-airgapped runner, #130) · **Motivating use case:** data- and
+compute-heavy workloads inside the airgapped sandbox.
 
 ## Motivation
 
 The `docker-airgapped` runner exists so untrusted (often model-authored)
 workflows can run with the stdio protocol as their *only* capability
-channel. Local inference is a natural workload for it — the whole point of
-running a model locally is that prompts and outputs never leave the box —
-but today the profile can't express what inference needs:
+channel. Sealed processing of sensitive data is a natural workload for
+it — the whole point is that inputs and intermediate state never leave the
+box — but today the profile can't express what heavier workloads need:
 
 - **GPUs** work only by accident: `--gpus` is absent from
   `_AIRGAPPED_VETOED_FLAGS`, so it slips through `airgapped_extra_args`.
   Granting a capability by denylist omission is the wrong mechanism — it is
   invisible, unaudited, and would be silently revoked if the flag were ever
   added to the veto list.
-- **Model weights** must be baked into the image: `--network=none` rules
-  out runtime downloads and `--volume`/`--mount` are vetoed. Weights are
-  tens of GB and change more often than code; forcing an image rebuild per
-  revision pushes operators toward the unprotected `docker` runner — the
+- **Reference data** must be baked into the image: `--network=none` rules
+  out runtime downloads and `--volume`/`--mount` are vetoed. Large
+  datasets change more often than code; forcing an image rebuild per
+  refresh pushes operators toward the unprotected `docker` runner — the
   opposite of what the profile is for.
-- **Shared memory**: PyTorch/vLLM move tensors between processes through
-  `/dev/shm`, and Docker's default is 64 MB. `--shm-size` also slips
-  through `extra_args` today — RAM allocation in disguise, unaccounted
-  next to `airgapped_memory`.
+- **Shared memory**: workloads that pass large buffers between processes
+  go through `/dev/shm`, and Docker's default is 64 MB. `--shm-size` also
+  slips through `extra_args` today — RAM allocation in disguise,
+  unaccounted next to `airgapped_memory`.
 
 ## Design principle: named knobs, not veto opt-outs
 
@@ -75,7 +75,7 @@ docker's last-wins parsing keeps the profile authoritative.
   probe): absolute paths, host path exists, no duplicate targets, target
   is not `/`.
 - Security note (documented): mounted content is readable by **every**
-  airgapped workflow on that worker. Mount model weights and static
+  airgapped workflow on that worker. Mount reference data and static
   assets; never mount directories containing secrets.
 
 ### `airgapped_gpus` semantics
@@ -83,10 +83,10 @@ docker's last-wins parsing keeps the profile authoritative.
 - String passed through to `--gpus`. Empty = no GPU (today's effective
   default, now explicit).
 - A GPU is a compute device, not an exfiltration path; it is the knob that
-  makes local inference possible at all. Documented caveat: GPUs are a
-  shared-hardware side channel in the strictest threat models — operators
-  who care isolate at the worker level (one airgapped worker per GPU
-  tenant).
+  makes GPU-accelerated sealed compute possible at all. Documented caveat:
+  GPUs are a shared-hardware side channel in the strictest threat models —
+  operators who care isolate at the worker level (one airgapped worker per
+  GPU tenant).
 
 ### Veto list additions
 
@@ -106,23 +106,24 @@ accident this spec removes.)
 No server, dispatch, or protocol changes: the runner name and its
 guarantee semantics are unchanged.
 
-## DOCKER.md: inference profile guidance
+## DOCKER.md: heavy-workload profile guidance
 
-New section covering the vLLM-shaped setup end to end:
+New section covering the sized-up setup end to end:
 
-- Image recipe: `FROM flux:<version>` + `pip install vllm`; weights come
-  from `airgapped_mounts`, not the image.
+- Image recipe: `FROM flux:<version>` + the workload's libraries;
+  reference data comes from `airgapped_mounts`, not the image.
 - Sizing: raise `airgapped_memory` / `airgapped_cpus` /
   `airgapped_tmp_size` / `airgapped_execution_timeout`; set
-  `airgapped_shm_size` (vLLM recommends ≥ a few GB for tensor-parallel).
-  **tmpfs pages (`/tmp`, `/dev/shm`) count against the container's memory
-  cgroup** — `airgapped_memory` must cover process + caches + shm.
-- Read-only rootfs: point `HF_HOME` / `XDG_CACHE_HOME` at `/tmp` (compile
-  and tokenizer caches), via `airgapped_extra_args = ["--env", ...]`.
-- Serving pattern: `--network=none` keeps the container's own loopback, so
-  a workflow may run the vLLM engine in-process or spawn `vllm serve` on
-  `127.0.0.1` *inside* the container — nothing is reachable from outside,
-  and results still flow only through the stdio protocol.
+  `airgapped_shm_size` for workloads that pass large buffers between
+  processes. **tmpfs pages (`/tmp`, `/dev/shm`) count against the
+  container's memory cgroup** — `airgapped_memory` must cover process +
+  caches + shm.
+- Read-only rootfs: point cache locations (`XDG_CACHE_HOME`, ...) at
+  `/tmp` via `airgapped_extra_args = ["--env", ...]`.
+- Helper processes: `--network=none` keeps the container's own loopback,
+  so a workflow may spawn a helper server on `127.0.0.1` *inside* the
+  container — nothing is reachable from outside, and results still flow
+  only through the stdio protocol.
 
 ## Testing
 

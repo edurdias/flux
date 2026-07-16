@@ -19,7 +19,7 @@ so ``flux.toml`` is the audit trail of opened surfaces:
 
     airgapped_gpus = "all"                      # compute, no data path out
     airgapped_mounts = ["/srv/assets:/assets"]  # read-only, forced
-    airgapped_shm_size = "8g"                   # /dev/shm for tensor passing
+    airgapped_shm_size = "8g"                   # /dev/shm for large buffers
 
 Pinning ``runner="docker-airgapped"`` also constrains dispatch: the workflow
 only goes to workers advertising the sealed runner. (Dynamically registered
@@ -33,6 +33,7 @@ each example degrades gracefully outside the container.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from flux import ExecutionContext
@@ -44,6 +45,9 @@ from flux.workflow import workflow
 ASSETS_DIR = Path("/assets")
 
 _BUILTIN_STOPWORDS = frozenset({"a", "an", "and", "in", "is", "of", "or", "the", "to"})
+
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
 
 
 @task
@@ -92,42 +96,36 @@ async def sealed_keyword_count(ctx: ExecutionContext[str]):
 
 
 @task
-async def summarize_locally(text: str, max_words: int = 12) -> dict[str, str | int]:
-    """Local inference stays local: prompt and output never leave the box.
+async def redact(text: str) -> dict[str, str | int]:
+    """Mask emails and phone numbers before anything leaves the sandbox."""
+    redactions = 0
 
-    In a real deployment the airgapped image bundles an inference engine
-    (e.g. ``pip install vllm``), weights arrive through a read-only
-    ``airgapped_mounts`` grant, and ``airgapped_gpus`` exposes the device —
-    see DOCKER.md ("Local model inference in the airgapped runner"). The
-    engine can run in-process, or as a server on the container's own
-    loopback: ``--network=none`` removes external connectivity but keeps
-    ``127.0.0.1`` inside the sandbox.
+    def _mask(match: re.Match[str]) -> str:
+        nonlocal redactions
+        redactions += 1
+        return "[REDACTED]"
 
-    This example uses a deterministic extractive stand-in so it runs
-    anywhere; swap the body for a model call in your image.
-    """
-    words = text.split()
-    summary = " ".join(words[:max_words]) + ("…" if len(words) > max_words else "")
-    return {"summary": summary, "input_words": len(words)}
+    masked = _EMAIL.sub(_mask, text)
+    masked = _PHONE.sub(_mask, masked)
+    return {"text": masked, "redactions": redactions}
 
 
 @workflow.with_options(runner="docker-airgapped")
-async def sealed_summarize(ctx: ExecutionContext[str]):
-    """Privacy-preserving inference: sealed compute over sensitive text.
+async def sealed_redact(ctx: ExecutionContext[str]):
+    """Privacy-preserving processing of sensitive text.
 
-    The only thing that leaves the container is this return value, as a
-    checkpoint through the parent worker.
+    The raw input reaches the container through the worker's stdio channel
+    and is processed with no network to leak it through; the only thing
+    that leaves is this return value, checkpointed through the parent
+    worker — already masked.
     """
     if not ctx.input:
         raise TypeError("Input not provided")
-    return await summarize_locally(ctx.input)
+    return await redact(ctx.input)
 
 
 if __name__ == "__main__":  # pragma: no cover
     ctx = sealed_keyword_count.run("the quick brown fox jumps over the lazy dog")
     print(ctx.to_json())
-    ctx = sealed_summarize.run(
-        "Flux executes untrusted workflows inside a sealed container whose "
-        "only capability channel is the stdio protocol to the parent worker.",
-    )
+    ctx = sealed_redact.run("Contact Ada at ada@example.com or +1 (555) 010-9999 for access.")
     print(ctx.to_json())
