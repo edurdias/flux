@@ -67,6 +67,7 @@ class FluxPerfEnv:
         port: int | None = None,
         database_url: str | None = None,
         worker_name: str = "perf-worker",
+        env_overrides: dict[str, str] | None = None,
     ):
         self.workdir = workdir
         self.port = port or free_port()
@@ -87,7 +88,9 @@ class FluxPerfEnv:
             "FLUX_SECURITY__AUTH__ENABLED": "false",
             "FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS": "true",
             "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY": "perf-test-encryption-key",
+            **(env_overrides or {}),
         }
+        self.extra_workers: list[subprocess.Popen] = []
         self._http = httpx.Client(base_url=self.server_url, timeout=30)
 
     # -- lifecycle ---------------------------------------------------------
@@ -127,11 +130,61 @@ class FluxPerfEnv:
         return self
 
     def stop(self):
+        for proc in self.extra_workers:
+            _kill(proc)
         _kill(self.worker_proc)
         _kill(self.server_proc)
         self._http.close()
         for f in self._log_files:
             f.close()
+
+    def start_extra_worker(
+        self,
+        name: str,
+        server_url: str | None = None,
+        timeout: float = 60.0,
+    ) -> subprocess.Popen:
+        """Start an additional worker (optionally via a proxy server URL)."""
+        log = open(self.log_dir / f"worker-{name}.log", "w")
+        self._log_files.append(log)
+        proc = subprocess.Popen(
+            [
+                "poetry",
+                "run",
+                "flux",
+                "start",
+                "worker",
+                name,
+                "--server-url",
+                server_url or self.server_url,
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            cwd=PROJECT_ROOT,
+            env=self.env,
+        )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                r = self._http.get("/workers")
+                if r.status_code == 200 and any(w["name"] == name for w in r.json()):
+                    self.extra_workers.append(proc)
+                    return proc
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.5)
+        _kill(proc)
+        raise RuntimeError(f"Extra worker '{name}' did not connect within {timeout}s")
+
+    def kill_worker(self, proc: subprocess.Popen, force: bool = False):
+        """Stop a worker process; force=True is an unclean SIGKILL (T6b)."""
+        if force:
+            proc.kill()
+            proc.wait(timeout=10)
+        else:
+            _kill(proc)
+        if proc in self.extra_workers:
+            self.extra_workers.remove(proc)
 
     def _wait_healthy(self, timeout: float = 60.0):
         deadline = time.monotonic() + timeout

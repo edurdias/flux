@@ -210,7 +210,7 @@ jobs:
     # Run when version-check succeeded OR was skipped (Dependabot exemption).
     if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16-alpine
@@ -245,12 +245,14 @@ jobs:
       run: poetry install --no-interaction --extras postgresql
 
     # Progress-streaming perf suite (tests/perf/PLAN.md) against a real
-    # server + worker on PostgreSQL — the production backend. The suite is
-    # opt-in (FLUX_PERF=1); only correctness-gated tests (T0) run in CI,
-    # latency/throughput characterization runs on dedicated hardware.
-    - name: Run perf suite (PostgreSQL)
+    # server + worker on PostgreSQL — the production backend. All scenarios
+    # (T0-T7) run in the short 'ci' profile: correctness gates hard-fail,
+    # performance gates are soft (recorded in the artifact, never red on a
+    # shared runner). Full-length runs: the on-demand 'perf' workflow.
+    - name: Run perf suite (PostgreSQL, ci profile)
       env:
         FLUX_PERF: "1"
+        FLUX_PERF_PROFILE: ci
         FLUX_PERF_DATABASE_URL: postgresql://flux_perf_user:flux_perf_password@localhost:5432/flux_perf
       run: |
         poetry run pytest tests/perf -m perf -v

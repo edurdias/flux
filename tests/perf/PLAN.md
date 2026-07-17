@@ -1,9 +1,18 @@
-# Flux Progress-Streaming Stress Test Plan v1.1
+# Flux Progress-Streaming Stress Test Plan v1.2
 
 **Audience:** implementing agent working in `edurdias/flux` (off `main` at PR #135's merge).
 **Goal:** characterize and bound the `progress()` streaming path — sealed child → stdio child protocol → worker → HTTP → server → SSE consumer — at token-frame granularity, and turn "verify streaming at M1" into measured numbers with pass/fail gates. Motivating workload: LLM token streaming (~30–100 events/s per stream, 60–2,000-byte frames), but every test is Flux-general.
 
 **Prime directive:** measure product code as it is. If a test fails its gate, the deliverable is the measurement plus a written proposal — not an inline product patch on this branch. "Product code" means everything under `flux/`; `pyproject.toml` marker registration and dev-only config changes needed to host the suite are explicitly allowed.
+
+## Changelog v1.1 → v1.2 (full implementation)
+
+1. **Profiles.** `FLUX_PERF_PROFILE=ci|full` (`fixtures/harness/profile.py`). `ci` (default) uses short windows sized for a shared pipeline runner — the PR pipeline gives an initial "where are we" number for every scenario; `full` uses the plan-spec durations for dedicated hardware. On-demand runs: the `perf` workflow (`.github/workflows/perf.yml`, `workflow_dispatch`) takes profile + backend inputs.
+2. **Gate policy split.** Correctness gates (persistence, terminal states, no wedge, no progress-proportional store growth) always hard-fail. Performance gates are soft by default — measured and recorded with a verdict, failing the run only under `FLUX_PERF_STRICT=1` (dedicated-environment mode). A noisy box produces numbers, not red pipelines.
+3. **T5b measurement falsified half the §0b prediction.** Competition over the shared per-execution queue is confirmed (frames split between concurrent consumers, zero duplicates), but the survivor is **not** immediately starved after a sibling disconnect: the buffer-pop in the SSE generator's `finally` runs at generator finalization, not client-disconnect time, so post-disconnect behavior is cleanup-timing-dependent. §0b stage 5 updated; analysis and per-consumer fan-out proposal in `findings/T5b_multi_consumer.md`.
+4. **T6 runs in its own module environment** with tightened heartbeats (interval 2 s / timeout 6 s / eviction grace 4 s) so kill-detection fits a CI window and worker kills can't poison the shared session environment. T6a pins the cancel-at-full-rate scenario (all streams demonstrably producing before cancel). T6c's ci drop window stays under the heartbeat timeout to exercise reconnect-and-resume; longer drops (full profile) document the eviction fate — both are coherent outcomes, wedge = non-terminal only.
+5. **T3's "server CPU ≤ 70 %" knee criterion is measured but unreliable in ci** — on a 2-core shared runner the load generator and consumers share cores with the server. The delivered/offered ratio is the primary knee signal there.
+6. **Sealed variants deferred to the dedicated environment.** All ci/pipeline runs are `sealed: false` (subprocess runner); the docker-airgapped variants need a Flux worker image, which the dedicated environment will own.
 
 ## Changelog v1.0 → v1.1
 
@@ -44,7 +53,7 @@ Every stage is **drop-newest, silent** (except a worker-side log warning):
 2. **Worker queue**: per-execution `asyncio.Queue(maxsize=1000)`; `QueueFull` → dropped (`flux/worker.py:1396-1407`).
 3. **Worker → server**: one serial flusher per execution, batches ≤50 frames per HTTP POST (`flux/worker.py:1332`); a failed POST drops the whole batch with a warning (`flux/worker.py:1357`). Per-execution throughput ceiling ≈ 50/RTT — record RTT in every run.
 4. **Server ingest**: no subscribed consumer → all frames discarded (`flux/api/worker_routes.py:916-918`); `asyncio.Queue(maxsize=10000)` per execution, drop-newest (`worker_routes.py:929`).
-5. **SSE fan-out**: single shared queue per execution; concurrent consumers *compete* (each frame reaches exactly one); any consumer disconnect pops the shared buffer, permanently starving survivors (`flux/server.py:498,604-605`).
+5. **SSE fan-out**: single shared queue per execution; concurrent consumers *compete* (each frame reaches exactly one — T5b-confirmed, zero duplicates). A consumer disconnect pops the shared buffer in the generator's `finally` (`flux/server.py:498,604-605`), but T5b measured that this cleanup runs at generator finalization, not disconnect time — survivor behavior after a sibling disconnect is timing-dependent, not deterministic starvation. See `findings/T5b_multi_consumer.md`.
 
 Tests verify this policy holds under load and quantify where each stage's limit sits. Divergence from this table is itself a finding.
 
@@ -101,10 +110,10 @@ Pre-registered expectation (§0b): stream 1's server queue fills to 10,000 then 
 Record: worker + server RSS over time; sibling p99; stream 1's delivered frames and drop pattern.
 Gate: bounded memory and unaffected siblings. Divergence from the expected policy → findings doc.
 
-### T5b — Multi-consumer semantics (documentation test, expected-fail-ish)
+### T5b — Multi-consumer semantics (documentation test)
 Two concurrent consumers on one execution mid-stream, then disconnect one.
-Pre-registered expectation from code: frames split nondeterministically between consumers; after either disconnects, the survivor receives nothing further (shared buffer popped at `flux/server.py:605`).
-Deliverable: `findings/T5b_multi_consumer.md` documenting observed behavior + proposal (per-consumer fan-out queues). No gate — this bounds current semantics so T7 and users don't rediscover it.
+Measured (v1.2): frames split nondeterministically between concurrent consumers — zero duplicates, each frame to exactly one consumer (confirmed). The predicted immediate survivor starvation was **falsified**: the shared-buffer pop (`flux/server.py:605`) runs at generator finalization, not disconnect time, so post-disconnect behavior is cleanup-timing-dependent.
+Hard assertions pin the deterministic semantics (competition, no duplication) so a fan-out change flips the test loudly. Deliverable: `findings/T5b_multi_consumer.md` (analysis + per-consumer fan-out proposal). This bounds current semantics so T7 and users don't rediscover it.
 
 ### T6 — Violence
 (a) Fast-cancel all 8 streams at full rate: cancel-flush burst (`flux/worker.py:1334-1350`) measured and documented; **no frames after the burst completes**; executions reach correct terminal state; RSS returns to baseline ≤ 5 s.

@@ -92,6 +92,7 @@ class StreamConsumer:
         self._connected = threading.Event()
         self._done = threading.Event()
         self._stop = threading.Event()
+        self._client: httpx.Client | None = None
         self._thread = threading.Thread(
             target=self._run,
             name=f"consumer-{execution_id[:8]}",
@@ -113,7 +114,14 @@ class StreamConsumer:
         return self._done.wait(timeout)
 
     def stop(self, timeout: float = 10.0):
+        """Disconnect promptly: closing the client aborts a blocked read, so
+        the server observes a real SSE disconnect (T5b depends on this)."""
         self._stop.set()
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:
+                pass
         self._thread.join(timeout)
 
     # -- consumption ---------------------------------------------------------
@@ -123,6 +131,7 @@ class StreamConsumer:
         params: dict[str, Any] = {"mode": "stream", "detailed": self.detailed}
         try:
             with httpx.Client(timeout=httpx.Timeout(10.0, read=None)) as client:
+                self._client = client
                 with connect_sse(client, "GET", url, params=params) as source:
                     self._connected.set()
                     for sse in source.iter_sse():
@@ -133,8 +142,9 @@ class StreamConsumer:
                             break
                         if self.throttle_bytes_per_s:
                             time.sleep(len(sse.data) / self.throttle_bytes_per_s)
-        except BaseException as e:  # recorded, surfaced via stats/error
-            self.error = e
+        except BaseException as e:
+            if not self._stop.is_set():  # a stop()-forced close is not an error
+                self.error = e
         finally:
             self._connected.set()
             self._done.set()

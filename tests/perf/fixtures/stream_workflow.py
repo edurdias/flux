@@ -31,6 +31,7 @@ async def emit_frames(
     size: int,
     start_delay: float,
     jitter: float,
+    hold_s: float = 0.0,
 ) -> int:
     if start_delay > 0:
         await asyncio.sleep(start_delay)
@@ -51,6 +52,10 @@ async def emit_frames(
                 # Fell behind (emit slower than requested rate): resync
                 # instead of bursting to catch up.
                 next_at = time.monotonic()
+    if hold_s > 0:
+        # Keep the execution RUNNING after the last frame — T3 uses this to
+        # hold open synthetic-load targets, T6b to have work in flight.
+        await asyncio.sleep(hold_s)
     return frames
 
 
@@ -63,5 +68,6 @@ async def perf_stream(ctx: ExecutionContext):
         size=int(params.get("size", 150)),
         start_delay=float(params.get("start_delay", 0.0)),
         jitter=float(params.get("jitter", 0.0)),
+        hold_s=float(params.get("hold_s", 0.0)),
     )
     return {"sent": sent}

@@ -71,11 +71,28 @@ def perf_env(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
-def stream_workflow(perf_env):
+def stream_workflow_source():
+    """Path to the synthetic streaming workflow source file."""
+    return PERF_DIR / "fixtures" / "stream_workflow.py"
+
+
+@pytest.fixture(scope="session")
+def stream_workflow(perf_env, stream_workflow_source):
     """Register the synthetic streaming workflow; return (namespace, name)."""
-    result = perf_env.register(PERF_DIR / "fixtures" / "stream_workflow.py")
+    result = perf_env.register(stream_workflow_source)
     entries = result if isinstance(result, list) else [result]
     for entry in entries:
         if isinstance(entry, dict) and entry.get("name") == "perf_stream":
             return entry.get("namespace", "default"), "perf_stream"
     return "default", "perf_stream"
+
+
+@pytest.fixture(scope="session")
+def sidecar_workflow(perf_env):
+    """Register the sidecar-tee workflow (T4); return its namespace."""
+    result = perf_env.register(PERF_DIR / "fixtures" / "sidecar_workflow.py")
+    entries = result if isinstance(result, list) else [result]
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("name") == "perf_sidecar_stream":
+            return entry.get("namespace", "default")
+    return "default"
