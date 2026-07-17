@@ -81,11 +81,12 @@ def _create_workflow(cm, name, namespace="default", affinity=None, requests=None
         return wf.id
 
 
-def _create_execution(cm, workflow_id, namespace="default", name="test"):
+def _create_execution(cm, workflow_id, namespace="default", name="test", input=None):
     ctx = ExecutionContext(
         workflow_id=workflow_id,
         workflow_namespace=namespace,
         workflow_name=name,
+        input=input,
     )
     return cm.save(ctx)
 
@@ -353,3 +354,134 @@ def test_dispatch_affinity_matches_but_resources_insufficient(clean_env):
 
     result = cm.next_execution(w1)
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# require(...) affinity expressions (poll-mode dispatch)
+# ---------------------------------------------------------------------------
+
+
+def _require_spec(*terms):
+    from flux.routing import require
+
+    return require(*terms)
+
+
+def test_poll_require_input_driven_match(clean_env):
+    from flux.routing import input as input_, label
+
+    cm, registry = clean_env
+    _register_worker(registry, "eu", labels={"region": "eu-west"})
+    _register_worker(registry, "us", labels={"region": "us-east"})
+    eu, us = registry.get("eu"), registry.get("us")
+
+    wf_id = _create_workflow(
+        cm,
+        "infer",
+        affinity=_require_spec(label("region") == input_("region")),
+    )
+    _create_execution(cm, wf_id, name="infer", input={"region": "eu-west"})
+
+    assert cm.next_execution(us) is None
+    result = cm.next_execution(eu)
+    assert result is not None and result.workflow_name == "infer"
+
+
+def test_poll_require_unresolved_input_fails_execution(clean_env):
+    from flux.routing import input as input_, label
+
+    cm, registry = clean_env
+    _register_worker(registry, "eu", labels={"region": "eu-west"})
+    eu = registry.get("eu")
+
+    wf_id = _create_workflow(
+        cm,
+        "infer",
+        affinity=_require_spec(label("region") == input_("region")),
+    )
+    ctx = _create_execution(cm, wf_id, name="infer", input={"other": 1})
+
+    assert cm.next_execution(eu) is None
+
+    failed = cm.get(ctx.execution_id)
+    assert failed.state == ExecutionState.FAILED
+    [event] = [e for e in failed.events if e.type.name == "WORKFLOW_FAILED"]
+    assert "region" in str(event.value)
+
+
+def test_poll_require_mismatch_parks_execution(clean_env):
+    """A resolvable-but-unmatched expression waits for a matching worker."""
+    from flux.routing import input as input_, label
+
+    cm, registry = clean_env
+    _register_worker(registry, "us", labels={"region": "us-east"})
+    us = registry.get("us")
+
+    wf_id = _create_workflow(
+        cm,
+        "infer",
+        affinity=_require_spec(label("region") == input_("region")),
+    )
+    ctx = _create_execution(cm, wf_id, name="infer", input={"region": "eu-west"})
+
+    assert cm.next_execution(us) is None
+    assert cm.get(ctx.execution_id).state == ExecutionState.CREATED
+
+    _register_worker(registry, "eu", labels={"region": "eu-west"})
+    assert cm.next_execution(registry.get("eu")) is not None
+
+
+def test_poll_require_dynamic_key_and_optional_pin(clean_env):
+    from flux.routing import input as input_, label, label_for, optional
+
+    cm, registry = clean_env
+    _register_worker(registry, "a", labels={"sku.small-8b": "true", "node": "node_a"})
+    _register_worker(registry, "b", labels={"sku.small-8b": "true", "node": "node_b"})
+    a, b = registry.get("a"), registry.get("b")
+
+    wf_id = _create_workflow(
+        cm,
+        "infer",
+        affinity=_require_spec(
+            label_for("sku.", input_("model")) == "true",
+            optional(label("node") == input_("node")),
+        ),
+    )
+    _create_execution(
+        cm,
+        wf_id,
+        name="infer",
+        input={"model": "small-8b", "node": "node_b"},
+    )
+
+    assert cm.next_execution(a) is None
+    assert cm.next_execution(b) is not None
+
+
+def test_resume_fallback_respects_require_expression(clean_env):
+    from flux.routing import input as input_, label
+
+    cm, registry = clean_env
+    _register_worker(registry, "us", labels={"region": "us-east"})
+    _register_worker(registry, "eu", labels={"region": "eu-west"})
+    us, eu = registry.get("us"), registry.get("eu")
+
+    wf_id = _create_workflow(
+        cm,
+        "infer",
+        affinity=_require_spec(label("region") == input_("region")),
+    )
+    ctx = _create_execution(cm, wf_id, name="infer", input={"region": "eu-west"})
+
+    from flux.models import ExecutionContextModel, RepositoryFactory
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        model = session.get(ExecutionContextModel, ctx.execution_id)
+        model.state = ExecutionState.RESUMING
+        model.worker_name = None
+        session.commit()
+
+    assert cm.next_resume(us) is None
+    result = cm.next_resume(eu)
+    assert result is not None and result.workflow_name == "infer"

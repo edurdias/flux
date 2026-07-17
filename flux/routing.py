@@ -1,4 +1,4 @@
-"""Declarative routing policies: the score stage of workflow dispatch.
+"""Declarative routing policies: the filter and score stages of dispatch.
 
 Hard constraints (``requests``, ``affinity``, ``runner``, health, capacity)
 filter the candidate workers; a routing policy ranks the survivors. Policies
@@ -6,6 +6,21 @@ are data, not code — the decorator factories below compile to a JSON spec
 that the catalog extracts statically (AST, like ``requests``) and the server
 evaluates natively inside the dispatch batch. No user code ever runs on the
 server.
+
+Two families of factories live here:
+
+- ``score(...)`` builds the *scoring* policy for ``routing=`` (ranks eligible
+  workers; event dispatch mode only).
+- ``require(...)`` builds an *affinity expression* for ``affinity=`` (a hard
+  per-worker filter whose terms resolve against the execution input at
+  dispatch; works in both poll and event dispatch modes). See ``require``.
+
+The dynamic constructs span both stages: ``input(...)`` values,
+``label_for(...)`` dynamic keys, and ``service(...)`` work in ``require``
+terms and in ``prefer()``; ``when(input(...) == const, term)`` gates a term
+in either stage. The same comparison is a hard wall under ``require`` and a
+soft preference under ``prefer`` — pair them for floor-plus-preference
+routing.
 
     @workflow.with_options(
         routing=score(
@@ -34,7 +49,8 @@ same as the sticky hint.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+import re
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from flux.utils import get_logger
 
@@ -69,6 +85,10 @@ class InputRef:
 
     ``input("region")`` compares against ``ctx.input["region"]``;
     dotted paths (``input("customer.region")``) descend nested dicts.
+
+    Comparing an ``input(...)`` against a constant builds an
+    :class:`InputCondition` for ``when(...)`` in a ``require`` expression:
+    ``when(input("tier") == "dedicated", ...)``.
     """
 
     def __init__(self, path: str):
@@ -78,6 +98,37 @@ class InputRef:
 
     def to_spec(self) -> dict[str, str]:
         return {"$input": self.path}
+
+    def __eq__(self, other: Any) -> InputCondition:  # type: ignore[override]
+        return InputCondition(self, "==", other)
+
+    def __ne__(self, other: Any) -> InputCondition:  # type: ignore[override]
+        return InputCondition(self, "!=", other)
+
+    # Comparisons build InputConditions, so instances are deliberately
+    # unhashable (same contract as Selector).
+    __hash__ = None  # type: ignore[assignment]
+
+
+class InputCondition:
+    """A comparison of an execution-input value against a constant.
+
+    Only usable as the ``when(...)`` condition of a ``require`` expression:
+    it conditions on the requester's intent, never on worker attributes.
+    """
+
+    def __init__(self, ref: InputRef, op: str, value: Any):
+        if op not in ("==", "!="):
+            raise ValueError(f"input() conditions support only == and !=, got: '{op}'")
+        if isinstance(value, (InputRef, Selector)):
+            raise ValueError("input() can only be compared against constants")
+        if not isinstance(value, (str, int, float, bool)) and value is not None:
+            raise ValueError(
+                f"input() comparison value must be a constant, got: {type(value).__name__}",
+            )
+        self.ref = ref
+        self.op = op
+        self.value = value
 
 
 def input(path: str) -> InputRef:  # noqa: A001 - deliberate DSL name
@@ -111,6 +162,9 @@ class Selector:
     comparisons (``60 > metric("temp")``) work through Python's reflected
     operator protocol.
     """
+
+    # str for static selectors ("label:gpu"); DynamicLabel stores a dict spec.
+    spec: str | dict[str, Any]
 
     def __init__(self, kind: str, key: str | None = None):
         if kind == "load":
@@ -166,6 +220,60 @@ def load() -> Selector:
     return Selector("load")
 
 
+# Resolved dynamic label keys must look like ordinary label keys: alphanumeric
+# with interior ``.``/``_``/``-``, bounded length. Static keys authored in a
+# dict or ``label(...)`` are not retro-validated; only keys completed from
+# execution input are held to this.
+MAX_LABEL_KEY_LENGTH = 128
+_LABEL_KEY_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
+
+# Granted service sockets are advertised as ``flux.service.<name>`` labels;
+# the worker rejects user labels under ``flux.``, so these cannot be spoofed.
+SERVICE_LABEL_PREFIX = "flux.service."
+
+# Service names follow the worker-side socket-name rule (enforced at worker
+# startup on [flux.workers] airgapped_service_sockets, see
+# flux/runners/docker.py) — validating service() terms against the same rule
+# keeps a workflow from compiling an expression no real worker can satisfy.
+MAX_SERVICE_NAME_LENGTH = 32
+SERVICE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
+
+def is_valid_service_name(name: str) -> bool:
+    """Whether a service-socket name is one worker registration could grant:
+    lowercase letters, digits, and single hyphens, max 32 chars."""
+    return (
+        isinstance(name, str)
+        and len(name) <= MAX_SERVICE_NAME_LENGTH
+        and "--" not in name
+        and bool(SERVICE_NAME_RE.match(name))
+    )
+
+
+class DynamicLabel(Selector):
+    """A label selector whose key is completed from execution input.
+
+    ``label_for("sku.", input("model"))`` inspects label ``sku.<model>`` on
+    each candidate worker. The prefix is mandatory — the workflow author
+    declares the namespace, input only completes it. Valid in ``require(...)``
+    terms and in ``prefer()``; not in ``least()``/``most()``, where label
+    strings have no ordering.
+    """
+
+    def __init__(self, prefix: str, ref: InputRef):
+        if not prefix or not isinstance(prefix, str):
+            raise ValueError("label_for() requires a non-empty string prefix")
+        if not isinstance(ref, InputRef):
+            raise ValueError(
+                f"label_for() key must be completed from input(...), got: {type(ref).__name__}",
+            )
+        # The prefix must be a valid label-key head so no input value can
+        # produce a valid key from an invalid namespace.
+        if not _LABEL_KEY_RE.match(prefix.rstrip("._-") or ""):
+            raise ValueError(f"label_for() prefix is not a valid label key prefix: '{prefix}'")
+        self.spec = {"kind": "label", "prefix": prefix, "input": ref.path}
+
+
 def _validate_weight(weight: Any) -> float:
     try:
         weight = float(weight)
@@ -181,14 +289,33 @@ def _require_selector(value: Any, term: str) -> Selector:
         raise ValueError(
             f"{term}() takes a selector (label/metric/resource/load), got: {type(value).__name__}",
         )
+    if not isinstance(value.spec, str):
+        raise ValueError(
+            f"label_for() keys resolve to label strings, which have no ordering — "
+            f"use it in prefer() or require(), not in {term}()",
+        )
     return value
 
 
-def prefer(condition: Condition, *, weight: float = 1.0) -> dict:
+def prefer(condition: Condition | dict, *, weight: float = 1.0) -> dict:
     """Boolean preference: 1.0 when the condition holds, else 0.
 
     ``prefer(label("region") == input("region"), weight=10)``
+
+    Also accepts dynamic-key comparisons and ``service(...)`` — the soft
+    counterparts of their ``require(...)`` forms:
+    ``prefer(label_for("cache.", input("dataset")) == "true", weight=5)``
+    prefers workers with a warm copy without excluding the rest.
     """
+    if isinstance(condition, dict) and condition.get("kind") == "match":
+        # service(...) compiles to a match term; re-shape it as a preference.
+        return {
+            "kind": "prefer",
+            "selector": condition.get("selector"),
+            "op": condition.get("op"),
+            "value": condition.get("value"),
+            "weight": _validate_weight(weight),
+        }
     if not isinstance(condition, Condition):
         raise ValueError(
             "prefer() takes a selector comparison, e.g. "
@@ -230,21 +357,180 @@ def sticky(*, weight: float = 1.0) -> dict:
     return {"kind": "sticky", "weight": _validate_weight(weight)}
 
 
+_SCORE_TERM_KINDS = ("prefer", "least", "most", "sticky")
+
+
 def score(*terms: dict) -> dict:
     """Compose terms into a routing policy spec (stored in workflow metadata)."""
     if not terms:
         raise ValueError("score() requires at least one term")
     for term in terms:
-        if not isinstance(term, dict) or term.get("kind") not in (
-            "prefer",
-            "least",
-            "most",
-            "sticky",
-        ):
+        if not isinstance(term, dict):
             raise ValueError(
-                f"score() accepts only prefer()/least()/most()/sticky() terms, got: {term!r}",
+                f"score() accepts only prefer()/least()/most()/sticky()/when() terms, "
+                f"got: {term!r}",
+            )
+        if term.get("kind") == "when":
+            then = term.get("then")
+            if not isinstance(then, dict) or then.get("kind") not in _SCORE_TERM_KINDS:
+                raise ValueError(
+                    "when(...) in score() must wrap a prefer()/least()/most()/sticky() "
+                    "term; label comparisons belong in require()",
+                )
+        elif term.get("kind") not in _SCORE_TERM_KINDS:
+            raise ValueError(
+                f"score() accepts only prefer()/least()/most()/sticky()/when() terms, "
+                f"got: {term!r}",
             )
     return {"terms": list(terms)}
+
+
+# ---------------------------------------------------------------------------
+# require(...): affinity expressions (the filter stage)
+# ---------------------------------------------------------------------------
+#
+#     @workflow.with_options(
+#         affinity=require(
+#             service(input("model")),
+#             label_for("sku.", input("model")) == "true",
+#             optional(label("node") == input("node")),
+#             when(input("tier") == "dedicated", label("cap.dedicated") == "true"),
+#         ),
+#     )
+#
+# Terms are AND-ed, ops are == and != only, and evaluation is fail-closed: a
+# term whose input cannot be resolved fails the match, except under
+# optional(...) (skip on unresolved input) and when(...) (inactive on an
+# unresolved condition). ``!=`` treats an absent label as passing (absent ≠
+# value) — the one deliberate inversion, so maintenance-window style terms
+# work without every worker carrying the label. Resolved input values are
+# compared against labels as strings (bools as "true"/"false").
+
+_REQUIRE_OPS = ("==", "!=")
+
+
+def label_for(prefix: str, ref: InputRef) -> DynamicLabel:
+    """Label selector whose key is ``prefix`` completed from execution input.
+
+    ``label_for("sku.", input("model")) == "true"`` checks label
+    ``sku.<model> == "true"`` on each candidate. Inputs never create labels,
+    only test them; the resolved key must be a valid label key.
+    """
+    return DynamicLabel(prefix, ref)
+
+
+def service(name: str | InputRef) -> dict:
+    """Target workers holding a granted, runner-verified service socket.
+
+    A hard wall as a ``require(...)`` term, a soft preference inside
+    ``prefer(...)``. Sugar for
+    ``label_for("flux.service.", name) == "true"``. Because the
+    ``flux.`` label prefix is reserved (workers reject user labels under it),
+    this is a capability grant a worker cannot fabricate.
+    """
+    if isinstance(name, InputRef):
+        selector: Any = DynamicLabel(SERVICE_LABEL_PREFIX, name).spec
+    elif isinstance(name, str) and name:
+        if not is_valid_service_name(name):
+            raise ValueError(
+                f"service() name '{name}' is invalid: use lowercase letters, digits, "
+                f"and single hyphens (max {MAX_SERVICE_NAME_LENGTH} chars) — it must "
+                f"match a worker's granted socket name",
+            )
+        selector = f"label:{SERVICE_LABEL_PREFIX}{name}"
+    else:
+        raise ValueError(
+            f"service() takes a service name or input(...), got: {type(name).__name__}",
+        )
+    return {"kind": "match", "selector": selector, "op": "==", "value": "true"}
+
+
+def _compile_match(term: Any, context: str) -> dict:
+    """Normalize a require term (a label Condition or a compiled dict) into
+    its ``{"kind": "match", ...}`` spec."""
+    if isinstance(term, dict):
+        if term.get("kind") == "match":
+            return dict(term)
+        raise ValueError(f"{context} takes a label comparison or service(...), got: {term!r}")
+    if not isinstance(term, Condition):
+        raise ValueError(
+            f"{context} takes a label comparison, e.g. "
+            f'label("region") == input("region"), got: {type(term).__name__}',
+        )
+    spec = term.selector.spec
+    is_label = (isinstance(spec, str) and spec.startswith("label:")) or (
+        isinstance(spec, dict) and spec.get("kind") == "label"
+    )
+    if not is_label:
+        raise ValueError(
+            f"require() terms compare labels only (label()/label_for()); metric()/"
+            f"resource()/load() belong to requests= and routing=, got: '{spec}'",
+        )
+    if term.op not in _REQUIRE_OPS:
+        raise ValueError(
+            f"require() supports only == and != (ordered comparisons on labels are "
+            f"stringly-typed traps; use routing= for metrics), got: '{term.op}'",
+        )
+    return {"kind": "match", "selector": spec, "op": term.op, "value": term.value}
+
+
+def optional(term: Condition | dict) -> dict:
+    """Present-or-skip: the term is skipped when its input is absent, but a
+    resolved comparison that is false still fails the match — and input that
+    resolves to something invalid (bad label key, non-scalar, invalid service
+    name) fails and diagnoses like a bare term."""
+    compiled = _compile_match(term, "optional()")
+    compiled["optional"] = True
+    return compiled
+
+
+def when(condition: InputCondition, term: Condition | dict) -> dict:
+    """Apply ``term`` only when an input condition holds.
+
+    The condition resolves from execution input only — it gates on the
+    requester's intent, never on worker attributes. An unresolved condition
+    leaves the term inactive (a widening construct by design, unlike bare
+    require terms, which fail closed).
+
+    Valid in both stages: wrapping a label comparison (or ``service(...)``)
+    it gates a ``require(...)`` term; wrapping a ``prefer()``/``least()``/
+    ``most()``/``sticky()`` term it gates a ``score(...)`` term.
+    """
+    if not isinstance(condition, InputCondition):
+        raise ValueError(
+            "when() condition must compare input(...) against a constant, e.g. "
+            f'when(input("tier") == "dedicated", ...), got: {type(condition).__name__}',
+        )
+    if isinstance(term, dict) and term.get("kind") in _SCORE_TERM_KINDS:
+        then = dict(term)
+    else:
+        then = _compile_match(term, "when()")
+    return {
+        "kind": "when",
+        "if": {"input": condition.ref.path, "op": condition.op, "value": condition.value},
+        "then": then,
+    }
+
+
+def require(*terms: Condition | dict) -> list[dict]:
+    """Compose terms into an affinity expression (stored as the workflow's
+    ``affinity``). All terms must hold (AND); see the module docs for the
+    fail-closed semantics."""
+    if not terms:
+        raise ValueError("require() requires at least one term")
+    compiled: list[dict] = []
+    for term in terms:
+        if isinstance(term, dict) and term.get("kind") == "when":
+            then = term.get("then")
+            if not isinstance(then, dict) or then.get("kind") != "match":
+                raise ValueError(
+                    "when(...) wrapping a scoring term is only valid in score(); "
+                    "require() terms are label comparisons",
+                )
+            compiled.append(term)
+        else:
+            compiled.append(_compile_match(term, "require()"))
+    return compiled
 
 
 def validate_worker_metrics(payload: Any, max_keys: int = MAX_METRICS) -> dict[str, float] | None:
@@ -352,6 +638,20 @@ def pick_worker(
         if not isinstance(term, dict):
             logger.warning(f"Malformed routing term ignored: {term!r}")
             return None
+        if term.get("kind") == "when":
+            # Input-gated score term: inactive conditions skip it; a
+            # malformed condition degrades the whole policy like any other
+            # malformed term.
+            active = _when_condition_active(term, input_value)
+            if isinstance(active, str):
+                logger.warning(f"Malformed routing term ignored: {term!r}")
+                return None
+            if not active:
+                continue
+            term = term.get("then")
+            if not isinstance(term, dict):
+                logger.warning(f"Malformed routing term ignored: {term!r}")
+                return None
         kind = term.get("kind")
         weight = _as_float(term.get("weight", 1.0))
         if weight is None or weight <= 0:
@@ -365,7 +665,19 @@ def pick_worker(
             continue
 
         selector = term.get("selector")
-        if not isinstance(selector, str):
+        if kind == "prefer" and isinstance(selector, dict):
+            # Dynamic label key (label_for/service): resolve once per term
+            # against the execution input. Unresolved input or an invalid
+            # resolved key means the term cannot discriminate — everyone
+            # scores 0 for it — while a malformed spec degrades the policy.
+            key, problem = _resolve_selector_key(selector, input_value)
+            if problem is not None:
+                if problem.category == "malformed":
+                    logger.warning(f"Malformed routing term ignored: {term!r}")
+                    return None
+                continue
+            selector = f"label:{key}"
+        elif not isinstance(selector, str):
             logger.warning(f"Malformed routing term ignored: {term!r}")
             return None
 
@@ -409,3 +721,203 @@ def pick_worker(
         eligible,
         key=lambda w: (-totals[w.name], loads.get(w.name, 0), w.name),
     )
+
+
+# ---------------------------------------------------------------------------
+# require(...) evaluation (server-side, inside the dispatch paths)
+# ---------------------------------------------------------------------------
+
+_UNRESOLVED = object()  # sentinel: input path absent (None is a legal value)
+
+
+def _resolve_require_input(input_value: Any, path: str) -> Any:
+    current = input_value
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _UNRESOLVED
+        current = current[part]
+    return current
+
+
+def _label_value_str(value: Any) -> str:
+    # Labels are strings; input-resolved values compare as their string form,
+    # with bools lowercased to match label conventions ("true"/"false").
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+class _Problem(NamedTuple):
+    """A term-resolution problem — an execution-level fact (worker-independent)
+    by construction.
+
+    ``category`` drives what each consumer does with it:
+    - "unresolved": the input path is absent — the one condition
+      ``optional(...)`` forgives.
+    - "invalid": the input resolved to something no worker could ever carry
+      (bad label key, non-scalar, invalid service name) — fails and
+      diagnoses even under ``optional(...)``.
+    - "malformed": the spec itself is broken (hand-written metadata) —
+      always fails, always diagnoses, degrades a scoring policy.
+    """
+
+    category: str
+    message: str
+
+
+def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, _Problem | None]:
+    """Resolve a label selector (static ``"label:key"`` or dynamic
+    ``{"kind": "label", "prefix", "input"}``) to its label key.
+
+    Returns ``(key, None)`` or ``("", problem)``."""
+    if isinstance(selector, str) and selector.startswith("label:"):
+        return selector[len("label:") :], None
+    if isinstance(selector, dict) and selector.get("kind") == "label":
+        prefix, path = selector.get("prefix"), selector.get("input")
+        if not isinstance(prefix, str) or not prefix or not isinstance(path, str) or not path:
+            return "", _Problem("malformed", f"malformed label selector: {selector!r}")
+        resolved = _resolve_require_input(input_value, path)
+        if resolved is _UNRESOLVED:
+            return "", _Problem(
+                "unresolved",
+                f"label key requires input '{path}', which is not present",
+            )
+        if resolved is None or isinstance(resolved, (dict, list)):
+            return "", _Problem("invalid", f"label key input '{path}' must be a scalar")
+        fragment = _label_value_str(resolved)
+        if prefix == SERVICE_LABEL_PREFIX and not is_valid_service_name(fragment):
+            # A name worker registration could never grant would otherwise
+            # park the execution forever instead of failing fast.
+            return "", _Problem(
+                "invalid",
+                f"input '{path}' resolves to an invalid service name: '{fragment}'",
+            )
+        key = prefix + fragment
+        if len(key) > MAX_LABEL_KEY_LENGTH or not _LABEL_KEY_RE.match(key):
+            return "", _Problem(
+                "invalid",
+                f"input '{path}' resolves to an invalid label key: '{key}'",
+            )
+        return key, None
+    return "", _Problem("malformed", f"malformed label selector: {selector!r}")
+
+
+def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str] | _Problem:
+    """Resolve a match term's label key and comparison value against the
+    execution input. Returns ``(key, value)`` or a :class:`_Problem`."""
+    key, problem = _resolve_selector_key(term.get("selector"), input_value)
+    if problem is not None:
+        if problem.category == "malformed":
+            return problem
+        return _Problem(problem.category, f"affinity {problem.message}")
+
+    if term.get("op") not in _REQUIRE_OPS:
+        return _Problem("malformed", f"malformed affinity term op: {term.get('op')!r}")
+
+    value = term.get("value")
+    if isinstance(value, dict):
+        path = value.get("$input")
+        if not isinstance(path, str) or not path:
+            return _Problem("malformed", f"malformed affinity value: {value!r}")
+        value = _resolve_require_input(input_value, path)
+        if value is _UNRESOLVED:
+            return _Problem(
+                "unresolved",
+                f"affinity term on label '{key}' requires input '{path}', which is not present",
+            )
+    return key, _label_value_str(value)
+
+
+def _when_condition_active(term: dict, input_value: Any) -> bool | str:
+    """Whether a when-term's condition holds. Unresolved input leaves the
+    term inactive (False); a malformed condition is a problem string."""
+    cond = term.get("if")
+    if not isinstance(cond, dict):
+        return f"malformed affinity when-condition: {cond!r}"
+    path, op = cond.get("input"), cond.get("op")
+    if not isinstance(path, str) or not path or op not in _REQUIRE_OPS:
+        return f"malformed affinity when-condition: {cond!r}"
+    resolved = _resolve_require_input(input_value, path)
+    if resolved is _UNRESOLVED:
+        return False
+    expected = cond.get("value")
+    return (resolved == expected) if op == "==" else (resolved != expected)
+
+
+def require_diagnostic(terms: Any, input_value: Any) -> str | None:
+    """Execution-level reason this affinity expression can never match, or None.
+
+    Unresolved input on a non-optional term, an invalid resolved label key,
+    and a malformed spec are properties of the execution alone — no worker
+    could ever satisfy them — so dispatch fails the execution with this
+    message instead of parking it forever. A plain label mismatch is
+    fleet-dependent (a matching worker may join) and never diagnosed here.
+    """
+    if not isinstance(terms, (list, tuple)) or not terms:
+        # require() demands at least one term, so an empty list is
+        # hand-written metadata — malformed, not match-everything.
+        return f"malformed affinity expression: {terms!r}"
+    for term in terms:
+        if not isinstance(term, dict):
+            return f"malformed affinity term: {term!r}"
+        if term.get("kind") == "when":
+            active = _when_condition_active(term, input_value)
+            if isinstance(active, str):
+                return active
+            if not active:
+                continue
+            term = term.get("then")
+            if not isinstance(term, dict) or term.get("kind") != "match":
+                return f"malformed affinity when-term body: {term!r}"
+        elif term.get("kind") != "match":
+            return f"malformed affinity term: {term!r}"
+        resolved = _resolve_require_term(term, input_value)
+        if isinstance(resolved, _Problem):
+            # optional(...) forgives absent input — nothing else: an invalid
+            # resolved key or a malformed spec diagnoses regardless.
+            if resolved.category == "unresolved" and term.get("optional"):
+                continue
+            return resolved.message
+    return None
+
+
+def require_matches(terms: Any, worker_labels: dict[str, str] | None, input_value: Any) -> bool:
+    """Whether a worker's labels satisfy a require(...) affinity expression.
+
+    Fail-closed: any problem (unresolved input on a non-optional term,
+    invalid key, malformed spec) fails the match — mirroring
+    ``require_diagnostic``, which turns those same problems into a terminal
+    dispatch error so fail-closed never means queue-forever.
+    """
+    if not isinstance(terms, (list, tuple)) or not terms:
+        return False
+    labels = worker_labels or {}
+    for term in terms:
+        if not isinstance(term, dict):
+            return False
+        if term.get("kind") == "when":
+            active = _when_condition_active(term, input_value)
+            if isinstance(active, str):
+                return False
+            if not active:
+                continue
+            term = term.get("then")
+            if not isinstance(term, dict) or term.get("kind") != "match":
+                return False
+        elif term.get("kind") != "match":
+            return False
+        resolved = _resolve_require_term(term, input_value)
+        if isinstance(resolved, _Problem):
+            if resolved.category == "unresolved" and term.get("optional"):
+                continue
+            return False
+        key, value = resolved
+        actual = labels.get(key)
+        if term.get("op") == "==":
+            if actual != value:
+                return False
+        # Absent ≠ value holds by design: a worker with no such label passes
+        # a != term (the documented inversion of fail-closed).
+        elif actual == value:
+            return False
+    return True

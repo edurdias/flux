@@ -60,6 +60,42 @@ dotted paths (`input("customer.region")`) descend nested dictionaries. This
 is how payload-driven locality works: the same workflow routes each
 execution by its own data.
 
+## Dynamic keys and conditional terms
+
+The [affinity expression](worker-affinity.md) vocabulary works in the score
+stage too — the same comparison is a hard wall under `require(...)` and a
+soft preference under `prefer(...)`:
+
+- `prefer(label_for("cache.", input("dataset")) == "true", weight=5)` —
+  dynamic label key: prefer workers holding a warm copy of *this*
+  execution's dataset without excluding cold ones. Unresolved input (or an
+  invalid resolved key) just means the term cannot discriminate — everyone
+  scores 0 for it; the policy does not degrade. (`least`/`most` reject
+  `label_for` — label strings have no ordering.)
+- `prefer(service(input("model")), weight=2)` — prefer a worker with the
+  granted service socket, fall back to the rest.
+- `when(input("latency_sensitive") == "true", least(load(), weight=10))` —
+  apply a term only when the request says it matters. The condition reads
+  execution input only, never worker attributes; unresolved leaves the term
+  inactive.
+
+Pair the stages for floor-plus-preference routing:
+
+```python
+@workflow.with_options(
+    affinity=require(label("datacenter") == input("dc")),          # must
+    routing=score(
+        prefer(label_for("cache.", input("dataset")) == "true",    # prefer
+               weight=10),
+        least(load()),
+    ),
+)
+```
+
+Note the distinction with `optional(...)` in `require`: an optional term is
+*hard when its input is present* (a pin), while a `prefer` term is *soft
+always* (a nudge).
+
 ## How scoring works
 
 1. Hard constraints filter first — a policy can never route to a worker
