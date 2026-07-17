@@ -1,6 +1,6 @@
 # Flux Progress-Streaming Stress Test Plan v1.1
 
-**Audience:** implementing agent working in `edurdias/flux`, branch `claude/flux-progress-streaming-tests-p3ewxh` (off `main` at PR #135's merge).
+**Audience:** implementing agent working in `edurdias/flux` (off `main` at PR #135's merge).
 **Goal:** characterize and bound the `progress()` streaming path — sealed child → stdio child protocol → worker → HTTP → server → SSE consumer — at token-frame granularity, and turn "verify streaming at M1" into measured numbers with pass/fail gates. Motivating workload: LLM token streaming (~30–100 events/s per stream, 60–2,000-byte frames), but every test is Flux-general.
 
 **Prime directive:** measure product code as it is. If a test fails its gate, the deliverable is the measurement plus a written proposal — not an inline product patch on this branch. "Product code" means everything under `flux/`; `pyproject.toml` marker registration and dev-only config changes needed to host the suite are explicitly allowed.
