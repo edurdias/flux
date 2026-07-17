@@ -27,7 +27,7 @@ class workflow:
         secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
-        affinity: dict[str, str] | None = None,
+        affinity: dict[str, str] | list[dict] | None = None,
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
@@ -42,7 +42,7 @@ class workflow:
             secret_requests (list[str], optional): A list of secret keys required by the workflow. Defaults to an empty list.
             output_storage (OutputStorage | None, optional): The storage configuration for the workflow's output. Defaults to None.
             requests (ResourceRequest | None, optional): The minimum resources, runtime and packages for the workflow. Defaults to None.
-            affinity (dict[str, str] | None, optional): Label-based worker affinity constraints. Workers must have all specified labels to run this workflow. Defaults to None.
+            affinity (dict[str, str] | list[dict] | None, optional): Label-based worker affinity constraints — either a static label dict (workers must carry all listed labels) or an expression built with ``flux.routing.require(...)`` whose terms resolve against the execution input at dispatch. Defaults to None.
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
             durability (str, optional): "durable" (default) persists every task-level checkpoint; "transient" keeps only the outer lifecycle.
             runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
@@ -77,7 +77,7 @@ class workflow:
         secret_requests: list[str] | None = None,
         output_storage: OutputStorage | None = None,
         requests: ResourceRequest | None = None,
-        affinity: dict[str, str] | None = None,
+        affinity: dict[str, str] | list[dict] | None = None,
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
@@ -107,6 +107,22 @@ class workflow:
         ):
             raise ValueError(
                 f"routing must be a policy built with flux.routing.score(...), got: {routing!r}",
+            )
+        if (
+            affinity is not None
+            and not isinstance(affinity, dict)
+            and not (
+                isinstance(affinity, list)
+                and affinity
+                and all(
+                    isinstance(term, dict) and term.get("kind") in ("match", "when")
+                    for term in affinity
+                )
+            )
+        ):
+            raise ValueError(
+                "affinity must be a label dict or an expression built with "
+                f"flux.routing.require(...), got: {affinity!r}",
             )
         self._func = func
         self._name = name if name else func.__name__
@@ -158,7 +174,7 @@ class workflow:
         return self._requests
 
     @property
-    def affinity(self) -> dict[str, str] | None:
+    def affinity(self) -> dict[str, str] | list[dict] | None:
         return self._affinity
 
     @property

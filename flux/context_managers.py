@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func
 from sqlalchemy import or_
@@ -17,10 +17,13 @@ from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
 from flux.models import RepositoryFactory
 from flux.models import WorkflowModel
+from flux.utils import get_logger
 from flux.worker_registry import WorkerInfo
 
 if TYPE_CHECKING:
     from flux.unit_of_work import UnitOfWork
+
+logger = get_logger(__name__)
 
 
 _NO_DEMOTE_TO_PAUSED_FROM = frozenset(
@@ -441,7 +444,12 @@ class DatabaseContextManager(ContextManager):
         )
         return session.execute(stmt).scalar_one_or_none()
 
-    def _worker_matches_workflow(self, worker: WorkerInfo, workflow: WorkflowModel) -> bool:
+    def _worker_matches_workflow(
+        self,
+        worker: WorkerInfo,
+        workflow: WorkflowModel,
+        input_value: Any = None,
+    ) -> bool:
         from flux.domain.resource_request import worker_matches
 
         return worker_matches(
@@ -449,7 +457,33 @@ class DatabaseContextManager(ContextManager):
             workflow.requests,
             workflow.affinity,
             runner=(workflow.wf_metadata or {}).get("runner"),
+            input_value=input_value,
         )
+
+    def _affinity_diagnostic(self, workflow: WorkflowModel, model) -> str | None:
+        """Execution-level reason a require(...) affinity can never match.
+
+        Non-None only for worker-independent problems (unresolved input on a
+        non-optional term, invalid resolved key, malformed spec) — those fail
+        the execution instead of parking it forever. Static dict affinity
+        never diagnoses: an unmatched label is fleet-dependent and waits for
+        a matching worker, as it always has.
+        """
+        if not isinstance(workflow.affinity, (list, tuple)):
+            return None
+        from flux.routing import require_diagnostic
+
+        return require_diagnostic(workflow.affinity, model.input)
+
+    def _fail_undispatchable(self, model, session: Session, diagnostic: str) -> None:
+        ctx = model.to_plain()
+        ctx.fail(
+            ctx.execution_id,
+            {"type": "AffinityResolutionError", "message": diagnostic},
+        )
+        model.state = ctx.state
+        session.add_all(self._get_additional_events(ctx, session))
+        logger.warning(f"Execution {ctx.execution_id} failed at dispatch: {diagnostic}")
 
     def _next_matching_execution(
         self,
@@ -488,7 +522,14 @@ class DatabaseContextManager(ContextManager):
             return result if result else (None, None)
 
         for model, workflow in query:
-            if not self._worker_matches_workflow(worker, workflow):
+            diagnostic = self._affinity_diagnostic(workflow, model)
+            if diagnostic:
+                self._fail_undispatchable(model, session, diagnostic)
+                # Flag the staged failure so the caller commits it even when
+                # nothing ends up claimed on this poll tick.
+                session.info["affinity_failed"] = True
+                continue
+            if not self._worker_matches_workflow(worker, workflow, model.input):
                 continue
             return model, workflow
         return None, None
@@ -521,6 +562,8 @@ class DatabaseContextManager(ContextManager):
                 session.commit()
                 return ctx
 
+            if session.info.pop("affinity_failed", False):
+                session.commit()
             return None
 
     def _is_least_loaded_worker(self, worker: WorkerInfo, session: Session) -> bool:
@@ -602,7 +645,7 @@ class DatabaseContextManager(ContextManager):
                     .with_for_update(skip_locked=True)
                 )
                 for model, workflow in fallback_query:
-                    if self._worker_matches_workflow(worker, workflow):
+                    if self._worker_matches_workflow(worker, workflow, model.input):
                         result = (model, workflow)
                         break
 
@@ -724,10 +767,15 @@ class DatabaseContextManager(ContextManager):
                 .limit(limit)
             )
             for model, workflow in query:
+                diagnostic = self._affinity_diagnostic(workflow, model)
+                if diagnostic:
+                    self._fail_undispatchable(model, session, diagnostic)
+                    continue
                 eligible = [
                     w
                     for w in workers
-                    if self._has_free_slot(w, loads) and self._worker_matches_workflow(w, workflow)
+                    if self._has_free_slot(w, loads)
+                    and self._worker_matches_workflow(w, workflow, model.input)
                 ]
                 if not eligible:
                     continue
@@ -847,7 +895,7 @@ class DatabaseContextManager(ContextManager):
                         w
                         for w in workers
                         if self._has_free_slot(w, loads)
-                        and self._worker_matches_workflow(w, workflow)
+                        and self._worker_matches_workflow(w, workflow, model.input)
                     ]
                     if not eligible:
                         continue

@@ -22,7 +22,6 @@ import asyncio
 import contextlib
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -197,7 +196,6 @@ _AIRGAPPED_VETOED_FLAGS = frozenset(
 )
 
 
-_SERVICE_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 SERVICE_SOCKET_FILENAME = "service.sock"
 SERVICE_MOUNT_PREFIX = "/run/flux/services"
 
@@ -215,10 +213,14 @@ def _validate_service_sockets(services: dict[str, str]) -> dict[str, str]:
     manager) keeps ``CAP_DAC_OVERRIDE`` and can still create or replace
     the socket across restarts.
     """
+    # Same rule flux.routing.service() validates workflow-side, so an
+    # expression can never target a name registration could not grant.
+    from flux.routing import is_valid_service_name
+
     validated: dict[str, str] = {}
     seen_dirs: set[str] = set()
     for name, host_dir in services.items():
-        if len(name) > 32 or "--" in name or not _SERVICE_NAME_RE.match(name):
+        if not is_valid_service_name(name):
             raise ValueError(
                 f"[flux.workers] airgapped_service_sockets name '{name}' is "
                 "invalid: use lowercase letters, digits, and single hyphens "

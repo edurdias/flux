@@ -370,3 +370,162 @@ class TestMetricsCaps:
         assert validate_worker_metrics(merged, max_keys=MAX_TOTAL_METRICS) is not None
         over = {f"k{i}": 1.0 for i in range(MAX_TOTAL_METRICS + 1)}
         assert validate_worker_metrics(over, max_keys=MAX_TOTAL_METRICS) is None
+
+
+class TestDynamicScoring:
+    """The require() vocabulary in the score stage: dynamic label keys in
+    prefer(), service() as a preference, and when()-gated score terms."""
+
+    def test_prefer_accepts_dynamic_label_key(self):
+        from flux.routing import label_for
+
+        term = prefer(label_for("cache.", input_ref("dataset")) == "true", weight=5)
+        assert term == {
+            "kind": "prefer",
+            "selector": {"kind": "label", "prefix": "cache.", "input": "dataset"},
+            "op": "==",
+            "value": "true",
+            "weight": 5.0,
+        }
+
+    def test_prefer_accepts_service(self):
+        from flux.routing import service
+
+        term = prefer(service(input_ref("model")), weight=2)
+        assert term["selector"] == {
+            "kind": "label",
+            "prefix": "flux.service.",
+            "input": "model",
+        }
+        assert term["op"] == "==" and term["value"] == "true"
+        assert prefer(service("inference"))["selector"] == "label:flux.service.inference"
+
+    def test_least_and_most_still_reject_dynamic_keys(self):
+        from flux.routing import label_for
+
+        dynamic = label_for("cache.", input_ref("dataset"))
+        with pytest.raises(ValueError, match="no ordering"):
+            least(dynamic)
+        with pytest.raises(ValueError, match="no ordering"):
+            most(dynamic)
+
+    def test_when_wraps_score_terms(self):
+        from flux.routing import when
+
+        term = when(input_ref("fast") == "true", least(load(), weight=10))
+        assert term == {
+            "kind": "when",
+            "if": {"input": "fast", "op": "==", "value": "true"},
+            "then": {"kind": "least", "selector": "load", "weight": 10.0},
+        }
+        assert score(term)["terms"] == [term]
+
+    def test_score_rejects_require_flavored_when(self):
+        from flux.routing import when
+
+        with pytest.raises(ValueError, match="must wrap a prefer"):
+            score(when(input_ref("t") == "1", label("y") == "1"))
+
+    def test_score_rejects_non_dict_terms(self):
+        with pytest.raises(ValueError, match="accepts only"):
+            score("junk")
+
+    def test_require_rejects_score_flavored_when(self):
+        from flux.routing import require, when
+
+        with pytest.raises(ValueError, match="only valid in score"):
+            require(when(input_ref("t") == "1", least(load())))
+
+    def test_pick_worker_resolves_dynamic_key(self):
+        warm = _worker("warm", labels={"cache.orders": "true"})
+        cold = _worker("cold")
+        from flux.routing import label_for
+
+        policy = score(
+            prefer(label_for("cache.", input_ref("dataset")) == "true", weight=10),
+            least(load()),
+        )
+        # Warm wins despite carrying more load.
+        picked = pick_worker(
+            [warm, cold],
+            policy,
+            loads={"warm": 5, "cold": 0},
+            input_value={"dataset": "orders"},
+        )
+        assert picked is warm
+
+    def test_pick_worker_dynamic_key_unresolved_cannot_discriminate(self):
+        # Unresolved input or an invalid resolved key: the term scores 0 for
+        # everyone (like a missing metric); the policy does not degrade.
+        warm = _worker("warm", labels={"cache.orders": "true"})
+        cold = _worker("cold")
+        from flux.routing import label_for
+
+        policy = score(
+            prefer(label_for("cache.", input_ref("dataset")) == "true", weight=10),
+            least(load()),
+        )
+        loads = {"warm": 5, "cold": 0}
+        assert pick_worker([warm, cold], policy, loads=loads, input_value={}) is cold
+        assert (
+            pick_worker([warm, cold], policy, loads=loads, input_value={"dataset": "../x"}) is cold
+        )
+
+    def test_pick_worker_malformed_dynamic_selector_degrades(self):
+        policy = {
+            "terms": [
+                {
+                    "kind": "prefer",
+                    "selector": {"kind": "label", "prefix": 1, "input": "x"},
+                    "op": "==",
+                    "value": "true",
+                    "weight": 1.0,
+                },
+            ],
+        }
+        assert pick_worker([_worker("a")], policy, loads={}, input_value={}) is None
+
+    def test_pick_worker_when_gates_term_on_input(self):
+        from flux.routing import when
+
+        fast = _worker("fast", metrics={"lag": 0.1})
+        slow = _worker("slow", labels={"x": "1"}, metrics={"lag": 9.0})
+        policy = score(
+            prefer(label("x") == "1", weight=1),
+            when(input_ref("fast") == "true", least(metric("lag"), weight=100)),
+        )
+        assert pick_worker([fast, slow], policy, loads={}, input_value={}) is slow
+        assert pick_worker([fast, slow], policy, loads={}, input_value={"fast": "true"}) is fast
+
+    def test_pick_worker_when_unresolved_condition_skips_term(self):
+        from flux.routing import when
+
+        a = _worker("a", labels={"x": "1"})
+        b = _worker("b", metrics={"lag": 0.0})
+        policy = score(
+            prefer(label("x") == "1", weight=1),
+            when(input_ref("fast") == "true", least(metric("lag"), weight=100)),
+        )
+        assert pick_worker([a, b], policy, loads={}, input_value=None) is a
+
+    def test_pick_worker_malformed_when_degrades(self):
+        policy = {"terms": [{"kind": "when", "if": "junk", "then": {"kind": "sticky"}}]}
+        assert pick_worker([_worker("a")], policy, loads={}, input_value={}) is None
+        policy = {
+            "terms": [
+                {"kind": "when", "if": {"input": "t", "op": "==", "value": 1}, "then": "junk"},
+            ],
+        }
+        assert pick_worker([_worker("a")], policy, loads={}, input_value={"t": 1}) is None
+
+    def test_pick_worker_when_wrapped_sticky(self):
+        from flux.routing import when
+
+        a, b = _worker("a"), _worker("b")
+        policy = score(when(input_ref("pin") == "true", sticky(weight=5)), least(load()))
+        loads = {"a": 3, "b": 0}
+        assert (
+            pick_worker([a, b], policy, loads=loads, input_value={"pin": "true"}, preferred="a")
+            is a
+        )
+        assert pick_worker([a, b], policy, loads=loads, input_value={}, preferred="a") is b

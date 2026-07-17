@@ -583,7 +583,7 @@ class WorkflowModel(Base):
         source: bytes,
         namespace: str = "default",
         requests: dict | ResourceRequest | None = None,
-        affinity: dict[str, str] | None = None,
+        affinity: dict[str, str] | list[dict] | None = None,
         metadata: dict | None = None,
     ):
         self.id = id

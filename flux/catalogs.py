@@ -199,7 +199,7 @@ class WorkflowInfo:
         namespace: str = "default",
         version: int = 1,
         requests: ResourceRequest | None = None,
-        affinity: dict[str, str] | None = None,
+        affinity: dict[str, str] | list[dict] | None = None,
         schedule: Any | None = None,
         metadata: dict | None = None,
     ):
@@ -564,14 +564,188 @@ class WorkflowCatalog(ABC):
                 return bool(kw.value.value)
         return False
 
-    def _extract_affinity(self, node: ast.AST) -> dict[str, str] | None:
+    def _extract_affinity(self, node: ast.AST) -> dict[str, str] | list | None:
         if isinstance(node, ast.Dict):
             result = {}
             for key, value in zip(node.keys, node.values):
                 if isinstance(key, ast.Constant) and isinstance(value, ast.Constant):
                     result[str(key.value)] = str(value.value)
             return result if result else None
+        if isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id == "require")
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == "require")
+        ):
+            return self._extract_require(node)
         return None
+
+    def _extract_require(self, node: ast.Call) -> list[dict]:
+        """Extract an ``affinity=require(...)`` expression into its term specs.
+
+        Like ``routing``, an unparseable expression raises instead of
+        returning None: silently dropping a hard constraint would dispatch
+        the workflow somewhere the author excluded. Building through the real
+        ``flux.routing`` factories reuses their validation.
+        """
+        from typing import NoReturn
+
+        from flux import routing as routing_dsl
+
+        def fail(reason: str) -> NoReturn:
+            raise SyntaxError(
+                f"affinity expression must be statically declarable ({reason}); build "
+                "it with flux.routing.require(...) using literal values or input(...)",
+            )
+
+        def call_name(call: ast.AST) -> str | None:
+            if not isinstance(call, ast.Call):
+                return None
+            if isinstance(call.func, ast.Name):
+                return call.func.id
+            if isinstance(call.func, ast.Attribute):
+                return call.func.attr
+            return None
+
+        def extract_input_ref(ref_node: ast.AST) -> Any:
+            assert isinstance(ref_node, ast.Call)
+            if len(ref_node.args) == 1 and isinstance(ref_node.args[0], ast.Constant):
+                try:
+                    return routing_dsl.input(ref_node.args[0].value)
+                except (TypeError, ValueError) as e:
+                    raise SyntaxError(f"Invalid input() reference: {e}") from e
+            fail("input() takes a single literal path")
+
+        def extract_selector(sel_node: ast.AST) -> Any:
+            name = call_name(sel_node)
+            assert isinstance(sel_node, ast.Call)
+            if name == "label":
+                if len(sel_node.args) == 1 and isinstance(sel_node.args[0], ast.Constant):
+                    try:
+                        return routing_dsl.label(sel_node.args[0].value)
+                    except (TypeError, ValueError) as e:
+                        raise SyntaxError(f"Invalid affinity selector 'label': {e}") from e
+                fail("label() takes a literal key")
+            if name == "label_for":
+                if (
+                    len(sel_node.args) == 2
+                    and isinstance(sel_node.args[0], ast.Constant)
+                    and call_name(sel_node.args[1]) == "input"
+                ):
+                    try:
+                        return routing_dsl.label_for(
+                            sel_node.args[0].value,
+                            extract_input_ref(sel_node.args[1]),
+                        )
+                    except (TypeError, ValueError) as e:
+                        raise SyntaxError(f"Invalid affinity selector 'label_for': {e}") from e
+                fail("label_for() takes a literal prefix and input(...)")
+            fail(f"expected label()/label_for(), got '{name}'")
+
+        def extract_value(value_node: ast.AST) -> Any:
+            if isinstance(value_node, ast.Constant):
+                return value_node.value
+            if call_name(value_node) == "input":
+                return extract_input_ref(value_node)
+            fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
+
+        _AST_OPS = {ast.Eq: "==", ast.NotEq: "!="}
+
+        def extract_condition(cond_node: ast.AST) -> Any:
+            """A label comparison: label(...)/label_for(...) vs constant/input."""
+            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
+                fail(
+                    "require() terms are single label comparisons, "
+                    'e.g. label("region") == input("region")',
+                )
+            op = _AST_OPS.get(type(cond_node.ops[0]))
+            if op is None:
+                fail(
+                    f"require() supports only == and != (line {cond_node.lineno}); "
+                    "ordered comparisons belong to routing=",
+                )
+            left, right = cond_node.left, cond_node.comparators[0]
+            if call_name(left) in ("label", "label_for"):
+                selector, value = extract_selector(left), extract_value(right)
+            elif call_name(right) in ("label", "label_for"):
+                # == and != are symmetric, so no operator flip is needed.
+                selector, value = extract_selector(right), extract_value(left)
+            else:
+                fail("one side of a require() comparison must be label()/label_for()")
+            try:
+                return routing_dsl.Condition(selector, op, value)
+            except ValueError as e:
+                raise SyntaxError(f"Invalid affinity condition: {e}") from e
+
+        def extract_input_condition(cond_node: ast.AST) -> Any:
+            """A when() condition: input(...) vs constant, either order."""
+            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
+                fail('when() takes an input comparison, e.g. input("tier") == "dedicated"')
+            op = _AST_OPS.get(type(cond_node.ops[0]))
+            if op is None:
+                fail(f"when() conditions support only == and != (line {cond_node.lineno})")
+            left, right = cond_node.left, cond_node.comparators[0]
+            if call_name(left) == "input":
+                ref, const = extract_input_ref(left), right
+            elif call_name(right) == "input":
+                ref, const = extract_input_ref(right), left
+            else:
+                fail("one side of a when() condition must be input(...)")
+            if not isinstance(const, ast.Constant):
+                fail("when() conditions compare input(...) against a literal")
+            try:
+                return routing_dsl.InputCondition(ref, op, const.value)
+            except ValueError as e:
+                raise SyntaxError(f"Invalid affinity when() condition: {e}") from e
+
+        def extract_service(svc_node: ast.AST) -> Any:
+            assert isinstance(svc_node, ast.Call)
+            if len(svc_node.args) != 1:
+                fail("service() takes exactly one argument")
+            arg = svc_node.args[0]
+            if isinstance(arg, ast.Constant):
+                value: Any = arg.value
+            elif call_name(arg) == "input":
+                value = extract_input_ref(arg)
+            else:
+                fail("service() takes a literal name or input(...)")
+            try:
+                return routing_dsl.service(value)
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid affinity term 'service': {e}") from e
+
+        def extract_match_term(term_node: ast.AST) -> Any:
+            if call_name(term_node) == "service":
+                return extract_service(term_node)
+            return extract_condition(term_node)
+
+        terms = []
+        for term_node in node.args:
+            name = call_name(term_node)
+            try:
+                if name == "optional":
+                    assert isinstance(term_node, ast.Call)
+                    if len(term_node.args) != 1:
+                        fail("optional() takes exactly one term")
+                    terms.append(routing_dsl.optional(extract_match_term(term_node.args[0])))
+                elif name == "when":
+                    assert isinstance(term_node, ast.Call)
+                    if len(term_node.args) != 2:
+                        fail("when() takes a condition and a term")
+                    terms.append(
+                        routing_dsl.when(
+                            extract_input_condition(term_node.args[0]),
+                            extract_match_term(term_node.args[1]),
+                        ),
+                    )
+                else:
+                    terms.append(extract_match_term(term_node))
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid affinity term '{name}': {e}") from e
+        for kw in node.keywords:
+            fail(f"require() takes no keyword arguments, got '{kw.arg}'")
+        try:
+            return routing_dsl.require(*terms)
+        except ValueError as e:
+            raise SyntaxError(f"Invalid affinity expression: {e}") from e
 
     def _extract_routing(self, node: ast.AST) -> dict | None:
         """Extract a ``routing=score(...)`` policy into its JSON spec.
@@ -609,12 +783,37 @@ class WorkflowCatalog(ABC):
             "load": routing_dsl.load,
         }
 
+        def extract_input_ref(ref_node: ast.AST) -> Any:
+            assert isinstance(ref_node, ast.Call)
+            if len(ref_node.args) == 1 and isinstance(ref_node.args[0], ast.Constant):
+                try:
+                    return routing_dsl.input(ref_node.args[0].value)
+                except (TypeError, ValueError) as e:
+                    raise SyntaxError(f"Invalid input() reference: {e}") from e
+            fail("input() takes a single literal path")
+
         def extract_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
+            if name is None:
+                fail(f"expected label()/label_for()/metric()/resource()/load(), got '{name}'")
+            assert isinstance(sel_node, ast.Call)
+            if name == "label_for":
+                if (
+                    len(sel_node.args) == 2
+                    and isinstance(sel_node.args[0], ast.Constant)
+                    and call_name(sel_node.args[1]) == "input"
+                ):
+                    try:
+                        return routing_dsl.label_for(
+                            sel_node.args[0].value,
+                            extract_input_ref(sel_node.args[1]),
+                        )
+                    except (TypeError, ValueError) as e:
+                        raise SyntaxError(f"Invalid routing selector 'label_for': {e}") from e
+                fail("label_for() takes a literal prefix and input(...)")
             factory = _SELECTOR_FACTORIES.get(name or "")
             if factory is None:
-                fail(f"expected label()/metric()/resource()/load(), got '{name}'")
-            assert isinstance(sel_node, ast.Call)
+                fail(f"expected label()/label_for()/metric()/resource()/load(), got '{name}'")
             args = []
             for arg in sel_node.args:
                 if not isinstance(arg, ast.Constant):
@@ -629,11 +828,7 @@ class WorkflowCatalog(ABC):
             if isinstance(value_node, ast.Constant):
                 return value_node.value
             if call_name(value_node) == "input":
-                call = value_node
-                assert isinstance(call, ast.Call)
-                if len(call.args) == 1 and isinstance(call.args[0], ast.Constant):
-                    return routing_dsl.input(call.args[0].value)
-                fail("input() takes a single literal path")
+                return extract_input_ref(value_node)
             fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
 
         _AST_OPS = {
@@ -657,9 +852,10 @@ class WorkflowCatalog(ABC):
             if op is None:
                 fail(f"unsupported comparison operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) in _SELECTOR_FACTORIES:
+            selector_names = (*_SELECTOR_FACTORIES, "label_for")
+            if call_name(left) in selector_names:
                 selector, value = extract_selector(left), extract_value(right)
-            elif call_name(right) in _SELECTOR_FACTORIES:
+            elif call_name(right) in selector_names:
                 selector, value, op = extract_selector(right), extract_value(left), _FLIPPED[op]
             else:
                 fail("one side of a prefer() comparison must be a selector")
@@ -668,15 +864,47 @@ class WorkflowCatalog(ABC):
             except ValueError as e:
                 raise SyntaxError(f"Invalid routing condition: {e}") from e
 
-        if call_name(node) != "score":
-            fail("expected a score(...) call")
-        assert isinstance(node, ast.Call)
+        def extract_input_condition(cond_node: ast.AST) -> Any:
+            """A when() condition: input(...) vs constant, either order."""
+            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
+                fail('when() takes an input comparison, e.g. input("tier") == "dedicated"')
+            op = _AST_OPS.get(type(cond_node.ops[0]))
+            if op not in ("==", "!="):
+                fail(f"when() conditions support only == and != (line {cond_node.lineno})")
+            left, right = cond_node.left, cond_node.comparators[0]
+            if call_name(left) == "input":
+                ref, const = extract_input_ref(left), right
+            elif call_name(right) == "input":
+                ref, const = extract_input_ref(right), left
+            else:
+                fail("one side of a when() condition must be input(...)")
+            if not isinstance(const, ast.Constant):
+                fail("when() conditions compare input(...) against a literal")
+            try:
+                return routing_dsl.InputCondition(ref, op, const.value)
+            except ValueError as e:
+                raise SyntaxError(f"Invalid routing when() condition: {e}") from e
 
-        terms = []
-        for term_node in node.args:
+        def extract_service(svc_node: ast.AST) -> Any:
+            assert isinstance(svc_node, ast.Call)
+            if len(svc_node.args) != 1:
+                fail("service() takes exactly one argument")
+            arg = svc_node.args[0]
+            if isinstance(arg, ast.Constant):
+                value: Any = arg.value
+            elif call_name(arg) == "input":
+                value = extract_input_ref(arg)
+            else:
+                fail("service() takes a literal name or input(...)")
+            try:
+                return routing_dsl.service(value)
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid routing term 'service': {e}") from e
+
+        def extract_term(term_node: ast.AST) -> Any:
             name = call_name(term_node)
-            if name not in ("prefer", "least", "most", "sticky"):
-                fail(f"expected prefer()/least()/most()/sticky() terms, got '{name}'")
+            if name not in ("prefer", "least", "most", "sticky", "when"):
+                fail(f"expected prefer()/least()/most()/sticky()/when() terms, got '{name}'")
             assert isinstance(term_node, ast.Call)
             kwargs = {}
             for kw in term_node.keywords:
@@ -687,24 +915,32 @@ class WorkflowCatalog(ABC):
                 if name == "sticky":
                     if term_node.args:
                         fail("sticky() takes no positional arguments")
-                    terms.append(routing_dsl.sticky(**kwargs))
-                    continue
+                    return routing_dsl.sticky(**kwargs)
+                if name == "when":
+                    if len(term_node.args) != 2 or kwargs:
+                        fail("when() takes a condition and a term, and no keyword arguments")
+                    return routing_dsl.when(
+                        extract_input_condition(term_node.args[0]),
+                        extract_term(term_node.args[1]),
+                    )
                 if len(term_node.args) != 1:
                     fail(f"{name}() takes exactly one positional argument")
                 if name == "prefer":
-                    terms.append(
-                        routing_dsl.prefer(extract_condition(term_node.args[0]), **kwargs),
-                    )
-                elif name == "least":
-                    terms.append(
-                        routing_dsl.least(extract_selector(term_node.args[0]), **kwargs),
-                    )
-                else:
-                    terms.append(
-                        routing_dsl.most(extract_selector(term_node.args[0]), **kwargs),
-                    )
+                    arg = term_node.args[0]
+                    if call_name(arg) == "service":
+                        return routing_dsl.prefer(extract_service(arg), **kwargs)
+                    return routing_dsl.prefer(extract_condition(arg), **kwargs)
+                if name == "least":
+                    return routing_dsl.least(extract_selector(term_node.args[0]), **kwargs)
+                return routing_dsl.most(extract_selector(term_node.args[0]), **kwargs)
             except (TypeError, ValueError) as e:
                 raise SyntaxError(f"Invalid routing term '{name}': {e}") from e
+
+        if call_name(node) != "score":
+            fail("expected a score(...) call")
+        assert isinstance(node, ast.Call)
+
+        terms = [extract_term(term_node) for term_node in node.args]
         try:
             return routing_dsl.score(*terms)
         except ValueError as e:
