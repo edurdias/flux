@@ -19,7 +19,7 @@ import json
 import os
 
 from fixtures.harness.consumer import StreamConsumer
-from fixtures.harness.dbmeter import SqliteDbMeter, diff
+from fixtures.harness.dbmeter import create_meter, diff
 from fixtures.harness.report import write_run
 
 FRAMES_SMALL = 100
@@ -67,7 +67,7 @@ def _run_streaming(perf_env, namespace: str, name: str, frames: int) -> dict:
 
 def test_t0_progress_never_persisted(perf_env, stream_workflow):
     namespace, name = stream_workflow
-    meter = SqliteDbMeter(perf_env.db_path)
+    meter = create_meter(perf_env.database_url, perf_env.db_path)
     rtt = perf_env.measure_http_rtt()
 
     before_small = meter.snapshot()
@@ -125,6 +125,7 @@ def test_t0_progress_never_persisted(perf_env, stream_workflow):
             ),
             "passed": True,
             "sealed": False,  # default subprocess runner; sealed variants start at T1
+            "database": perf_env.database_url.split(":", 1)[0],
             "http_rtt_s": rtt,
             "rate_events_per_s": RATE,
             "frame_pad_bytes": FRAME_PAD_BYTES,

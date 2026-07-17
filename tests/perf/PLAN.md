@@ -61,7 +61,7 @@ Harness helper modules live under `fixtures/harness/` — the pre-commit `name-t
 - **`fixtures/harness/sampler.py`** — psutil thread: CPU%, RSS for server and worker PIDs at 1 Hz → in-memory series + CSV.
 - **`fixtures/harness/report.py`** — machine spec capture (CPU model, cores, RAM, disk), writes `results/<test>/<run>.json`, regenerates the top-level `RESULTS.md` table from all result files.
 
-Discipline: 10 s warmup before measurement windows; every figure = median of 3 runs; machine spec + localhost HTTP RTT recorded into every JSON. Environments: server on SQLite (primary), Postgres (T3/T7 repeats); dispatch mode poll (primary) with one event-mode repeat of T2.
+Discipline: 10 s warmup before measurement windows; every figure = median of 3 runs; machine spec + localhost HTTP RTT recorded into every JSON. Environments: the backend comes from `FLUX_PERF_DATABASE_URL` — SQLite by default for local iteration, **PostgreSQL in CI** (`perf-postgres` job in `.github/workflows/pull-request.yml`; production runs Postgres, so correctness gates must hold there). Full characterization figures: SQLite + Postgres for T3/T7, poll dispatch (primary) with one event-mode repeat of T2.
 
 ## 2. Tests
 

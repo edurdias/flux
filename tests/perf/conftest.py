@@ -51,11 +51,19 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session")
 def perf_env(tmp_path_factory):
-    """One server + one worker for the whole perf session."""
+    """One server + one worker for the whole perf session.
+
+    Defaults to a throwaway SQLite file; set FLUX_PERF_DATABASE_URL to run
+    the suite against another backend (CI runs it against PostgreSQL, which
+    is what production uses).
+    """
     from fixtures.harness.env import FluxPerfEnv
 
     workdir = tmp_path_factory.mktemp("perf")
-    env = FluxPerfEnv(workdir).start()
+    env = FluxPerfEnv(
+        workdir,
+        database_url=os.environ.get("FLUX_PERF_DATABASE_URL"),
+    ).start()
     yield env
     env.stop()
     if not os.environ.get("FLUX_PERF_KEEP_LOGS"):

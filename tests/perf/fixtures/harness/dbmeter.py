@@ -3,15 +3,18 @@
 The server runs as a subprocess, so nothing can attach an in-process
 SQLAlchemy listener to its engine — and hosting the server in-process would
 share the GIL with the load generator and corrupt CPU measurements. Instead
-the meter opens the SQLite file read-only as a side channel and diffs
-snapshots taken around a measurement window:
+the meter opens a side channel to the same database and diffs snapshots
+taken around a measurement window:
 
 - per-table row counts,
 - persisted event rows per execution, grouped by event type,
-- database file size (main + WAL + journal).
+- database size (file bytes for SQLite, ``pg_database_size`` for Postgres).
 
 The sharp T0 assertion is differential: runs emitting 100 and 5,000 progress
 frames must leave identical persisted-event footprints.
+
+``create_meter`` picks the backend from the database URL; both meters expose
+the same interface.
 """
 
 from __future__ import annotations
@@ -99,3 +102,60 @@ class SqliteDbMeter:
                 "SELECT COUNT(*) FROM execution_events WHERE type = ?",
                 (event_type,),
             ).fetchone()[0]
+
+
+class PostgresDbMeter:
+    """Same interface as SqliteDbMeter, over a live PostgreSQL database."""
+
+    def __init__(self, database_url: str):
+        self.database_url = database_url
+
+    def _connect(self):
+        import psycopg  # postgresql extra; imported lazily so SQLite runs don't need it
+
+        return psycopg.connect(self.database_url)
+
+    def snapshot(self) -> DbSnapshot:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+            )
+            tables = [r[0] for r in cur.fetchall()]
+            counts = {}
+            for t in tables:
+                cur.execute(f'SELECT COUNT(*) FROM "{t}"')
+                counts[t] = cur.fetchone()[0]
+            cur.execute("SELECT pg_database_size(current_database())")
+            size = cur.fetchone()[0]
+        return DbSnapshot(taken_at=time.time(), row_counts=counts, file_bytes=size)
+
+    def execution_event_rows(self, execution_id: str) -> dict[str, int]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT type, COUNT(*) FROM execution_events WHERE execution_id = %s GROUP BY type",
+                (execution_id,),
+            )
+            return {t: n for t, n in cur.fetchall()}
+
+    def count_event_type(self, event_type: str) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM execution_events WHERE type = %s",
+                (event_type,),
+            )
+            return cur.fetchone()[0]
+
+
+def create_meter(
+    database_url: str,
+    db_path: Path | None = None,
+) -> SqliteDbMeter | PostgresDbMeter:
+    """Pick the meter backend matching the server's database URL."""
+    if database_url.startswith("sqlite"):
+        if db_path is None:
+            db_path = Path(database_url.split("///", 1)[1])
+        return SqliteDbMeter(db_path)
+    if database_url.startswith(("postgresql", "postgres")):
+        return PostgresDbMeter(database_url)
+    raise ValueError(f"No db meter for database URL: {database_url}")
