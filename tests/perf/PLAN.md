@@ -133,4 +133,4 @@ Record: RSS drift (worker + server) — gate ≤ 10% after first 10 min; event-s
 
 ## 4. Out of scope
 
-Engine throughput itself (Tessera M1 measures that), multi-server topologies, Postgres tuning beyond defaults, network-level TLS overhead (localhost only), distributed replay/reclaim verification (unit-covered inline), and any fix implementation — findings propose, humans dispose.
+Engine throughput itself (measured separately), multi-server topologies, Postgres tuning beyond defaults, network-level TLS overhead (localhost only), distributed replay/reclaim verification (unit-covered inline), and any fix implementation — findings propose, humans dispose.
