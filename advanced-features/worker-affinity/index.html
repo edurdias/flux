@@ -1081,6 +1081,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#affinity-expressions-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Affinity Expressions: require(...)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Affinity Expressions: require(...)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#beyond-hard-constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1463,6 +1502,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#affinity-expressions-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Affinity Expressions: require(...)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Affinity Expressions: require(...)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vocabulary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vocabulary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#evaluation-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#beyond-hard-constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1599,10 +1677,151 @@
 <a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="n">ctx</span> <span class="o">=</span> <span class="n">ai_researcher</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">&quot;https://example.com&quot;</span><span class="p">)</span>
 </code></pre></div>
 <p>Without the affinity constraint, the workflow might run on a generic worker without browser tools and fail.</p>
+<h2 id="affinity-expressions-require">Affinity Expressions: <code>require(...)</code><a class="headerlink" href="#affinity-expressions-require" title="Permanent link">&para;</a></h2>
+<p>The static dict pins a workflow to one fixed label set. An <strong>affinity
+expression</strong> built with <code>flux.routing.require(...)</code> keeps the same
+hard-filter role but resolves its terms <strong>per execution</strong> against the
+execution input — one registration can serve many differently-routed
+requests. Unlike scoring policies, expressions work in <strong>both</strong> poll and
+event dispatch modes (filtering is a per-worker predicate).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">optional</span><span class="p">,</span> <span class="n">when</span><span class="p">,</span> <span class="n">label</span><span class="p">,</span> <span class="n">label_for</span><span class="p">,</span> <span class="nb">input</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>        <span class="n">label</span><span class="p">(</span><span class="s2">&quot;datacenter&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;dc&quot;</span><span class="p">),</span>                 <span class="c1"># data locality</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        <span class="n">label_for</span><span class="p">(</span><span class="s2">&quot;dataset.&quot;</span><span class="p">,</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;dataset&quot;</span><span class="p">))</span> <span class="o">==</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>  <span class="c1"># worker holds a local copy</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>        <span class="n">optional</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;node&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;node&quot;</span><span class="p">)),</span>           <span class="c1"># hard pin only when requested</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>        <span class="n">when</span><span class="p">(</span><span class="nb">input</span><span class="p">(</span><span class="s2">&quot;classification&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;restricted&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>             <span class="n">label</span><span class="p">(</span><span class="s2">&quot;compliance.hipaa&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;true&quot;</span><span class="p">),</span>          <span class="c1"># gate on requester intent</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="p">),</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="p">)</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">locality_query</span><span class="p">(</span><span class="n">ctx</span><span class="p">):</span> <span class="o">...</span>
+</code></pre></div>
+<p>An execution with input <code>{"dc": "eu-central", "dataset": "orders-2026"}</code>
+matches only workers in that datacenter labeled <code>dataset.orders-2026=true</code>;
+add <code>"node": "node-a"</code> to pin it to one machine; add
+<code>"classification": "restricted"</code> to gate it to compliance-certified workers.
+Same workflow, different eligible sets, zero catalog churn.</p>
+<p>Other common patterns:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Tenant isolation on a shared fleet</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;tenant&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;tenant_id&quot;</span><span class="p">))</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Maintenance windows without redeploying workflows</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;maintenance&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;true&quot;</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="vocabulary">Vocabulary<a class="headerlink" href="#vocabulary" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>label(key) == value</code> / <code>label(key) != value</code> — compare a worker label
+  against a constant or <code>input("path")</code> (dotted paths descend nested dicts).
+  Only <code>==</code> and <code>!=</code>; ordered comparisons belong to
+  <a href="../dynamic-routing/">Dynamic Routing</a>.</li>
+<li><code>label_for(prefix, input("path"))</code> — dynamic label key: the author
+  declares the namespace (<code>prefix</code> is mandatory), input only completes it.
+  The resolved key must be a valid label key; inputs never create labels,
+  only test them.</li>
+<li><code>service(name_or_input)</code> — targets workers holding a granted service
+  socket; sugar for <code>label_for("flux.service.", ...) == "true"</code>. Because the
+  <code>flux.</code> label prefix is reserved (workers reject user labels under it),
+  this is a capability grant a worker cannot fabricate. See
+  <a href="../airgapped-execution/">Airgapped Execution</a>.</li>
+<li><code>optional(term)</code> — skipped when its input is absent; a resolved
+  comparison that is false still fails the match, and input that resolves
+  to something invalid (bad label key, non-scalar, invalid service name)
+  fails and diagnoses exactly like a bare term.</li>
+<li><code>when(input(...) == const, term)</code> — the term applies only when the input
+  condition holds. Conditions read execution input only, never worker
+  attributes; an unresolved condition leaves the term inactive.</li>
+</ul>
+<h3 id="evaluation-semantics">Evaluation semantics<a class="headerlink" href="#evaluation-semantics" title="Permanent link">&para;</a></h3>
+<p>Terms are AND-ed and evaluation is <strong>fail-closed</strong>: a bare term whose input
+cannot be resolved matches no worker — and because that is a property of the
+execution alone, dispatch <strong>fails the execution</strong> with an error naming the
+unresolved input instead of queueing it forever. A resolvable-but-unmatched
+expression parks the execution exactly like the dict form (a matching worker
+may join later).</p>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Input resolved?</th>
+<th>Label present?</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>label(k) == input(p)</code></td>
+<td>no</td>
+<td>—</td>
+<td>no match; execution <strong>fails</strong> with a named diagnostic</td>
+</tr>
+<tr>
+<td><code>label(k) == input(p)</code></td>
+<td>yes</td>
+<td>no</td>
+<td>no match (parks)</td>
+</tr>
+<tr>
+<td><code>label(k) == input(p)</code></td>
+<td>yes</td>
+<td>yes, equal</td>
+<td>match</td>
+</tr>
+<tr>
+<td><code>label(k) != v</code></td>
+<td>—</td>
+<td>no</td>
+<td><strong>match</strong> (absent ≠ v — the one documented inversion)</td>
+</tr>
+<tr>
+<td><code>optional(term)</code></td>
+<td>no</td>
+<td>—</td>
+<td>term skipped</td>
+</tr>
+<tr>
+<td><code>optional(term)</code></td>
+<td>yes, false</td>
+<td>—</td>
+<td>no match (optional ≠ decorative)</td>
+</tr>
+<tr>
+<td><code>optional(term)</code></td>
+<td>yes, invalid key</td>
+<td>—</td>
+<td>no match; execution <strong>fails</strong> (optional forgives absence only)</td>
+</tr>
+<tr>
+<td><code>when(if, then)</code>, <code>if</code> unresolved</td>
+<td>—</td>
+<td>—</td>
+<td>term inactive</td>
+</tr>
+<tr>
+<td><code>label_for(...)</code>, resolved key invalid</td>
+<td>yes</td>
+<td>—</td>
+<td>no match; execution <strong>fails</strong> with a named diagnostic</td>
+</tr>
+</tbody>
+</table>
+<p>Input values compare against labels as strings (booleans as
+<code>"true"</code>/<code>"false"</code>). The dict form remains valid forever and its semantics
+are unchanged.</p>
+<p>Expressions are extracted statically at registration (AST, like <code>routing=</code>);
+an expression that cannot be statically extracted fails registration loudly
+rather than silently dropping a hard constraint.</p>
+<p>See <code>examples/affinity_expressions.py</code> for runnable data-locality, tenant
+isolation, and maintenance-window patterns.</p>
 <h2 id="beyond-hard-constraints">Beyond Hard Constraints<a class="headerlink" href="#beyond-hard-constraints" title="Permanent link">&para;</a></h2>
 <p>Affinity decides which workers <em>can</em> run a workflow. To rank the eligible
 workers — by latency, load, locality, or custom metrics — add a scoring
-policy on top: see <a href="../dynamic-routing/">Dynamic Routing</a>.</p>
+policy on top: see <a href="../dynamic-routing/">Dynamic Routing</a>. The dynamic
+vocabulary spans both stages — <code>input(...)</code> values, <code>label_for(...)</code> keys,
+<code>service(...)</code>, and <code>when(...)</code> work in <code>prefer()</code> too, so the same
+comparison can be a hard wall in <code>require()</code> and a soft preference in
+<code>score()</code>.</p>
 
 
 
