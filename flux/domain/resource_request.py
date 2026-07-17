@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from flux.worker_registry import WorkerResourcesInfo
 
 
@@ -307,12 +309,17 @@ class ResourceRequest:
 def worker_matches(
     worker,
     requests: dict | None,
-    affinity: dict | None,
+    affinity: dict | list | None,
     runner: str | None = None,
+    input_value: Any = None,
 ) -> bool:
     """Whether a worker satisfies a workflow's affinity labels, resource
     requests, and required runner. Shared by the SQL dispatch paths and the
-    transient (no-row) dispatch, which has no session to hang the check on."""
+    transient (no-row) dispatch, which has no session to hang the check on.
+
+    ``affinity`` is either the static label dict or a ``require(...)``
+    expression (a list of term specs) whose terms resolve against the
+    execution input (``input_value``) — see :mod:`flux.routing`."""
     if runner is not None:
         # A worker that never advertised runners (None) is a legacy
         # in-process-only worker: it can honor runner="inprocess" and nothing
@@ -323,7 +330,12 @@ def worker_matches(
         if runner not in advertised:
             return False
     if affinity is not None:
-        if not ResourceRequest.matches_labels(worker.labels, affinity):
+        if isinstance(affinity, (list, tuple)):
+            from flux.routing import require_matches
+
+            if not require_matches(affinity, worker.labels, input_value):
+                return False
+        elif not ResourceRequest.matches_labels(worker.labels, affinity):
             return False
     if requests is not None:
         resource_request = ResourceRequest(**(requests or {}))

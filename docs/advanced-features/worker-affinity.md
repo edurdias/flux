@@ -114,8 +114,108 @@ ctx = ai_researcher.run("https://example.com")
 
 Without the affinity constraint, the workflow might run on a generic worker without browser tools and fail.
 
+## Affinity Expressions: `require(...)`
+
+The static dict pins a workflow to one fixed label set. An **affinity
+expression** built with `flux.routing.require(...)` keeps the same
+hard-filter role but resolves its terms **per execution** against the
+execution input — one registration can serve many differently-routed
+requests. Unlike scoring policies, expressions work in **both** poll and
+event dispatch modes (filtering is a per-worker predicate).
+
+```python
+from flux import workflow
+from flux.routing import require, optional, when, label, label_for, input
+
+@workflow.with_options(
+    affinity=require(
+        label("datacenter") == input("dc"),                 # data locality
+        label_for("dataset.", input("dataset")) == "true",  # worker holds a local copy
+        optional(label("node") == input("node")),           # hard pin only when requested
+        when(input("classification") == "restricted",
+             label("compliance.hipaa") == "true"),          # gate on requester intent
+    ),
+)
+async def locality_query(ctx): ...
+```
+
+An execution with input `{"dc": "eu-central", "dataset": "orders-2026"}`
+matches only workers in that datacenter labeled `dataset.orders-2026=true`;
+add `"node": "node-a"` to pin it to one machine; add
+`"classification": "restricted"` to gate it to compliance-certified workers.
+Same workflow, different eligible sets, zero catalog churn.
+
+Other common patterns:
+
+```python
+# Tenant isolation on a shared fleet
+affinity=require(label("tenant") == input("tenant_id"))
+
+# Maintenance windows without redeploying workflows
+affinity=require(label("maintenance") != "true")
+```
+
+### Vocabulary
+
+- `label(key) == value` / `label(key) != value` — compare a worker label
+  against a constant or `input("path")` (dotted paths descend nested dicts).
+  Only `==` and `!=`; ordered comparisons belong to
+  [Dynamic Routing](dynamic-routing.md).
+- `label_for(prefix, input("path"))` — dynamic label key: the author
+  declares the namespace (`prefix` is mandatory), input only completes it.
+  The resolved key must be a valid label key; inputs never create labels,
+  only test them.
+- `service(name_or_input)` — targets workers holding a granted service
+  socket; sugar for `label_for("flux.service.", ...) == "true"`. Because the
+  `flux.` label prefix is reserved (workers reject user labels under it),
+  this is a capability grant a worker cannot fabricate. See
+  [Airgapped Execution](airgapped-execution.md).
+- `optional(term)` — skipped when its input is absent; a resolved
+  comparison that is false still fails the match, and input that resolves
+  to something invalid (bad label key, non-scalar, invalid service name)
+  fails and diagnoses exactly like a bare term.
+- `when(input(...) == const, term)` — the term applies only when the input
+  condition holds. Conditions read execution input only, never worker
+  attributes; an unresolved condition leaves the term inactive.
+
+### Evaluation semantics
+
+Terms are AND-ed and evaluation is **fail-closed**: a bare term whose input
+cannot be resolved matches no worker — and because that is a property of the
+execution alone, dispatch **fails the execution** with an error naming the
+unresolved input instead of queueing it forever. A resolvable-but-unmatched
+expression parks the execution exactly like the dict form (a matching worker
+may join later).
+
+| Term | Input resolved? | Label present? | Result |
+|---|---|---|---|
+| `label(k) == input(p)` | no | — | no match; execution **fails** with a named diagnostic |
+| `label(k) == input(p)` | yes | no | no match (parks) |
+| `label(k) == input(p)` | yes | yes, equal | match |
+| `label(k) != v` | — | no | **match** (absent ≠ v — the one documented inversion) |
+| `optional(term)` | no | — | term skipped |
+| `optional(term)` | yes, false | — | no match (optional ≠ decorative) |
+| `optional(term)` | yes, invalid key | — | no match; execution **fails** (optional forgives absence only) |
+| `when(if, then)`, `if` unresolved | — | — | term inactive |
+| `label_for(...)`, resolved key invalid | yes | — | no match; execution **fails** with a named diagnostic |
+
+Input values compare against labels as strings (booleans as
+`"true"`/`"false"`). The dict form remains valid forever and its semantics
+are unchanged.
+
+Expressions are extracted statically at registration (AST, like `routing=`);
+an expression that cannot be statically extracted fails registration loudly
+rather than silently dropping a hard constraint.
+
+See `examples/affinity_expressions.py` for runnable data-locality, tenant
+isolation, and maintenance-window patterns.
+
 ## Beyond Hard Constraints
 
 Affinity decides which workers *can* run a workflow. To rank the eligible
 workers — by latency, load, locality, or custom metrics — add a scoring
-policy on top: see [Dynamic Routing](dynamic-routing.md).
+policy on top: see [Dynamic Routing](dynamic-routing.md). The dynamic
+vocabulary spans both stages — `input(...)` values, `label_for(...)` keys,
+`service(...)`, and `when(...)` work in `prefer()` too, so the same
+comparison can be a hard wall in `require()` and a soft preference in
+`score()`.

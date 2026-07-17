@@ -357,3 +357,171 @@ def test_preferred_worker_persists_in_the_insert_transaction(clean_env):
 
     assignments = cm.next_executions_batch([w2], limit=10)
     assert {c.execution_id: w for c, w in assignments}[ctx.execution_id] == "w2"
+
+
+# ---------------------------------------------------------------------------
+# require(...) affinity expressions (event-mode dispatch parity)
+# ---------------------------------------------------------------------------
+
+
+def _create_execution_with_input(cm, workflow_id, name, input):
+    ctx = ExecutionContext(
+        workflow_id=workflow_id,
+        workflow_namespace="default",
+        workflow_name=name,
+        input=input,
+    )
+    return cm.save(ctx)
+
+
+def test_batch_require_routes_by_input(clean_env):
+    from flux.routing import input as input_, label, require
+
+    cm, registry = clean_env
+    eu = _register_worker(registry, "eu", labels={"region": "eu-west"})
+    us = _register_worker(registry, "us", labels={"region": "us-east"})
+
+    wf_id = _create_workflow(
+        "infer",
+        affinity=require(label("region") == input_("region")),
+    )
+    ctx_eu = _create_execution_with_input(cm, wf_id, "infer", {"region": "eu-west"})
+    ctx_us = _create_execution_with_input(cm, wf_id, "infer", {"region": "us-east"})
+
+    assignments = {
+        ctx.execution_id: worker for ctx, worker in cm.next_executions_batch([eu, us], limit=10)
+    }
+    assert assignments == {ctx_eu.execution_id: "eu", ctx_us.execution_id: "us"}
+
+
+def test_batch_require_unresolved_input_fails_execution(clean_env):
+    from flux.routing import input as input_, label, require
+
+    cm, registry = clean_env
+    eu = _register_worker(registry, "eu", labels={"region": "eu-west"})
+
+    wf_id = _create_workflow(
+        "infer",
+        affinity=require(label("region") == input_("region")),
+    )
+    bad = _create_execution_with_input(cm, wf_id, "infer", {"oops": 1})
+    good = _create_execution_with_input(cm, wf_id, "infer", {"region": "eu-west"})
+
+    assignments = cm.next_executions_batch([eu], limit=10)
+
+    assert [ctx.execution_id for ctx, _ in assignments] == [good.execution_id]
+    states = _states(cm)
+    assert states[bad.execution_id][0] == ExecutionState.FAILED
+    failed = cm.get(bad.execution_id)
+    [event] = [e for e in failed.events if e.type.name == "WORKFLOW_FAILED"]
+    assert "region" in str(event.value)
+
+
+def test_batch_require_mismatch_parks_execution(clean_env):
+    from flux.routing import input as input_, label, require
+
+    cm, registry = clean_env
+    us = _register_worker(registry, "us", labels={"region": "us-east"})
+
+    wf_id = _create_workflow(
+        "infer",
+        affinity=require(label("region") == input_("region")),
+    )
+    ctx = _create_execution_with_input(cm, wf_id, "infer", {"region": "eu-west"})
+
+    assert cm.next_executions_batch([us], limit=10) == []
+    assert _states(cm)[ctx.execution_id][0] == ExecutionState.CREATED
+
+
+def test_batch_require_when_gate(clean_env):
+    from flux.routing import input as input_, label, require, when
+
+    cm, registry = clean_env
+    plain = _register_worker(registry, "plain", labels={"region": "eu"})
+    dedicated = _register_worker(
+        registry,
+        "dedicated",
+        labels={"region": "eu", "cap.dedicated": "true"},
+    )
+
+    wf_id = _create_workflow(
+        "infer",
+        affinity=require(
+            label("region") == "eu",
+            when(input_("tier") == "dedicated", label("cap.dedicated") == "true"),
+        ),
+    )
+    gated = _create_execution_with_input(cm, wf_id, "infer", {"tier": "dedicated"})
+
+    # Only the dedicated worker is eligible for the gated execution.
+    assignments = cm.next_executions_batch([plain, dedicated], limit=10)
+    assert [(ctx.execution_id, w) for ctx, w in assignments] == [
+        (gated.execution_id, "dedicated"),
+    ]
+
+
+def test_batch_resume_respects_require_expression(clean_env):
+    from flux.routing import input as input_, label, require
+
+    cm, registry = clean_env
+    us = _register_worker(registry, "us", labels={"region": "us-east"})
+    eu = _register_worker(registry, "eu", labels={"region": "eu-west"})
+
+    wf_id = _create_workflow(
+        "infer",
+        affinity=require(label("region") == input_("region")),
+    )
+    ctx = _create_execution_with_input(cm, wf_id, "infer", {"region": "eu-west"})
+    _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name=None)
+
+    assignments = cm.next_resumes_batch([us, eu], limit=10)
+    assert [(c.execution_id, w) for c, w in assignments] == [(ctx.execution_id, "eu")]
+
+
+def test_batch_pairs_require_floor_with_dynamic_prefer(clean_env):
+    """require() as the hard floor, a dynamic-key prefer() as the soft
+    preference: eligible workers are filtered by datacenter, then the one
+    holding a warm cache copy of the requested dataset wins despite load."""
+    from flux.models import WorkflowModel
+    from flux.routing import input as input_, label, label_for, least, load, prefer, require, score
+
+    cm, registry = clean_env
+    warm = _register_worker(registry, "warm", labels={"dc": "eu", "cache.orders": "true"})
+    cold = _register_worker(registry, "cold", labels={"dc": "eu"})
+    other = _register_worker(registry, "other", labels={"dc": "us", "cache.orders": "true"})
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        wf = WorkflowModel(
+            id="default/locality",
+            name="locality",
+            version=1,
+            imports=[],
+            source=b"async def placeholder(ctx): pass",
+            affinity=require(label("dc") == input_("dc")),
+            metadata={
+                "routing": score(
+                    prefer(label_for("cache.", input_("dataset")) == "true", weight=10),
+                    least(load()),
+                ),
+            },
+        )
+        session.add(wf)
+        session.commit()
+
+    # Load the warm worker up so least(load()) alone would pick cold.
+    busy_wf = _create_workflow("busy")
+    for _ in range(3):
+        ctx = _create_execution(cm, busy_wf, name="busy")
+        _force_state(ctx.execution_id, ExecutionState.RUNNING, worker_name="warm")
+
+    ctx = ExecutionContext(
+        workflow_id="default/locality",
+        workflow_namespace="default",
+        workflow_name="locality",
+        input={"dc": "eu", "dataset": "orders"},
+    )
+    cm.save(ctx)
+
+    assignments = cm.next_executions_batch([warm, cold, other], limit=10)
+    assert [(c.execution_id, w) for c, w in assignments] == [(ctx.execution_id, "warm")]

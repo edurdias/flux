@@ -127,3 +127,64 @@ async def routed(ctx):
     )
     with pytest.raises(SyntaxError, match=message):
         _parse(source)
+
+
+def test_dynamic_vocabulary_extracted_in_score():
+    source = b"""
+from flux import workflow
+from flux.routing import score, prefer, least, when, load, label_for, service, metric, input
+
+
+@workflow.with_options(
+    routing=score(
+        prefer(label_for("cache.", input("dataset")) == "true", weight=5),
+        prefer(service(input("model")), weight=2),
+        when(input("latency_sensitive") == "true", least(metric("lag"), weight=10)),
+        least(load()),
+    ),
+)
+async def routed(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    terms = (info.metadata or {})["routing"]["terms"]
+    assert terms[0] == {
+        "kind": "prefer",
+        "selector": {"kind": "label", "prefix": "cache.", "input": "dataset"},
+        "op": "==",
+        "value": "true",
+        "weight": 5.0,
+    }
+    assert terms[1]["selector"] == {"kind": "label", "prefix": "flux.service.", "input": "model"}
+    assert terms[2] == {
+        "kind": "when",
+        "if": {"input": "latency_sensitive", "op": "==", "value": "true"},
+        "then": {"kind": "least", "selector": "metric:lag", "weight": 10.0},
+    }
+
+
+@pytest.mark.parametrize(
+    ("term", "reason"),
+    [
+        ('least(label_for("c.", input("d")))', "no ordering"),
+        ('when(label("x") == "1", least(load()))', "must be input"),
+        ('when(input("t") == "1", label("y") == "1")', "expected prefer"),
+        ('when(input("t") == "1", when(input("u") == "1", least(load())))', "when"),
+        ('prefer(label_for(prefix, input("d")) == "true")', "literal prefix"),
+        ("prefer(service(42))", "service"),
+    ],
+)
+def test_unparseable_dynamic_score_terms_fail_loudly(term, reason):
+    source = f"""
+from flux import workflow
+from flux.routing import score, prefer, least, when, load, label, label_for, service, input
+
+prefix = "c."
+
+
+@workflow.with_options(routing=score({term}))
+async def wf(ctx):
+    return 1
+""".encode()
+    with pytest.raises(SyntaxError, match=reason):
+        _parse(source)
