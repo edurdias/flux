@@ -5,7 +5,7 @@ Latest run per test; raw runs live in `results/<test>/`.
 
 | Test | Gate | Measured | Pass | Sealed | DB | Machine |
 |---|---|---|---|---|---|---|
-| T0 | 0 TASK_PROGRESS rows; event footprint independent of frame count | TASK_PROGRESS rows=0; footprint 100f == 5000f (6 rows each); delivered 100/100 and 5000/5000 | ✅ | no | postgresql | Intel(R) Xeon(R) Processor @ 2.10GHz ×4 |
+| T0 | 0 TASK_PROGRESS rows; event footprint independent of frame count | TASK_PROGRESS rows=0; footprint 100f == 5000f (6 rows each); delivered 100/100 and 5000/5000 | ✅ | no | sqlite | Intel(R) Xeon(R) Processor @ 2.80GHz ×4 |
 | T1 | >= 1000 ev/s delivered lossless @150B (soft in ci) | best lossless 1359 ev/s @150B; loss onset at uncapped | ✅ | no | postgresql | Intel(R) Xeon(R) Processor @ 2.10GHz ×4 |
 | T2 | no loss; interference p99 delta <= 10ms (soft in ci) | aggregate 797 ev/s over 8 streams; lost 0; interference delta 12.3ms | ❌ | no | postgresql | Intel(R) Xeon(R) Processor @ 2.10GHz ×4 |
 | T2-event | delivery parity in event dispatch mode (soft in ci) | 16000/16000 delivered; lost 0 | ✅ | no | postgresql | Intel(R) Xeon(R) Processor @ 2.10GHz ×4 |

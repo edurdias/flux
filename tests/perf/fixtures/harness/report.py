@@ -58,12 +58,8 @@ def write_run(test: str, run_name: str, payload: dict) -> Path:
 
 
 def render_results_md():
-    """Regenerate RESULTS.md from the latest run of each test.
-
-    A run participates in the summary table when it carries the keys
-    ``gate``, ``measured``, and ``passed``; other runs are listed as raw
-    data points.
-    """
+    """Regenerate RESULTS.md: one summary-table row per test, latest run
+    wins; missing gate/measured/passed keys render as em-dashes."""
     latest: dict[str, dict] = {}
     all_runs: list[Path] = sorted(RESULTS_DIR.glob("*/*.json"))
     for path in all_runs:

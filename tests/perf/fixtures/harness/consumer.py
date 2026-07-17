@@ -17,6 +17,7 @@ the agent-client decode layer.
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,11 +60,11 @@ class ConsumerStats:
 
 
 def percentile(values: list[float], q: float) -> float | None:
-    """Nearest-rank percentile; q in [0, 1]."""
+    """Nearest-rank percentile (index ceil(q*n)-1); q in [0, 1]."""
     if not values:
         return None
     ordered = sorted(values)
-    idx = min(len(ordered) - 1, max(0, round(q * (len(ordered) - 1))))
+    idx = min(len(ordered) - 1, max(0, math.ceil(q * len(ordered)) - 1))
     return ordered[idx]
 
 
@@ -102,8 +103,14 @@ class StreamConsumer:
     # -- lifecycle ---------------------------------------------------------
 
     def start(self) -> StreamConsumer:
+        """Start consuming; raises unless the SSE stream actually connected."""
         self._thread.start()
-        if not self._connected.wait(self.connect_timeout) and self.error:
+        if not self._connected.wait(self.connect_timeout):
+            self.stop()
+            raise RuntimeError(
+                f"Consumer for {self.execution_id} did not connect within {self.connect_timeout}s",
+            )
+        if self.error is not None:
             raise RuntimeError(
                 f"Consumer for {self.execution_id} failed to connect",
             ) from self.error
