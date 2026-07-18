@@ -1,0 +1,75 @@
+{
+  "test": "T0",
+  "run": "persistence",
+  "recorded_at": "2026-07-18T10:51:44-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "0 TASK_PROGRESS rows; event footprint independent of frame count",
+  "measured": "TASK_PROGRESS rows=0; footprint 100f == 5000f (6 rows each); delivered 100/100 and 5000/5000",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "http_rtt_s": 0.003168184499372728,
+  "rate_events_per_s": 200.0,
+  "frame_pad_bytes": 150,
+  "runs": {
+    "small": {
+      "execution_id": "7f2d9f71cd894481aa09af1022998fa8",
+      "frames_offered": 100,
+      "consumer": {
+        "delivered": 100,
+        "first_recv": 1784386276.1438,
+        "last_recv": 1784386276.6374142,
+        "latency_p50": 0.0021903514862060547,
+        "latency_p95": 0.0027341842651367188,
+        "latency_p99": 0.003812551498413086,
+        "interframe_p50": 0.005199909210205078,
+        "interframe_p99": 0.005972862243652344,
+        "max_seq": 99,
+        "terminal_event": "perf_stream.execution.completed",
+        "lifecycle_events": 4
+      }
+    },
+    "large": {
+      "execution_id": "415e547b887944ea8d452637d5c5a1ea",
+      "frames_offered": 5000,
+      "consumer": {
+        "delivered": 5000,
+        "first_recv": 1784386279.1385672,
+        "last_recv": 1784386304.1261988,
+        "latency_p50": 0.0020880699157714844,
+        "latency_p95": 0.002699613571166992,
+        "latency_p99": 0.003421306610107422,
+        "interframe_p50": 0.005198478698730469,
+        "interframe_p99": 0.006288766860961914,
+        "max_seq": 4999,
+        "terminal_event": "perf_stream.execution.completed",
+        "lifecycle_events": 4
+      }
+    }
+  },
+  "db_delta_small": {
+    "rows": {
+      "execution_events": 6,
+      "executions": 1
+    },
+    "total_rows": 7,
+    "file_bytes": 98304,
+    "window_s": 3.0115954875946045
+  },
+  "db_delta_large": {
+    "rows": {
+      "execution_events": 6,
+      "executions": 1
+    },
+    "total_rows": 7,
+    "file_bytes": 57344,
+    "window_s": 27.452222108840942
+  }
+}
