@@ -172,6 +172,27 @@ class WorkerRoutesMixin:
                         detail="Invalid bootstrap or join token.",
                     )
 
+                # Quarantine wins over any valid credential: a banned worker
+                # principal must not resurrect itself by re-registering (the
+                # re-enable below is meant for reaper-disabled principals of
+                # workers that legitimately return).
+                if principal_registry is not None:
+                    banned_check = await asyncio.to_thread(
+                        principal_registry.find,
+                        subject=registration.name,
+                        external_issuer="flux",
+                    )
+                    if banned_check is not None and banned_check.banned:
+                        logger.warning(
+                            f"Refusing registration for banned worker principal: "
+                            f"{registration.name}",
+                        )
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Worker principal is banned; an administrator "
+                            "must unban and enable it before it can register.",
+                        )
+
                 registry = WorkerRegistry.create()
                 result = registry.register(
                     registration.name,
