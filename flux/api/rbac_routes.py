@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 
+from fastapi import Body
 from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Query
@@ -201,6 +202,7 @@ class RbacRoutesMixin:
                         "external_issuer": p.external_issuer,
                         "display_name": p.display_name,
                         "enabled": p.enabled,
+                        "banned": p.banned,
                         "roles": registry.get_roles(p.id),
                     }
                     for p in principals
@@ -233,6 +235,7 @@ class RbacRoutesMixin:
                     "external_issuer": principal.external_issuer,
                     "display_name": principal.display_name,
                     "enabled": principal.enabled,
+                    "banned": principal.banned,
                     "roles": registry.get_roles(principal.id),
                 }
             except HTTPException:
@@ -403,6 +406,9 @@ class RbacRoutesMixin:
                     )
                 registry.set_enabled(principal.id, True)
                 return {"status": "success", "subject": subject, "enabled": True}
+            except ValueError as e:
+                # A banned principal cannot be enabled; unban first.
+                raise HTTPException(status_code=409, detail=str(e))
             except HTTPException:
                 raise
             except Exception as e:
@@ -426,6 +432,73 @@ class RbacRoutesMixin:
                     )
                 registry.set_enabled(principal.id, False)
                 return {"status": "success", "subject": subject, "enabled": False}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/ban")
+        async def admin_ban_principal(
+            subject: str,
+            body: dict | None = Body(None),
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            """Quarantine a principal: disable it, revoke its API keys, and
+            refuse worker registration until it is unbanned. Unlike a plain
+            disable, registration cannot re-enable a banned principal."""
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                reason = (body or {}).get("reason")
+                registry.set_banned(principal.id, True, reason=reason)
+                await auth_service.revoke_all_api_keys(principal.id)
+                auth_service.invalidate_resolution_caches()
+                logger.warning(
+                    f"Principal '{subject}' banned by {identity.subject}"
+                    + (f": {reason}" if reason else ""),
+                )
+                return {"status": "success", "subject": subject, "banned": True}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @api.post("/admin/principals/{subject}/unban")
+        async def admin_unban_principal(
+            subject: str,
+            issuer: str | None = None,
+            identity: FluxIdentity = Depends(require_permission("admin:principals:manage")),
+        ):
+            """Lift a principal's quarantine. The principal stays disabled —
+            enable it explicitly afterwards so nothing rejoins as a side
+            effect of the unban."""
+            try:
+                from flux.security.principals import PrincipalRegistry
+
+                registry = PrincipalRegistry(session_factory=self._get_db_session)
+                principal = registry.find(subject, issuer or "flux")
+                if not principal:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Principal '{subject}' not found",
+                    )
+                registry.set_banned(principal.id, False)
+                auth_service.invalidate_resolution_caches()
+                logger.info(f"Principal '{subject}' unbanned by {identity.subject}")
+                return {
+                    "status": "success",
+                    "subject": subject,
+                    "banned": False,
+                    "enabled": False,
+                }
             except HTTPException:
                 raise
             except Exception as e:
