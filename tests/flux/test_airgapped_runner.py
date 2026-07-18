@@ -24,7 +24,7 @@ DOCKER_TEST_IMAGE = os.environ.get("FLUX_TEST_DOCKER_IMAGE")
 
 
 def make_runner(**kwargs) -> AirgappedDockerRunner:
-    with patch.object(DockerRunner, "_verify_docker_available"):
+    with patch.object(DockerRunner, "_verify_cli_available"):
         return AirgappedDockerRunner(image=kwargs.pop("image", "flux:test"), **kwargs)
 
 
@@ -366,6 +366,76 @@ class TestLimitValidation:
             make_runner(pids_limit=0)
 
 
+class TestContainerCli:
+    def test_default_cli_is_docker(self):
+        runner = make_runner()
+        assert runner._build_command("c")[0] == "docker"
+
+    def test_configured_cli_leads_the_command(self):
+        runner = make_runner(container_cli="podman")
+        command = runner._build_command("c")
+        assert command[:3] == ["podman", "run", "-i"]
+        # The locked profile is CLI-independent.
+        assert "--network=none" in command
+        assert "--cap-drop=ALL" in command
+
+    def test_unknown_cli_rejected_at_startup(self):
+        with pytest.raises(ValueError, match="airgapped_container_cli"):
+            make_runner(container_cli="containerctl")
+
+    def test_veto_list_applies_regardless_of_cli(self):
+        with pytest.raises(ValueError, match="--privileged"):
+            make_runner(container_cli="nerdctl", extra_args=["--privileged"])
+
+    @pytest.mark.asyncio
+    async def test_force_kill_uses_configured_cli(self):
+        runner = make_runner(container_cli="podman")
+        proc = MagicMock()
+        proc.pid = 4242
+        proc.kill = MagicMock()
+        runner._containers[proc.pid] = "flux-exec-x"
+
+        killer = MagicMock()
+
+        async def _wait():
+            return 0
+
+        killer.wait = _wait
+        with patch(
+            "asyncio.create_subprocess_exec",
+            return_value=killer,
+        ) as spawn:
+            await runner._force_kill(proc)
+        assert spawn.call_args[0][:3] == ("podman", "kill", "flux-exec-x")
+
+    def test_non_docker_probe_runs_cli_version(self):
+        with (
+            patch("flux.runners.docker.shutil.which", return_value="/usr/bin/podman"),
+            patch("flux.runners.docker.subprocess.run") as run,
+        ):
+            run.return_value = MagicMock(returncode=0, stdout="podman 5", stderr="")
+            AirgappedDockerRunner(image="flux:test", container_cli="podman")
+        assert run.call_args[0][0] == ["podman", "version"]
+
+    def test_non_docker_probe_failure_names_the_runtime(self):
+        with (
+            patch("flux.runners.docker.shutil.which", return_value="/usr/bin/nerdctl"),
+            patch("flux.runners.docker.subprocess.run") as run,
+        ):
+            run.return_value = MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="cannot connect to containerd",
+            )
+            with pytest.raises(ValueError, match="containerd"):
+                AirgappedDockerRunner(image="flux:test", container_cli="nerdctl")
+
+    def test_missing_cli_binary_rejected(self):
+        with patch("flux.runners.docker.shutil.which", return_value=None):
+            with pytest.raises(ValueError, match="not on PATH"):
+                AirgappedDockerRunner(image="flux:test", container_cli="podman")
+
+
 class TestFactoryWiring:
     def test_known_runner(self):
         assert "docker-airgapped" in KNOWN_RUNNERS
@@ -385,12 +455,13 @@ class TestFactoryWiring:
         cfg.airgapped_mounts = []
         cfg.airgapped_shm_size = ""
         cfg.airgapped_service_sockets = {}
+        cfg.airgapped_container_cli = "docker"
         for key, value in overrides.items():
             setattr(cfg, key, value)
         return cfg
 
     def test_image_fallback_to_docker_image(self):
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(
                 ["docker-airgapped"],
                 self._config(docker_image="flux:base"),
@@ -401,7 +472,7 @@ class TestFactoryWiring:
         assert runner._image == "flux:base"
 
     def test_airgapped_image_wins_over_fallback(self):
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(
                 ["docker-airgapped"],
                 self._config(docker_image="flux:base", airgapped_image="flux:sealed"),
@@ -409,12 +480,12 @@ class TestFactoryWiring:
         assert runners["docker-airgapped"]._image == "flux:sealed"
 
     def test_no_image_anywhere_fails_at_startup(self):
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             with pytest.raises(ValueError, match="airgapped_image"):
                 create_runners(["docker-airgapped"], self._config())
 
     def test_capability_knobs_flow_from_config(self, tmp_path):
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(
                 ["docker-airgapped"],
                 self._config(
@@ -429,11 +500,19 @@ class TestFactoryWiring:
         assert f"type=bind,source={tmp_path},target=/models,readonly" in joined
         assert "--shm-size 4g" in joined
 
+    def test_container_cli_flows_from_config(self):
+        with patch.object(DockerRunner, "_verify_cli_available"):
+            runners = create_runners(
+                ["docker-airgapped"],
+                self._config(docker_image="flux:base", airgapped_container_cli="nerdctl"),
+            )
+        assert runners["docker-airgapped"]._build_command("c")[0] == "nerdctl"
+
     def test_service_sockets_flow_from_config(self, tmp_path):
         service_dir = tmp_path / "inference"
         service_dir.mkdir()
         service_dir.chmod(0o555)
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(
                 ["docker-airgapped"],
                 self._config(
