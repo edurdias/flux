@@ -1,0 +1,42 @@
+{
+  "test": "T4",
+  "run": "delta-ci",
+  "recorded_at": "2026-07-18T00:06:41-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "added p50 <= 30ms, p99 <= 150ms (soft in ci)",
+  "measured": "worst delta p50 3.0ms, p99 5.8ms across 1 and 8 streams",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "ci",
+  "sidecar": "synthetic deterministic SSE emitter",
+  "results": {
+    "1_stream": {
+      "direct_p50": 0.00036215782165527344,
+      "direct_p99": 0.0006630420684814453,
+      "flux_p50": 0.0033423900604248047,
+      "flux_p99": 0.006356239318847656,
+      "delta_p50": 0.0029802322387695312,
+      "delta_p99": 0.005693197250366211,
+      "tokens_direct": 200,
+      "tokens_flux": 200
+    },
+    "8_stream": {
+      "direct_p50": 0.0004067420959472656,
+      "direct_p99": 0.0008475780487060547,
+      "flux_p50": 0.002697467803955078,
+      "flux_p99": 0.006635189056396484,
+      "delta_p50": 0.0022907257080078125,
+      "delta_p99": 0.00578761100769043,
+      "tokens_direct": 200,
+      "tokens_flux": 1600
+    }
+  }
+}

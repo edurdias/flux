@@ -28,6 +28,7 @@ async def test_handle_execution_resumed_posts_claim_before_executing():
     worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
+    worker._progress_channels = {}
     worker._runners = {}
     worker._default_runner = "subprocess"
     worker._healthy = True
@@ -109,6 +110,7 @@ async def test_handle_execution_resumed_drops_on_409():
     worker._terminal_checkpoint_deadline = 300
     worker._progress_queues = {}
     worker._progress_flushers = {}
+    worker._progress_channels = {}
     worker._runners = {}
     worker._default_runner = "subprocess"
     worker._healthy = True

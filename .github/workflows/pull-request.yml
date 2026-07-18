@@ -205,6 +205,68 @@ jobs:
           tests/flux/test_scheduler_dispatch_lock.py \
           -m postgresql -v
 
+  perf-postgres:
+    needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flux_perf_user
+          POSTGRES_PASSWORD: flux_perf_password
+          POSTGRES_DB: flux_perf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flux_perf_user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction --extras postgresql
+
+    # Progress-streaming perf suite (tests/perf/PLAN.md) against a real
+    # server + worker on PostgreSQL — the production backend. All scenarios
+    # (T0-T7) run in the short 'ci' profile: correctness gates hard-fail,
+    # performance gates are soft (recorded in the artifact, never red on a
+    # shared runner). Full-length runs: the on-demand 'perf' workflow.
+    - name: Run perf suite (PostgreSQL, ci profile)
+      env:
+        FLUX_PERF: "1"
+        FLUX_PERF_PROFILE: ci
+        FLUX_PERF_DATABASE_URL: postgresql://flux_perf_user:flux_perf_password@localhost:5432/flux_perf
+      run: |
+        poetry run pytest tests/perf -m perf -v
+
+    - name: Archive perf results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: perf-results
+        path: |
+          tests/perf/results/
+          tests/perf/RESULTS.md
+        retention-days: 14
+
   e2e:
     needs: [version-check]
     # Run when version-check succeeded OR was skipped (Dependabot exemption).

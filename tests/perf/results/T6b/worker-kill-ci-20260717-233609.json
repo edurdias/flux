@@ -1,0 +1,21 @@
+{
+  "test": "T6b",
+  "run": "worker-kill-ci",
+  "recorded_at": "2026-07-17T23:36:09-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "orphaned claim detected (hard); detection latency + policy documented",
+  "measured": "state left RUNNING 10.6s after kill -9 (heartbeat_timeout=6s, grace=4s); resulting state: CREATED",
+  "passed": true,
+  "sealed": false,
+  "database": "sqlite",
+  "profile": "ci",
+  "detection_s": 10.589833498001099,
+  "resulting_state": "CREATED"
+}

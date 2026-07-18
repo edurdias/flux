@@ -1,0 +1,24 @@
+{
+  "test": "T6c",
+  "run": "conn-drop-ci",
+  "recorded_at": "2026-07-17T11:55:23+0000",
+  "machine": {
+    "platform": "Linux-6.18.5-x86_64-with-glibc2.39",
+    "python": "3.13.12",
+    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_count": 4,
+    "ram_bytes": 16856244224,
+    "disk_total_bytes": 270553174016
+  },
+  "gate": "no protocol wedge (hard); frame fate documented",
+  "measured": "dropped link for 2.0s mid-stream; terminal COMPLETED; fate: did not resume; terminal COMPLETED (eviction path); 2291 frames lost (batch drops during outage, per policy), 0 duplicated",
+  "passed": true,
+  "sealed": false,
+  "database": "sqlite",
+  "profile": "ci",
+  "frames_offered": 3000,
+  "frames_lost": 2291,
+  "frames_duplicated": 0,
+  "frames_after_restore": 0,
+  "drop_window_s": 2.000195264816284
+}

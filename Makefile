@@ -2,7 +2,20 @@
 .PHONY: help install test test-unit test-integration test-postgresql test-postgresql-unit test-postgresql-integration
 .PHONY: postgres-up postgres-down postgres-test-up postgres-test-down
 .PHONY: docker-build docker-up docker-down docker-logs
+.PHONY: perf perf-postgresql
 .PHONY: lint format check coverage clean
+
+# Use the Docker Compose v2 plugin (`docker compose`). The legacy standalone
+# binary can't reach a Docker Desktop daemon (it looks for a unix socket that
+# Docker Desktop doesn't expose). Override via the DOCKER_COMPOSE variable if
+# your setup needs the legacy binary instead.
+DOCKER_COMPOSE ?= docker compose
+
+# PostgreSQL test-database connections (match docker/profiles/postgresql-test.yml).
+# The perf T6 "violence" env runs a second, isolated Flux server, so it gets its
+# own database (two Flux servers must not share one).
+PG_TEST_URL := postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test
+PG_VIOLENCE_URL := postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test_violence
 
 # Default target
 help: ## Show this help message
@@ -44,25 +57,41 @@ test-postgresql-integration: postgres-test-up ## Run PostgreSQL integration test
 	poetry run pytest tests/flux/integration/ -v
 	$(MAKE) postgres-test-down
 
+# Performance Testing (progress-streaming perf suite, tests/perf; opt-in).
+# Pass T=<id> to run a single scenario (e.g. `make perf-postgresql T=t3`) and
+# PROFILE=ci|workstation|full to select measurement windows (default ci).
+# Needs the postgresql extra for the PG variant: `make install-postgres`.
+perf: ## Run perf suite on SQLite (no docker). T=<id> one scenario; PROFILE=ci|workstation|full.
+	FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) poetry run pytest tests/perf $(if $(T),-k "$(T)") -v
+
+perf-postgresql: postgres-test-up ## Run perf suite vs dockerized PostgreSQL (up->run->down). T=<id> one scenario; PROFILE=ci|workstation|full.
+	@FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) \
+		FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
+		FLUX_PERF_DATABASE_URL_VIOLENCE=$(PG_VIOLENCE_URL) \
+		poetry run pytest tests/perf $(if $(T),-k "$(T)") -v; \
+		status=$$?; \
+		$(MAKE) postgres-test-down; \
+		exit $$status
+
 # PostgreSQL Database Management
 postgres-up: ## Start PostgreSQL for development
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml up -d postgres
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml up -d postgres
 	@echo "Waiting for PostgreSQL to be ready..."
 	@./docker/scripts/wait-for-postgres.sh localhost 5432 flux_user flux_dev || echo "PostgreSQL ready"
 
 postgres-down: ## Stop PostgreSQL development instance
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml down
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml down
 
-postgres-test-up: ## Start PostgreSQL for testing
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql-test.yml up -d postgres-test
+postgres-test-up: ## Start PostgreSQL for testing (rebuilds so init SQL is current)
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql-test.yml up -d --build postgres-test
 	@echo "Waiting for PostgreSQL test instance to be ready..."
 	@POSTGRES_PASSWORD=flux_test_password ./docker/scripts/wait-for-postgres.sh localhost 5433 flux_test_user flux_test || echo "PostgreSQL test ready"
 
 postgres-test-down: ## Stop PostgreSQL test instance
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql-test.yml down
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql-test.yml down
 
 postgres-logs: ## Show PostgreSQL logs
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml logs -f postgres
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml logs -f postgres
 
 postgres-shell: ## Connect to PostgreSQL development database
 	PGPASSWORD=flux_password psql -h localhost -U flux_user -d flux_dev
@@ -72,26 +101,26 @@ postgres-test-shell: ## Connect to PostgreSQL test database
 
 # Docker Development
 docker-build: ## Build Docker images
-	docker-compose build
+	$(DOCKER_COMPOSE) build
 	docker build -t flux-postgres:latest ./docker/postgres
 
 docker-up-sqlite: ## Start Flux with SQLite
-	docker-compose -f docker-compose.yml -f docker/profiles/sqlite.yml up
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/sqlite.yml up
 
 docker-up-postgres: ## Start Flux with PostgreSQL
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml up
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml up
 
 docker-up-monitoring: ## Start Flux with PostgreSQL and monitoring
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml -f docker/profiles/monitoring.yml up
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml -f docker/profiles/monitoring.yml up
 
 docker-down: ## Stop all Docker services
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 docker-logs: ## Show Docker logs
-	docker-compose logs -f
+	$(DOCKER_COMPOSE) logs -f
 
 docker-clean: ## Clean up Docker resources
-	docker-compose down -v
+	$(DOCKER_COMPOSE) down -v
 	docker system prune -f
 
 # Code Quality
@@ -141,11 +170,11 @@ ci-test: ## Simulate CI testing
 # Validation
 validate-profiles: ## Validate Docker Compose profiles
 	@echo "Validating Docker Compose profiles..."
-	docker-compose -f docker-compose.yml -f docker/profiles/sqlite.yml config > /dev/null
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql.yml config > /dev/null
-	docker-compose -f docker-compose.yml -f docker/profiles/postgresql-test.yml config > /dev/null
-	docker-compose -f docker-compose.yml -f docker/profiles/monitoring.yml config > /dev/null
-	docker-compose -f docker-compose.yml -f docker/profiles/ci.yml config > /dev/null
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/sqlite.yml config > /dev/null
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml config > /dev/null
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql-test.yml config > /dev/null
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/monitoring.yml config > /dev/null
+	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/ci.yml config > /dev/null
 	@echo "All profiles are valid ✓"
 
 # Information
