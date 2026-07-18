@@ -88,6 +88,13 @@ class TcpProxy:
         except OSError:
             pass
         finally:
+            # Drop this tunnel's sockets from the live set as they close, so
+            # `_conns` doesn't accumulate dead sockets across churny reconnects
+            # (and `drop()` doesn't iterate them). The sibling pump thread
+            # discards the same pair — discard() makes that a no-op.
+            with self._lock:
+                self._conns.discard(src)
+                self._conns.discard(dst)
             for s in (src, dst):
                 try:
                     s.close()

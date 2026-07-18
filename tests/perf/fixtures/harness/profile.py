@@ -81,7 +81,9 @@ def params(test: str) -> dict:
 
 
 def strict() -> bool:
-    return bool(os.environ.get("FLUX_PERF_STRICT"))
+    # Only genuinely-truthy strings enable strict mode; `FLUX_PERF_STRICT=0`
+    # or `=false` must not accidentally hard-fail perf runs.
+    return os.environ.get("FLUX_PERF_STRICT", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def soft_gate(passed: bool, message: str) -> bool:
