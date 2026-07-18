@@ -1,0 +1,54 @@
+{
+  "test": "T7",
+  "run": "soak-workstation",
+  "recorded_at": "2026-07-18T10:24:31-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "RSS drift <= 10%, p99 drift <= 20% (soft in ci); store growth bounded (hard)",
+  "measured": "8x300 ev/s for 600s with 30s sequential churn; delivered 1183244; RSS drift server -0.003955416370441397, worker 0.0; p99 drift 0.013426815052122208; store +48 event rows",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "workstation",
+  "delivered": 1183244,
+  "p99_first_window": 0.05685758590698242,
+  "p99_last_window": 0.057621002197265625,
+  "p99_drift": 0.013426815052122208,
+  "rss_drift": {
+    "server": -0.003955416370441397,
+    "worker": 0.0
+  },
+  "db_delta": {
+    "rows": {
+      "execution_events": 48,
+      "executions": 8
+    },
+    "total_rows": 56,
+    "file_bytes": 49152,
+    "window_s": 637.7783114910126
+  },
+  "process_usage": {
+    "server": {
+      "samples": 636,
+      "cpu_mean": 94.66588050314465,
+      "cpu_max": 102.0,
+      "rss_first": 303988736,
+      "rss_max": 303988736,
+      "rss_last": 301899776
+    },
+    "worker": {
+      "samples": 636,
+      "cpu_mean": 54.739622641509435,
+      "cpu_max": 67.0,
+      "rss_first": 124440576,
+      "rss_max": 124440576,
+      "rss_last": 124440576
+    }
+  }
+}

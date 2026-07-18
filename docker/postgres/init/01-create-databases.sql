@@ -5,11 +5,8 @@
 -- database and role (the test compose profile sets them; the dev profile does
 -- not), so it never aborts init on an "already exists" error.
 
--- Test database (only if it does not already exist).
-SELECT 'CREATE DATABASE flux_test'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'flux_test')\gexec
-
--- Test role (only if it does not already exist).
+-- Test role (only if it does not already exist) — created first so the grants
+-- below always have a role to target.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'flux_test_user') THEN
@@ -18,14 +15,32 @@ BEGIN
 END
 $$;
 
+-- Shared session-env database.
+SELECT 'CREATE DATABASE flux_test'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'flux_test')\gexec
+
+-- Violence-env database. T6 runs a second, isolated Flux server (tight
+-- heartbeats, worker kills) concurrently with the shared session server; two
+-- Flux servers must not share one database (separate dispatcher, worker
+-- registry, and executions), so it gets its own — same role, separate DB.
+SELECT 'CREATE DATABASE flux_test_violence'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'flux_test_violence')\gexec
+
 GRANT ALL PRIVILEGES ON DATABASE flux_test TO flux_test_user;
+GRANT ALL PRIVILEGES ON DATABASE flux_test_violence TO flux_test_user;
 
 -- PostgreSQL 15+: the `public` schema is no longer writable by non-owner roles
 -- by default, so a plain GRANT on the database is not enough for SQLAlchemy's
--- create_all to create tables. Make the test role own `public` (and its
+-- create_all to create tables. Make the test role own `public` (and each
 -- database) so schema DDL works regardless of who created the database.
 \connect flux_test
 ALTER DATABASE flux_test OWNER TO flux_test_user;
+ALTER SCHEMA public OWNER TO flux_test_user;
+GRANT ALL ON SCHEMA public TO flux_test_user;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+\connect flux_test_violence
+ALTER DATABASE flux_test_violence OWNER TO flux_test_user;
 ALTER SCHEMA public OWNER TO flux_test_user;
 GRANT ALL ON SCHEMA public TO flux_test_user;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

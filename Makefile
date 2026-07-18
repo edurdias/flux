@@ -11,8 +11,11 @@
 # your setup needs the legacy binary instead.
 DOCKER_COMPOSE ?= docker compose
 
-# PostgreSQL test-database connection (matches docker/profiles/postgresql-test.yml).
+# PostgreSQL test-database connections (match docker/profiles/postgresql-test.yml).
+# The perf T6 "violence" env runs a second, isolated Flux server, so it gets its
+# own database (two Flux servers must not share one).
 PG_TEST_URL := postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test
+PG_VIOLENCE_URL := postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test_violence
 
 # Default target
 help: ## Show this help message
@@ -62,7 +65,9 @@ perf: ## Run perf suite on SQLite (no docker). T=<id> one scenario; PROFILE=ci|w
 	FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) poetry run pytest tests/perf $(if $(T),-k "$(T)") -v
 
 perf-postgresql: postgres-test-up ## Run perf suite vs dockerized PostgreSQL (up->run->down). T=<id> one scenario; PROFILE=ci|workstation|full.
-	@FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
+	@FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) \
+		FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
+		FLUX_PERF_DATABASE_URL_VIOLENCE=$(PG_VIOLENCE_URL) \
 		poetry run pytest tests/perf $(if $(T),-k "$(T)") -v; \
 		status=$$?; \
 		$(MAKE) postgres-test-down; \
