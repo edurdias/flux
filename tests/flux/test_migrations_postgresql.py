@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0011_worker_join_tokens"
+HEAD = "0012_principal_banned"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
