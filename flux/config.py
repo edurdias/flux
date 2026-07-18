@@ -316,6 +316,23 @@ class WorkersConfig(BaseConfig):
             "before cancelling them (0 = cancel immediately)"
         ),
     )
+    control_socket_enabled: bool = Field(
+        default=True,
+        description=(
+            "Serve the worker-local control API (pause / resume / cancel-all "
+            "/ status) on a Unix socket. The worker is outbound-only, so "
+            "runtime control comes from the same host: 'flux worker pause "
+            "<name>' or any client speaking one JSON object per line. "
+            "SIGUSR1/SIGUSR2 pause/resume regardless of this setting"
+        ),
+    )
+    control_socket_path: str = Field(
+        default="",
+        description=(
+            "Path of the worker control socket; empty derives "
+            "<home>/worker-<name>.sock. The socket is created mode 0600"
+        ),
+    )
     register_rate_limit: str = Field(
         default="30/minute",
         description=(

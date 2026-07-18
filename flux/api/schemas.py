@@ -227,6 +227,9 @@ class WorkerResponse(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     # Latest advertised metrics snapshot (routing "metric:*" selectors).
     metrics: dict[str, float] | None = None
+    # In-flight execution count from the worker's latest heartbeat pong;
+    # None for workers that have not advertised one.
+    in_flight: int | None = None
 
 
 class HealthResponse(BaseModel):

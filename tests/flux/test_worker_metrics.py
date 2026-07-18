@@ -127,7 +127,12 @@ class TestPongPayload:
 
         await worker._send_pong()
 
-        assert captured["json"] == {"healthy": True, "metrics": {"queue": 4.0}}
+        assert captured["json"] == {
+            "healthy": True,
+            "status": "active",
+            "in_flight": 0,
+            "metrics": {"queue": 4.0},
+        }
 
     @pytest.mark.asyncio
     async def test_pong_omits_metrics_without_provider(self):
@@ -145,7 +150,7 @@ class TestPongPayload:
 
         await worker._send_pong()
 
-        assert captured["json"] == {"healthy": True}
+        assert captured["json"] == {"healthy": True, "status": "active", "in_flight": 0}
 
 
 class TestBuiltinMetricsCollector:

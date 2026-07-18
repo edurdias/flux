@@ -1057,6 +1057,104 @@ def worker():
     pass
 
 
+def _worker_control(name: str, command: str, socket_path: str | None) -> dict:
+    """Send one command to a worker's local control socket.
+
+    Workers are outbound-only, so pause/resume/cancel-all/status go through
+    the Unix socket the worker serves on its own host — these commands must
+    run where the worker runs, not against the server.
+    """
+    import os
+    import socket as _socket
+
+    from flux.config import Configuration
+
+    settings = Configuration.get().settings
+    path = (
+        socket_path
+        or settings.workers.control_socket_path
+        or os.path.join(settings.home, f"worker-{name}.sock")
+    )
+    client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    # cancel-all waits for runner term-grace shutdowns; stay above the
+    # worker's own 60s bound.
+    client.settimeout(70)
+    try:
+        client.connect(path)
+        client.sendall((json.dumps({"command": command}) + "\n").encode())
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = client.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        client.close()
+    if not data:
+        raise ConnectionError(f"no response from worker control socket at {path}")
+    return json.loads(data.decode())
+
+
+def _run_worker_control(name: str, command: str, socket_path: str | None):
+    try:
+        response = _worker_control(name, command, socket_path)
+    except FileNotFoundError:
+        click.echo(
+            f"Error: control socket for worker '{name}' not found. Run this "
+            "command on the worker's host; override the path with --socket.",
+            err=True,
+        )
+        raise click.exceptions.Exit(1)
+    except (ConnectionError, OSError) as ex:
+        click.echo(f"Error talking to worker '{name}': {ex}", err=True)
+        raise click.exceptions.Exit(1)
+    click.echo(json.dumps(response, indent=2))
+    if "error" in response:
+        raise click.exceptions.Exit(1)
+
+
+@worker.command("pause")
+@click.argument("name")
+@click.option("--socket", "socket_path", default=None, help="Control socket path override.")
+def pause_worker(name: str, socket_path: str | None):
+    """Pause a local worker: stop claiming new work, keep heartbeats.
+
+    Running executions continue; use 'flux worker cancel-all' to also free
+    them. Resume with 'flux worker resume'. (SIGUSR1/SIGUSR2 are the
+    signal equivalents.)
+    """
+    _run_worker_control(name, "pause", socket_path)
+
+
+@worker.command("resume")
+@click.argument("name")
+@click.option("--socket", "socket_path", default=None, help="Control socket path override.")
+def resume_worker(name: str, socket_path: str | None):
+    """Resume a paused local worker."""
+    _run_worker_control(name, "resume", socket_path)
+
+
+@worker.command("cancel-all")
+@click.argument("name")
+@click.option("--socket", "socket_path", default=None, help="Control socket path override.")
+def cancel_all_worker(name: str, socket_path: str | None):
+    """Cancel every in-flight execution on a local worker (bulk yield).
+
+    Each execution goes through its normal cancellation path (terminal
+    CANCELLED checkpoint). Combine with 'flux worker pause' to free the
+    node without taking it offline.
+    """
+    _run_worker_control(name, "cancel-all", socket_path)
+
+
+@worker.command("status")
+@click.argument("name")
+@click.option("--socket", "socket_path", default=None, help="Control socket path override.")
+def worker_local_status(name: str, socket_path: str | None):
+    """Show a local worker's runtime state (active/paused/draining, in-flight)."""
+    _run_worker_control(name, "status", socket_path)
+
+
 @worker.command("list")
 @click.option(
     "--format",

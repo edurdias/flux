@@ -103,8 +103,7 @@ class DockerRunner(SubprocessRunner):
         """Fail at worker startup, not at first dispatch."""
         if shutil.which(self._cli) is None:
             raise ValueError(
-                f"The '{self.name}' runner is enabled but the {self._cli} CLI "
-                "is not on PATH",
+                f"The '{self.name}' runner is enabled but the {self._cli} CLI is not on PATH",
             )
         if self._cli == "docker":
             # docker requires a reachable daemon; probe it explicitly so the

@@ -126,6 +126,14 @@ class Server(
         # pong: still connected (running work finishes) but excluded from new
         # dispatch until they report healthy again.
         self._worker_unhealthy: set[str] = set()
+        # Workers that self-reported an operator pause: connected, heartbeats
+        # flowing, but claiming nothing — excluded from dispatch like
+        # unhealthy workers, yet surfaced as 'paused' (deliberate) rather
+        # than 'unhealthy' (a fault).
+        self._worker_paused: set[str] = set()
+        # Latest in-flight execution count each worker advertised on its
+        # heartbeat pong; surfaced in GET /workers.
+        self._worker_in_flight: dict[str, int] = {}
         # Last metrics snapshot persisted per worker; pongs repeat the current
         # snapshot every beat, so this gate keeps DB writes on the (slower)
         # metrics-refresh cadence instead of the heartbeat rate.
@@ -746,9 +754,11 @@ class Server(
         self._drain_worker_queue(name)
         if name in self._worker_names:
             self._worker_names.remove(name)
-        # Unconditional: a lingering unhealthy flag would wrongly surface in
-        # GET /workers even after the worker is gone.
+        # Unconditional: a lingering unhealthy/paused flag would wrongly
+        # surface in GET /workers even after the worker is gone.
         self._worker_unhealthy.discard(name)
+        self._worker_paused.discard(name)
+        self._worker_in_flight.pop(name, None)
         self._worker_metrics_persisted.pop(name, None)
         self._worker_offline_since[name] = time.monotonic()
         if name in self._worker_cache:

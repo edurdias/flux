@@ -39,6 +39,9 @@ def make_worker() -> Worker:
     worker._metrics_collector = None
     worker._user_metrics = None
     worker._execution_started = {}
+    worker._paused = False
+    worker._control_server = None
+    worker._control_socket_path = None
     return worker
 
 
