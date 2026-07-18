@@ -107,7 +107,7 @@ Implementation hot-spots:
 
 ### Persistence
 
-`flux/models.py` defines the SQLAlchemy ORM (`Base`, `WorkflowModel`, `ExecutionContextModel`, `ExecutionEventModel`, plus `RoleModel`, `APIKeyModel`, `AgentModel`, `ConfigModel`, `WorkerModel`, …). `RepositoryFactory.create_repository()` dispatches on `database_url` (`sqlite://` vs `postgresql://`); engines are cached per (repository class, URL) tuple. Tables are auto-created via `Base.metadata.create_all` on first connect — there is no Alembic.
+`flux/models.py` defines the SQLAlchemy ORM (`Base`, `WorkflowModel`, `ExecutionContextModel`, `ExecutionEventModel`, plus `RoleModel`, `APIKeyModel`, `AgentModel`, `ConfigModel`, `WorkerModel`, …). `RepositoryFactory.create_repository()` dispatches on `database_url` (`sqlite://` vs `postgresql://`); engines are cached per (repository class, URL) tuple. Schema changes go through Alembic (`flux/migrations/`, run automatically on first connect by `flux/migrations/runner.py`); add a numbered revision AND the ORM column together, and update `HEAD` in `tests/flux/test_migrations.py` (its parity test compares migration output against the full metadata).
 
 Higher-level managers wrap the repositories:
 - `WorkflowCatalog` (`flux/catalogs.py`) — register / parse / lookup workflows; AST-based parsing of source files extracts each workflow's docstring and resource requests.

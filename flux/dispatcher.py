@@ -198,11 +198,14 @@ class Dispatcher:
 
     def _connected_workers(self):
         """Snapshot of dispatchable workers on this replica: a live SSE
-        queue and not self-reported unhealthy (event-loop starvation)."""
+        queue, not self-reported unhealthy (event-loop starvation), and
+        not operator-paused."""
         return [
             info
             for name, info in list(self._server._worker_info.items())
-            if name in self._server._worker_queues and name not in self._server._worker_unhealthy
+            if name in self._server._worker_queues
+            and name not in self._server._worker_unhealthy
+            and name not in self._server._worker_paused
         ]
 
     async def _dispatch_cycle(self):

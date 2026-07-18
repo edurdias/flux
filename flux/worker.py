@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
+import os
 import platform
 import random
 import signal
@@ -162,6 +165,14 @@ class Worker:
         self._max_concurrent = config.max_concurrent_executions
         self._drain_timeout = config.drain_timeout
         self._draining = False
+        # Operator-requested pause: stop claiming new work (dispatches that
+        # still arrive are released for re-dispatch) while heartbeats keep
+        # flowing, so the worker reads as *paused*, not offline. Running
+        # executions are unaffected — cancel_all() is the separate,
+        # explicit bulk-yield action.
+        self._paused = False
+        self._control_server: asyncio.base_events.Server | None = None
+        self._control_socket_path: str | None = None
         # Self-health: an event-loop starved by misbehaving in-process code
         # makes the worker a black hole (accepts dispatches it can't run).
         # The lag monitor flips this off after consecutive breaches; while
@@ -275,6 +286,152 @@ class Worker:
         self._metrics_snapshot = merged or None
         return self._metrics_snapshot
 
+    @property
+    def status(self) -> str:
+        """Lifecycle state advertised on heartbeats: active | paused | draining."""
+        if self._draining:
+            return "draining"
+        if self._paused:
+            return "paused"
+        return "active"
+
+    def _status_payload(self) -> dict:
+        return {
+            "status": self.status,
+            "in_flight": len(self._running_workflows),
+            "healthy": self._healthy,
+        }
+
+    def pause(self):
+        """Stop claiming new work; heartbeats continue (paused, not offline).
+
+        Running executions keep going. Effective capacity is zero while
+        paused: dispatches that race in are released back for re-dispatch.
+        """
+        if self._paused:
+            return
+        self._paused = True
+        logger.info("Worker paused — not claiming new work (running executions continue)")
+        self._notify_server_of_state()
+
+    def resume(self):
+        """Resume claiming new work after a pause."""
+        if not self._paused:
+            return
+        self._paused = False
+        logger.info("Worker resumed — claiming new work again")
+        self._notify_server_of_state()
+
+    def _notify_server_of_state(self):
+        # Tell the server immediately instead of waiting for the next
+        # ping/pong round-trip; best-effort (the pong path logs failures).
+        if self._registered:
+            asyncio.create_task(self._send_pong())
+
+    async def cancel_all(self, reason: str = "operator request") -> int:
+        """Cancel every in-flight execution on this worker (bulk yield).
+
+        The worker-initiated counterpart of the server's per-execution
+        cancel: each runner child receives its termination signal, so the
+        workflow's own cancellation handling still runs and the terminal
+        CANCELLED checkpoint reaches the server through the outbox. Pair
+        with pause() to free local resources in seconds without going
+        offline. Returns the number of executions cancelled.
+        """
+        tasks = {
+            execution_id: task
+            for execution_id, task in self._running_workflows.items()
+            if not task.done()
+        }
+        if not tasks:
+            return 0
+        logger.warning(f"Cancelling {len(tasks)} in-flight execution(s) ({reason})")
+        for execution_id, task in tasks.items():
+            logger.info(f"Cancelling execution {execution_id}")
+            task.cancel()
+        # Bounded like the drain path: cancellation triggers each runner's
+        # term-grace shutdown, which is seconds, not minutes.
+        await asyncio.wait(list(tasks.values()), timeout=60)
+        return len(tasks)
+
+    async def _start_control_server(self):
+        """Worker-local control API over a Unix socket.
+
+        The worker is outbound-only, so runtime control (pause / resume /
+        cancel-all / status) cannot arrive from the server; a same-host
+        agent connects to the socket instead ('flux worker pause <name>').
+        One JSON object per line in, one JSON object out. The socket is
+        chmod 0600 — same trust boundary as the worker process owner.
+        """
+        config = Configuration.get().settings.workers
+        if not config.control_socket_enabled:
+            return
+        settings = Configuration.get().settings
+        path = config.control_socket_path or os.path.join(
+            settings.home,
+            f"worker-{self.name}.sock",
+        )
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
+        try:
+            self._control_server = await asyncio.start_unix_server(
+                self._handle_control_client,
+                path=path,
+            )
+        except (NotImplementedError, AttributeError, OSError) as e:
+            logger.warning(
+                f"Worker control socket unavailable ({e}); pause/resume via signals only",
+            )
+            return
+        os.chmod(path, 0o600)
+        self._control_socket_path = path
+        logger.info(f"Worker control socket listening at {path}")
+
+    async def _stop_control_server(self):
+        if self._control_server is not None:
+            self._control_server.close()
+            with contextlib.suppress(Exception):
+                await self._control_server.wait_closed()
+            self._control_server = None
+        if self._control_socket_path:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(self._control_socket_path)
+            self._control_socket_path = None
+
+    async def _handle_control_client(self, reader, writer):
+        try:
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=5)
+                request = json.loads(line.decode())
+                command = request.get("command")
+                if command == "pause":
+                    self.pause()
+                    response = self._status_payload()
+                elif command == "resume":
+                    self.resume()
+                    response = self._status_payload()
+                elif command == "cancel-all":
+                    cancelled = await self.cancel_all()
+                    response = {**self._status_payload(), "cancelled": cancelled}
+                elif command == "status":
+                    response = self._status_payload()
+                else:
+                    response = {
+                        "error": f"unknown command {command!r}; "
+                        "expected pause | resume | cancel-all | status",
+                    }
+            except Exception as e:
+                response = {"error": f"{type(e).__name__}: {e}"}
+            writer.write((json.dumps(response) + "\n").encode())
+            await writer.drain()
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+
     def start(self):
         logger.info("Worker starting up...")
         logger.debug(f"Worker name: {self.name}")
@@ -331,6 +488,20 @@ class Worker:
                 # SIGINT->KeyboardInterrupt behaviour still applies there.
                 logger.debug(f"Could not install {sig.name} handler via event loop")
 
+        # Runtime pause/resume without process exit: SIGUSR1 pauses claiming,
+        # SIGUSR2 resumes. The control socket offers the same (plus
+        # cancel-all) for agents that prefer an explicit API.
+        for sig_name, handler in (("SIGUSR1", self.pause), ("SIGUSR2", self.resume)):
+            sig_value = getattr(signal, sig_name, None)
+            if sig_value is None:
+                continue
+            try:
+                loop.add_signal_handler(sig_value, handler)
+            except (NotImplementedError, RuntimeError, ValueError):
+                logger.debug(f"Could not install {sig_name} handler via event loop")
+
+        await self._start_control_server()
+
         health_monitor: asyncio.Task | None = None
         if self._loop_lag_threshold > 0:
             health_monitor = asyncio.create_task(self._monitor_loop_health())
@@ -374,11 +545,11 @@ class Worker:
             self._draining = True
             if health_monitor is not None:
                 health_monitor.cancel()
-                import contextlib
-
                 with contextlib.suppress(asyncio.CancelledError):
                     await health_monitor
             await self._drain()
+        finally:
+            await self._stop_control_server()
 
     async def _monitor_loop_health(self):
         """Detect event-loop starvation and step out of the dispatch pool.
@@ -568,7 +739,11 @@ class Worker:
         """Respond to server ping with a pong carrying health and metrics."""
         base_url = f"{self.base_url}/{self.name}"
         try:
-            payload: dict = {"healthy": self._healthy}
+            payload: dict = {
+                "healthy": self._healthy,
+                "status": self.status,
+                "in_flight": len(self._running_workflows),
+            }
             metrics = await self._collect_metrics()
             if metrics is not None:
                 payload["metrics"] = metrics
@@ -638,6 +813,14 @@ class Worker:
                     "flux.worker.name": self.name,
                 },
             )
+
+        if self._paused:
+            logger.info(
+                f"Paused; releasing resumed execution "
+                f"{request.context.execution_id} for re-dispatch",
+            )
+            await self._release_claim(request.context.execution_id)
+            return
 
         if not self._healthy:
             logger.warning(
@@ -747,6 +930,16 @@ class Worker:
                 f"Draining; not claiming execution {request.context.execution_id} "
                 f"(will be re-dispatched)",
             )
+            return
+
+        if self._paused:
+            # Paused workers stay connected (heartbeats continue) but their
+            # effective capacity is zero: release the assignment so it
+            # re-dispatches now instead of idling on us.
+            logger.info(
+                f"Paused; releasing execution {request.context.execution_id} for re-dispatch",
+            )
+            await self._release_claim(request.context.execution_id)
             return
 
         if not self._healthy:
