@@ -493,11 +493,15 @@ class RbacRoutesMixin:
                 registry.set_banned(principal.id, False)
                 auth_service.invalidate_resolution_caches()
                 logger.info(f"Principal '{subject}' unbanned by {identity.subject}")
+                updated = registry.get(principal.id) or principal
                 return {
                     "status": "success",
                     "subject": subject,
                     "banned": False,
-                    "enabled": False,
+                    # Real post-unban state: unban does not re-enable, so this
+                    # is false on the normal ban->unban path, but report what
+                    # the row actually says rather than assuming.
+                    "enabled": updated.enabled,
                 }
             except HTTPException:
                 raise

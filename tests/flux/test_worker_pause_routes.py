@@ -97,6 +97,16 @@ class TestPongPauseBookkeeping:
         assert resp.status_code == 200
         assert "w1" not in server_instance._worker_in_flight
 
+    def test_missing_in_flight_clears_stale_count(self, test_client, server_instance):
+        # A worker that stops advertising in_flight (legacy or partial
+        # payload) must read as "unknown", not keep its last count forever.
+        server_instance._worker_in_flight["w1"] = 7
+
+        resp = test_client.post("/workers/w1/pong", json={"healthy": True})
+
+        assert resp.status_code == 200
+        assert "w1" not in server_instance._worker_in_flight
+
 
 class TestSSEDispatchGate:
     def test_paused_worker_skipped_like_unhealthy(self, server_instance):
