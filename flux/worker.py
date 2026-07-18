@@ -371,22 +371,29 @@ class Worker:
             settings.home,
             f"worker-{self.name}.sock",
         )
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(path)
+        # Best-effort by design: the entire setup (directory creation, stale
+        # socket removal, bind, chmod) degrades to signals-only. A read-only
+        # home or unwritable path must not abort worker startup.
+        server = None
         try:
-            self._control_server = await asyncio.start_unix_server(
+            parent = os.path.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
+            server = await asyncio.start_unix_server(
                 self._handle_control_client,
                 path=path,
             )
+            os.chmod(path, 0o600)
         except (NotImplementedError, AttributeError, OSError) as e:
+            if server is not None:
+                server.close()
             logger.warning(
                 f"Worker control socket unavailable ({e}); pause/resume via signals only",
             )
             return
-        os.chmod(path, 0o600)
+        self._control_server = server
         self._control_socket_path = path
         logger.info(f"Worker control socket listening at {path}")
 

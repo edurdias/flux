@@ -227,6 +227,23 @@ class TestControlSocket:
         assert not os.path.exists(control_config)
 
     @pytest.mark.asyncio
+    async def test_unwritable_path_degrades_to_signals_only(self, control_config, tmp_path):
+        # Read-only home / unwritable socket dir must not abort worker
+        # startup — the socket is best-effort, signals still work. Injected
+        # via patch: chmod-based read-only dirs do not bind root (CI runs
+        # as root), and PermissionError must be caught wherever it fires.
+        Configuration.get().settings.workers.control_socket_path = str(
+            tmp_path / "readonly" / "worker.sock",
+        )
+        worker = make_worker()
+        with patch(
+            "flux.worker.os.makedirs",
+            side_effect=PermissionError("read-only file system"),
+        ):
+            await worker._start_control_server()  # must not raise
+        assert worker._control_server is None
+
+    @pytest.mark.asyncio
     async def test_disabled_by_config(self, control_config, tmp_path):
         import os
 

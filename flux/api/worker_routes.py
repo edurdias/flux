@@ -370,11 +370,13 @@ class WorkerRoutesMixin:
                 elif name in self._worker_paused:
                     logger.info(f"Worker {name} resumed; dispatching to it again")
                     self._worker_paused.discard(name)
-                if payload is not None and "in_flight" in payload:
-                    try:
-                        self._worker_in_flight[name] = max(0, int(payload["in_flight"]))
-                    except (TypeError, ValueError):
-                        pass
+                # Missing or invalid in_flight means "unknown" — clear any
+                # prior value rather than surfacing a stale count forever
+                # (e.g. a legacy worker that stops sending the field).
+                try:
+                    self._worker_in_flight[name] = max(0, int((payload or {})["in_flight"]))
+                except (KeyError, TypeError, ValueError):
+                    self._worker_in_flight.pop(name, None)
                 logger.debug(f"Pong received from worker {name}")
                 return {"status": "ok"}
             except HTTPException:
