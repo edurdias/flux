@@ -290,6 +290,10 @@ class WorkerRoutesMixin:
                     labels=registration.labels,
                 )
                 self._worker_unhealthy.discard(registration.name)
+                # A restarted worker starts active; its first pong re-adds
+                # the paused flag if the operator's pause is still in force.
+                self._worker_paused.discard(registration.name)
+                self._worker_in_flight.pop(registration.name, None)
                 if registration.name in self._worker_names:
                     self._worker_offline_since.pop(registration.name, None)
                 else:
@@ -330,12 +334,14 @@ class WorkerRoutesMixin:
         ):
             """Receive heartbeat pong from a worker.
 
-            The optional body carries self-health ({"healthy": bool}) and
-            advertised metrics ({"metrics": {str: float}}): unhealthy workers
-            stay connected (running work finishes, the reaper is not
-            involved) but are excluded from new dispatch until they report
-            healthy again; metrics feed routing policies through "metric:*"
-            selectors. Legacy workers send no body.
+            The optional body carries self-health ({"healthy": bool}),
+            lifecycle status ({"status": "active"|"paused"|"draining"} with
+            {"in_flight": int}), and advertised metrics
+            ({"metrics": {str: float}}). Unhealthy and paused workers stay
+            connected (running work finishes, the reaper is not involved)
+            but are excluded from new dispatch — until they report healthy
+            again, or resume, respectively; metrics feed routing policies
+            through "metric:*" selectors. Legacy workers send no body.
             """
             try:
                 self._verify_worker_identity(identity, name)
@@ -353,6 +359,22 @@ class WorkerRoutesMixin:
                         f"excluding it from dispatch until it recovers",
                     )
                     self._worker_unhealthy.add(name)
+                worker_status = "active" if payload is None else payload.get("status", "active")
+                if worker_status == "paused":
+                    if name not in self._worker_paused:
+                        logger.info(
+                            f"Worker {name} reports paused; excluding it from "
+                            f"dispatch until it resumes",
+                        )
+                        self._worker_paused.add(name)
+                elif name in self._worker_paused:
+                    logger.info(f"Worker {name} resumed; dispatching to it again")
+                    self._worker_paused.discard(name)
+                if payload is not None and "in_flight" in payload:
+                    try:
+                        self._worker_in_flight[name] = max(0, int(payload["in_flight"]))
+                    except (TypeError, ValueError):
+                        pass
                 logger.debug(f"Pong received from worker {name}")
                 return {"status": "ok"}
             except HTTPException:
@@ -471,9 +493,10 @@ class WorkerRoutesMixin:
                                         "data": "",
                                     }
 
-                                # Self-reported unhealthy (event-loop lag):
-                                # skip new work, keep pings/cancellations.
-                                if name in self._worker_unhealthy:
+                                # Self-reported unhealthy (event-loop lag) or
+                                # operator-paused: skip new work, keep
+                                # pings/cancellations.
+                                if name in self._worker_unhealthy or name in self._worker_paused:
                                     await asyncio.sleep(fallback_interval)
                                     continue
 
@@ -1044,12 +1067,13 @@ class WorkerRoutesMixin:
 
         @api.get("/workers", response_model=list[WorkerResponse])
         async def workers_list(
-            status: Literal["online", "offline"] | None = Query(None),
+            status: Literal["online", "offline", "unhealthy", "paused"] | None = Query(None),
             limit: int | None = Query(None, ge=1, le=1000),
             offset: int = Query(0, ge=0),
             identity: FluxIdentity = Depends(get_identity),
         ):
-            """List workers fleet-wide. Optional ?status=online|offline filter.
+            """List workers fleet-wide. Optional status filter
+            (online|offline|unhealthy|paused).
 
             Reads the workers table rather than this replica's in-memory cache,
             so every replica returns the same, complete fleet view; liveness is
@@ -1078,6 +1102,10 @@ class WorkerRoutesMixin:
                     # read "online" for the rest of its heartbeat window). The
                     # persisted-heartbeat fallback covers workers attached to
                     # OTHER replicas, which this process cannot see directly.
+                    # Paused wins over unhealthy: it is the deliberate state,
+                    # and the one an operator is looking for.
+                    if info.name in self._worker_paused:
+                        return "paused"
                     if info.name in self._worker_unhealthy:
                         return "unhealthy"
                     if info.name in self._worker_names:
@@ -1098,6 +1126,7 @@ class WorkerRoutesMixin:
                     if cached is not None:
                         cached.status = worker_status
                         cached.metrics = info.metrics
+                        cached.in_flight = self._worker_in_flight.get(info.name)
                         result.append(cached)
                     else:
                         result.append(
@@ -1105,6 +1134,7 @@ class WorkerRoutesMixin:
                                 name=info.name,
                                 status=worker_status,
                                 metrics=info.metrics,
+                                in_flight=self._worker_in_flight.get(info.name),
                             ),
                         )
 

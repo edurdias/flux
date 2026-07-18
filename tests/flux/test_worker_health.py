@@ -132,7 +132,7 @@ class TestUnhealthyWorkRefusal:
 
         await worker._send_pong()
 
-        assert captured["json"] == {"healthy": False}
+        assert captured["json"] == {"healthy": False, "status": "active", "in_flight": 0}
 
 
 class TestDispatcherExclusion:
