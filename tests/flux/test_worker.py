@@ -75,10 +75,11 @@ def test_service_socket_labels_derived_from_runner(mock_config, tmp_path):
     mock_config.settings.workers.airgapped_mounts = []
     mock_config.settings.workers.airgapped_shm_size = ""
     mock_config.settings.workers.airgapped_service_sockets = {"inference": str(service_dir)}
+    mock_config.settings.workers.airgapped_container_cli = "docker"
 
     from flux.runners.docker import DockerRunner
 
-    with patch.object(DockerRunner, "_verify_docker_available"):
+    with patch.object(DockerRunner, "_verify_cli_available"):
         worker = Worker(
             name="test-worker",
             server_url="http://localhost:8000",

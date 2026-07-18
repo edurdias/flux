@@ -14,6 +14,29 @@ flux-core version (see DOCKER.md). Workers enable it explicitly:
     [flux.workers]
     runners = ["inprocess", "subprocess", "docker"]
     docker_image = "my-registry/flux-workflows:1.2.3"
+
+Container CLI compatibility
+---------------------------
+
+The airgapped runner can drive rootless Podman or nerdctl instead of the
+docker CLI via ``[flux.workers] airgapped_container_cli`` (a named config
+key, like every other airgapped grant, so the config file stays the audit
+trail). The runner relies on the following argv-compatible surface, which
+all three CLIs implement with docker semantics:
+
+- ``run -i --rm --name`` with implicit signal proxying (sig-proxy is the
+  default without a TTY in docker, podman, and nerdctl — SIGTERM reaches
+  the child for graceful cancellation)
+- ``kill <container>`` for force-kill
+- resource/limit flags: ``--network`` / ``--network=none``, ``--memory``,
+  ``--cpus``, ``--pids-limit``, ``--read-only``, ``--tmpfs``,
+  ``--cap-drop=ALL``, ``--security-opt=no-new-privileges``
+- grants: ``--mount type=bind,source=..,target=..[,readonly]``,
+  ``--gpus`` (podman >= 4.7 / nerdctl require working CDI or the
+  nvidia toolkit, same as docker), ``--shm-size``, ``--env``
+
+Anything outside this set (added via ``airgapped_extra_args``) is the
+operator's responsibility to keep compatible with the chosen CLI.
 """
 
 from __future__ import annotations
@@ -36,6 +59,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# CLIs the runners know how to drive. The emitted-flag compatibility set is
+# documented in the module docstring; a name outside this tuple fails at
+# worker startup, not at first dispatch.
+SUPPORTED_CONTAINER_CLIS = ("docker", "podman", "nerdctl")
+
 
 class DockerRunner(SubprocessRunner):
     name = "docker"
@@ -49,40 +77,68 @@ class DockerRunner(SubprocessRunner):
         cpus: float = 0.0,
         extra_args: list[str] | None = None,
         execution_timeout: float = 0,
+        cli: str = "docker",
     ):
         super().__init__(term_grace=term_grace, execution_timeout=execution_timeout)
         if not image:
             raise ValueError(
                 "[flux.workers] docker_image must be set when the 'docker' runner is enabled",
             )
+        if cli not in SUPPORTED_CONTAINER_CLIS:
+            raise ValueError(
+                f"[flux.workers] airgapped_container_cli '{cli}' is not "
+                f"supported; choose one of: {', '.join(SUPPORTED_CONTAINER_CLIS)}",
+            )
         self._image = image
+        self._cli = cli
         self._network = network
         self._memory = memory
         self._cpus = cpus
         self._extra_args = list(extra_args or [])
-        # docker-CLI pid -> container name, for docker-kill on force kill.
+        # container-CLI pid -> container name, for '<cli> kill' on force kill.
         self._containers: dict[int, str] = {}
-        self._verify_docker_available()
+        self._verify_cli_available()
 
-    @staticmethod
-    def _verify_docker_available():
+    def _verify_cli_available(self):
         """Fail at worker startup, not at first dispatch."""
-        if shutil.which("docker") is None:
+        if shutil.which(self._cli) is None:
             raise ValueError(
-                "The 'docker' runner is enabled but the docker CLI is not on PATH",
+                f"The '{self.name}' runner is enabled but the {self._cli} CLI "
+                "is not on PATH",
             )
-        probe = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        if probe.returncode != 0:
-            raise ValueError(
-                "The 'docker' runner is enabled but the Docker daemon is "
-                f"unreachable: {probe.stderr.strip() or probe.stdout.strip()}",
+        if self._cli == "docker":
+            # docker requires a reachable daemon; probe it explicitly so the
+            # error names the actual problem instead of failing per-dispatch.
+            probe = subprocess.run(
+                ["docker", "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
-        logger.info(f"Docker runner ready (server {probe.stdout.strip()})")
+            if probe.returncode != 0:
+                raise ValueError(
+                    f"The '{self.name}' runner is enabled but the Docker "
+                    "daemon is unreachable: "
+                    f"{probe.stderr.strip() or probe.stdout.strip()}",
+                )
+            logger.info(f"{self.name} runner ready (docker server {probe.stdout.strip()})")
+        else:
+            # podman is daemonless; nerdctl needs containerd and reports it
+            # through a non-zero 'version' exit. A plain version probe covers
+            # both without depending on CLI-specific template keys.
+            probe = subprocess.run(
+                [self._cli, "version"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if probe.returncode != 0:
+                raise ValueError(
+                    f"The '{self.name}' runner is enabled but '{self._cli} "
+                    "version' failed — the container runtime is not usable: "
+                    f"{probe.stderr.strip() or probe.stdout.strip()}",
+                )
+            logger.info(f"{self.name} runner ready (cli {self._cli})")
 
     def _container_name(self, execution_id: str) -> str:
         # Unique per attempt: a crashed execution can be re-dispatched to this
@@ -94,7 +150,7 @@ class DockerRunner(SubprocessRunner):
         resource args, operator extra_args, then ``_locked_args()`` — LAST so
         docker's last-wins flag parsing structurally favors a hardened
         profile over anything an operator (or config-file attacker) adds."""
-        command = ["docker", "run", "-i", "--rm", "--name", container_name]
+        command = [self._cli, "run", "-i", "--rm", "--name", container_name]
         command += self._resource_args()
         command += self._extra_args
         command += self._locked_args()
@@ -131,12 +187,12 @@ class DockerRunner(SubprocessRunner):
         return proc
 
     async def _force_kill(self, proc):
-        # Killing the docker CLI alone would orphan the container; kill the
-        # container (which also ends the attached CLI process).
+        # Killing the container CLI alone would orphan the container; kill
+        # the container (which also ends the attached CLI process).
         container_name = self._containers.get(proc.pid)
         if container_name:
             killer = await asyncio.create_subprocess_exec(
-                "docker",
+                self._cli,
                 "kill",
                 container_name,
                 stdout=asyncio.subprocess.DEVNULL,
@@ -381,6 +437,13 @@ class AirgappedDockerRunner(DockerRunner):
     stack anywhere; see ``_validate_service_sockets`` for the directory
     contract). Socket traffic is the one channel the worker does not
     mediate; everything else still leaves only through the stdio protocol.
+
+    The container CLI itself is configurable through the same named-key
+    shape (``airgapped_container_cli``: ``docker`` | ``podman`` |
+    ``nerdctl``) so rootless deployments can drive Podman or nerdctl
+    instead of a privileged Docker daemon; the emitted-flag compatibility
+    set is documented in the module docstring, and the chosen CLI is
+    validated at worker startup.
     """
 
     name = "docker-airgapped"
@@ -399,6 +462,7 @@ class AirgappedDockerRunner(DockerRunner):
         mounts: list[str] | None = None,
         shm_size: str = "",
         service_sockets: dict[str, str] | None = None,
+        container_cli: str = "docker",
     ):
         if not memory:
             raise ValueError(
@@ -438,6 +502,7 @@ class AirgappedDockerRunner(DockerRunner):
             cpus=0.0,
             extra_args=extra_args,
             execution_timeout=execution_timeout,
+            cli=container_cli,
         )
         self._airgapped_memory = memory
         self._airgapped_cpus = cpus

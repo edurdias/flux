@@ -23,7 +23,7 @@ DOCKER_TEST_IMAGE = os.environ.get("FLUX_TEST_DOCKER_IMAGE")
 
 
 def make_runner(**kwargs) -> DockerRunner:
-    with patch.object(DockerRunner, "_verify_docker_available"):
+    with patch.object(DockerRunner, "_verify_cli_available"):
         return DockerRunner(image=kwargs.pop("image", "flux:test"), **kwargs)
 
 
@@ -60,7 +60,7 @@ class TestDockerCommand:
 
     def test_missing_image_rejected_at_startup(self):
         with pytest.raises(ValueError, match="docker_image must be set"):
-            with patch.object(DockerRunner, "_verify_docker_available"):
+            with patch.object(DockerRunner, "_verify_cli_available"):
                 DockerRunner(image="")
 
     def test_create_runners_wires_docker_config(self):
@@ -77,7 +77,7 @@ class TestDockerCommand:
             docker_cpus=2.0,
             docker_extra_args=["--user", "1000"],
         )
-        with patch.object(DockerRunner, "_verify_docker_available"):
+        with patch.object(DockerRunner, "_verify_cli_available"):
             runners = create_runners(["docker"], config)
 
         command = runners["docker"]._build_command("c")

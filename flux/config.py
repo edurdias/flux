@@ -235,6 +235,16 @@ class WorkersConfig(BaseConfig):
             "flux.service.<name> worker labels"
         ),
     )
+    airgapped_container_cli: str = Field(
+        default="docker",
+        description=(
+            "Container CLI the airgapped runner drives: 'docker', 'podman', "
+            "or 'nerdctl'. Rootless Podman/nerdctl let nested deployments "
+            "drop the privileged outer daemon. The runner emits the same "
+            "argv for all three (see flux/runners/docker.py for the "
+            "compatibility set); validated at worker startup"
+        ),
+    )
     airgapped_extra_args: list[str] = Field(
         default=[],
         description=(
