@@ -1,0 +1,102 @@
+{
+  "test": "T2",
+  "run": "fanin-full",
+  "recorded_at": "2026-07-18T01:49:38-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "no loss; interference p99 delta <= 10ms (soft in ci)",
+  "measured": "aggregate 799 ev/s over 8 streams; lost 0; interference delta 6.4ms",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "full",
+  "solo": {
+    "execution_id": "539402d7887547a3b64a0da1f2f619b7",
+    "frames_offered": 6000,
+    "delivered": 6000,
+    "lost": 0,
+    "interframe_p99": 0.011914968490600586,
+    "latency_p99": 0.0041959285736083984,
+    "delivered_rate": 99.90319346873638
+  },
+  "streams": [
+    {
+      "execution_id": "b4bd742d7f9242c09c0964c0ca1228db",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.018457412719726562,
+      "latency_p99": 0.02169203758239746,
+      "delivered_rate": 99.9013197685634
+    },
+    {
+      "execution_id": "39f6111680d149f9928d78bd7da44602",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.017832517623901367,
+      "latency_p99": 0.021901369094848633,
+      "delivered_rate": 99.87933893171096
+    },
+    {
+      "execution_id": "b7e0d804fcf448f3a09d16414ad68776",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.018624305725097656,
+      "latency_p99": 0.021434307098388672,
+      "delivered_rate": 99.87673499012287
+    },
+    {
+      "execution_id": "f0d3a593a5584196becb0c21bbf264b5",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.018316030502319336,
+      "latency_p99": 0.02193474769592285,
+      "delivered_rate": 99.8736989145436
+    },
+    {
+      "execution_id": "67ac36b8b60046d79e49df8aab7e00d9",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.018239974975585938,
+      "latency_p99": 0.022285938262939453,
+      "delivered_rate": 99.84914258449054
+    },
+    {
+      "execution_id": "185c1908ccff4697bf1fbbd2013d2824",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.017813682556152344,
+      "latency_p99": 0.023161649703979492,
+      "delivered_rate": 99.89158643361704
+    },
+    {
+      "execution_id": "74a2f1104cc0417d98995f9677b709fa",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.01831841468811035,
+      "latency_p99": 0.023784637451171875,
+      "delivered_rate": 99.87783724341179
+    },
+    {
+      "execution_id": "a7f08eccd4674396900fe4725a3a1b1d",
+      "frames_offered": 12000,
+      "delivered": 12000,
+      "lost": 0,
+      "interframe_p99": 0.017534971237182617,
+      "latency_p99": 0.023517370223999023,
+      "delivered_rate": 99.84610145119595
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "test": "T5b",
+  "run": "multi-consumer-full",
+  "recorded_at": "2026-07-18T02:09:19-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "documentation only \u2014 records current semantics",
+  "measured": "during overlap A got 207, B got 125 (competing, 0 duplicate seqs); after A disconnected B received 249 frames (still receiving)",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "full",
+  "frames_offered": 2000,
+  "unique_frames_seen": 581,
+  "competition_observed": true,
+  "survivor_starved": false
+}
