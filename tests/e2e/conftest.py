@@ -295,6 +295,20 @@ class FluxCLI:
         if proc in self._extra_workers:
             self._extra_workers.remove(proc)
 
+    # -- worker runtime control (local Unix socket, no --server-url) -------
+
+    def worker_pause(self, name: str) -> dict:
+        return self._json(["worker", "pause", name])
+
+    def worker_resume(self, name: str) -> dict:
+        return self._json(["worker", "resume", name])
+
+    def worker_cancel_all(self, name: str) -> dict:
+        return self._json(["worker", "cancel-all", name], timeout=90)
+
+    def worker_local_status(self, name: str) -> dict:
+        return self._json(["worker", "status", name])
+
     # -- admin: roles ------------------------------------------------------
 
     def role_create(self, name: str, permissions: list[str]) -> dict:
@@ -369,6 +383,15 @@ class FluxCLI:
 
     def principal_disable(self, subject: str) -> None:
         self._ok(["principals", "disable", subject])
+
+    def principal_ban(self, subject: str, reason: str | None = None) -> None:
+        args = ["principals", "ban", subject]
+        if reason:
+            args.extend(["--reason", reason])
+        self._ok(args)
+
+    def principal_unban(self, subject: str) -> None:
+        self._ok(["principals", "unban", subject])
 
     def principal_grant(self, subject: str, role: str) -> None:
         self._ok(
