@@ -5,6 +5,10 @@ Two profiles select the measurement windows:
 - ``ci`` (default): short windows sized for a shared pipeline runner. The
   point of a CI run is "where are we" — real numbers from a noisy small box,
   not certification.
+- ``workstation``: a strong multi-core dev box (think a 16–32 core laptop
+  or desktop). Probes high enough to actually locate the ceiling/knee that
+  ``ci`` never reaches on fast hardware, with moderate windows so the whole
+  suite finishes in ~20–30 min instead of ``full``'s ~90.
 - ``full``: the plan-spec durations (PLAN.md §2), for quiet dedicated
   hardware.
 
@@ -32,6 +36,26 @@ PROFILES: dict[str, dict] = {
         # exercise reconnect-and-resume; the eviction fate is full-profile's.
         "t6c": {"rate": 100, "seconds": 30, "drop_after_s": 8, "drop_for_s": 2},
         "t7": {"streams": 3, "rate": 100, "seconds": 240, "churn_every_s": 20},
+    },
+    "workstation": {
+        # Push offered rates past the ci ceiling so the loss-onset curve and
+        # the server knee are actually resolved on a 16–32 core box.
+        "t1": {
+            "frame_sizes": [150, 2048],
+            "rates": [1000, 2000, 4000, 8000, 16000, 0],
+            "seconds": 30,
+        },
+        "t2": {"streams": 16, "rate": 200, "seconds": 60, "solo_seconds": 30},
+        "t3": {"targets": 8, "steps": [5000, 15000, 30000, 60000], "step_seconds": 45},
+        "t4": {"tokens": 1000, "gap_ms": 33, "streams": 16},
+        "t5": {"streams": 16, "rate": 200, "seconds": 60, "throttle_bytes_per_s": 1024},
+        "t5b": {"rate": 100, "seconds": 30},
+        "t6a": {"streams": 16, "rate": 300, "cancel_after_s": 8},
+        "t6b": {"detect_timeout_s": 90},
+        # drop_for stays under the violence env's 6s heartbeat timeout so this
+        # still exercises reconnect-and-resume (eviction fate is full's job).
+        "t6c": {"rate": 200, "seconds": 45, "drop_after_s": 10, "drop_for_s": 3},
+        "t7": {"streams": 8, "rate": 300, "seconds": 600, "churn_every_s": 30},
     },
     "full": {
         "t1": {"frame_sizes": [150, 2048], "rates": [500, 1000, 2000, 4000, 0], "seconds": 60},

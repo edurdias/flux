@@ -55,13 +55,14 @@ test-postgresql-integration: postgres-test-up ## Run PostgreSQL integration test
 	$(MAKE) postgres-test-down
 
 # Performance Testing (progress-streaming perf suite, tests/perf; opt-in).
-# Pass T=<id> to run a single scenario, e.g. `make perf-postgresql T=t3`.
+# Pass T=<id> to run a single scenario (e.g. `make perf-postgresql T=t3`) and
+# PROFILE=ci|workstation|full to select measurement windows (default ci).
 # Needs the postgresql extra for the PG variant: `make install-postgres`.
-perf: ## Run perf suite on SQLite (no docker). T=<id> for one scenario.
-	FLUX_PERF=1 poetry run pytest tests/perf $(if $(T),-k "$(T)") -v
+perf: ## Run perf suite on SQLite (no docker). T=<id> one scenario; PROFILE=ci|workstation|full.
+	FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) poetry run pytest tests/perf $(if $(T),-k "$(T)") -v
 
-perf-postgresql: postgres-test-up ## Run perf suite against dockerized PostgreSQL (up->run->down). T=<id> for one scenario.
-	@FLUX_PERF=1 FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
+perf-postgresql: postgres-test-up ## Run perf suite vs dockerized PostgreSQL (up->run->down). T=<id> one scenario; PROFILE=ci|workstation|full.
+	@FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
 		poetry run pytest tests/perf $(if $(T),-k "$(T)") -v; \
 		status=$$?; \
 		$(MAKE) postgres-test-down; \
