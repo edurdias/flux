@@ -19,6 +19,12 @@ class PrincipalModel(Base):
     external_issuer = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
+    # Operator-imposed quarantine, distinct from ``enabled``: the reaper
+    # disables principals of pruned workers and registration re-enables them
+    # when the worker returns, so ``enabled`` alone cannot express "stay
+    # out". A banned principal is refused at worker registration and cannot
+    # be re-enabled until explicitly unbanned.
+    banned = Column(Boolean, nullable=False, default=False)
     metadata_ = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
@@ -55,6 +61,7 @@ class PrincipalModel(Base):
         self.external_issuer = external_issuer
         self.display_name = display_name
         self.enabled = enabled
+        self.banned = False
         self.metadata_ = metadata or {}
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
@@ -180,7 +187,51 @@ class PrincipalRegistry:
         try:
             principal = session.query(PrincipalModel).filter_by(id=principal_id).first()
             if principal:
+                if enabled and principal.banned:
+                    raise ValueError(
+                        f"Principal '{principal.subject}' is banned and cannot "
+                        "be enabled; unban it first",
+                    )
                 principal.enabled = enabled
+                principal.updated_at = datetime.now(timezone.utc)
+                session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def set_banned(
+        self,
+        principal_id: str,
+        banned: bool,
+        reason: str | None = None,
+    ) -> None:
+        """Ban or unban a principal.
+
+        Banning also disables the principal (belt and braces: the auth path
+        checks ``enabled``). Unbanning deliberately does NOT re-enable — the
+        operator lifts the quarantine and then explicitly enables, so a
+        worker never rejoins as a side effect.
+        """
+        session = self._session_factory()
+        try:
+            principal = session.query(PrincipalModel).filter_by(id=principal_id).first()
+            if principal:
+                principal.banned = banned
+                if banned:
+                    principal.enabled = False
+                if reason is not None:
+                    metadata = dict(principal.metadata_ or {})
+                    if banned:
+                        metadata["ban_reason"] = reason
+                    else:
+                        metadata.pop("ban_reason", None)
+                    principal.metadata_ = metadata
+                elif not banned:
+                    metadata = dict(principal.metadata_ or {})
+                    if metadata.pop("ban_reason", None) is not None:
+                        principal.metadata_ = metadata
                 principal.updated_at = datetime.now(timezone.utc)
                 session.commit()
         except Exception:

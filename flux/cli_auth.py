@@ -707,6 +707,58 @@ def principals_disable(subject, issuer, fmt):
         click.echo(f"Error: {_error_detail(resp)}")
 
 
+@principals.command("ban")
+@click.argument("subject")
+@click.option("--reason", default=None, help="Recorded in the principal's metadata.")
+@click.option("--issuer", default=None)
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_ban(subject, reason, issuer, fmt):
+    """Quarantine a principal: disable it, revoke its API keys, and refuse
+    worker registration until it is unbanned."""
+    url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
+    resp = httpx.post(
+        f"{url}/admin/principals/{subject}/ban",
+        params=params,
+        json={"reason": reason} if reason else None,
+        headers=get_auth_headers(),
+    )
+    if resp.status_code == 200:
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "banned": True}, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' banned (disabled, API keys revoked).")
+    else:
+        click.echo(f"Error: {_error_detail(resp)}")
+
+
+@principals.command("unban")
+@click.argument("subject")
+@click.option("--issuer", default=None)
+@click.option("--format", "-f", "fmt", type=click.Choice(["simple", "json"]), default="simple")
+def principals_unban(subject, issuer, fmt):
+    """Lift a principal's quarantine. The principal stays disabled; run
+    'flux principals enable' to let it authenticate again."""
+    url = get_server_url()
+    params = {}
+    if issuer:
+        params["issuer"] = issuer
+    resp = httpx.post(
+        f"{url}/admin/principals/{subject}/unban",
+        params=params,
+        headers=get_auth_headers(),
+    )
+    if resp.status_code == 200:
+        if fmt == "json":
+            click.echo(json.dumps({"status": "ok", "subject": subject, "banned": False}, indent=2))
+        else:
+            click.echo(f"Principal '{subject}' unbanned (still disabled; enable explicitly).")
+    else:
+        click.echo(f"Error: {_error_detail(resp)}")
+
+
 @principals.command("delete")
 @click.argument("subject")
 @click.option("--force", is_flag=True, help="Force deletion including cascade effects")
