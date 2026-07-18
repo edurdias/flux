@@ -1,0 +1,30 @@
+{
+  "test": "T6a",
+  "run": "cancel-storm-full",
+  "recorded_at": "2026-07-18T11:38:47-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "all executions CANCELLED (hard); flush-burst duration documented",
+  "measured": "8 streams cancelled at full rate; all CANCELLED; last frame arrived 435ms after cancel (cancel-flush burst, expected behavior)",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "full",
+  "flush_burst_s": 0.43450236320495605,
+  "per_stream_last_frame_after_cancel_s": [
+    0.1532878875732422,
+    0.22567248344421387,
+    0.299130916595459,
+    0.33156657218933105,
+    0.3487873077392578,
+    0.3895070552825928,
+    0.4038095474243164,
+    0.43450236320495605
+  ]
+}

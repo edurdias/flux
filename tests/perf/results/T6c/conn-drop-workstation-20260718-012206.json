@@ -1,0 +1,24 @@
+{
+  "test": "T6c",
+  "run": "conn-drop-workstation",
+  "recorded_at": "2026-07-18T01:22:06-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "no protocol wedge (hard); frame fate documented",
+  "measured": "dropped link for 3.0s mid-stream; terminal COMPLETED; fate: resumed streaming after restore; 606 frames lost (batch drops during outage, per policy), 0 duplicated",
+  "passed": true,
+  "sealed": false,
+  "database": "sqlite",
+  "profile": "workstation",
+  "frames_offered": 9000,
+  "frames_lost": 606,
+  "frames_duplicated": 0,
+  "frames_after_restore": 6472,
+  "drop_window_s": 3.0001368522644043
+}

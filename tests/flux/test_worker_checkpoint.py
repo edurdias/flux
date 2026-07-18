@@ -26,6 +26,7 @@ def make_worker() -> Worker:
     worker._terminal_checkpoint_deadline = 5
     worker._progress_queues = {}
     worker._progress_flushers = {}
+    worker._progress_channels = {}
     worker._runners = {}
     worker._default_runner = "subprocess"
     worker._draining = False

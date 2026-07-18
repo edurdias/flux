@@ -1,0 +1,153 @@
+{
+  "test": "T1",
+  "run": "ceiling-full",
+  "recorded_at": "2026-07-18T01:46:32-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": ">= 1000 ev/s delivered lossless @150B (soft in ci)",
+  "measured": "best lossless 2058 ev/s @150B; loss onset at uncapped",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "full",
+  "curves": {
+    "150": [
+      {
+        "execution_id": "17c4977e1cae49f09f77cfdb2e16460b",
+        "rate_requested": 500,
+        "frames_offered": 30000,
+        "delivered": 30000,
+        "lost": 0,
+        "offered_rate_actual": 499.1369762707226,
+        "delivered_rate": 499.10624010459065,
+        "latency_p50": 0.0019676685333251953,
+        "latency_p99": 0.004289865493774414
+      },
+      {
+        "execution_id": "bfb459c7fc9d4208bc0f3285d1c333de",
+        "rate_requested": 1000,
+        "frames_offered": 60000,
+        "delivered": 60000,
+        "lost": 0,
+        "offered_rate_actual": 991.8391912139209,
+        "delivered_rate": 991.8744409700865,
+        "latency_p50": 0.0028696060180664062,
+        "latency_p99": 0.005053043365478516
+      },
+      {
+        "execution_id": "7e35db0dcf5a4283b8708c97bdaf55ff",
+        "rate_requested": 2000,
+        "frames_offered": 120000,
+        "delivered": 120000,
+        "lost": 0,
+        "offered_rate_actual": 1397.0562062795818,
+        "delivered_rate": 1397.072431363289,
+        "latency_p50": 0.002874135971069336,
+        "latency_p99": 0.005184173583984375
+      },
+      {
+        "execution_id": "bfd03cf2081b40b0b7af6a0002bc9e0c",
+        "rate_requested": 4000,
+        "frames_offered": 240000,
+        "delivered": 240000,
+        "lost": 0,
+        "offered_rate_actual": 2058.097730617087,
+        "delivered_rate": 2058.0945957562813,
+        "latency_p50": 0.003125905990600586,
+        "latency_p99": 0.006365060806274414
+      },
+      {
+        "execution_id": "e4e92456bc004761bda12a7d3f0305ff",
+        "rate_requested": "uncapped",
+        "frames_offered": 60000,
+        "delivered": 58919,
+        "lost": 1081,
+        "offered_rate_actual": 229257.62451549937,
+        "delivered_rate": 7702.73944009825,
+        "latency_p50": 4.3949267864227295,
+        "latency_p99": 7.9818315505981445
+      }
+    ],
+    "2048": [
+      {
+        "execution_id": "4065d26de6a64072923a189a5743b439",
+        "rate_requested": 500,
+        "frames_offered": 30000,
+        "delivered": 30000,
+        "lost": 0,
+        "offered_rate_actual": 499.1295255113056,
+        "delivered_rate": 499.1590288916352,
+        "latency_p50": 0.0019466876983642578,
+        "latency_p99": 0.004385948181152344
+      },
+      {
+        "execution_id": "816ed199797f47eca788c46a9985955d",
+        "rate_requested": 1000,
+        "frames_offered": 60000,
+        "delivered": 60000,
+        "lost": 0,
+        "offered_rate_actual": 990.6070223205584,
+        "delivered_rate": 990.6150356726884,
+        "latency_p50": 0.0029211044311523438,
+        "latency_p99": 0.005167722702026367
+      },
+      {
+        "execution_id": "92aa6ea729284b2589ef3dc6f7e14499",
+        "rate_requested": 2000,
+        "frames_offered": 120000,
+        "delivered": 120000,
+        "lost": 0,
+        "offered_rate_actual": 1382.6757514789765,
+        "delivered_rate": 1382.671622607078,
+        "latency_p50": 0.0030074119567871094,
+        "latency_p99": 0.005612373352050781
+      },
+      {
+        "execution_id": "f6b4e7aa39bb498b9a8a49f23ab54101",
+        "rate_requested": 4000,
+        "frames_offered": 240000,
+        "delivered": 240000,
+        "lost": 0,
+        "offered_rate_actual": 2105.4882064613607,
+        "delivered_rate": 2105.473995209918,
+        "latency_p50": 0.0032684803009033203,
+        "latency_p99": 0.008797407150268555
+      },
+      {
+        "execution_id": "cc543d7d888149208de83aacf4917e58",
+        "rate_requested": "uncapped",
+        "frames_offered": 60000,
+        "delivered": 0,
+        "lost": 60000,
+        "offered_rate_actual": null,
+        "delivered_rate": null,
+        "latency_p50": null,
+        "latency_p99": null
+      }
+    ]
+  },
+  "process_usage": {
+    "server": {
+      "samples": 677,
+      "cpu_mean": 70.12791728212703,
+      "cpu_max": 102.0,
+      "rss_first": 140099584,
+      "rss_max": 144556032,
+      "rss_last": 144556032
+    },
+    "worker": {
+      "samples": 677,
+      "cpu_mean": 38.207385524372235,
+      "cpu_max": 57.0,
+      "rss_first": 91635712,
+      "rss_max": 93995008,
+      "rss_last": 92512256
+    }
+  }
+}

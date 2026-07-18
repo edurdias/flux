@@ -1,0 +1,131 @@
+{
+  "test": "T1",
+  "run": "ceiling-ci",
+  "recorded_at": "2026-07-18T10:53:05-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": ">= 1000 ev/s delivered lossless @150B (soft in ci)",
+  "measured": "best lossless 1402 ev/s @150B; loss onset at uncapped",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "ci",
+  "curves": {
+    "150": [
+      {
+        "execution_id": "651dab46d5b94d4d8834d9efc217eb84",
+        "rate_requested": 500,
+        "frames_offered": 4000,
+        "delivered": 4000,
+        "lost": 0,
+        "offered_rate_actual": 499.5514733473268,
+        "delivered_rate": 499.6284945688371,
+        "latency_p50": 0.0018608570098876953,
+        "latency_p99": 0.004076719284057617
+      },
+      {
+        "execution_id": "d69560205f3b4d89963edb25cc7fc930",
+        "rate_requested": 1000,
+        "frames_offered": 8000,
+        "delivered": 8000,
+        "lost": 0,
+        "offered_rate_actual": 992.9325807697579,
+        "delivered_rate": 992.8436953717891,
+        "latency_p50": 0.002802610397338867,
+        "latency_p99": 0.004593610763549805
+      },
+      {
+        "execution_id": "bf7b9feba1894ad08a0c3ca4cc25f5b6",
+        "rate_requested": 2000,
+        "frames_offered": 16000,
+        "delivered": 16000,
+        "lost": 0,
+        "offered_rate_actual": 1401.83134318122,
+        "delivered_rate": 1401.704025453508,
+        "latency_p50": 0.0028600692749023438,
+        "latency_p99": 0.00606536865234375
+      },
+      {
+        "execution_id": "86e646c59feb460b868880987849c2af",
+        "rate_requested": "uncapped",
+        "frames_offered": 20000,
+        "delivered": 19888,
+        "lost": 112,
+        "offered_rate_actual": 206049.47345954707,
+        "delivered_rate": 7378.935691748983,
+        "latency_p50": 1.666048288345337,
+        "latency_p99": 2.781888246536255
+      }
+    ],
+    "2048": [
+      {
+        "execution_id": "f44147f267ff440aad40926b70eed16d",
+        "rate_requested": 500,
+        "frames_offered": 4000,
+        "delivered": 4000,
+        "lost": 0,
+        "offered_rate_actual": 498.9920865544431,
+        "delivered_rate": 499.0403370036786,
+        "latency_p50": 0.0020198822021484375,
+        "latency_p99": 0.004162788391113281
+      },
+      {
+        "execution_id": "4d0a4ab53ee746c696dac0008fac1828",
+        "rate_requested": 1000,
+        "frames_offered": 8000,
+        "delivered": 8000,
+        "lost": 0,
+        "offered_rate_actual": 991.8947751078571,
+        "delivered_rate": 992.3660731166593,
+        "latency_p50": 0.002821683883666992,
+        "latency_p99": 0.006703615188598633
+      },
+      {
+        "execution_id": "35c9c1b984f34db2bd01d6896390339d",
+        "rate_requested": 2000,
+        "frames_offered": 16000,
+        "delivered": 16000,
+        "lost": 0,
+        "offered_rate_actual": 1386.961114404197,
+        "delivered_rate": 1386.7964731363254,
+        "latency_p50": 0.003002166748046875,
+        "latency_p99": 0.005147695541381836
+      },
+      {
+        "execution_id": "eaeb6a223dd84777be5ee8bb1c78e75a",
+        "rate_requested": "uncapped",
+        "frames_offered": 20000,
+        "delivered": 18646,
+        "lost": 1354,
+        "offered_rate_actual": 225391.67775331158,
+        "delivered_rate": 6666.972274742406,
+        "latency_p50": 1.6207332611083984,
+        "latency_p99": 2.938934803009033
+      }
+    ]
+  },
+  "process_usage": {
+    "server": {
+      "samples": 81,
+      "cpu_mean": 54.24074074074074,
+      "cpu_max": 101.0,
+      "rss_first": 139833344,
+      "rss_max": 150581248,
+      "rss_last": 150581248
+    },
+    "worker": {
+      "samples": 81,
+      "cpu_mean": 29.460493827160494,
+      "cpu_max": 57.0,
+      "rss_first": 92110848,
+      "rss_max": 96043008,
+      "rss_last": 96043008
+    }
+  }
+}

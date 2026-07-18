@@ -1,0 +1,144 @@
+{
+  "test": "T5",
+  "run": "slow-consumer-ci",
+  "recorded_at": "2026-07-18T00:07:25-0400",
+  "machine": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python": "3.14.6",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 50510008320,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "bounded memory; siblings unaffected (soft in ci)",
+  "measured": "slow stream delivered 108/4000; siblings lost 0; server RSS +1MB; sibling p99 0.01825428009033203",
+  "passed": true,
+  "sealed": false,
+  "database": "postgresql",
+  "profile": "ci",
+  "observed_policy": "drop-newest at the per-execution server queue: slow consumer received 108/4000 frames, siblings full-rate, memory bounded",
+  "slow_stream": {
+    "delivered": 108,
+    "first_recv": 1784347604.0763361,
+    "last_recv": 1784347644.734859,
+    "latency_p50": 19.59516477584839,
+    "latency_p95": 37.7365460395813,
+    "latency_p99": 39.220947265625,
+    "interframe_p50": 0.3800218105316162,
+    "interframe_p99": 0.3810393810272217,
+    "max_seq": 107,
+    "terminal_event": null,
+    "lifecycle_events": 2
+  },
+  "siblings": [
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.1022587,
+      "last_recv": 1784347644.1349125,
+      "latency_p50": 0.00527501106262207,
+      "latency_p95": 0.014876127243041992,
+      "latency_p99": 0.025693893432617188,
+      "interframe_p50": 0.00985264778137207,
+      "interframe_p99": 0.017858266830444336,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.130905,
+      "last_recv": 1784347644.1878552,
+      "latency_p50": 0.00484466552734375,
+      "latency_p95": 0.014445304870605469,
+      "latency_p99": 0.026948213577270508,
+      "interframe_p50": 0.009991645812988281,
+      "interframe_p99": 0.01825261116027832,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.175176,
+      "last_recv": 1784347644.2411664,
+      "latency_p50": 0.004839181900024414,
+      "latency_p95": 0.014413833618164062,
+      "latency_p99": 0.028034210205078125,
+      "interframe_p50": 0.009862899780273438,
+      "interframe_p99": 0.01820993423461914,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.2219918,
+      "last_recv": 1784347644.2895901,
+      "latency_p50": 0.004679203033447266,
+      "latency_p95": 0.014852285385131836,
+      "latency_p99": 0.028086185455322266,
+      "interframe_p50": 0.009920835494995117,
+      "interframe_p99": 0.0194094181060791,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.2491207,
+      "last_recv": 1784347644.3241408,
+      "latency_p50": 0.0033135414123535156,
+      "latency_p95": 0.014299392700195312,
+      "latency_p99": 0.030138254165649414,
+      "interframe_p50": 0.009907722473144531,
+      "interframe_p99": 0.01992654800415039,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.2473593,
+      "last_recv": 1784347644.3059404,
+      "latency_p50": 0.004921436309814453,
+      "latency_p95": 0.014549016952514648,
+      "latency_p99": 0.02993917465209961,
+      "interframe_p50": 0.009870767593383789,
+      "interframe_p99": 0.01825428009033203,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    },
+    {
+      "delivered": 4000,
+      "first_recv": 1784347604.7305045,
+      "last_recv": 1784347644.7436779,
+      "latency_p50": 0.003439664840698242,
+      "latency_p95": 0.014849424362182617,
+      "latency_p99": 0.034291744232177734,
+      "interframe_p50": 0.010083436965942383,
+      "interframe_p99": 0.019841909408569336,
+      "max_seq": 3999,
+      "terminal_event": "perf_stream.execution.completed",
+      "lifecycle_events": 4
+    }
+  ],
+  "process_usage": {
+    "server": {
+      "samples": 43,
+      "cpu_mean": 84.50697674418605,
+      "cpu_max": 95.0,
+      "rss_first": 162516992,
+      "rss_max": 163041280,
+      "rss_last": 163041280
+    },
+    "worker": {
+      "samples": 43,
+      "cpu_mean": 52.92790697674419,
+      "cpu_max": 60.0,
+      "rss_first": 106860544,
+      "rss_max": 106860544,
+      "rss_last": 106860544
+    }
+  }
+}

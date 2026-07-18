@@ -1,0 +1,30 @@
+{
+  "test": "T6a",
+  "run": "cancel-storm-ci",
+  "recorded_at": "2026-07-17T11:53:12+0000",
+  "machine": {
+    "platform": "Linux-6.18.5-x86_64-with-glibc2.39",
+    "python": "3.13.12",
+    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_count": 4,
+    "ram_bytes": 16856244224,
+    "disk_total_bytes": 270553174016
+  },
+  "gate": "all executions CANCELLED (hard); flush-burst duration documented",
+  "measured": "8 streams cancelled at full rate; all CANCELLED; last frame arrived 581ms after cancel (cancel-flush burst, expected behavior)",
+  "passed": true,
+  "sealed": false,
+  "database": "sqlite",
+  "profile": "ci",
+  "flush_burst_s": 0.5807139873504639,
+  "per_stream_last_frame_after_cancel_s": [
+    0.14525175094604492,
+    0.3079710006713867,
+    0.3395884037017822,
+    0.44303250312805176,
+    0.44266510009765625,
+    0.5375106334686279,
+    0.5730786323547363,
+    0.5807139873504639
+  ]
+}

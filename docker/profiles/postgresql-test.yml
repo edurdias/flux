@@ -1,6 +1,4 @@
 # PostgreSQL testing profile - optimized for testing performance
-version: '3.8'
-
 services:
   postgres-test:
     build: ./docker/postgres
@@ -11,8 +9,10 @@ services:
       POSTGRES_PASSWORD: flux_test_password
     ports:
       - "5433:5432"
-    volumes:
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    # Init scripts are baked into the image (docker/postgres/Dockerfile COPYs
+    # them), so no bind mount is needed. A bind mount here also fails under
+    # Docker Desktop on WSL2 (guest-services distro mount). `postgres-test-up`
+    # rebuilds the image so edits to docker/postgres/init/ take effect.
     networks:
       - flux-test-network
     tmpfs:

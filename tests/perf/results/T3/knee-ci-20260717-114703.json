@@ -1,0 +1,100 @@
+{
+  "test": "T3",
+  "run": "knee-ci",
+  "recorded_at": "2026-07-17T11:47:03+0000",
+  "machine": {
+    "platform": "Linux-6.18.5-x86_64-with-glibc2.39",
+    "python": "3.13.12",
+    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_count": 4,
+    "ram_bytes": 16856244224,
+    "disk_total_bytes": 270553174016
+  },
+  "gate": "knee >= 10000 ev/s (soft in ci); 0 progress rows persisted (hard)",
+  "measured": "knee 3000 ev/s; ratios [1.0, 1.0, 0.931, 0.405]; past-knee behavior: graceful (ratio degrades, no disconnects); progress rows persisted: 0",
+  "passed": false,
+  "sealed": false,
+  "database": "sqlite",
+  "profile": "ci",
+  "steps": [
+    {
+      "rate_target": 1000,
+      "seconds": 15,
+      "offered": 15000,
+      "post_errors": 0,
+      "window": [
+        1784288762.7043614,
+        1784288777.7869396
+      ],
+      "delivered": 15000,
+      "ratio": 1.0,
+      "server_cpu_mean": 19.533333333333335,
+      "server_cpu_max": 23.0
+    },
+    {
+      "rate_target": 3000,
+      "seconds": 15,
+      "offered": 44200,
+      "post_errors": 0,
+      "window": [
+        1784288777.7885513,
+        1784288792.8332531
+      ],
+      "delivered": 44200,
+      "ratio": 1.0,
+      "server_cpu_mean": 52.586666666666666,
+      "server_cpu_max": 59.0
+    },
+    {
+      "rate_target": 6000,
+      "seconds": 15,
+      "offered": 87750,
+      "post_errors": 0,
+      "window": [
+        1784288792.8393266,
+        1784288807.8738966
+      ],
+      "delivered": 81676,
+      "ratio": 0.9307806267806268,
+      "server_cpu_mean": 95.88666666666667,
+      "server_cpu_max": 99.9
+    },
+    {
+      "rate_target": 10000,
+      "seconds": 15,
+      "offered": 141700,
+      "post_errors": 0,
+      "window": [
+        1784288807.9089448,
+        1784288822.9304972
+      ],
+      "delivered": 57457,
+      "ratio": 0.4054834156669019,
+      "server_cpu_mean": 98.96666666666667,
+      "server_cpu_max": 100.7
+    }
+  ],
+  "past_knee_steps": [
+    1000,
+    6000,
+    10000
+  ],
+  "db_delta": {
+    "rows": {
+      "execution_events": 3
+    },
+    "total_rows": 3,
+    "file_bytes": 131840,
+    "window_s": 60.34849572181702
+  },
+  "process_usage": {
+    "server": {
+      "samples": 60,
+      "cpu_mean": 66.74333333333333,
+      "cpu_max": 100.7,
+      "rss_first": 115064832,
+      "rss_max": 193748992,
+      "rss_last": 193748992
+    }
+  }
+}

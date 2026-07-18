@@ -1,0 +1,79 @@
+name: Perf Suite (on demand)
+
+# Manual runs of the progress-streaming perf suite (tests/perf/PLAN.md).
+# The PR pipeline runs the same suite in the short 'ci' profile on every PR;
+# this workflow exists for deliberate runs — longer profiles, strict gates —
+# and is the entry point a dedicated perf environment can reuse.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Measurement profile (ci = short windows, full = plan-spec durations; full runs ~90 min)"
+        type: choice
+        options: [ci, full]
+        default: ci
+      strict:
+        description: "Fail on performance-gate misses (dedicated-environment mode)"
+        type: boolean
+        default: false
+      tests:
+        description: "Pytest selector under tests/perf (empty = whole suite)"
+        type: string
+        default: ""
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: flux_perf_user
+          POSTGRES_PASSWORD: flux_perf_password
+          POSTGRES_DB: flux_perf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flux_perf_user -d flux_perf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction --extras postgresql
+
+    - name: Run perf suite (PostgreSQL, ${{ inputs.profile }} profile)
+      env:
+        FLUX_PERF: "1"
+        FLUX_PERF_PROFILE: ${{ inputs.profile }}
+        FLUX_PERF_STRICT: ${{ inputs.strict && '1' || '' }}
+        FLUX_PERF_DATABASE_URL: postgresql://flux_perf_user:flux_perf_password@localhost:5432/flux_perf
+      run: |
+        poetry run pytest tests/perf/${{ inputs.tests }} -m perf -v
+
+    - name: Archive perf results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: perf-results-${{ inputs.profile }}
+        path: |
+          tests/perf/results/
+          tests/perf/RESULTS.md
+        retention-days: 30

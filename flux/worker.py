@@ -128,6 +128,15 @@ class Worker:
         self._reauth_lock = asyncio.Lock()
         self._progress_queues: dict[str, asyncio.Queue] = {}
         self._progress_flushers: dict[str, asyncio.Task | None] = {}
+        # A paused workflow is claimed once per run and once per resume, all
+        # under the same execution_id, with overlapping setup/teardown windows.
+        # Each claim's (queue, flusher) is tracked as its own channel here so a
+        # finishing claim's teardown cannot clobber a newer claim's still-active
+        # queue (which would silently drop its progress events).
+        self._progress_channels: dict[
+            str,
+            list[tuple[asyncio.Queue, asyncio.Task | None]],
+        ] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
         # The flux. label prefix is reserved for platform-derived labels so
         # user labels cannot spoof capability grants (service sockets below).
@@ -1370,19 +1379,25 @@ class Worker:
 
     def _setup_progress(self, ctx):
         queue = asyncio.Queue(maxsize=1000)
-        self._progress_queues[ctx.execution_id] = queue
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        if loop is not None:
-            self._progress_flushers[ctx.execution_id] = asyncio.create_task(
-                self._flush_progress(queue, ctx.execution_id),
-            )
-        else:
-            self._progress_flushers[ctx.execution_id] = None
+        flusher = (
+            asyncio.create_task(self._flush_progress(queue, ctx.execution_id))
+            if loop is not None
+            else None
+        )
+
+        # Register this claim's own channel, then mirror it as the active
+        # (newest) queue/flusher in the by-id dicts that _record_progress and
+        # callers read. Teardown of an earlier claim re-points these at the
+        # newest surviving channel rather than deleting them.
+        self._progress_channels.setdefault(ctx.execution_id, []).append((queue, flusher))
+        self._progress_queues[ctx.execution_id] = queue
+        self._progress_flushers[ctx.execution_id] = flusher
 
         ctx.set_progress_callback(self._record_progress)
 
@@ -1407,14 +1422,31 @@ class Worker:
                 pass
 
     async def _teardown_progress(self, execution_id: str):
-        flusher = self._progress_flushers.pop(execution_id, None)
+        channels = self._progress_channels.get(execution_id)
+        if not channels:
+            # Nothing tracked (or already torn down) — keep by-id dicts clean.
+            self._progress_flushers.pop(execution_id, None)
+            self._progress_queues.pop(execution_id, None)
+            return
+
+        # A claim tears down its own (oldest) channel; newer claims for the same
+        # execution_id stay active so their in-flight progress is not dropped.
+        _queue, flusher = channels.pop(0)
         if flusher and not flusher.done():
             flusher.cancel()
             try:
                 await flusher
             except asyncio.CancelledError:
                 pass
-        self._progress_queues.pop(execution_id, None)
+
+        if channels:
+            active_queue, active_flusher = channels[-1]
+            self._progress_queues[execution_id] = active_queue
+            self._progress_flushers[execution_id] = active_flusher
+        else:
+            self._progress_channels.pop(execution_id, None)
+            self._progress_queues.pop(execution_id, None)
+            self._progress_flushers.pop(execution_id, None)
 
     async def _get_runtime_info(self):
         logger.debug("Gathering runtime information")
