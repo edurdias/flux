@@ -104,7 +104,7 @@ class TestRequireCompile:
         from flux.routing import load, metric, resource
 
         for selector in (metric("temp"), resource("cpu_available"), load()):
-            with pytest.raises(ValueError, match="labels only"):
+            with pytest.raises(ValueError, match="labels or metadata"):
                 require(selector == 1)
 
     def test_label_for_requires_prefix_and_input_ref(self):
