@@ -304,6 +304,16 @@ class TestAdminRoutes:
         )
         assert client.put("/admin/workers/w1/metadata", json={}).status_code == 400
 
+    def test_non_boolean_replace_is_400_not_a_wipe(self, client_env):
+        client, _server, registry = client_env
+        client.put("/admin/workers/w1/metadata", json={"metadata": {"keep": "me"}})
+        resp = client.put(
+            "/admin/workers/w1/metadata",
+            json={"metadata": {"a": "1"}, "replace": "false"},
+        )
+        assert resp.status_code == 400
+        assert registry.get("w1").metadata == {"keep": "me"}
+
     def test_write_refreshes_in_memory_copies(self, client_env):
         client, server, registry = client_env
         # Simulate a connected worker: the dispatcher's snapshot and the

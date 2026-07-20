@@ -184,7 +184,11 @@ class WorkerRoutesMixin:
                 updates = validate_worker_metadata(body.get("metadata"))
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
-            replace = bool(body.get("replace", False))
+            replace = body.get("replace", False)
+            # Strict boolean: a truthy non-boolean (say, the string "false")
+            # must not silently trigger a full replacement.
+            if not isinstance(replace, bool):
+                raise HTTPException(status_code=400, detail="'replace' must be a boolean")
             registry = WorkerRegistry.create()
             try:
                 result = await asyncio.to_thread(
