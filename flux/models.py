@@ -512,6 +512,13 @@ class WorkerModel(Base):
     # metric(...) selectors and surfaced in GET /workers. NULL only when the
     # worker publishes nothing (built-ins disabled and no provider).
     metrics = Column(Base64Type(), nullable=True)
+    # Admin-written key/value metadata (validated dict[str, str|float]).
+    # Written only through the /admin/workers/{name}/metadata routes — the
+    # worker has no write path to it, so registration must never touch this
+    # column (that is what makes meta(...) selectors unspoofable and lets the
+    # values survive reconnect/re-registration). "worker_metadata" because
+    # "metadata" is reserved on SQLAlchemy declarative classes.
+    worker_metadata = Column(Base64Type(), nullable=True)
 
     runtime = relationship("WorkerRuntimeModel", back_populates="worker", uselist=False)
     packages = relationship("WorkerPackageModel", back_populates="worker")

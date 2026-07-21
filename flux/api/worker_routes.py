@@ -135,6 +135,104 @@ class WorkerRoutesMixin:
                 "expires_at": expires_at.replace(tzinfo=_tz.utc).isoformat(),
             }
 
+        def _apply_worker_metadata(name: str, metadata: dict) -> dict:
+            """Propagate a metadata write: refresh this replica's in-memory
+            copies and wake dispatch everywhere, so an execution parked on a
+            require(meta(...)) term dispatches promptly instead of waiting
+            for the fallback tick. Cross-replica in-memory copies stay stale
+            until their next dispatch transaction, which re-reads the column.
+            """
+            info = self._worker_info.get(name)
+            if info is not None:
+                setattr(info, "metadata", metadata or None)
+            cached = self._worker_cache.get(name)
+            if cached is not None:
+                cached.metadata = metadata or None
+            self._notify_next_worker()
+            return {"metadata": metadata}
+
+        @api.get("/admin/workers/{name}/metadata")
+        async def worker_metadata_get(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Read a worker's admin-written metadata (operator read-back)."""
+            registry = WorkerRegistry.create()
+            try:
+                info = await asyncio.to_thread(registry.get, name)
+            except WorkerNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+            return {"metadata": info.metadata or {}}
+
+        @api.put("/admin/workers/{name}/metadata")
+        async def worker_metadata_put(
+            name: str,
+            body: dict = Body(...),
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Set worker metadata: merge by default, replace on request.
+
+            Body: ``{"metadata": {key: str|number|bool, ...}, "replace": false}``.
+            Returns the resulting metadata so controllers can read-modify-write
+            without a second round trip. Values are validated
+            (``flux.routing.validate_worker_metadata``); invalid payloads are a
+            400 — metadata is an operator command channel, not a hint channel.
+            """
+            from flux.routing import validate_worker_metadata
+
+            try:
+                updates = validate_worker_metadata(body.get("metadata"))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            replace = body.get("replace", False)
+            # Strict boolean: a truthy non-boolean (say, the string "false")
+            # must not silently trigger a full replacement.
+            if not isinstance(replace, bool):
+                raise HTTPException(status_code=400, detail="'replace' must be a boolean")
+            registry = WorkerRegistry.create()
+            try:
+                result = await asyncio.to_thread(
+                    registry.set_metadata,
+                    name,
+                    updates,
+                    replace,
+                )
+            except WorkerNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            logger.info(f"Worker {name} metadata updated by {identity.subject}")
+            return _apply_worker_metadata(name, result)
+
+        @api.delete("/admin/workers/{name}/metadata/{key}")
+        async def worker_metadata_delete_key(
+            name: str,
+            key: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Remove one metadata key (idempotent); returns the remainder."""
+            registry = WorkerRegistry.create()
+            try:
+                result = await asyncio.to_thread(registry.delete_metadata, name, key)
+            except WorkerNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+            logger.info(f"Worker {name} metadata key '{key}' removed by {identity.subject}")
+            return _apply_worker_metadata(name, result)
+
+        @api.delete("/admin/workers/{name}/metadata")
+        async def worker_metadata_clear(
+            name: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Clear all of a worker's metadata."""
+            registry = WorkerRegistry.create()
+            try:
+                result = await asyncio.to_thread(registry.delete_metadata, name, None)
+            except WorkerNotFoundError:
+                raise HTTPException(status_code=404, detail=f"Worker '{name}' not found")
+            logger.info(f"Worker {name} metadata cleared by {identity.subject}")
+            return _apply_worker_metadata(name, result)
+
         @api.post("/workers/register")
         @_register_limited
         async def workers_register(
@@ -288,6 +386,9 @@ class WorkerRoutesMixin:
                     if registration.packages
                     else [],
                     labels=registration.labels,
+                    # Server-held: registration never writes it, so a
+                    # re-registering worker keeps its admin-written metadata.
+                    metadata=result.metadata,
                 )
                 self._worker_unhealthy.discard(registration.name)
                 # A restarted worker starts active; its first pong re-adds
@@ -1036,6 +1137,7 @@ class WorkerRoutesMixin:
                 else [],
                 labels=w.labels if isinstance(w.labels, dict) else {},
                 metrics=getattr(w, "metrics", None),
+                metadata=getattr(w, "metadata", None),
             )
 
             if w.runtime:
@@ -1128,6 +1230,7 @@ class WorkerRoutesMixin:
                     if cached is not None:
                         cached.status = worker_status
                         cached.metrics = info.metrics
+                        cached.metadata = info.metadata
                         cached.in_flight = self._worker_in_flight.get(info.name)
                         result.append(cached)
                     else:
@@ -1136,6 +1239,7 @@ class WorkerRoutesMixin:
                                 name=info.name,
                                 status=worker_status,
                                 metrics=info.metrics,
+                                metadata=info.metadata,
                                 in_flight=self._worker_in_flight.get(info.name),
                             ),
                         )

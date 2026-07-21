@@ -1232,6 +1232,119 @@ def show_worker(name: str, server_url: str | None):
         click.echo(f"Error showing worker: {str(ex)}", err=True)
 
 
+@worker.group("metadata")
+def worker_metadata():
+    """Manage server-side worker metadata (admin-written routing facts).
+
+    Metadata is held by the server and consumed by dispatch through
+    meta(...) selectors in affinity=require(...) and routing=score(...);
+    workers cannot write it. Requires the admin:workers:manage permission.
+    """
+    pass
+
+
+def _parse_metadata_pairs(pairs: tuple[str, ...], as_string: bool) -> dict:
+    metadata: dict = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise click.BadParameter(f"expected key=value, got '{pair}'")
+        if not as_string:
+            try:
+                metadata[key] = float(value)
+                continue
+            except ValueError:
+                pass
+        metadata[key] = value
+    return metadata
+
+
+def _worker_metadata_request(method: str, url: str, **kwargs) -> None:
+    try:
+        with get_http_client() as client:
+            response = client.request(method, url, **kwargs)
+            response.raise_for_status()
+            click.echo(json.dumps(response.json(), indent=2))
+    except httpx.HTTPStatusError as ex:
+        detail = ""
+        try:
+            detail = ex.response.json().get("detail", "")
+        except Exception:
+            pass
+        click.echo(f"Error: {detail or ex}", err=True)
+        raise click.exceptions.Exit(1)
+    except Exception as ex:
+        click.echo(f"Error: {ex}", err=True)
+        raise click.exceptions.Exit(1)
+
+
+@worker_metadata.command("show")
+@click.argument("name")
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def worker_metadata_show(name: str, server_url: str | None):
+    """Show a worker's metadata."""
+    base_url = server_url or get_server_url()
+    _worker_metadata_request("GET", f"{base_url}/admin/workers/{name}/metadata")
+
+
+@worker_metadata.command("set")
+@click.argument("name")
+@click.argument("pairs", nargs=-1, required=True, metavar="KEY=VALUE...")
+@click.option(
+    "--string",
+    "as_string",
+    is_flag=True,
+    default=False,
+    help="Keep numeric-looking values as strings.",
+)
+@click.option(
+    "--replace",
+    is_flag=True,
+    default=False,
+    help="Replace all metadata instead of merging.",
+)
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def worker_metadata_set(
+    name: str,
+    pairs: tuple[str, ...],
+    as_string: bool,
+    replace: bool,
+    server_url: str | None,
+):
+    """Set metadata keys on a worker (merged into existing metadata).
+
+    Values that parse as numbers are stored numerically (usable in
+    routing=score() ranking); pass --string to force string typing for
+    require(...) equality terms.
+    """
+    metadata = _parse_metadata_pairs(pairs, as_string)
+    base_url = server_url or get_server_url()
+    _worker_metadata_request(
+        "PUT",
+        f"{base_url}/admin/workers/{name}/metadata",
+        json={"metadata": metadata, "replace": replace},
+    )
+
+
+@worker_metadata.command("unset")
+@click.argument("name")
+@click.argument("key")
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def worker_metadata_unset(name: str, key: str, server_url: str | None):
+    """Remove one metadata key from a worker (idempotent)."""
+    base_url = server_url or get_server_url()
+    _worker_metadata_request("DELETE", f"{base_url}/admin/workers/{name}/metadata/{key}")
+
+
+@worker_metadata.command("clear")
+@click.argument("name")
+@click.option("--server-url", "-cp-url", default=None, help="Server URL to connect to.")
+def worker_metadata_clear(name: str, server_url: str | None):
+    """Clear all metadata from a worker."""
+    base_url = server_url or get_server_url()
+    _worker_metadata_request("DELETE", f"{base_url}/admin/workers/{name}/metadata")
+
+
 # =============================================================================
 # Health Command
 # =============================================================================

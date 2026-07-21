@@ -41,6 +41,7 @@ A policy is a weighted combination of terms over **selectors**:
 |---|---|---|
 | `label("key")` | worker labels (`--label key=value`) | static (set at registration) |
 | `metric("key")` | worker-advertised metrics (built-in `flux.*` or your provider's) | refreshed every `metrics_interval` |
+| `meta("key")` | server-side worker metadata (`flux worker metadata set` — admin-written, worker-unspoofable; see [Worker Affinity](worker-affinity.md#server-side-worker-metadata)) | live, re-read at dispatch |
 | `resource("field")` | `cpu_total`, `cpu_available`, `memory_total`, `memory_available`, `disk_total`, `disk_free` | registration-time snapshot (prefer `metric("flux.cpu_percent")` etc. for live values) |
 | `load()` | active executions on the worker | live, computed at dispatch |
 

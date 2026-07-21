@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0012_principal_banned"
+HEAD = "0013_worker_metadata"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

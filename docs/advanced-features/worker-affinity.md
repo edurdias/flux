@@ -170,6 +170,11 @@ affinity=require(label("maintenance") != "true")
   `flux.` label prefix is reserved (workers reject user labels under it),
   this is a capability grant a worker cannot fabricate. See
   [Airgapped Execution](airgapped-execution.md).
+- `meta(key) == value` / `meta(key) != value` — compare **server-side
+  worker metadata** (written through the admin API, never by the worker)
+  instead of a self-advertised label. Same `==`/`!=` semantics as `label`,
+  including the absent-≠-value inversion. See
+  [Server-Side Worker Metadata](#server-side-worker-metadata) below.
 - `optional(term)` — skipped when its input is absent; a resolved
   comparison that is false still fails the match, and input that resolves
   to something invalid (bad label key, non-scalar, invalid service name)
@@ -209,6 +214,47 @@ rather than silently dropping a hard constraint.
 
 See `examples/affinity_expressions.py` for runnable data-locality, tenant
 isolation, and maintenance-window patterns.
+
+## Server-Side Worker Metadata
+
+Labels are the right channel for what a worker declares about itself; some
+routing inputs are facts the **control plane** asserts about a worker —
+policy flags, drain hints, centrally-computed scores. Worker **metadata** is
+a third attribute channel for exactly that: a server-held
+`dict[str, str | float]` written only through an authenticated admin API
+(`admin:workers:manage`) and consumed through the `meta(...)` selector.
+
+```bash
+flux worker metadata set   my-worker maintenance=true weight=0.8
+flux worker metadata show  my-worker
+flux worker metadata unset my-worker maintenance
+flux worker metadata clear my-worker
+```
+
+or over HTTP: `PUT /admin/workers/{name}/metadata` with
+`{"metadata": {"maintenance": "true"}, "replace": false}` (merge by
+default), `GET`/`DELETE` on the same path, and
+`DELETE .../metadata/{key}` for a single key. `GET /workers` surfaces the
+current values.
+
+```python
+# Soft-drain a worker without touching the worker or the workflows
+affinity=require(meta("maintenance") != "true")
+```
+
+Properties that distinguish metadata from labels:
+
+- **Authoritative.** Workers have no write path to it — registration never
+  touches it — and `meta(...)` reads only this dict, so no label or metric
+  a worker advertises can satisfy a `meta` term.
+- **Hot.** Updates take effect on the next dispatch: the dispatch
+  transaction re-reads the values, no worker re-registration or reconnect
+  involved.
+- **Durable.** Values survive worker reconnect and re-registration; they
+  live and die with the worker's registry row.
+- **Numeric-capable.** String values suit `require(...)` equality; numeric
+  values participate in `score()` ranking via `least(meta(...))` /
+  `most(meta(...))` — see [Dynamic Routing](dynamic-routing.md).
 
 ## Beyond Hard Constraints
 

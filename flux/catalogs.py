@@ -617,13 +617,14 @@ class WorkflowCatalog(ABC):
         def extract_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
             assert isinstance(sel_node, ast.Call)
-            if name == "label":
+            if name in ("label", "meta"):
+                factory = routing_dsl.label if name == "label" else routing_dsl.meta
                 if len(sel_node.args) == 1 and isinstance(sel_node.args[0], ast.Constant):
                     try:
-                        return routing_dsl.label(sel_node.args[0].value)
+                        return factory(sel_node.args[0].value)
                     except (TypeError, ValueError) as e:
-                        raise SyntaxError(f"Invalid affinity selector 'label': {e}") from e
-                fail("label() takes a literal key")
+                        raise SyntaxError(f"Invalid affinity selector '{name}': {e}") from e
+                fail(f"{name}() takes a literal key")
             if name == "label_for":
                 if (
                     len(sel_node.args) == 2
@@ -638,7 +639,7 @@ class WorkflowCatalog(ABC):
                     except (TypeError, ValueError) as e:
                         raise SyntaxError(f"Invalid affinity selector 'label_for': {e}") from e
                 fail("label_for() takes a literal prefix and input(...)")
-            fail(f"expected label()/label_for(), got '{name}'")
+            fail(f"expected label()/label_for()/meta(), got '{name}'")
 
         def extract_value(value_node: ast.AST) -> Any:
             if isinstance(value_node, ast.Constant):
@@ -663,13 +664,13 @@ class WorkflowCatalog(ABC):
                     "ordered comparisons belong to routing=",
                 )
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) in ("label", "label_for"):
+            if call_name(left) in ("label", "label_for", "meta"):
                 selector, value = extract_selector(left), extract_value(right)
-            elif call_name(right) in ("label", "label_for"):
+            elif call_name(right) in ("label", "label_for", "meta"):
                 # == and != are symmetric, so no operator flip is needed.
                 selector, value = extract_selector(right), extract_value(left)
             else:
-                fail("one side of a require() comparison must be label()/label_for()")
+                fail("one side of a require() comparison must be label()/label_for()/meta()")
             try:
                 return routing_dsl.Condition(selector, op, value)
             except ValueError as e:
@@ -779,6 +780,7 @@ class WorkflowCatalog(ABC):
         _SELECTOR_FACTORIES: dict[str, Callable[..., Any]] = {
             "label": routing_dsl.label,
             "metric": routing_dsl.metric,
+            "meta": routing_dsl.meta,
             "resource": routing_dsl.resource,
             "load": routing_dsl.load,
         }
@@ -795,7 +797,9 @@ class WorkflowCatalog(ABC):
         def extract_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
             if name is None:
-                fail(f"expected label()/label_for()/metric()/resource()/load(), got '{name}'")
+                fail(
+                    f"expected label()/label_for()/metric()/meta()/resource()/load(), got '{name}'",
+                )
             assert isinstance(sel_node, ast.Call)
             if name == "label_for":
                 if (
@@ -813,7 +817,9 @@ class WorkflowCatalog(ABC):
                 fail("label_for() takes a literal prefix and input(...)")
             factory = _SELECTOR_FACTORIES.get(name or "")
             if factory is None:
-                fail(f"expected label()/label_for()/metric()/resource()/load(), got '{name}'")
+                fail(
+                    f"expected label()/label_for()/metric()/meta()/resource()/load(), got '{name}'",
+                )
             args = []
             for arg in sel_node.args:
                 if not isinstance(arg, ast.Constant):

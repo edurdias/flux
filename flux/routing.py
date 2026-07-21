@@ -35,6 +35,7 @@ routing.
 Selectors:
     ``label(key)``      worker label value
     ``metric(key)``     worker-advertised metric (``[flux.workers] metrics_provider``)
+    ``meta(key)``       server-held metadata (admin-written, worker-unspoofable)
     ``resource(field)`` worker resource field (cpu/memory/disk totals and availables)
     ``load()``          active executions on the worker (built-in)
 
@@ -176,6 +177,11 @@ class Selector:
             raise ValueError(
                 f"unknown resource field '{key}'; expected one of {_RESOURCE_FIELDS}",
             )
+        if kind == "meta" and (len(key) > MAX_METADATA_KEY_LENGTH or not _LABEL_KEY_RE.match(key)):
+            # The admin API can never write such a key
+            # (validate_worker_metadata), so a term naming one would be
+            # permanently unsatisfiable — fail at authoring time instead.
+            raise ValueError(f"invalid metadata key: {key!r}")
         self.spec = f"{kind}:{key}"
 
     def __eq__(self, other: Any) -> Condition:  # type: ignore[override]
@@ -208,6 +214,12 @@ def label(key: str) -> Selector:
 def metric(key: str) -> Selector:
     """Worker-advertised metric (``[flux.workers] metrics_provider``)."""
     return Selector("metric", key)
+
+
+def meta(key: str) -> Selector:
+    """Server-held worker metadata (written via the admin API, never by the
+    worker — the control-plane-authoritative counterpart of ``label``)."""
+    return Selector("meta", key)
 
 
 def resource(field: str) -> Selector:
@@ -287,7 +299,8 @@ def _validate_weight(weight: Any) -> float:
 def _require_selector(value: Any, term: str) -> Selector:
     if not isinstance(value, Selector):
         raise ValueError(
-            f"{term}() takes a selector (label/metric/resource/load), got: {type(value).__name__}",
+            f"{term}() takes a selector (label/metric/meta/resource/load), "
+            f"got: {type(value).__name__}",
         )
     if not isinstance(value.spec, str):
         raise ValueError(
@@ -404,7 +417,9 @@ def score(*terms: dict) -> dict:
 # unresolved condition). ``!=`` treats an absent label as passing (absent ≠
 # value) — the one deliberate inversion, so maintenance-window style terms
 # work without every worker carrying the label. Resolved input values are
-# compared against labels as strings (bools as "true"/"false").
+# compared against labels/metadata as strings (bools as "true"/"false").
+# ``meta(...)`` terms read the server-held metadata dict instead of labels —
+# the control-plane-authoritative channel a worker cannot advertise into.
 
 _REQUIRE_OPS = ("==", "!=")
 
@@ -458,13 +473,13 @@ def _compile_match(term: Any, context: str) -> dict:
             f'label("region") == input("region"), got: {type(term).__name__}',
         )
     spec = term.selector.spec
-    is_label = (isinstance(spec, str) and spec.startswith("label:")) or (
-        isinstance(spec, dict) and spec.get("kind") == "label"
-    )
-    if not is_label:
+    is_matchable = (
+        isinstance(spec, str) and (spec.startswith("label:") or spec.startswith("meta:"))
+    ) or (isinstance(spec, dict) and spec.get("kind") == "label")
+    if not is_matchable:
         raise ValueError(
-            f"require() terms compare labels only (label()/label_for()); metric()/"
-            f"resource()/load() belong to requests= and routing=, got: '{spec}'",
+            f"require() terms compare labels or metadata (label()/label_for()/meta()); "
+            f"metric()/resource()/load() belong to requests= and routing=, got: '{spec}'",
         )
     if term.op not in _REQUIRE_OPS:
         raise ValueError(
@@ -533,6 +548,54 @@ def require(*terms: Condition | dict) -> list[dict]:
     return compiled
 
 
+# Guardrails for admin-written worker metadata. Kept beside the metrics
+# validator so every writer shares one rule; unlike metrics (a hint channel),
+# invalid metadata raises — it is an operator command channel.
+MAX_METADATA_KEYS = 64
+MAX_METADATA_KEY_LENGTH = 64
+MAX_METADATA_VALUE_LENGTH = 256
+
+
+def validate_worker_metadata(payload: Any) -> dict[str, str | float]:
+    """Sanitize an admin-written metadata mapping into ``dict[str, str | float]``.
+
+    Keys are label-shaped; values are strings (bounded), finite numbers
+    (stored as float), or booleans (stored as "true"/"false" to match label
+    conventions). Raises ``ValueError`` naming the offending key.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("metadata must be an object of key/value pairs")
+    if len(payload) > MAX_METADATA_KEYS:
+        raise ValueError(f"metadata is limited to {MAX_METADATA_KEYS} keys")
+    metadata: dict[str, str | float] = {}
+    for key, value in payload.items():
+        if (
+            not isinstance(key, str)
+            or not key
+            or len(key) > MAX_METADATA_KEY_LENGTH
+            or not _LABEL_KEY_RE.match(key)
+        ):
+            raise ValueError(f"invalid metadata key: {key!r}")
+        if isinstance(value, bool):
+            metadata[key] = "true" if value else "false"
+        elif isinstance(value, (int, float)):
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError(f"metadata value for '{key}' must be finite")
+            metadata[key] = value
+        elif isinstance(value, str):
+            if len(value) > MAX_METADATA_VALUE_LENGTH:
+                raise ValueError(
+                    f"metadata value for '{key}' exceeds {MAX_METADATA_VALUE_LENGTH} chars",
+                )
+            metadata[key] = value
+        else:
+            raise ValueError(
+                f"metadata value for '{key}' must be a string, number, or boolean",
+            )
+    return metadata
+
+
 def validate_worker_metrics(payload: Any, max_keys: int = MAX_METRICS) -> dict[str, float] | None:
     """Sanitize a worker-advertised metrics mapping. Returns None when the
     payload is unusable — metrics are a hint channel, never an error channel."""
@@ -573,6 +636,8 @@ def _selector_value(worker: WorkerInfo, selector: str, loads: dict[str, int]) ->
         return (worker.labels or {}).get(key)
     if kind == "metric":
         return (getattr(worker, "metrics", None) or {}).get(key)
+    if kind == "meta":
+        return (getattr(worker, "metadata", None) or {}).get(key)
     if kind == "resource":
         resources = worker.resources
         return getattr(resources, key, None) if resources else None
@@ -802,14 +867,20 @@ def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, _Proble
     return "", _Problem("malformed", f"malformed label selector: {selector!r}")
 
 
-def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str] | _Problem:
-    """Resolve a match term's label key and comparison value against the
-    execution input. Returns ``(key, value)`` or a :class:`_Problem`."""
-    key, problem = _resolve_selector_key(term.get("selector"), input_value)
-    if problem is not None:
-        if problem.category == "malformed":
-            return problem
-        return _Problem(problem.category, f"affinity {problem.message}")
+def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, str] | _Problem:
+    """Resolve a match term's selector kind, key, and comparison value against
+    the execution input. Returns ``(kind, key, value)`` — kind is ``"label"``
+    or ``"meta"`` — or a :class:`_Problem`."""
+    selector = term.get("selector")
+    if isinstance(selector, str) and selector.startswith("meta:"):
+        kind, key = "meta", selector[len("meta:") :]
+    else:
+        kind = "label"
+        key, problem = _resolve_selector_key(selector, input_value)
+        if problem is not None:
+            if problem.category == "malformed":
+                return problem
+            return _Problem(problem.category, f"affinity {problem.message}")
 
     if term.get("op") not in _REQUIRE_OPS:
         return _Problem("malformed", f"malformed affinity term op: {term.get('op')!r}")
@@ -823,9 +894,9 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str] | _Pr
         if value is _UNRESOLVED:
             return _Problem(
                 "unresolved",
-                f"affinity term on label '{key}' requires input '{path}', which is not present",
+                f"affinity term on {kind} '{key}' requires input '{path}', which is not present",
             )
-    return key, _label_value_str(value)
+    return kind, key, _label_value_str(value)
 
 
 def _when_condition_active(term: dict, input_value: Any) -> bool | str:
@@ -881,8 +952,14 @@ def require_diagnostic(terms: Any, input_value: Any) -> str | None:
     return None
 
 
-def require_matches(terms: Any, worker_labels: dict[str, str] | None, input_value: Any) -> bool:
-    """Whether a worker's labels satisfy a require(...) affinity expression.
+def require_matches(
+    terms: Any,
+    worker_labels: dict[str, str] | None,
+    input_value: Any,
+    worker_metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Whether a worker's labels and server-held metadata satisfy a
+    require(...) affinity expression.
 
     Fail-closed: any problem (unresolved input on a non-optional term,
     invalid key, malformed spec) fails the match — mirroring
@@ -892,6 +969,7 @@ def require_matches(terms: Any, worker_labels: dict[str, str] | None, input_valu
     if not isinstance(terms, (list, tuple)) or not terms:
         return False
     labels = worker_labels or {}
+    metadata = worker_metadata or {}
     for term in terms:
         if not isinstance(term, dict):
             return False
@@ -911,8 +989,11 @@ def require_matches(terms: Any, worker_labels: dict[str, str] | None, input_valu
             if resolved.category == "unresolved" and term.get("optional"):
                 continue
             return False
-        key, value = resolved
-        actual = labels.get(key)
+        kind, key, value = resolved
+        raw = metadata.get(key) if kind == "meta" else labels.get(key)
+        # Metadata values may be numeric; they compare in string form like
+        # everything else in require() (rank numerics in routing= instead).
+        actual = None if raw is None else _label_value_str(raw)
         if term.get("op") == "==":
             if actual != value:
                 return False

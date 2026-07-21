@@ -71,6 +71,7 @@ class WorkerInfo:
         last_seen_at: datetime | None = None,
         runners: list[str] | None = None,
         metrics: dict[str, float] | None = None,
+        metadata: dict[str, str | float] | None = None,
     ):
         self.name = name
         self.runtime = runtime
@@ -88,6 +89,9 @@ class WorkerInfo:
         # Latest metrics snapshot from the worker's heartbeat pong; read by
         # routing policies ("metric:*" selectors). None until the first report.
         self.metrics = dict(metrics) if metrics else None
+        # Server-held, admin-written metadata ("meta:*" selectors). Never
+        # touched by the worker itself; survives reconnect/re-registration.
+        self.metadata = dict(metadata) if metadata else None
 
 
 class WorkerRegistry(ABC):
@@ -136,6 +140,24 @@ class WorkerRegistry(ABC):
         fleet_size / metrics_interval, independent of heartbeat rate.
         """
         raise NotImplementedError()
+
+    @abstractmethod
+    def set_metadata(
+        self,
+        name: str,
+        updates: dict[str, str | float],
+        replace: bool = False,
+    ) -> dict[str, str | float]:  # pragma: no cover
+        """Merge (or replace) the worker's admin-written metadata and return
+        the resulting mapping. Values must already be validated
+        (``flux.routing.validate_worker_metadata``)."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def delete_metadata(self, name: str, key: str | None = None) -> dict[str, str | float]:
+        """Remove one metadata key (idempotent) or, with ``key=None``, clear
+        all metadata. Returns the remaining mapping."""
+        raise NotImplementedError()  # pragma: no cover
 
     @abstractmethod
     def find_stale(self, threshold: datetime) -> Sequence[str]:  # pragma: no cover
@@ -248,6 +270,66 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             )
             session.commit()
 
+    def set_metadata(
+        self,
+        name: str,
+        updates: dict[str, str | float],
+        replace: bool = False,
+    ) -> dict[str, str | float]:
+        from flux.models import WorkerModel
+
+        with self.session() as session:
+            try:
+                # Read-modify-write under the row lock so concurrent admin
+                # merges cannot drop each other's keys.
+                model = (
+                    session.query(WorkerModel)
+                    .filter(WorkerModel.name == name)
+                    .with_for_update()
+                    .first()
+                )
+                if not model:
+                    raise WorkerNotFoundError(name)
+                current = {} if replace else dict(model.worker_metadata or {})
+                current.update(updates)
+                # Per-key validation happens at the API edge; the count cap
+                # must be re-checked here because merges accumulate.
+                from flux.routing import MAX_METADATA_KEYS
+
+                if len(current) > MAX_METADATA_KEYS:
+                    raise ValueError(f"metadata is limited to {MAX_METADATA_KEYS} keys")
+                model.worker_metadata = current
+                session.commit()
+                return current
+            except Exception:
+                session.rollback()
+                raise
+
+    def delete_metadata(self, name: str, key: str | None = None) -> dict[str, str | float]:
+        from flux.models import WorkerModel
+
+        with self.session() as session:
+            try:
+                model = (
+                    session.query(WorkerModel)
+                    .filter(WorkerModel.name == name)
+                    .with_for_update()
+                    .first()
+                )
+                if not model:
+                    raise WorkerNotFoundError(name)
+                current = dict(model.worker_metadata or {})
+                if key is None:
+                    current = {}
+                else:
+                    current.pop(key, None)
+                model.worker_metadata = current or None
+                session.commit()
+                return current
+            except Exception:
+                session.rollback()
+                raise
+
     def record_heartbeats(self, names: Sequence[str]) -> None:
         if not names:
             return
@@ -355,4 +437,5 @@ class DatabaseWorkerRegistry(WorkerRegistry):
             last_seen_at=model.last_seen_at,
             runners=model.runners,
             metrics=model.metrics,
+            metadata=model.worker_metadata,
         )

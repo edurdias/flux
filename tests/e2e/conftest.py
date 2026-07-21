@@ -309,6 +309,23 @@ class FluxCLI:
     def worker_local_status(self, name: str) -> dict:
         return self._json(["worker", "status", name])
 
+    # -- admin: worker metadata (server-side) ------------------------------
+
+    def worker_metadata_show(self, name: str) -> dict:
+        return self._server_json(["worker", "metadata", "show", name])
+
+    def worker_metadata_set(self, name: str, *pairs: str, replace: bool = False) -> dict:
+        args = ["worker", "metadata", "set", name, *pairs]
+        if replace:
+            args.append("--replace")
+        return self._server_json(args)
+
+    def worker_metadata_unset(self, name: str, key: str) -> dict:
+        return self._server_json(["worker", "metadata", "unset", name, key])
+
+    def worker_metadata_clear(self, name: str) -> dict:
+        return self._server_json(["worker", "metadata", "clear", name])
+
     # -- admin: roles ------------------------------------------------------
 
     def role_create(self, name: str, permissions: list[str]) -> dict:
