@@ -539,6 +539,7 @@ class DatabaseContextManager(ContextManager):
             if not self._is_least_loaded_worker(worker, session):
                 return None
 
+            self._refresh_worker_metadata(session, [worker])
             model, workflow = self._next_matching_execution(
                 worker,
                 session,
@@ -635,6 +636,7 @@ class DatabaseContextManager(ContextManager):
             result = sticky_query.first()
 
             if result is None:
+                self._refresh_worker_metadata(session, [worker])
                 fallback_query = (
                     session.query(ExecutionContextModel, WorkflowModel)
                     .join(WorkflowModel)
@@ -740,6 +742,28 @@ class DatabaseContextManager(ContextManager):
         loads.update(dict(rows))
         return loads
 
+    def _refresh_worker_metadata(self, session: Session, workers: list[WorkerInfo]) -> None:
+        """Overwrite each WorkerInfo's server-held metadata from the DB.
+
+        Dispatch matches against in-memory snapshots taken at SSE connect,
+        but admin metadata writes can land on any replica at any time — so
+        every dispatch transaction re-reads the column (one PK-indexed query
+        per batch), making updates effective on the next claim/dispatch
+        without the worker reconnecting.
+        """
+        if not workers:
+            return
+        from flux.models import WorkerModel
+
+        rows = (
+            session.query(WorkerModel.name, WorkerModel.worker_metadata)
+            .filter(WorkerModel.name.in_([w.name for w in workers]))
+            .all()
+        )
+        metadata = dict(rows)
+        for w in workers:
+            w.metadata = metadata.get(w.name) or None
+
     def next_executions_batch(
         self,
         workers: list[WorkerInfo],
@@ -759,6 +783,7 @@ class DatabaseContextManager(ContextManager):
         assignments: list[tuple[ExecutionContext, str]] = []
         with self.session() as session:
             loads = self._worker_load_map(session, [w.name for w in workers])
+            self._refresh_worker_metadata(session, workers)
             query = (
                 session.query(ExecutionContextModel, WorkflowModel)
                 .join(WorkflowModel)
@@ -880,6 +905,7 @@ class DatabaseContextManager(ContextManager):
 
             remaining = limit - len(assignments)
             if remaining > 0:
+                self._refresh_worker_metadata(session, workers)
                 unassigned = (
                     session.query(ExecutionContextModel, WorkflowModel)
                     .join(WorkflowModel)

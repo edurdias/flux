@@ -333,7 +333,12 @@ def worker_matches(
         if isinstance(affinity, (list, tuple)):
             from flux.routing import require_matches
 
-            if not require_matches(affinity, worker.labels, input_value):
+            if not require_matches(
+                affinity,
+                worker.labels,
+                input_value,
+                worker_metadata=getattr(worker, "metadata", None),
+            ):
                 return False
         elif not ResourceRequest.matches_labels(worker.labels, affinity):
             return False
