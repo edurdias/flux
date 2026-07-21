@@ -21,7 +21,7 @@
     
     
       
-        <title>Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory - Flux Documentation</title>
+        <title>Spec: server-side worker metadata — control-plane facts in affinity/score() - Flux Documentation</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory" class="md-skip">
+        <a href="#spec-server-side-worker-metadata-control-plane-facts-in-affinityscore" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory
+              Spec: server-side worker metadata — control-plane facts in affinity/score()
             
           </span>
         </div>
@@ -1258,33 +1258,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#design-principle-named-knobs-not-veto-opt-outs" class="md-nav__link">
+  <a href="#design" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Design principle: named knobs, not veto opt-outs
+        Design
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#new-config-keys-fluxworkers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        New config keys ([flux.workers])
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="New config keys ([flux.workers])">
+    <nav class="md-nav" aria-label="Design">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#airgapped_mounts-semantics" class="md-nav__link">
+  <a href="#a-third-worker-attribute-channel" class="md-nav__link">
     <span class="md-ellipsis">
       
-        airgapped_mounts semantics
+        A third worker attribute channel
       
     </span>
   </a>
@@ -1292,10 +1281,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#airgapped_gpus-semantics" class="md-nav__link">
+  <a href="#storage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        airgapped_gpus semantics
+        Storage
       
     </span>
   </a>
@@ -1303,10 +1292,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#veto-list-additions" class="md-nav__link">
+  <a href="#values" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Veto list additions
+        Values
       
     </span>
   </a>
@@ -1319,10 +1308,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#wiring" class="md-nav__link">
+  <a href="#admin-api" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Wiring
+        Admin API
       
     </span>
   </a>
@@ -1330,10 +1319,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dockermd-heavy-workload-profile-guidance" class="md-nav__link">
+  <a href="#dispatch-consumption" class="md-nav__link">
     <span class="md-ellipsis">
       
-        DOCKER.md: heavy-workload profile guidance
+        Dispatch consumption
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dispatch consumption">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#freshness-effective-on-the-next-dispatch-no-reconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Freshness: effective on the next dispatch, no reconnect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-analysis-delta-from-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security analysis (delta from today)
       
     </span>
   </a>
@@ -1382,160 +1410,206 @@
   
 
 
-<h1 id="spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory">Spec: airgapped capability knobs — GPUs, read-only mounts, shared memory<a class="headerlink" href="#spec-airgapped-capability-knobs-gpus-read-only-mounts-shared-memory" title="Permanent link">&para;</a></h1>
-<p><strong>Date:</strong> 2026-07-16 · <strong>Status:</strong> draft for review (follow-up to the
-docker-airgapped runner, #130) · <strong>Motivating use case:</strong> data- and
-compute-heavy workloads inside the airgapped sandbox.</p>
+<h1 id="spec-server-side-worker-metadata-control-plane-facts-in-affinityscore">Spec: server-side worker metadata — control-plane facts in affinity/score()<a class="headerlink" href="#spec-server-side-worker-metadata-control-plane-facts-in-affinityscore" title="Permanent link">&para;</a></h1>
+<p><strong>Date:</strong> 2026-07-20 · <strong>Status:</strong> draft for review (issue #138)
+· <strong>Motivating use case:</strong> routing inputs the control plane asserts
+<em>about</em> a worker — authoritative, numeric, hot-updatable — alongside the
+labels a worker advertises about itself.</p>
 <h2 id="motivation">Motivation<a class="headerlink" href="#motivation" title="Permanent link">&para;</a></h2>
-<p>The <code>docker-airgapped</code> runner exists so untrusted (often model-authored)
-workflows can run with the stdio protocol as their <em>only</em> capability
-channel. Sealed processing of sensitive data is a natural workload for
-it — the whole point is that inputs and intermediate state never leave the
-box — but today the profile can't express what heavier workloads need:</p>
-<ul>
-<li><strong>GPUs</strong> work only by accident: <code>--gpus</code> is absent from
-  <code>_AIRGAPPED_VETOED_FLAGS</code>, so it slips through <code>airgapped_extra_args</code>.
-  Granting a capability by denylist omission is the wrong mechanism — it is
-  invisible, unaudited, and would be silently revoked if the flag were ever
-  added to the veto list.</li>
-<li><strong>Reference data</strong> must be baked into the image: <code>--network=none</code> rules
-  out runtime downloads and <code>--volume</code>/<code>--mount</code> are vetoed. Large
-  datasets change more often than code; forcing an image rebuild per
-  refresh pushes operators toward the unprotected <code>docker</code> runner — the
-  opposite of what the profile is for.</li>
-<li><strong>Shared memory</strong>: workloads that pass large buffers between processes
-  go through <code>/dev/shm</code>, and Docker's default is 64 MB. <code>--shm-size</code> also
-  slips through <code>extra_args</code> today — RAM allocation in disguise,
-  unaccounted next to <code>airgapped_memory</code>.</li>
-</ul>
-<h2 id="design-principle-named-knobs-not-veto-opt-outs">Design principle: named knobs, not veto opt-outs<a class="headerlink" href="#design-principle-named-knobs-not-veto-opt-outs" title="Permanent link">&para;</a></h2>
-<p>The runner name is a dispatch contract — the dynamic-workflows server
-stamps <code>require_runner="docker-airgapped"</code> and trusts any worker
-advertising it. Two rules keep the name meaningful:</p>
+<p>A worker's routing-relevant attributes today are <strong>self-advertised</strong>:
+labels and metrics applied at registration / heartbeat. That is the
+right channel for capability the worker declares about itself, and the
+wrong channel for three kinds of input:</p>
 <ol>
-<li><strong>The knob set is enumerated in code, not generic.</strong> Each knob is a
-   deliberate judgment that the isolation <em>output</em> guarantee survives it.
-   Capability channels (network, DNS, publish, privileged, caps, host
-   namespaces, writable mounts) are never knobs — operators who need those
-   switch to the plain <code>docker</code> runner, changing the <em>name</em> and therefore
-   the dispatched guarantee.</li>
-<li><strong>Each capability is grantable only through its named config key.</strong> The
-   raw flags (<code>--gpus</code>, <code>--shm-size</code>, and the already-vetoed mount flags)
-   are rejected in <code>airgapped_extra_args</code>, so a grep of <code>flux.toml</code> for
-   <code>airgapped_</code> shows exactly which surfaces were opened. Config choice,
-   not runtime surface: workflow authors (the adversary in this model)
-   never touch worker config.</li>
+<li><strong>Authority.</strong> A compromised or misconfigured worker can advertise
+   any label or metric. Some routing inputs (policy flags, quality
+   scores, drain hints) must be writable only by the control plane.</li>
+<li><strong>Update cadence.</strong> Labels change only at re-registration. Values
+   recomputed periodically by an operator or controller should take
+   effect on the next dispatch without bouncing the worker.</li>
+<li><strong>Type.</strong> Labels are string predicates. Centrally-computed values
+   are often numeric and want to participate in <code>score()</code> ranking, not
+   just equality filtering.</li>
 </ol>
-<p>CPU/RAM/pids/tmpfs/timeout already follow this pattern
-(<code>airgapped_memory</code>, <code>airgapped_cpus</code>, <code>airgapped_pids_limit</code>,
-<code>airgapped_tmp_size</code>, <code>airgapped_execution_timeout</code>) — resizable, never
-unset. This PR adds the three missing knobs.</p>
-<h2 id="new-config-keys-fluxworkers">New config keys (<code>[flux.workers]</code>)<a class="headerlink" href="#new-config-keys-fluxworkers" title="Permanent link">&para;</a></h2>
+<h2 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h2>
+<h3 id="a-third-worker-attribute-channel">A third worker attribute channel<a class="headerlink" href="#a-third-worker-attribute-channel" title="Permanent link">&para;</a></h3>
+<p>Workers gain <strong>metadata</strong>: a server-held <code>dict[str, str | float]</code>
+written exclusively through an authenticated admin API. It sits beside
+the two self-advertised channels and is consumed by dispatch through a
+dedicated selector, so the channels can never collide or spoof each
+other:</p>
 <table>
 <thead>
 <tr>
-<th>Key</th>
-<th>Type / default</th>
-<th>Emitted as</th>
+<th>channel</th>
+<th>written by</th>
+<th>selector</th>
+<th>typical use</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>airgapped_gpus</code></td>
-<td><code>str</code>, <code>""</code> (off)</td>
-<td><code>--gpus &lt;value&gt;</code> (e.g. <code>all</code>, <code>"device=0"</code>)</td>
+<td>labels</td>
+<td>worker (registration)</td>
+<td><code>label(key)</code></td>
+<td>capability, topology</td>
 </tr>
 <tr>
-<td><code>airgapped_mounts</code></td>
-<td><code>list[str]</code>, <code>[]</code></td>
-<td><code>--mount type=bind,source=&lt;src&gt;,target=&lt;dst&gt;,readonly</code> per entry</td>
+<td>metrics</td>
+<td>worker (heartbeat)</td>
+<td><code>metric(key)</code></td>
+<td>load, health signals</td>
 </tr>
 <tr>
-<td><code>airgapped_shm_size</code></td>
-<td><code>str</code>, <code>""</code> (docker default, 64m)</td>
-<td><code>--shm-size &lt;value&gt;</code></td>
+<td>metadata</td>
+<td>control plane (admin)</td>
+<td><code>meta(key)</code></td>
+<td>policy, weights, drain</td>
 </tr>
 </tbody>
 </table>
-<p>All three are emitted from <code>_locked_args()</code> — after <code>extra_args</code>, so
-docker's last-wins parsing keeps the profile authoritative.</p>
-<h3 id="airgapped_mounts-semantics"><code>airgapped_mounts</code> semantics<a class="headerlink" href="#airgapped_mounts-semantics" title="Permanent link">&para;</a></h3>
+<p>No reserved prefix is needed: <code>meta("x")</code> reads only the metadata dict,
+<code>label("x")</code> reads only labels. A worker that advertises a label named
+like a metadata key gains nothing — the selector namespaces are
+disjoint by construction. Workers have <strong>no write path</strong> to metadata:
+registration does not accept it and never touches the column, so it
+survives worker reconnect and re-registration unchanged.</p>
+<h3 id="storage">Storage<a class="headerlink" href="#storage" title="Permanent link">&para;</a></h3>
+<p>New nullable <code>workers.worker_metadata</code> column (<code>Base64Type</code>, matching
+<code>labels</code>/<code>metrics</code>), Alembic revision <code>0013_worker_metadata</code>, additive.
+Lifetime is the worker row's lifetime: there is no worker-delete API
+today, and if one is added the column goes with the row — no separate
+GC is required.</p>
+<h3 id="values">Values<a class="headerlink" href="#values" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Entry format <code>"/host/path:/container/path"</code>. Both paths must be
-  absolute. A trailing <code>:ro</code> is accepted (and redundant); any other
-  option — <code>rw</code> above all — is rejected at worker startup.</li>
-<li><strong>Read-only is forced by the runner</strong>, not trusted from config: the
-  emitted <code>--mount</code> always carries <code>readonly</code>. A read-only bind is an
-  <em>input</em> channel — data can enter the sandbox but still cannot leave
-  except through the worker-mediated stdio protocol.</li>
-<li>Validation at worker startup (fail fast, same philosophy as the docker
-  probe): absolute paths, host path exists, no duplicate targets, target
-  is not <code>/</code>.</li>
-<li>Security note (documented): mounted content is readable by <strong>every</strong>
-  airgapped workflow on that worker. Mount reference data and static
-  assets; never mount directories containing secrets.</li>
+<li>Keys: non-empty strings, ≤ 64 chars, same shape as label keys
+  (<code>[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?</code>). At most 64 keys per
+  worker.</li>
+<li>Values: strings (≤ 256 chars) or finite numbers. Numbers are stored
+  as <code>float</code>; booleans are accepted at the API edge and stored as
+  <code>"true"</code>/<code>"false"</code> strings, matching label conventions.</li>
 </ul>
-<h3 id="airgapped_gpus-semantics"><code>airgapped_gpus</code> semantics<a class="headerlink" href="#airgapped_gpus-semantics" title="Permanent link">&para;</a></h3>
+<p>Validation lives beside <code>validate_worker_metrics</code> in <code>flux/routing.py</code>
+(<code>validate_worker_metadata</code>) so the API edge and any future writers
+share one rule. Invalid payloads are a 400 — unlike metrics, metadata
+is an operator command channel, not a hint channel, so errors must
+surface, not drop.</p>
+<h2 id="admin-api">Admin API<a class="headerlink" href="#admin-api" title="Permanent link">&para;</a></h2>
+<p>All routes require <code>admin:workers:manage</code> (the existing worker-admin
+permission, already used for join tokens). Reads too: metadata is an
+operator control channel, and <code>GET /workers</code> already surfaces the
+values for general visibility.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>GET    /admin/workers/{name}/metadata            → {&quot;metadata&quot;: {...}}
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>PUT    /admin/workers/{name}/metadata            body {&quot;metadata&quot;: {...}, &quot;replace&quot;: false}
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>DELETE /admin/workers/{name}/metadata/{key}      → remaining metadata
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>DELETE /admin/workers/{name}/metadata            → {} (clear)
+</code></pre></div>
 <ul>
-<li>String passed through to <code>--gpus</code>. Empty = no GPU (today's effective
-  default, now explicit).</li>
-<li>A GPU is a compute device, not an exfiltration path; it is the knob that
-  makes GPU-accelerated sealed compute possible at all. Documented caveat:
-  GPUs are a shared-hardware side channel in the strictest threat models —
-  operators who care isolate at the worker level (one airgapped worker per
-  GPU tenant).</li>
+<li><code>PUT</code> merges by default (<code>replace=true</code> swaps the whole dict) and
+  returns the resulting metadata, so controllers can read-modify-write
+  without a second round trip.</li>
+<li>Unknown worker → 404. Invalid keys/values/counts → 400 with the
+  offending key in the message. Deleting an absent key is idempotent.</li>
+<li><code>GET /workers</code> and <code>GET /workers/{name}</code> gain a <code>metadata</code> field on
+  <code>WorkerResponse</code> — the read-back API for tooling, no new permission.</li>
 </ul>
-<h3 id="veto-list-additions">Veto list additions<a class="headerlink" href="#veto-list-additions" title="Permanent link">&para;</a></h3>
-<p><code>--gpus</code> and <code>--shm-size</code> join <code>_AIRGAPPED_VETOED_FLAGS</code>. This is the
-counterpart of making them knobs: the named key becomes the <em>only</em> grant
-path. (Both currently pass the veto — for <code>--gpus</code> that is exactly the
-accident this spec removes.)</p>
-<h2 id="wiring">Wiring<a class="headerlink" href="#wiring" title="Permanent link">&para;</a></h2>
+<h2 id="dispatch-consumption">Dispatch consumption<a class="headerlink" href="#dispatch-consumption" title="Permanent link">&para;</a></h2>
+<p>New selector in the routing DSL (<code>flux/routing.py</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">require</span><span class="p">,</span> <span class="n">score</span><span class="p">,</span> <span class="n">meta</span><span class="p">,</span> <span class="n">least</span><span class="p">,</span> <span class="n">most</span><span class="p">,</span> <span class="n">prefer</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">meta</span><span class="p">(</span><span class="s2">&quot;maintenance&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;true&quot;</span><span class="p">),</span>      <span class="c1"># hard filter</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>        <span class="n">most</span><span class="p">(</span><span class="n">meta</span><span class="p">(</span><span class="s2">&quot;weight&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span>                   <span class="c1"># numeric ranking</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>        <span class="n">prefer</span><span class="p">(</span><span class="n">meta</span><span class="p">(</span><span class="s2">&quot;tier&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;gold&quot;</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()),</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="p">),</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+</code></pre></div>
 <ul>
-<li><code>flux/config.py</code> — three new fields on the workers config.</li>
-<li><code>flux/runners/docker.py</code> — constructor params + validation +
-  <code>_locked_args()</code> emission; veto list additions.</li>
-<li><code>flux/runners/__init__.py</code> — pass the new config through (same shape as
-  the existing airgapped params).</li>
+<li><code>require(...)</code>: <code>meta(...)</code> comparisons join <code>label(...)</code>/
+  <code>label_for(...)</code> as valid terms, <code>==</code>/<code>!=</code> only, compared in string
+  form (numbers via <code>str(float)</code>; authors should filter on string
+  metadata and rank on numeric metadata). Fail-closed semantics are
+  unchanged: an absent key fails <code>==</code> and passes <code>!=</code> (the documented
+  inversion, which makes <code>meta("maintenance") != "true"</code> work without
+  seeding every worker). <code>optional()</code>/<code>when()</code> compose unchanged.
+  There is no dynamic <code>meta_for(...)</code> — metadata keys are static;
+  input-completed keys can be added later if a use case appears.</li>
+<li><code>score(...)</code>: <code>meta(...)</code> is valid in <code>prefer()</code> (equality) and in
+  <code>least()</code>/<code>most()</code> (numeric, 0–1 normalized across the eligible set
+  like every other term; non-numeric or absent values score 0).</li>
+<li>The AST extractors (<code>_extract_require</code>, <code>_extract_routing</code>) accept
+  <code>meta</code> exactly like <code>label</code>/<code>metric</code> — policies remain data, no user
+  code runs on the server.</li>
+<li>Static dict affinity (<code>affinity={"k": "v"}</code>) is untouched — it keeps
+  matching labels only.</li>
 </ul>
-<p>No server, dispatch, or protocol changes: the runner name and its
-guarantee semantics are unchanged.</p>
-<h2 id="dockermd-heavy-workload-profile-guidance">DOCKER.md: heavy-workload profile guidance<a class="headerlink" href="#dockermd-heavy-workload-profile-guidance" title="Permanent link">&para;</a></h2>
-<p>New section covering the sized-up setup end to end:</p>
+<h3 id="freshness-effective-on-the-next-dispatch-no-reconnect">Freshness: effective on the next dispatch, no reconnect<a class="headerlink" href="#freshness-effective-on-the-next-dispatch-no-reconnect" title="Permanent link">&para;</a></h3>
+<p>The event dispatcher ranks in-memory <code>WorkerInfo</code> snapshots taken at
+SSE connect, and admin writes can land on any replica. Two mechanisms
+keep dispatch honest:</p>
+<ol>
+<li><strong>Refresh inside the dispatch transaction.</strong> <code>next_executions_batch</code>
+   and <code>next_resumes_batch</code> load the candidate workers' metadata in one
+   PK-indexed query per batch and overwrite each <code>WorkerInfo.metadata</code>
+   before matching/scoring. The poll path (<code>next_execution</code>,
+   constrained branch) refreshes the polling worker the same way. This
+   makes "updates take effect on the next claim/dispatch" true by
+   construction on every replica, at the cost of one cheap query per
+   dispatch cycle.</li>
+<li><strong>Wake on write.</strong> The admin write also updates the local replica's
+   in-memory copies (<code>_worker_info</code>, <code>_worker_cache</code>) and sets the
+   dispatch wakeup (local <code>_work_available</code> + cross-replica NOTIFY), so
+   an execution parked waiting for <code>require(meta(...))</code> dispatches
+   promptly after the operator flips the value rather than on the next
+   fallback tick.</li>
+</ol>
+<h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
+<p>Sub-group under the existing <code>flux worker</code> group, server-side (unlike
+<code>pause</code>/<code>resume</code>, which drive the local control socket):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>flux worker metadata show  NAME
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>flux worker metadata set   NAME key=value [key=value ...] [--string] [--replace]
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>flux worker metadata unset NAME KEY
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>flux worker metadata clear NAME
+</code></pre></div>
+<p><code>set</code> parses values as numbers when they look numeric (<code>--string</code>
+forces string typing); <code>--replace</code> swaps the dict instead of merging.
+Output is the resulting metadata as JSON, matching the other admin
+groups.</p>
+<h2 id="security-analysis-delta-from-today">Security analysis (delta from today)<a class="headerlink" href="#security-analysis-delta-from-today" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Image recipe: <code>FROM flux:&lt;version&gt;</code> + the workload's libraries;
-  reference data comes from <code>airgapped_mounts</code>, not the image.</li>
-<li>Sizing: raise <code>airgapped_memory</code> / <code>airgapped_cpus</code> /
-  <code>airgapped_tmp_size</code> / <code>airgapped_execution_timeout</code>; set
-  <code>airgapped_shm_size</code> for workloads that pass large buffers between
-  processes. <strong>tmpfs pages (<code>/tmp</code>, <code>/dev/shm</code>) count against the
-  container's memory cgroup</strong> — <code>airgapped_memory</code> must cover process +
-  caches + shm.</li>
-<li>Read-only rootfs: point cache locations (<code>XDG_CACHE_HOME</code>, ...) at
-  <code>/tmp</code> via <code>airgapped_extra_args = ["--env", ...]</code>.</li>
-<li>Helper processes: <code>--network=none</code> keeps the container's own loopback,
-  so a workflow may spawn a helper server on <code>127.0.0.1</code> <em>inside</em> the
-  container — nothing is reachable from outside, and results still flow
-  only through the stdio protocol.</li>
+<li>Metadata is written only through <code>admin:workers:manage</code> routes; the
+  worker-facing surface (registration, pong, checkpoint) cannot touch
+  it. A hostile worker can therefore <em>observe</em> its metadata (via the
+  unpermissioned <code>GET /workers</code>, same as labels) but not change it.</li>
+<li>The <code>meta()</code> selector reads only the server-held dict, so no label or
+  metric a worker advertises can satisfy a <code>meta(...)</code> term — the
+  authoritative channel cannot be spoofed across the boundary.</li>
+<li>Values are bounded (count, key length, value length) at the API edge,
+  so the column cannot be grown without bound by a compromised admin
+  token any faster than any other admin write.</li>
 </ul>
 <h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Veto: <code>airgapped_extra_args</code> containing <code>--gpus</code> / <code>--shm-size</code> /
-  <code>--mount</code> (and <code>=</code>-joined forms) rejected at construction.</li>
-<li>Mounts: relative host or container path rejected; <code>rw</code> option rejected;
-  trailing <code>:ro</code> accepted; duplicate targets rejected; missing host path
-  rejected; emitted <code>--mount</code> string always contains <code>readonly</code>.</li>
-<li><code>_locked_args()</code> contains <code>--gpus</code>/<code>--shm-size</code>/<code>--mount</code> exactly when
-  configured, in the locked section (after extra_args in the assembled
-  command).</li>
-<li>Config plumbing: runner built from <code>[flux.workers]</code> keys carries the
-  values (mirrors existing airgapped construction tests).</li>
+<li>Unit: validation (<code>validate_worker_metadata</code>), registry CRUD +
+  survival across re-registration, <code>meta()</code> DSL factories + AST
+  extraction, <code>require_matches</code>/<code>pick_worker</code> with metadata (filtering,
+  ranking, absent-key semantics), admin route auth + 404/400 paths,
+  dispatch-time refresh (stale in-memory snapshot, fresh DB value
+  wins).</li>
+<li>Migration parity: <code>tests/flux/test_migrations.py</code> HEAD →
+  <code>0013_worker_metadata</code>.</li>
+<li>E2E: register a workflow with <code>affinity=require(meta("allowed") ==
+  "true")</code>; run it — execution stays queued; set the metadata via
+  <code>flux worker metadata set</code>; assert it dispatches and completes
+  without the worker reconnecting.</li>
 </ul>
 <h2 id="rollout-compatibility">Rollout / compatibility<a class="headerlink" href="#rollout-compatibility" title="Permanent link">&para;</a></h2>
-<p>Additive config; default behavior identical except that <code>--gpus</code> /
-<code>--shm-size</code> in <code>airgapped_extra_args</code> now fail worker startup with a
-pointer to the named key (previously they silently worked — any operator
-relying on that moves the value to the new key). Version: 0.60.0.</p>
+<p>Additive throughout: nullable column, new routes, new selector. Old
+workflows and workers are unaffected; a <code>meta(...)</code> policy evaluated
+against a fleet with no metadata behaves like any absent selector value
+(fails <code>==</code> requires, scores 0). No config knobs.</p>
 
 
 

@@ -21,7 +21,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -29,7 +29,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1120,6 +1120,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#server-side-worker-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server-Side Worker Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#beyond-hard-constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1541,6 +1552,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#server-side-worker-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server-Side Worker Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#beyond-hard-constraints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1725,6 +1747,11 @@ Same workflow, different eligible sets, zero catalog churn.</p>
   <code>flux.</code> label prefix is reserved (workers reject user labels under it),
   this is a capability grant a worker cannot fabricate. See
   <a href="../airgapped-execution/">Airgapped Execution</a>.</li>
+<li><code>meta(key) == value</code> / <code>meta(key) != value</code> — compare <strong>server-side
+  worker metadata</strong> (written through the admin API, never by the worker)
+  instead of a self-advertised label. Same <code>==</code>/<code>!=</code> semantics as <code>label</code>,
+  including the absent-≠-value inversion. See
+  <a href="#server-side-worker-metadata">Server-Side Worker Metadata</a> below.</li>
 <li><code>optional(term)</code> — skipped when its input is absent; a resolved
   comparison that is false still fails the match, and input that resolves
   to something invalid (bad label key, non-scalar, invalid service name)
@@ -1814,6 +1841,40 @@ an expression that cannot be statically extracted fails registration loudly
 rather than silently dropping a hard constraint.</p>
 <p>See <code>examples/affinity_expressions.py</code> for runnable data-locality, tenant
 isolation, and maintenance-window patterns.</p>
+<h2 id="server-side-worker-metadata">Server-Side Worker Metadata<a class="headerlink" href="#server-side-worker-metadata" title="Permanent link">&para;</a></h2>
+<p>Labels are the right channel for what a worker declares about itself; some
+routing inputs are facts the <strong>control plane</strong> asserts about a worker —
+policy flags, drain hints, centrally-computed scores. Worker <strong>metadata</strong> is
+a third attribute channel for exactly that: a server-held
+<code>dict[str, str | float]</code> written only through an authenticated admin API
+(<code>admin:workers:manage</code>) and consumed through the <code>meta(...)</code> selector.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>flux<span class="w"> </span>worker<span class="w"> </span>metadata<span class="w"> </span><span class="nb">set</span><span class="w">   </span>my-worker<span class="w"> </span><span class="nv">maintenance</span><span class="o">=</span><span class="nb">true</span><span class="w"> </span><span class="nv">weight</span><span class="o">=</span><span class="m">0</span>.8
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>flux<span class="w"> </span>worker<span class="w"> </span>metadata<span class="w"> </span>show<span class="w">  </span>my-worker
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>flux<span class="w"> </span>worker<span class="w"> </span>metadata<span class="w"> </span><span class="nb">unset</span><span class="w"> </span>my-worker<span class="w"> </span>maintenance
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>flux<span class="w"> </span>worker<span class="w"> </span>metadata<span class="w"> </span>clear<span class="w"> </span>my-worker
+</code></pre></div>
+<p>or over HTTP: <code>PUT /admin/workers/{name}/metadata</code> with
+<code>{"metadata": {"maintenance": "true"}, "replace": false}</code> (merge by
+default), <code>GET</code>/<code>DELETE</code> on the same path, and
+<code>DELETE .../metadata/{key}</code> for a single key. <code>GET /workers</code> surfaces the
+current values.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Soft-drain a worker without touching the worker or the workflows</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">meta</span><span class="p">(</span><span class="s2">&quot;maintenance&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;true&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Properties that distinguish metadata from labels:</p>
+<ul>
+<li><strong>Authoritative.</strong> Workers have no write path to it — registration never
+  touches it — and <code>meta(...)</code> reads only this dict, so no label or metric
+  a worker advertises can satisfy a <code>meta</code> term.</li>
+<li><strong>Hot.</strong> Updates take effect on the next dispatch: the dispatch
+  transaction re-reads the values, no worker re-registration or reconnect
+  involved.</li>
+<li><strong>Durable.</strong> Values survive worker reconnect and re-registration; they
+  live and die with the worker's registry row.</li>
+<li><strong>Numeric-capable.</strong> String values suit <code>require(...)</code> equality; numeric
+  values participate in <code>score()</code> ranking via <code>least(meta(...))</code> /
+  <code>most(meta(...))</code> — see <a href="../dynamic-routing/">Dynamic Routing</a>.</li>
+</ul>
 <h2 id="beyond-hard-constraints">Beyond Hard Constraints<a class="headerlink" href="#beyond-hard-constraints" title="Permanent link">&para;</a></h2>
 <p>Affinity decides which workers <em>can</em> run a workflow. To rank the eligible
 workers — by latency, load, locality, or custom metrics — add a scoring
@@ -1895,7 +1956,7 @@ comparison can be a hard wall in <code>require()</code> and a soft preference in
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.tabs.link", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
