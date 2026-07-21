@@ -100,6 +100,14 @@ class TestDsl:
         with pytest.raises(ValueError, match="metric\\(\\)"):
             require(metric("fitness") == 1)
 
+    @pytest.mark.parametrize("key", ["bad key!", "k" * 65, ".leading", "trailing."])
+    def test_unwritable_meta_keys_rejected_at_authoring(self, key):
+        # The admin API could never write these keys, so a term naming one
+        # would be permanently unsatisfiable — meta() must reject them with
+        # the same diagnostic as validate_worker_metadata.
+        with pytest.raises(ValueError, match="invalid metadata key"):
+            meta(key)
+
 
 class TestRequireMatches:
     def test_meta_term_reads_metadata_not_labels(self):
@@ -365,14 +373,15 @@ async def routed(ctx):
         assert routing["terms"][0]["selector"] == "meta:weight"
         assert routing["terms"][1]["selector"] == "meta:tier"
 
-    def test_invalid_meta_key_fails_registration(self):
-        source = b"""
+    @pytest.mark.parametrize("key", ["", "bad key!"])
+    def test_invalid_meta_key_fails_registration(self, key):
+        source = f"""
 from flux import workflow
 from flux.routing import require, meta
 
-@workflow.with_options(affinity=require(meta("") == "x"))
+@workflow.with_options(affinity=require(meta({key!r}) == "x"))
 async def broken(ctx):
     return ctx.input
-"""
+""".encode()
         with pytest.raises(SyntaxError, match="meta"):
             self._parse(source)

@@ -177,6 +177,11 @@ class Selector:
             raise ValueError(
                 f"unknown resource field '{key}'; expected one of {_RESOURCE_FIELDS}",
             )
+        if kind == "meta" and (len(key) > MAX_METADATA_KEY_LENGTH or not _LABEL_KEY_RE.match(key)):
+            # The admin API can never write such a key
+            # (validate_worker_metadata), so a term naming one would be
+            # permanently unsatisfiable — fail at authoring time instead.
+            raise ValueError(f"invalid metadata key: {key!r}")
         self.spec = f"{kind}:{key}"
 
     def __eq__(self, other: Any) -> Condition:  # type: ignore[override]
