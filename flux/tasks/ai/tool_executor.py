@@ -9,6 +9,7 @@ import typing
 from typing import Any, Union, get_type_hints
 from collections.abc import Callable
 
+from flux._concurrency import gather_batch
 from flux.errors import PauseRequested
 
 logger = logging.getLogger("flux.agent")
@@ -323,6 +324,9 @@ async def execute_tools(
             async with sem:
                 return await _run_one(call)
 
-        return list(await asyncio.gather(*[_limited(c) for c in tool_calls]))
+        return await gather_batch(_limited(c) for c in tool_calls)
 
-    return list(await asyncio.gather(*[_run_one(c) for c in tool_calls]))
+    # gather_batch, not asyncio.gather: an approval-gated tool raises
+    # PauseRequested out of this batch, and plain gather would leave the other
+    # tools in the same assistant turn running against a paused execution.
+    return await gather_batch(_run_one(c) for c in tool_calls)

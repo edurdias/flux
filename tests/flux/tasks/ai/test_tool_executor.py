@@ -468,3 +468,80 @@ def test_build_tools_preamble_includes_approval_section():
 def test_build_tools_preamble_no_approval_section_without_approval_tools():
     preamble = build_tools_preamble([search_web])
     assert "Tool Approval" not in preamble
+
+
+def test_pause_in_a_turn_drains_the_other_tools():
+    """An approval-gated tool suspends the turn; its siblings must not outlive it.
+
+    Durability over promptness: a sibling that can finish inside the drain
+    window does, so its terminal event is recorded and replay short-circuits it
+    on resume. What must never happen is a sibling still running after the
+    pause propagates -- it would checkpoint against an execution already
+    recorded PAUSED.
+    """
+    from flux import ExecutionContext, workflow
+    from flux.errors import PauseRequested
+
+    finished = {"sibling": False}
+
+    @task
+    async def sibling_tool() -> str:
+        await asyncio.sleep(0.2)
+        finished["sibling"] = True
+        return "too late"
+
+    @task
+    async def gated_tool() -> str:
+        raise PauseRequested(name="gate")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "sibling_tool", "arguments": {}},
+            {"id": "2", "name": "gated_tool", "arguments": {}},
+        ]
+        try:
+            await execute_tools(calls, [sibling_tool, gated_tool])
+        except PauseRequested:
+            # Already terminated: gather_batch does not re-raise until every
+            # member of the batch has finished or been cancelled.
+            return finished["sibling"]
+        return None
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded, ctx.output
+    assert ctx.output is True, "sibling tool was killed instead of drained"
+
+
+def test_pause_in_a_turn_drains_the_other_tools_when_bounded():
+    """Same contract on the max_concurrent path."""
+    from flux import ExecutionContext, workflow
+    from flux.errors import PauseRequested
+
+    finished = {"sibling": False}
+
+    @task
+    async def sibling_tool() -> str:
+        await asyncio.sleep(0.2)
+        finished["sibling"] = True
+        return "too late"
+
+    @task
+    async def gated_tool() -> str:
+        raise PauseRequested(name="gate")
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "sibling_tool", "arguments": {}},
+            {"id": "2", "name": "gated_tool", "arguments": {}},
+        ]
+        try:
+            await execute_tools(calls, [sibling_tool, gated_tool], max_concurrent=4)
+        except PauseRequested:
+            return finished["sibling"]
+        return None
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded, ctx.output
+    assert ctx.output is True, "sibling tool was killed instead of drained"
