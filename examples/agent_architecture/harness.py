@@ -69,13 +69,18 @@ async def fetch_news(symbol: str) -> list[str]:
 
 
 @task.with_options(secret_requests=[SECRET_NAME])
-async def sign_report(report: dict[str, Any], secrets: dict[str, Any] = {}) -> dict[str, Any]:
+async def sign_report(
+    report: dict[str, Any],
+    secrets: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Sign the report with an injected credential.
 
     The raw token is delivered only to this call and never stored in the
-    event log — only the derived signature is.
+    event log — only the derived signature is. The ``secrets`` kwarg is
+    always injected by the task runtime when ``secret_requests`` is set;
+    the ``None`` default only keeps the signature honest.
     """
-    token = secrets[SECRET_NAME]
+    token = (secrets or {})[SECRET_NAME]
     return {**report, "signature": f"hmac-sim-{len(token)}-{report['quote']['symbol']}"}
 
 
