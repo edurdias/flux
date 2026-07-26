@@ -529,3 +529,32 @@ class TestDynamicScoring:
             is a
         )
         assert pick_worker([a, b], policy, loads=loads, input_value={}, preferred="a") is b
+
+
+class TestWhenWorkerState:
+    """when() gating on meta()/metric(): dynamic per-worker state, evaluated
+    per candidate (unlike when(input(...)), which resolves once)."""
+
+    def test_when_meta_excludes_non_matching_worker_from_score(self):
+        from flux.routing import meta, when
+
+        gpu = WorkerInfo(name="gpu", metadata={"class": "gpu", "priority": 5})
+        cpu = WorkerInfo(name="cpu", metadata={"class": "cpu", "priority": 99})
+        policy = score(when(meta("class") == "gpu", most(meta("priority"))))
+
+        winner = pick_worker([gpu, cpu], policy, loads={})
+
+        # cpu is excluded from applies_to (its class isn't "gpu"), so it
+        # scores 0 regardless of its (higher) priority.
+        assert winner.name == "gpu"
+
+    def test_when_metric_excludes_worker_from_prefer(self):
+        from flux.routing import metric, when
+
+        busy = _worker("busy", metrics={"q": 200}, labels={"x": "1"})
+        idle = _worker("idle", metrics={"q": 5}, labels={"x": "1"})
+        policy = score(when(metric("q") < 100, prefer(label("x") == "1", weight=10)))
+
+        winner = pick_worker([busy, idle], policy, loads={})
+
+        assert winner.name == "idle"
