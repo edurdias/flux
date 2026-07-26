@@ -67,3 +67,15 @@ def test_human_resolution_is_also_verified():
     assert resumed.has_succeeded
     assert resumed.output["status"] == "rejected"
     assert resumed.output["outstanding"] == outstanding[1:]
+
+
+def test_malformed_resume_payload_resolves_nothing():
+    """A non-dict resume payload must not crash the loop — it counts as an
+    empty resolution and the run is rejected on the outstanding evidence."""
+    ctx = evidence_loop.run({"defect_count": 6, "max_attempts": 3})
+    assert ctx.is_paused
+
+    resumed = evidence_loop.resume(ctx.execution_id, "looks good to me")
+    assert resumed.has_succeeded
+    assert resumed.output["status"] == "rejected"
+    assert len(resumed.output["outstanding"]) == 4

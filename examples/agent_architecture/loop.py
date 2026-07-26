@@ -76,10 +76,16 @@ async def revise_document(document: dict[str, Any], evidence: list[str]) -> dict
 @task
 async def apply_human_resolution(
     document: dict[str, Any],
-    resolution: dict[str, Any],
+    resolution: Any,
 ) -> dict[str, Any]:
-    """Apply the checks a human marked as resolved during escalation."""
-    resolved = resolution.get("resolved", [])
+    """Apply the checks a human marked as resolved during escalation.
+
+    The resume payload is untrusted operator input, so anything that is
+    not a well-formed resolution counts as resolving nothing — the
+    verifier then rejects the run on evidence instead of crashing on a
+    malformed payload.
+    """
+    resolved = resolution.get("resolved", []) if isinstance(resolution, dict) else []
     remaining = [check for check in document["unresolved"] if check not in resolved]
     return {**document, "unresolved": remaining}
 
@@ -113,7 +119,7 @@ async def evidence_loop(ctx: ExecutionContext[dict]):
         output={"outstanding": evidence, "attempts": max_attempts},
     )
 
-    document = await apply_human_resolution(document, resolution or {})
+    document = await apply_human_resolution(document, resolution)
     evidence = await verify_document(document)
     if evidence:
         return {
