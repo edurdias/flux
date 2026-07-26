@@ -27,6 +27,17 @@ The contract is deliberately "cancel, then wait", not "wait":
 
 So siblings finish if they cannot be stopped and stop if they can, and either
 way nothing outlives the batch.
+
+Two consequences callers should know about:
+
+* **Cancellation is not pause-specific.** Any batch-ending exception cancels the
+  siblings, because ``flux/workflow.py`` records ``ctx.fail(...)`` and
+  checkpoints in the same ``finally`` as the pause path — a sibling outliving an
+  ordinary failure writes to an already-FAILED execution, the same defect.
+* **Batch siblings are at-least-once.** A sibling cancelled mid-body after its
+  side effect but before its terminal event is appended leaves no record, so
+  replay re-runs it, and its rollback does not fire. Prefer idempotent bodies
+  for work in a batch alongside anything that can pause or fail.
 """
 
 from __future__ import annotations
@@ -48,7 +59,24 @@ async def gather_batch(awaitables: Iterable[Awaitable[Any]]) -> list[Any]:
     retrieving the rest keeps asyncio from logging "Task exception was never
     retrieved" for them.
     """
-    tasks: list[asyncio.Task] = [asyncio.ensure_future(a) for a in awaitables]
+    # Materialise before scheduling anything. An iterable that raises part-way
+    # (``task.map(row for row in stream_rows())``) must not leave the members it
+    # already yielded running detached — that is the very orphan this helper
+    # exists to prevent, and scheduling inside the comprehension would create it.
+    materialised: list[Awaitable[Any]] = []
+    try:
+        for awaitable in awaitables:
+            materialised.append(awaitable)
+    except BaseException:
+        # Close what the iterable already produced so nothing is left as an
+        # un-awaited coroutine, then let the iterable's own error propagate.
+        for awaitable in materialised:
+            close = getattr(awaitable, "close", None)
+            if close is not None:
+                close()
+        raise
+
+    tasks: list[asyncio.Task] = [asyncio.ensure_future(a) for a in materialised]
     try:
         return list(await asyncio.gather(*tasks))
     except BaseException:

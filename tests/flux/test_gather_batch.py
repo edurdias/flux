@@ -77,6 +77,37 @@ def test_siblings_terminate_before_the_exception_propagates(raised):
     assert elapsed < 5, f"batch waited {elapsed:.1f}s on a cancellable sibling"
 
 
+def test_raising_iterable_schedules_nothing():
+    """An input iterable that raises part-way must not leave members running.
+
+    Scheduling inside the comprehension would create the exact orphan the helper
+    exists to prevent: the members the generator already yielded become live
+    detached tasks whose side effects land after the batch died.
+    """
+    ran = {"n": 0}
+
+    async def worker() -> int:
+        await asyncio.sleep(0.05)
+        ran["n"] += 1  # a side effect landing after the batch failed
+        return 1
+
+    def raising_gen():
+        yield worker()
+        yield worker()
+        raise ValueError("iterable blew up part-way")
+
+    async def main():
+        with pytest.raises(ValueError):
+            await gather_batch(raising_gen())
+        leftover = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        await asyncio.sleep(0.2)  # an orphan would finish during this window
+        return len(leftover), ran["n"]
+
+    leftover, side_effects = asyncio.run(main())
+    assert leftover == 0, "the raising iterable left scheduled tasks behind"
+    assert side_effects == 0, "an orphaned member ran after the batch failed"
+
+
 def test_sibling_exceptions_do_not_mask_the_original():
     """A sibling that raises while unwinding is consumed, not surfaced."""
 
@@ -150,6 +181,41 @@ def test_map_pause_surfaces_promptly():
     assert ctx.is_paused
     assert not finished["sibling"]
     assert elapsed < 5, f"pause was delayed {elapsed:.1f}s by a mapped sibling"
+
+
+def test_map_cancels_siblings_on_an_ordinary_failure_too():
+    """Cancellation is deliberately not pause-specific.
+
+    `flux/workflow.py` records `ctx.fail(...)` and checkpoints in the same
+    `finally` as the pause path, so a sibling outliving an ordinary failure
+    writes to an already-FAILED execution -- the same defect a pause causes.
+    This pins that decision: `map()` cancels siblings on any batch-ending
+    exception, matching `parallel()`. The cost is documented in
+    `flux/_concurrency.py`: a cancelled sibling records no terminal event, so
+    its rollback does not fire and replay re-runs it.
+    """
+    finished = {"sibling": False}
+
+    @task
+    async def fail_or_sleep(value: int) -> int:
+        if value == 0:
+            raise ValueError("boom")
+        await asyncio.sleep(0.2)
+        finished["sibling"] = True
+        return value
+
+    @workflow
+    async def wf(ctx: ExecutionContext):
+        try:
+            await fail_or_sleep.map([0, 1])
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+        return finished["sibling"]
+
+    ctx = wf.run()
+    assert ctx.has_succeeded, ctx.output
+    assert ctx.output is False, "mapped sibling ran on past an ordinary failure"
 
 
 def test_map_still_returns_results_in_order():

@@ -74,9 +74,10 @@ async def parallel(
 
     async def dropping(function: Coroutine[Any, Any, Any]) -> Any:
         # Pause and cancellation are control flow, not item failures — they
-        # must keep propagating (immediately, through the plain gather below)
-        # or a paused branch would silently become None. CancelledError and
-        # other BaseExceptions are not caught by `except Exception`.
+        # must keep propagating past this handler (gather_batch re-raises them
+        # once it has cancelled and drained the siblings) or a paused branch
+        # would silently become None. CancelledError and other BaseExceptions
+        # are not caught by `except Exception`.
         try:
             return await bounded(function)
         except PauseRequested:
