@@ -901,9 +901,17 @@ class ScheduleModel(Base):
     # Service account to run scheduled executions as (required when auth is enabled)
     run_as_service_account = Column(String, nullable=True)
 
+    # What a due fire does while this schedule's previous execution is still
+    # running. NULL on pre-existing rows and read as "allow" -- the historical
+    # behavior -- so upgrading never changes an existing schedule. Newly created
+    # schedules default to "skip".
+    overlap_policy = Column(String, nullable=True)
+
     # Statistics
     run_count = Column(Integer, nullable=False, default=0)
     failure_count = Column(Integer, nullable=False, default=0)
+    skipped_count = Column(Integer, nullable=False, default=0, server_default="0")
+    last_skipped_at = Column(DateTime, nullable=True)
 
     # Relationships
     workflow = relationship("WorkflowModel", backref="schedules")
@@ -928,6 +936,7 @@ class ScheduleModel(Base):
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
+        overlap_policy: str | None = None,
     ):
         self.workflow_id = workflow_id
         self.workflow_namespace = workflow_namespace
@@ -939,7 +948,17 @@ class ScheduleModel(Base):
         self.status = status
         self.input_data = input_data
         self.run_as_service_account = run_as_service_account
+        # An explicit argument wins; otherwise take the policy off the Schedule
+        # object. getattr guards schedules pickled before `overlap` existed.
+        self.overlap_policy = overlap_policy or getattr(schedule, "overlap", None)
         self.next_run_at = schedule.next_run_time()
+
+    @property
+    def effective_overlap_policy(self) -> str:
+        """The policy to enforce. NULL (pre-existing rows) reads as "allow"."""
+        from flux.domain.schedule import OVERLAP_ALLOW
+
+        return self.overlap_policy or OVERLAP_ALLOW
 
     def get_schedule(self) -> Schedule:
         """Get the Schedule object from stored configuration"""
@@ -963,14 +982,13 @@ class ScheduleModel(Base):
 
         return current_time >= self.next_run_at
 
-    def mark_run(self, run_time: datetime | None = None):
-        """Mark that the schedule was executed"""
-        if run_time is None:
-            run_time = datetime.now(timezone.utc)
+    def _advance(self, run_time: datetime):
+        """Move the schedule past ``run_time`` to its next occurrence.
 
-        self.last_run_at = run_time
-        self.run_count += 1
-
+        Shared by ``mark_run`` and ``mark_skipped``: a skipped occurrence has to
+        advance exactly like a dispatched one, or the schedule stays due and is
+        re-evaluated on every poll.
+        """
         # Sync the embedded schedule object state for IntervalSchedule
         schedule = self.get_schedule()
         from flux.domain.schedule import IntervalSchedule
@@ -981,6 +999,29 @@ class ScheduleModel(Base):
             self.schedule_config = schedule
 
         self.update_next_run()
+
+    def mark_run(self, run_time: datetime | None = None):
+        """Mark that the schedule was executed"""
+        if run_time is None:
+            run_time = datetime.now(timezone.utc)
+
+        self.last_run_at = run_time
+        self.run_count += 1
+        self._advance(run_time)
+
+    def mark_skipped(self, run_time: datetime | None = None):
+        """Mark that a due occurrence was skipped because the previous run is still active.
+
+        Deliberately does NOT touch ``last_run_at`` or ``run_count`` -- nothing
+        ran. The occurrence is counted separately so a schedule quietly skipping
+        every fire is visible rather than looking idle.
+        """
+        if run_time is None:
+            run_time = datetime.now(timezone.utc)
+
+        self.last_skipped_at = run_time
+        self.skipped_count = (self.skipped_count or 0) + 1
+        self._advance(run_time)
 
     def mark_failure(self):
         """Mark that the schedule execution failed"""

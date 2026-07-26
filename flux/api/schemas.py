@@ -91,6 +91,9 @@ class ScheduleRequest(BaseModel):
     description: str | None = None
     input_data: Any | None = None
     run_as_service_account: str | None = None
+    # "skip" | "allow". None lets the schedule_config's own policy decide,
+    # falling back to "skip" for newly created schedules.
+    overlap_policy: str | None = None
 
 
 class ScheduleResponse(BaseModel):
@@ -110,6 +113,9 @@ class ScheduleResponse(BaseModel):
     next_run_at: str | None
     run_count: int
     failure_count: int
+    skipped_count: int = 0
+    last_skipped_at: str | None = None
+    overlap_policy: str = "allow"
     run_as_service_account: str | None = None
 
 

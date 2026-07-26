@@ -27,14 +27,34 @@ class ScheduleStatus(Enum):
     DISABLED = "disabled"
 
 
+#: What a due fire does when the schedule's previous execution is still running.
+#: ``skip`` drops this occurrence and advances to the next; ``allow`` dispatches
+#: anyway, which is the historical behavior.
+OVERLAP_SKIP = "skip"
+OVERLAP_ALLOW = "allow"
+OVERLAP_POLICIES = (OVERLAP_SKIP, OVERLAP_ALLOW)
+
+
+def validate_overlap(policy: str) -> str:
+    if policy not in OVERLAP_POLICIES:
+        raise ValueError(
+            f"overlap must be one of {', '.join(OVERLAP_POLICIES)}, got: '{policy}'",
+        )
+    return policy
+
+
 class Schedule(ABC):
     """Abstract base class for all schedule types"""
 
-    def __init__(self, timezone: str = "UTC"):
+    def __init__(self, timezone: str = "UTC", overlap: str = OVERLAP_SKIP):
         """Initialize schedule with timezone
 
         Args:
             timezone: Timezone for schedule execution (default: UTC)
+            overlap: What a due fire does while the previous execution is still
+                running -- "skip" (default) drops the occurrence, "allow"
+                dispatches anyway. Schedules created before this option existed
+                read as "allow", so upgrading changes no existing behavior.
         """
         # Reject "local" timezone as it's not portable across systems
         if timezone == "local":
@@ -50,6 +70,7 @@ class Schedule(ABC):
             raise ValueError(f"Invalid timezone '{timezone}': {e}")
 
         self.timezone = timezone
+        self.overlap = validate_overlap(overlap)
 
     @property
     @abstractmethod
@@ -96,14 +117,15 @@ class Schedule(ABC):
 class CronSchedule(Schedule):
     """Cron-based schedule implementation"""
 
-    def __init__(self, cron_expression: str, timezone: str = "UTC"):
+    def __init__(self, cron_expression: str, timezone: str = "UTC", overlap: str = OVERLAP_SKIP):
         """Initialize cron schedule
 
         Args:
             cron_expression: Standard cron expression (5 or 6 fields)
             timezone: Timezone for schedule execution
+            overlap: "skip" (default) or "allow" -- see Schedule
         """
-        super().__init__(timezone)
+        super().__init__(timezone, overlap)
 
         if not self._is_valid_cron(cron_expression):
             raise ValueError(f"Invalid cron expression: {cron_expression}")
@@ -166,6 +188,7 @@ class CronSchedule(Schedule):
             "type": ScheduleType.CRON.value,
             "cron_expression": self.cron_expression,
             "timezone": self.timezone,
+            "overlap": self.overlap,
         }
 
     @classmethod
@@ -174,6 +197,7 @@ class CronSchedule(Schedule):
         return cls(
             cron_expression=data["cron_expression"],
             timezone=data.get("timezone", "UTC"),
+            overlap=data.get("overlap", OVERLAP_SKIP),
         )
 
 
@@ -190,6 +214,7 @@ class IntervalSchedule(Schedule):
         timezone: str = "UTC",
         start_time: datetime | None = None,
         end_time: datetime | None = None,
+        overlap: str = OVERLAP_SKIP,
     ):
         """Initialize interval schedule
 
@@ -202,8 +227,9 @@ class IntervalSchedule(Schedule):
             timezone: Timezone for schedule execution
             start_time: Optional start time for the schedule
             end_time: Optional end time for the schedule
+            overlap: "skip" (default) or "allow" -- see Schedule
         """
-        super().__init__(timezone)
+        super().__init__(timezone, overlap)
 
         self.interval = timedelta(
             seconds=seconds,
@@ -272,6 +298,7 @@ class IntervalSchedule(Schedule):
             "type": ScheduleType.INTERVAL.value,
             "interval_seconds": int(self.interval.total_seconds()),
             "timezone": self.timezone,
+            "overlap": self.overlap,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "last_run_time": self.last_run_time.isoformat() if self.last_run_time else None,
@@ -283,6 +310,7 @@ class IntervalSchedule(Schedule):
         instance = cls(
             seconds=data.get("interval_seconds", 0),
             timezone=data.get("timezone", "UTC"),
+            overlap=data.get("overlap", OVERLAP_SKIP),
             start_time=datetime.fromisoformat(data["start_time"])
             if data.get("start_time")
             else None,
@@ -298,14 +326,15 @@ class IntervalSchedule(Schedule):
 class OnceSchedule(Schedule):
     """One-time schedule for specific datetime execution"""
 
-    def __init__(self, run_time: datetime, timezone: str = "UTC"):
+    def __init__(self, run_time: datetime, timezone: str = "UTC", overlap: str = OVERLAP_SKIP):
         """Initialize one-time schedule
 
         Args:
             run_time: Specific time to run the workflow
             timezone: Timezone for schedule execution
+            overlap: "skip" (default) or "allow" -- see Schedule
         """
-        super().__init__(timezone)
+        super().__init__(timezone, overlap)
         self.run_time = run_time
         self.executed = False
 
@@ -359,6 +388,7 @@ class OnceSchedule(Schedule):
             "type": ScheduleType.ONCE.value,
             "run_time": self.run_time.isoformat(),
             "timezone": self.timezone,
+            "overlap": self.overlap,
             "executed": self.executed,
         }
 
@@ -368,12 +398,13 @@ class OnceSchedule(Schedule):
         instance = cls(
             run_time=datetime.fromisoformat(data["run_time"]),
             timezone=data.get("timezone", "UTC"),
+            overlap=data.get("overlap", OVERLAP_SKIP),
         )
         instance.executed = data.get("executed", False)
         return instance
 
 
-def cron(expression: str, timezone: str = "UTC") -> CronSchedule:
+def cron(expression: str, timezone: str = "UTC", overlap: str = OVERLAP_SKIP) -> CronSchedule:
     """Create a cron schedule
 
     Args:
@@ -383,7 +414,7 @@ def cron(expression: str, timezone: str = "UTC") -> CronSchedule:
     Returns:
         CronSchedule instance
     """
-    return CronSchedule(expression, timezone)
+    return CronSchedule(expression, timezone, overlap)
 
 
 def interval(
@@ -395,6 +426,7 @@ def interval(
     timezone: str = "UTC",
     start_time: datetime | None = None,
     end_time: datetime | None = None,
+    overlap: str = OVERLAP_SKIP,
 ) -> IntervalSchedule:
     """Create an interval schedule
 
@@ -420,10 +452,11 @@ def interval(
         timezone=timezone,
         start_time=start_time,
         end_time=end_time,
+        overlap=overlap,
     )
 
 
-def once(run_time: datetime, timezone: str = "UTC") -> OnceSchedule:
+def once(run_time: datetime, timezone: str = "UTC", overlap: str = OVERLAP_SKIP) -> OnceSchedule:
     """Create a one-time schedule
 
     Args:
@@ -433,7 +466,7 @@ def once(run_time: datetime, timezone: str = "UTC") -> OnceSchedule:
     Returns:
         OnceSchedule instance
     """
-    return OnceSchedule(run_time, timezone)
+    return OnceSchedule(run_time, timezone, overlap)
 
 
 def schedule_factory(data: dict[str, Any]) -> Schedule:

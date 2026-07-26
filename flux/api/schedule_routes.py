@@ -62,6 +62,13 @@ class ScheduleRoutesMixin:
                 next_run_at=schedule.next_run_at.isoformat() if schedule.next_run_at else None,
                 run_count=schedule.run_count,
                 failure_count=schedule.failure_count,
+                skipped_count=getattr(schedule, "skipped_count", 0) or 0,
+                last_skipped_at=(
+                    schedule.last_skipped_at.isoformat()
+                    if getattr(schedule, "last_skipped_at", None)
+                    else None
+                ),
+                overlap_policy=schedule.effective_overlap_policy,
                 run_as_service_account=getattr(schedule, "run_as_service_account", None),
             )
 
@@ -163,6 +170,14 @@ class ScheduleRoutesMixin:
                 # Create schedule from configuration
                 schedule = schedule_factory(request.schedule_config)
 
+                if request.overlap_policy is not None:
+                    from flux.domain.schedule import validate_overlap
+
+                    try:
+                        validate_overlap(request.overlap_policy)
+                    except ValueError as ex:
+                        raise HTTPException(status_code=400, detail=str(ex))
+
                 # Create schedule via manager
                 schedule_manager = create_schedule_manager()
                 schedule_model = schedule_manager.create_schedule(
@@ -174,6 +189,7 @@ class ScheduleRoutesMixin:
                     description=request.description,
                     input_data=request.input_data,
                     run_as_service_account=request.run_as_service_account,
+                    overlap_policy=request.overlap_policy,
                 )
 
                 logger.info(

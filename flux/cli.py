@@ -1639,6 +1639,15 @@ def schedule():
     help="Service account to run the schedule as (required when auth is enabled)",
 )
 @click.option(
+    "--overlap",
+    type=click.Choice(["skip", "allow"]),
+    default="skip",
+    help=(
+        "What a due fire does while the previous execution is still running: "
+        "skip it (default) or dispatch anyway"
+    ),
+)
+@click.option(
     "--format",
     "-f",
     type=click.Choice(["simple", "json"]),
@@ -1661,6 +1670,7 @@ def create_schedule(
     description: str | None,
     input: str | None,
     run_as: str | None,
+    overlap: str,
     format: str,
     server_url: str | None,
 ):
@@ -1708,6 +1718,7 @@ def create_schedule(
             "description": description,
             "input_data": input_data,
             "run_as_service_account": run_as,
+            "overlap_policy": overlap,
         }
 
         base_url = server_url or get_server_url()
@@ -1725,6 +1736,7 @@ def create_schedule(
             )
             click.echo(f"Schedule ID: {result['id']}")
             click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
+            click.echo(f"On overlap: {result.get('overlap_policy', 'allow')}")
 
     except Exception as ex:
         click.echo(f"Error creating schedule: {str(ex)}", err=True)
@@ -1837,6 +1849,16 @@ def show_schedule(schedule_id: str, format: str, server_url: str | None):
             click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
             click.echo(f"Total runs: {schedule['run_count']}")
             click.echo(f"Failures: {schedule['failure_count']}")
+            click.echo(f"On overlap: {schedule.get('overlap_policy', 'allow')}")
+            skipped = schedule.get("skipped_count", 0)
+            if skipped:
+                # Only shown when non-zero: a schedule skipping every fire looks
+                # idle otherwise, since a skip produces no execution and history
+                # is derived from executions.
+                click.echo(
+                    f"Skipped (overlap): {skipped}"
+                    f" | last: {schedule.get('last_skipped_at', 'never')}",
+                )
 
             if schedule.get("description"):
                 click.echo(f"Description: {schedule['description']}")

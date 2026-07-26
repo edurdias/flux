@@ -18,6 +18,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from flux import ExecutionContext
 from flux.catalogs import WorkflowCatalog, WorkflowInfo
 from flux.config import Configuration
+from flux.domain.schedule import OVERLAP_SKIP
 from flux.workflow import workflow
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
@@ -1019,6 +1020,22 @@ class Server(
                         # Trigger each due schedule
                         for schedule in due_schedules:
                             try:
+                                # Overlap guard. Inside the dispatch lock, so the
+                                # check-then-dispatch pair cannot interleave with
+                                # another replica firing the same schedule. The
+                                # skip still advances next_run_at -- otherwise the
+                                # schedule stays due and is re-checked every poll.
+                                if (
+                                    schedule.effective_overlap_policy == OVERLAP_SKIP
+                                    and schedule_manager.has_active_execution(schedule.id)
+                                ):
+                                    logger.info(
+                                        f"Skipping schedule '{schedule.name}': previous "
+                                        "execution is still running (overlap policy: skip)",
+                                    )
+                                    schedule_manager.record_skip(schedule.id, current_time)
+                                    continue
+
                                 await self._trigger_scheduled_workflow(schedule, current_time)
                             except Exception as e:
                                 # The trigger path already recorded the failure before

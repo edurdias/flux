@@ -48,6 +48,7 @@ class ScheduleManager(ABC):
         input_data: Any = None,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
+        overlap_policy: str | None = None,
     ) -> ScheduleModel:
         """Create a new schedule"""
         pass
@@ -129,6 +130,16 @@ class ScheduleManager(ABC):
         pass
 
     @abstractmethod
+    def has_active_execution(self, schedule_id: str) -> bool:
+        """True when an execution this schedule started has not reached a terminal state."""
+        pass
+
+    @abstractmethod
+    def record_skip(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist a skipped occurrence: count it and advance next_run_at."""
+        pass
+
+    @abstractmethod
     def get_schedule_history(
         self,
         schedule_id: str,
@@ -155,6 +166,7 @@ class DatabaseScheduleManager(ScheduleManager):
         input_data: Any = None,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
+        overlap_policy: str | None = None,
     ) -> ScheduleModel:
         """Create a new schedule"""
         try:
@@ -183,6 +195,7 @@ class DatabaseScheduleManager(ScheduleManager):
                     description=description,
                     input_data=input_data,
                     run_as_service_account=run_as_service_account,
+                    overlap_policy=overlap_policy,
                 )
 
                 session.add(schedule_model)
@@ -452,6 +465,64 @@ class DatabaseScheduleManager(ScheduleManager):
         except Exception:
             logger.error(
                 f"Failed to record run for schedule '{schedule_id}'",
+                exc_info=True,
+            )
+
+    def has_active_execution(self, schedule_id: str) -> bool:
+        """True when an execution this schedule started has not reached a terminal state.
+
+        Executions carry their originating ``schedule_id`` (indexed), so this is
+        a single bounded lookup rather than a scan. Called inside the dispatch
+        lock, which is what makes the check-then-dispatch sequence safe against
+        another replica firing the same schedule concurrently.
+
+        Fails **open** (returns False, so the schedule dispatches) — a lookup
+        error must not silently stop a schedule from ever running again.
+        """
+        from flux.domain.events import ExecutionState
+
+        terminal = (
+            ExecutionState.COMPLETED,
+            ExecutionState.FAILED,
+            ExecutionState.CANCELLED,
+        )
+        try:
+            with self._repository.session() as session:
+                return (
+                    session.query(ExecutionContextModel.execution_id)
+                    .filter(
+                        ExecutionContextModel.schedule_id == schedule_id,
+                        ExecutionContextModel.state.notin_(terminal),
+                    )
+                    .first()
+                    is not None
+                )
+        except Exception:
+            logger.error(
+                f"Overlap check failed for schedule '{schedule_id}'; dispatching anyway",
+                exc_info=True,
+            )
+            return False
+
+    def record_skip(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist a skipped occurrence and advance to the next one.
+
+        Never raises — see ``record_run``. Advancing matters: without it the
+        schedule stays due and is re-evaluated on every poll.
+        """
+        try:
+            with self._repository.session() as session:
+                model = session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
+                if model is None:
+                    logger.warning(
+                        f"Schedule '{schedule_id}' disappeared before its skip could be recorded",
+                    )
+                    return
+                model.mark_skipped(run_time)
+                session.commit()
+        except Exception:
+            logger.error(
+                f"Failed to record skip for schedule '{schedule_id}'",
                 exc_info=True,
             )
 
