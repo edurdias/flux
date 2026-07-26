@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import Any
 from collections.abc import Callable
 
+from flux._concurrency import gather_batch
 from flux.errors import PauseRequested
 from flux.task import task
 
@@ -84,17 +85,10 @@ async def parallel(
             return None
 
     runner = bounded if raise_on_error else dropping
-    tasks: list[asyncio.Task] = [asyncio.create_task(runner(f)) for f in functions]
-    try:
-        return await asyncio.gather(*tasks)
-    except BaseException:
-        # A propagated failure/pause/cancellation discards the batch — stop
-        # the siblings too, or they would keep running (and emitting events)
-        # after the workflow has already failed or paused past this point.
-        for pending in tasks:
-            pending.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        raise
+    # A propagated failure/pause/cancellation discards the batch — gather_batch
+    # stops the siblings too, or they would keep running (and emitting events)
+    # after the workflow has already failed or paused past this point.
+    return await gather_batch(runner(f) for f in functions)
 
 
 @task
