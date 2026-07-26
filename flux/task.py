@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
+from flux._concurrency import gather_batch
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
@@ -704,7 +705,10 @@ class task:
         await ctx.checkpoint()
 
     async def map(self, args):
-        return await asyncio.gather(*(self(arg) for arg in args))
+        # gather_batch, not asyncio.gather: a mapped call that pauses (an
+        # approval gate, a pause() inside the body) must not leave its
+        # siblings running against a paused execution.
+        return await gather_batch(self(arg) for arg in args)
 
     async def __handle_exception(
         self,
