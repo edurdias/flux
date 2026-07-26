@@ -470,13 +470,14 @@ def test_build_tools_preamble_no_approval_section_without_approval_tools():
     assert "Tool Approval" not in preamble
 
 
-def test_pause_in_a_turn_stops_the_other_tools():
-    """An approval-gated tool suspends the turn; its siblings must not run on.
+def test_pause_in_a_turn_drains_the_other_tools():
+    """An approval-gated tool suspends the turn; its siblings must not outlive it.
 
-    The observation window matters: the pause is caught *inside* the workflow so
-    the event loop stays alive past it, exactly as it does on a worker. A
-    sibling left running by a plain ``asyncio.gather`` would finish during the
-    sleep below and checkpoint against an execution already recorded PAUSED.
+    Durability over promptness: a sibling that can finish inside the drain
+    window does, so its terminal event is recorded and replay short-circuits it
+    on resume. What must never happen is a sibling still running after the
+    pause propagates -- it would checkpoint against an execution already
+    recorded PAUSED.
     """
     from flux import ExecutionContext, workflow
     from flux.errors import PauseRequested
@@ -502,17 +503,17 @@ def test_pause_in_a_turn_stops_the_other_tools():
         try:
             await execute_tools(calls, [sibling_tool, gated_tool])
         except PauseRequested:
-            pass
-        # Longer than the sibling's own runtime: an orphan would finish here.
-        await asyncio.sleep(0.5)
-        return finished["sibling"]
+            # Already terminated: gather_batch does not re-raise until every
+            # member of the batch has finished or been cancelled.
+            return finished["sibling"]
+        return None
 
     ctx = test_wf.run()
     assert ctx.has_succeeded, ctx.output
-    assert ctx.output is False, "sibling tool ran on past the pause"
+    assert ctx.output is True, "sibling tool was killed instead of drained"
 
 
-def test_pause_in_a_turn_stops_the_other_tools_when_bounded():
+def test_pause_in_a_turn_drains_the_other_tools_when_bounded():
     """Same contract on the max_concurrent path."""
     from flux import ExecutionContext, workflow
     from flux.errors import PauseRequested
@@ -538,10 +539,9 @@ def test_pause_in_a_turn_stops_the_other_tools_when_bounded():
         try:
             await execute_tools(calls, [sibling_tool, gated_tool], max_concurrent=4)
         except PauseRequested:
-            pass
-        await asyncio.sleep(0.5)
-        return finished["sibling"]
+            return finished["sibling"]
+        return None
 
     ctx = test_wf.run()
     assert ctx.has_succeeded, ctx.output
-    assert ctx.output is False, "sibling tool ran on past the pause"
+    assert ctx.output is True, "sibling tool was killed instead of drained"

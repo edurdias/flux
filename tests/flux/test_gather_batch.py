@@ -125,13 +125,13 @@ def test_sibling_exceptions_do_not_mask_the_original():
 # -- task.map() ----------------------------------------------------------------
 
 
-def test_map_pause_stops_siblings():
-    """A mapped call that pauses must not leave the rest of the map running.
+def test_map_pause_drains_siblings_before_propagating():
+    """A sibling that can finish inside the drain window is allowed to finish.
 
-    The pause is caught inside the workflow so the event loop outlives it — as
-    it does on a worker. Asserting from outside ``wf.run()`` would prove
-    nothing: ``asyncio.run`` cancels stragglers at loop close and would mask an
-    orphan.
+    Durability over promptness: killing a nearly-done sibling would leave its
+    side effect applied but unrecorded, so replay would repeat it. Draining
+    records it instead. The pause is caught inside the workflow so the loop
+    outlives it, as it does on a worker.
     """
     finished = {"sibling": False}
 
@@ -148,14 +148,36 @@ def test_map_pause_stops_siblings():
         try:
             await gate_or_sleep.map([0, 1])
         except PauseRequested:
-            pass
-        # Longer than the sibling's own runtime: an orphan would finish here.
-        await asyncio.sleep(0.5)
-        return finished["sibling"]
+            # The sibling must already be done: gather_batch does not re-raise
+            # until every member has terminated.
+            return finished["sibling"]
+        return None
 
     ctx = wf.run()
     assert ctx.has_succeeded, ctx.output
-    assert ctx.output is False, "mapped sibling ran on past the pause"
+    assert ctx.output is True, "sibling was killed instead of drained"
+
+
+def test_straggler_past_the_bound_is_cancelled():
+    """The drain is bounded -- a sibling that outlives it is still cancelled."""
+    finished = {"slow": False}
+
+    async def slow() -> str:
+        await asyncio.sleep(10)
+        finished["slow"] = True
+        return "too late"
+
+    async def failing() -> str:
+        await asyncio.sleep(0)
+        raise ValueError("boom")
+
+    start = time.monotonic()
+    with pytest.raises(ValueError):
+        asyncio.run(gather_batch([slow(), failing()], drain_timeout=0.05))
+    elapsed = time.monotonic() - start
+
+    assert not finished["slow"], "straggler was not cancelled at the bound"
+    assert elapsed < 5, f"bounded drain took {elapsed:.1f}s"
 
 
 def test_map_pause_surfaces_promptly():
@@ -183,16 +205,15 @@ def test_map_pause_surfaces_promptly():
     assert elapsed < 5, f"pause was delayed {elapsed:.1f}s by a mapped sibling"
 
 
-def test_map_cancels_siblings_on_an_ordinary_failure_too():
-    """Cancellation is deliberately not pause-specific.
+def test_map_drains_siblings_on_an_ordinary_failure_too():
+    """The drain is deliberately not pause-specific.
 
     `flux/workflow.py` records `ctx.fail(...)` and checkpoints in the same
     `finally` as the pause path, so a sibling outliving an ordinary failure
     writes to an already-FAILED execution -- the same defect a pause causes.
-    This pins that decision: `map()` cancels siblings on any batch-ending
-    exception, matching `parallel()`. The cost is documented in
-    `flux/_concurrency.py`: a cancelled sibling records no terminal event, so
-    its rollback does not fire and replay re-runs it.
+    This pins that decision: the drain applies uniformly, so a sibling that can
+    finish does -- which is what lets its rollback and terminal event run. Only
+    stragglers past the bound are cancelled.
     """
     finished = {"sibling": False}
 
@@ -209,13 +230,12 @@ def test_map_cancels_siblings_on_an_ordinary_failure_too():
         try:
             await fail_or_sleep.map([0, 1])
         except Exception:
-            pass
-        await asyncio.sleep(0.5)
-        return finished["sibling"]
+            return finished["sibling"]
+        return None
 
     ctx = wf.run()
     assert ctx.has_succeeded, ctx.output
-    assert ctx.output is False, "mapped sibling ran on past an ordinary failure"
+    assert ctx.output is True, "sibling was killed instead of drained on failure"
 
 
 def test_map_still_returns_results_in_order():
