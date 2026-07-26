@@ -338,6 +338,7 @@ def worker_matches(
                 worker.labels,
                 input_value,
                 worker_metadata=getattr(worker, "metadata", None),
+                worker_metrics=getattr(worker, "metrics", None),
             ):
                 return False
         elif not ResourceRequest.matches_labels(worker.labels, affinity):

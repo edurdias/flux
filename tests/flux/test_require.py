@@ -11,6 +11,8 @@ from flux.routing import (
     label,
     label_for,
     least,
+    meta,
+    metric,
     most,
     optional,
     prefer,
@@ -126,8 +128,10 @@ class TestRequireCompile:
             service(42)
         assert service("small-8b")["selector"] == "label:flux.service.small-8b"
 
-    def test_when_condition_must_be_input_condition(self):
-        with pytest.raises(ValueError, match="input"):
+    def test_when_condition_rejects_label(self):
+        # label() is static capability, not dynamic worker state; when()
+        # conditions are input(...)/meta(...)/metric() only.
+        with pytest.raises(ValueError, match="not valid when"):
             when(label("x") == "y", label("a") == "b")
 
     def test_input_condition_ops_and_values(self):
@@ -435,3 +439,64 @@ class TestWorkerMatchesSpecBranch:
         worker = self._worker({"gpu": "a100"})
         assert worker_matches(worker, None, {"gpu": "a100"})
         assert not worker_matches(worker, None, {"gpu": "h100"})
+
+
+class TestRequireMetaOrderedOps:
+    """meta() terms allow the full ordered-op set (metadata is properly
+    typed str|number); label() stays ==/!= only."""
+
+    def test_meta_ordered_op_matches_and_fails_closed_on_absent(self):
+        spec = require(meta("health") >= 0.8)
+        assert require_matches(spec, {}, None, worker_metadata={"health": 0.9})
+        assert not require_matches(spec, {}, None, worker_metadata={"health": 0.5})
+        assert not require_matches(spec, {}, None, worker_metadata={})
+
+    def test_meta_equality_still_works(self):
+        spec = require(meta("zone") == "eu")
+        assert require_matches(spec, {}, None, worker_metadata={"zone": "eu"})
+        assert not require_matches(spec, {}, None, worker_metadata={"zone": "us"})
+
+    def test_meta_negation_absent_passes(self):
+        spec = require(meta("drain") != "true")
+        assert not require_matches(spec, {}, None, worker_metadata={"drain": "true"})
+        assert require_matches(spec, {}, None, worker_metadata={})
+
+    def test_label_ordered_ops_still_rejected(self):
+        with pytest.raises(ValueError, match="only == and !="):
+            require(label("x") < 5)
+
+
+class TestRequireWhenWorkerState:
+    """when() gating on meta()/metric() (dynamic per-worker state), the
+    counterpart of when(input(...)) gating on requester intent."""
+
+    def test_when_metric_gates_meta_term(self):
+        spec = require(when(metric("queue_depth") >= 100, meta("cleared") == "true"))
+        # Busy and uncleared: the gated term is active and fails.
+        assert not require_matches(
+            spec,
+            {},
+            None,
+            worker_metadata={},
+            worker_metrics={"queue_depth": 200},
+        )
+        # Busy and cleared: the gated term is active and passes.
+        assert require_matches(
+            spec,
+            {},
+            None,
+            worker_metadata={"cleared": "true"},
+            worker_metrics={"queue_depth": 200},
+        )
+        # Idle: the condition is inactive, so the term is skipped entirely.
+        assert require_matches(
+            spec,
+            {},
+            None,
+            worker_metadata={},
+            worker_metrics={"queue_depth": 5},
+        )
+
+    def test_when_rejects_label_condition(self):
+        with pytest.raises(ValueError, match="not valid when"):
+            when(label("gpu") == "true", meta("x") == "1")
