@@ -108,27 +108,27 @@ def test_no_executions_means_no_overlap(manager):
     assert manager.has_active_execution(_create(manager).id) is False
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        ExecutionState.CREATED,
-        ExecutionState.SCHEDULED,
-        ExecutionState.CLAIMED,
-        ExecutionState.RUNNING,
-        ExecutionState.PAUSED,
-        ExecutionState.CANCELLING,
-    ],
-)
+#: The query is `state NOT IN (terminal)`, so every other state counts as an
+#: overlap. Derived from the enum rather than listed, so a state added later is
+#: covered automatically instead of silently escaping these tests.
+TERMINAL_STATES = (ExecutionState.COMPLETED, ExecutionState.FAILED, ExecutionState.CANCELLED)
+NON_TERMINAL_STATES = [s for s in ExecutionState if s not in TERMINAL_STATES]
+
+
+def test_the_state_split_covers_the_whole_enum():
+    """Guards the two parametrizations below against drift in ExecutionState."""
+    assert set(NON_TERMINAL_STATES) | set(TERMINAL_STATES) == set(ExecutionState)
+    assert not set(NON_TERMINAL_STATES) & set(TERMINAL_STATES)
+
+
+@pytest.mark.parametrize("state", NON_TERMINAL_STATES)
 def test_non_terminal_execution_is_an_overlap(manager, state):
     sch = _create(manager)
     _add_execution(manager, sch.id, f"exec-{state.value}", state)
     assert manager.has_active_execution(sch.id) is True
 
 
-@pytest.mark.parametrize(
-    "state",
-    [ExecutionState.COMPLETED, ExecutionState.FAILED, ExecutionState.CANCELLED],
-)
+@pytest.mark.parametrize("state", TERMINAL_STATES)
 def test_terminal_execution_is_not_an_overlap(manager, state):
     sch = _create(manager)
     _add_execution(manager, sch.id, f"exec-{state.value}", state)

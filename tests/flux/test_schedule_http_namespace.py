@@ -141,3 +141,53 @@ async def process(ctx):
     assert billing_body["workflow_namespace"] == "billing"
     assert analytics_body["workflow_namespace"] == "analytics"
     assert billing_body["workflow_id"] != analytics_body["workflow_id"]
+
+
+def _register_hello(client):
+    source = b"""
+from flux import workflow
+
+@workflow
+async def hello(ctx):
+    return "hi"
+"""
+    r = _register_source(client, source, "hello.py")
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize(
+    "bad_config,detail_fragment",
+    [
+        ({"type": "cron", "cron_expression": "not a cron"}, "cron"),
+        ({"type": "cron", "cron_expression": "* * * * *", "overlap": "bogus"}, "overlap"),
+        ({"type": "cron", "cron_expression": "* * * * *", "timezone": "Mars/Olympus"}, "timezone"),
+    ],
+    ids=["bad-cron", "bad-overlap", "bad-timezone"],
+)
+def test_malformed_schedule_config_is_a_client_error(client, bad_config, detail_fragment):
+    """A malformed payload is the caller's fault -- 400, not a 500 leaking an
+    internal failure. schedule_factory raises ValueError for each of these."""
+    _register_hello(client)
+
+    r = client.post(
+        "/schedules",
+        json={"workflow_name": "hello", "name": "sched", "schedule_config": bad_config},
+    )
+    assert r.status_code == 400, f"expected 400, got {r.status_code}: {r.text}"
+    assert detail_fragment in r.text.lower()
+
+
+def test_invalid_overlap_policy_field_is_a_client_error(client):
+    _register_hello(client)
+
+    r = client.post(
+        "/schedules",
+        json={
+            "workflow_name": "hello",
+            "name": "sched",
+            "schedule_config": {"type": "cron", "cron_expression": "* * * * *"},
+            "overlap_policy": "sometimes",
+        },
+    )
+    assert r.status_code == 400, f"expected 400, got {r.status_code}: {r.text}"
+    assert "overlap" in r.text.lower()

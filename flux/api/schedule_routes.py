@@ -167,16 +167,19 @@ class ScheduleRoutesMixin:
                             },
                         )
 
-                # Create schedule from configuration
-                schedule = schedule_factory(request.schedule_config)
+                # Create schedule from configuration. schedule_factory raises
+                # ValueError for anything malformed in the caller's payload --
+                # a bad cron expression, an unknown timezone, an invalid
+                # overlap -- which is client error, not a server fault. Without
+                # this the generic handler below turns it into a 500.
+                from flux.domain.schedule import validate_overlap
 
-                if request.overlap_policy is not None:
-                    from flux.domain.schedule import validate_overlap
-
-                    try:
+                try:
+                    schedule = schedule_factory(request.schedule_config)
+                    if request.overlap_policy is not None:
                         validate_overlap(request.overlap_policy)
-                    except ValueError as ex:
-                        raise HTTPException(status_code=400, detail=str(ex))
+                except ValueError as ex:
+                    raise HTTPException(status_code=400, detail=str(ex))
 
                 # Create schedule via manager
                 schedule_manager = create_schedule_manager()

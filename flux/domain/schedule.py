@@ -53,8 +53,13 @@ class Schedule(ABC):
             timezone: Timezone for schedule execution (default: UTC)
             overlap: What a due fire does while the previous execution is still
                 running -- "skip" (default) drops the occurrence, "allow"
-                dispatches anyway. Schedules created before this option existed
-                read as "allow", so upgrading changes no existing behavior.
+                dispatches anyway.
+
+                A Schedule always carries a concrete policy. The back-compat
+                rule for schedules stored before this option existed lives at
+                the persistence layer instead: ``ScheduleModel.overlap_policy``
+                is NULL for those rows and ``effective_overlap_policy`` reads
+                NULL as "allow", so upgrading changes no existing behavior.
         """
         # Reject "local" timezone as it's not portable across systems
         if timezone == "local":
