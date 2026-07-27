@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0013_worker_metadata"
+HEAD = "0014_schedule_overlap_policy"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
