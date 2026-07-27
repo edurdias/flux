@@ -188,3 +188,32 @@ async def wf(ctx):
 """.encode()
     with pytest.raises(SyntaxError, match=reason):
         _parse(source)
+
+
+def test_when_metric_condition_extracts_in_routing():
+    source = b"""
+from flux import workflow
+from flux.routing import score, prefer, when, metric, label, input
+
+
+@workflow.with_options(
+    routing=score(when(metric("q") < 100, prefer(label("r") == input("r")))),
+)
+async def routed(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    terms = (info.metadata or {})["routing"]["terms"]
+    assert terms == [
+        {
+            "kind": "when",
+            "if": {"selector": "metric:q", "op": "<", "value": 100},
+            "then": {
+                "kind": "prefer",
+                "selector": "label:r",
+                "op": "==",
+                "value": {"$input": "r"},
+                "weight": 1.0,
+            },
+        },
+    ]
