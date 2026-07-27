@@ -473,18 +473,22 @@ def _compile_match(term: Any, context: str) -> dict:
             f'label("region") == input("region"), got: {type(term).__name__}',
         )
     spec = term.selector.spec
-    is_matchable = (
-        isinstance(spec, str) and (spec.startswith("label:") or spec.startswith("meta:"))
-    ) or (isinstance(spec, dict) and spec.get("kind") == "label")
+    is_meta = isinstance(spec, str) and spec.startswith("meta:")
+    is_matchable = (isinstance(spec, str) and (spec.startswith("label:") or is_meta)) or (
+        isinstance(spec, dict) and spec.get("kind") == "label"
+    )
     if not is_matchable:
         raise ValueError(
             f"require() terms compare labels or metadata (label()/label_for()/meta()); "
             f"metric()/resource()/load() belong to requests= and routing=, got: '{spec}'",
         )
-    if term.op not in _REQUIRE_OPS:
+    # Labels are stringly-typed, so ordered comparisons stay out; metadata is
+    # properly typed (str|number), so meta() terms may use the ordered ops.
+    allowed_ops = _OPS if is_meta else _REQUIRE_OPS
+    if term.op not in allowed_ops:
         raise ValueError(
-            f"require() supports only == and != (ordered comparisons on labels are "
-            f"stringly-typed traps; use routing= for metrics), got: '{term.op}'",
+            f"require() label terms support only == and != (ordered comparisons on labels "
+            f"are stringly-typed traps); use meta() or routing=, got: '{term.op}'",
         )
     return {"kind": "match", "selector": spec, "op": term.op, "value": term.value}
 
@@ -499,32 +503,42 @@ def optional(term: Condition | dict) -> dict:
     return compiled
 
 
-def when(condition: InputCondition, term: Condition | dict) -> dict:
-    """Apply ``term`` only when an input condition holds.
+def when(condition: Any, term: Condition | dict) -> dict:
+    """Apply ``term`` only when ``condition`` holds.
 
-    The condition resolves from execution input only — it gates on the
-    requester's intent, never on worker attributes. An unresolved condition
-    leaves the term inactive (a widening construct by design, unlike bare
-    require terms, which fail closed).
+    The condition may be ``input(...)`` (requester intent, per-execution,
+    ``==``/``!=`` only) or a ``meta(...)``/``metric(...)`` comparison (dynamic
+    worker state, per-worker, any operator). ``label()``/``resource()``/
+    ``load()`` are not valid conditions — label is static capability (gating a
+    hard constraint on a worker-set label invites a self-dodge), and
+    resource/load are not conditionable state here.
 
-    Valid in both stages: wrapping a label comparison (or ``service(...)``)
-    it gates a ``require(...)`` term; wrapping a ``prefer()``/``least()``/
-    ``most()``/``sticky()`` term it gates a ``score(...)`` term.
+    Valid in both stages: wrapping a require match term it gates a
+    ``require(...)`` term; wrapping a ``prefer()``/``least()``/``most()``/
+    ``sticky()`` term it gates a ``score(...)`` term.
     """
-    if not isinstance(condition, InputCondition):
+    if isinstance(condition, InputCondition):
+        cond_spec = {"input": condition.ref.path, "op": condition.op, "value": condition.value}
+    elif isinstance(condition, Condition):
+        spec = condition.selector.spec
+        if not (isinstance(spec, str) and (spec.startswith("meta:") or spec.startswith("metric:"))):
+            raise ValueError(
+                "when() worker conditions use meta() or metric() (dynamic worker state); "
+                "label()/resource()/load() are not valid when() conditions",
+            )
+        if isinstance(condition.value, dict) and "$input" in condition.value:
+            raise ValueError("when() conditions compare against a constant, not input(...)")
+        cond_spec = {"selector": spec, "op": condition.op, "value": condition.value}
+    else:
         raise ValueError(
-            "when() condition must compare input(...) against a constant, e.g. "
-            f'when(input("tier") == "dedicated", ...), got: {type(condition).__name__}',
+            "when() condition must be input(...), meta(...), or metric(...) compared "
+            f"against a constant, got: {type(condition).__name__}",
         )
     if isinstance(term, dict) and term.get("kind") in _SCORE_TERM_KINDS:
         then = dict(term)
     else:
         then = _compile_match(term, "when()")
-    return {
-        "kind": "when",
-        "if": {"input": condition.ref.path, "op": condition.op, "value": condition.value},
-        "then": then,
-    }
+    return {"kind": "when", "if": cond_spec, "then": then}
 
 
 def require(*terms: Condition | dict) -> list[dict]:
@@ -703,20 +717,47 @@ def pick_worker(
         if not isinstance(term, dict):
             logger.warning(f"Malformed routing term ignored: {term!r}")
             return None
+
+        applies_to = eligible
         if term.get("kind") == "when":
-            # Input-gated score term: inactive conditions skip it; a
-            # malformed condition degrades the whole policy like any other
-            # malformed term.
-            active = _when_condition_active(term, input_value)
-            if isinstance(active, str):
+            cond = term.get("if")
+            then = term.get("then")
+            if not isinstance(then, dict):
                 logger.warning(f"Malformed routing term ignored: {term!r}")
                 return None
-            if not active:
-                continue
-            term = term.get("then")
-            if not isinstance(term, dict):
-                logger.warning(f"Malformed routing term ignored: {term!r}")
-                return None
+            if isinstance(cond, dict) and "input" in cond:
+                # Input-gated score term: inactive conditions skip it; a
+                # malformed condition degrades the whole policy like any
+                # other malformed term.
+                active = _when_condition_active(term, input_value)
+                if isinstance(active, str):
+                    logger.warning(f"Malformed routing term ignored: {term!r}")
+                    return None
+                if not active:
+                    continue
+            else:
+                # Worker-state (meta/metric) condition: evaluate per worker,
+                # scoring only over the subset it holds for.
+                applies_to = []
+                for w in eligible:
+                    a = _when_condition_active(
+                        term,
+                        input_value,
+                        worker_labels=w.labels or {},
+                        worker_metadata=getattr(w, "metadata", None) or {},
+                        worker_metrics=getattr(w, "metrics", None) or {},
+                        loads=loads,
+                        has_worker=True,
+                    )
+                    if isinstance(a, str):
+                        logger.warning(f"Malformed routing term ignored: {term!r}")
+                        return None
+                    if a:
+                        applies_to.append(w)
+                if not applies_to:
+                    continue
+            term = then
+
         kind = term.get("kind")
         weight = _as_float(term.get("weight", 1.0))
         if weight is None or weight <= 0:
@@ -724,7 +765,7 @@ def pick_worker(
             return None
 
         if kind == "sticky":
-            for w in eligible:
+            for w in applies_to:
                 if preferred and w.name == preferred:
                     totals[w.name] += weight
             continue
@@ -754,18 +795,18 @@ def pick_worker(
             right = term.get("value")
             if isinstance(right, dict) and "$input" in right:
                 right = _resolve_input_path(input_value, right["$input"])
-            for w in eligible:
+            for w in applies_to:
                 if _compare(_selector_value(w, selector, loads), op, right):
                     totals[w.name] += weight
             continue
 
         if kind in ("least", "most"):
-            values = {w.name: _as_float(_selector_value(w, selector, loads)) for w in eligible}
+            values = {w.name: _as_float(_selector_value(w, selector, loads)) for w in applies_to}
             present = [v for v in values.values() if v is not None]
             if not present:
                 continue  # nobody has the value; the term cannot discriminate
             lo, hi = min(present), max(present)
-            for w in eligible:
+            for w in applies_to:
                 v = values[w.name]
                 if v is None:
                     continue  # missing scores 0
@@ -867,10 +908,11 @@ def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, _Proble
     return "", _Problem("malformed", f"malformed label selector: {selector!r}")
 
 
-def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, str] | _Problem:
+def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] | _Problem:
     """Resolve a match term's selector kind, key, and comparison value against
     the execution input. Returns ``(kind, key, value)`` — kind is ``"label"``
-    or ``"meta"`` — or a :class:`_Problem`."""
+    or ``"meta"`` — or a :class:`_Problem`. Meta values stay raw (numeric
+    comparisons need real numbers); label values stringify."""
     selector = term.get("selector")
     if isinstance(selector, str) and selector.startswith("meta:"):
         kind, key = "meta", selector[len("meta:") :]
@@ -882,7 +924,8 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, str] 
                 return problem
             return _Problem(problem.category, f"affinity {problem.message}")
 
-    if term.get("op") not in _REQUIRE_OPS:
+    allowed_ops = _OPS if kind == "meta" else _REQUIRE_OPS
+    if term.get("op") not in allowed_ops:
         return _Problem("malformed", f"malformed affinity term op: {term.get('op')!r}")
 
     value = term.get("value")
@@ -896,23 +939,59 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, str] 
                 "unresolved",
                 f"affinity term on {kind} '{key}' requires input '{path}', which is not present",
             )
+    # Meta keeps its raw value so numeric comparisons coerce correctly; labels
+    # stringify (label semantics).
+    if kind == "meta":
+        return kind, key, value
     return kind, key, _label_value_str(value)
 
 
-def _when_condition_active(term: dict, input_value: Any) -> bool | str:
-    """Whether a when-term's condition holds. Unresolved input leaves the
-    term inactive (False); a malformed condition is a problem string."""
+def _when_condition_active(
+    term: dict,
+    input_value: Any,
+    *,
+    worker_labels: dict[str, Any] | None = None,
+    worker_metadata: dict[str, Any] | None = None,
+    worker_metrics: dict[str, Any] | None = None,
+    loads: dict[str, int] | None = None,
+    has_worker: bool = False,
+) -> bool | str | None:
+    """Whether a when-term's condition holds. Returns True/False, a string for a
+    malformed condition, or None for a per-worker (meta/metric) condition asked
+    without a worker (diagnostic context — the caller skips the term).
+
+    ``input`` conditions resolve once per execution (unresolved → inactive/False,
+    a widening construct). ``meta``/``metric`` conditions resolve per worker
+    against the passed worker state.
+    """
     cond = term.get("if")
     if not isinstance(cond, dict):
         return f"malformed affinity when-condition: {cond!r}"
-    path, op = cond.get("input"), cond.get("op")
-    if not isinstance(path, str) or not path or op not in _REQUIRE_OPS:
-        return f"malformed affinity when-condition: {cond!r}"
-    resolved = _resolve_require_input(input_value, path)
-    if resolved is _UNRESOLVED:
-        return False
-    expected = cond.get("value")
-    return (resolved == expected) if op == "==" else (resolved != expected)
+    if "input" in cond:
+        path, op = cond.get("input"), cond.get("op")
+        if not isinstance(path, str) or not path or op not in _REQUIRE_OPS:
+            return f"malformed affinity when-condition: {cond!r}"
+        resolved = _resolve_require_input(input_value, path)
+        if resolved is _UNRESOLVED:
+            return False
+        expected = cond.get("value")
+        return (resolved == expected) if op == "==" else (resolved != expected)
+    if "selector" in cond:
+        selector, op = cond.get("selector"), cond.get("op")
+        if (
+            not isinstance(selector, str)
+            or not (selector.startswith("meta:") or selector.startswith("metric:"))
+            or op not in _OPS
+        ):
+            return f"malformed affinity when-condition: {cond!r}"
+        if not has_worker:
+            return None  # fleet-dependent; not evaluable in diagnostic context
+        kind, _, key = selector.partition(":")
+        actual = (
+            (worker_metadata or {}).get(key) if kind == "meta" else (worker_metrics or {}).get(key)
+        )
+        return _compare(actual, op, cond.get("value"))
+    return f"malformed affinity when-condition: {cond!r}"
 
 
 def require_diagnostic(terms: Any, input_value: Any) -> str | None:
@@ -935,7 +1014,7 @@ def require_diagnostic(terms: Any, input_value: Any) -> str | None:
             active = _when_condition_active(term, input_value)
             if isinstance(active, str):
                 return active
-            if not active:
+            if active is None or not active:
                 continue
             term = term.get("then")
             if not isinstance(term, dict) or term.get("kind") != "match":
@@ -957,14 +1036,18 @@ def require_matches(
     worker_labels: dict[str, str] | None,
     input_value: Any,
     worker_metadata: dict[str, Any] | None = None,
+    *,
+    worker_metrics: dict[str, Any] | None = None,
+    loads: dict[str, int] | None = None,
 ) -> bool:
     """Whether a worker's labels and server-held metadata satisfy a
     require(...) affinity expression.
 
-    Fail-closed: any problem (unresolved input on a non-optional term,
-    invalid key, malformed spec) fails the match — mirroring
-    ``require_diagnostic``, which turns those same problems into a terminal
-    dispatch error so fail-closed never means queue-forever.
+    Fail-closed: any problem (unresolved input on a non-optional term, invalid
+    key, malformed spec) fails the match — mirroring ``require_diagnostic``,
+    which turns those same problems into a terminal dispatch error so
+    fail-closed never means queue-forever. ``worker_metrics``/``loads`` back
+    ``when()`` conditions gating on worker state.
     """
     if not isinstance(terms, (list, tuple)) or not terms:
         return False
@@ -974,8 +1057,16 @@ def require_matches(
         if not isinstance(term, dict):
             return False
         if term.get("kind") == "when":
-            active = _when_condition_active(term, input_value)
-            if isinstance(active, str):
+            active = _when_condition_active(
+                term,
+                input_value,
+                worker_labels=labels,
+                worker_metadata=metadata,
+                worker_metrics=worker_metrics or {},
+                loads=loads or {},
+                has_worker=True,
+            )
+            if isinstance(active, str) or active is None:
                 return False
             if not active:
                 continue
@@ -990,15 +1081,23 @@ def require_matches(
                 continue
             return False
         kind, key, value = resolved
-        raw = metadata.get(key) if kind == "meta" else labels.get(key)
-        # Metadata values may be numeric; they compare in string form like
-        # everything else in require() (rank numerics in routing= instead).
-        actual = None if raw is None else _label_value_str(raw)
-        if term.get("op") == "==":
-            if actual != value:
-                return False
-        # Absent ≠ value holds by design: a worker with no such label passes
-        # a != term (the documented inversion of fail-closed).
-        elif actual == value:
+        op = term.get("op")
+        if op not in _OPS:  # already validated by _resolve_require_term; narrows for mypy
             return False
+        if kind == "meta":
+            raw = metadata.get(key)
+            if op == "!=":
+                # Absent ≠ value holds by design (mirrors the label inversion).
+                if raw is not None and _compare(raw, "==", value):
+                    return False
+            elif raw is None or not _compare(raw, op, value):
+                return False
+        else:  # label — string ==/!= with the absent-!= inversion (unchanged)
+            raw = labels.get(key)
+            actual = None if raw is None else _label_value_str(raw)
+            if op == "==":
+                if actual != value:
+                    return False
+            elif actual == value:
+                return False
     return True

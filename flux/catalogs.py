@@ -648,54 +648,98 @@ class WorkflowCatalog(ABC):
                 return extract_input_ref(value_node)
             fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
 
-        _AST_OPS = {ast.Eq: "==", ast.NotEq: "!="}
+        _AST_OPS = {
+            ast.Eq: "==",
+            ast.NotEq: "!=",
+            ast.Lt: "<",
+            ast.LtE: "<=",
+            ast.Gt: ">",
+            ast.GtE: ">=",
+        }
+        _FLIPPED = {"==": "==", "!=": "!=", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
 
         def extract_condition(cond_node: ast.AST) -> Any:
-            """A label comparison: label(...)/label_for(...) vs constant/input."""
+            """A label/meta comparison: label(...)/label_for(...)/meta(...) vs
+            constant/input. Labels stay ==/!=; meta allows ordered ops."""
             if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
                 fail(
-                    "require() terms are single label comparisons, "
+                    "require() terms are single comparisons, "
                     'e.g. label("region") == input("region")',
                 )
             op = _AST_OPS.get(type(cond_node.ops[0]))
             if op is None:
-                fail(
-                    f"require() supports only == and != (line {cond_node.lineno}); "
-                    "ordered comparisons belong to routing=",
-                )
+                fail(f"unsupported comparison operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) in ("label", "label_for", "meta"):
-                selector, value = extract_selector(left), extract_value(right)
-            elif call_name(right) in ("label", "label_for", "meta"):
-                # == and != are symmetric, so no operator flip is needed.
-                selector, value = extract_selector(right), extract_value(left)
+            selector_names = ("label", "label_for", "meta")
+            if call_name(left) in selector_names:
+                sel_name, selector, value = (
+                    call_name(left),
+                    extract_selector(left),
+                    extract_value(right),
+                )
+            elif call_name(right) in selector_names:
+                sel_name, selector, value, op = (
+                    call_name(right),
+                    extract_selector(right),
+                    extract_value(left),
+                    _FLIPPED[op],
+                )
             else:
                 fail("one side of a require() comparison must be label()/label_for()/meta()")
+            if sel_name in ("label", "label_for") and op not in ("==", "!="):
+                fail(
+                    f"require() label terms support only == and != (line {cond_node.lineno}); "
+                    "ordered comparisons need meta() or routing=",
+                )
             try:
                 return routing_dsl.Condition(selector, op, value)
             except ValueError as e:
                 raise SyntaxError(f"Invalid affinity condition: {e}") from e
 
-        def extract_input_condition(cond_node: ast.AST) -> Any:
-            """A when() condition: input(...) vs constant, either order."""
+        def _extract_ms_selector(sel_node: ast.AST) -> Any:
+            name = call_name(sel_node)
+            if name not in ("meta", "metric"):
+                fail("when() worker conditions use meta() or metric()")
+            assert isinstance(sel_node, ast.Call)
+            if len(sel_node.args) != 1 or not isinstance(sel_node.args[0], ast.Constant):
+                fail(f"{name}() takes a literal key")
+            factory = routing_dsl.meta if name == "meta" else routing_dsl.metric
+            try:
+                return factory(sel_node.args[0].value)
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid when() selector '{name}': {e}") from e
+
+        def extract_when_condition(cond_node: ast.AST) -> Any:
+            """A when() condition: input(...) (==/!= only) or a meta()/metric()
+            comparison (any op), either side."""
             if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
-                fail('when() takes an input comparison, e.g. input("tier") == "dedicated"')
+                fail("when() takes an input()/meta()/metric() comparison")
             op = _AST_OPS.get(type(cond_node.ops[0]))
             if op is None:
-                fail(f"when() conditions support only == and != (line {cond_node.lineno})")
+                fail(f"unsupported when() operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) == "input":
-                ref, const = extract_input_ref(left), right
-            elif call_name(right) == "input":
-                ref, const = extract_input_ref(right), left
-            else:
-                fail("one side of a when() condition must be input(...)")
-            if not isinstance(const, ast.Constant):
-                fail("when() conditions compare input(...) against a literal")
-            try:
+            if call_name(left) == "input" or call_name(right) == "input":
+                if op not in ("==", "!="):
+                    fail("when() input conditions support only == and !=")
+                if call_name(left) == "input":
+                    ref, const = extract_input_ref(left), right
+                else:
+                    ref, const = extract_input_ref(right), left
+                if not isinstance(const, ast.Constant):
+                    fail("when() input conditions compare against a literal")
                 return routing_dsl.InputCondition(ref, op, const.value)
+            if call_name(left) in ("meta", "metric"):
+                sel, const = _extract_ms_selector(left), right
+            elif call_name(right) in ("meta", "metric"):
+                sel, const, op = _extract_ms_selector(right), left, _FLIPPED[op]
+            else:
+                fail("one side of a when() condition must be input()/meta()/metric()")
+            if not isinstance(const, ast.Constant):
+                fail("when() worker conditions compare against a literal")
+            try:
+                return routing_dsl.Condition(sel, op, const.value)
             except ValueError as e:
-                raise SyntaxError(f"Invalid affinity when() condition: {e}") from e
+                raise SyntaxError(f"Invalid when() condition: {e}") from e
 
         def extract_service(svc_node: ast.AST) -> Any:
             assert isinstance(svc_node, ast.Call)
@@ -733,7 +777,7 @@ class WorkflowCatalog(ABC):
                         fail("when() takes a condition and a term")
                     terms.append(
                         routing_dsl.when(
-                            extract_input_condition(term_node.args[0]),
+                            extract_when_condition(term_node.args[0]),
                             extract_match_term(term_node.args[1]),
                         ),
                     )
@@ -870,26 +914,50 @@ class WorkflowCatalog(ABC):
             except ValueError as e:
                 raise SyntaxError(f"Invalid routing condition: {e}") from e
 
-        def extract_input_condition(cond_node: ast.AST) -> Any:
-            """A when() condition: input(...) vs constant, either order."""
-            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
-                fail('when() takes an input comparison, e.g. input("tier") == "dedicated"')
-            op = _AST_OPS.get(type(cond_node.ops[0]))
-            if op not in ("==", "!="):
-                fail(f"when() conditions support only == and != (line {cond_node.lineno})")
-            left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) == "input":
-                ref, const = extract_input_ref(left), right
-            elif call_name(right) == "input":
-                ref, const = extract_input_ref(right), left
-            else:
-                fail("one side of a when() condition must be input(...)")
-            if not isinstance(const, ast.Constant):
-                fail("when() conditions compare input(...) against a literal")
+        def _extract_ms_selector(sel_node: ast.AST) -> Any:
+            name = call_name(sel_node)
+            if name not in ("meta", "metric"):
+                fail("when() worker conditions use meta() or metric()")
+            assert isinstance(sel_node, ast.Call)
+            if len(sel_node.args) != 1 or not isinstance(sel_node.args[0], ast.Constant):
+                fail(f"{name}() takes a literal key")
+            factory = routing_dsl.meta if name == "meta" else routing_dsl.metric
             try:
+                return factory(sel_node.args[0].value)
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"Invalid when() selector '{name}': {e}") from e
+
+        def extract_when_condition(cond_node: ast.AST) -> Any:
+            """A when() condition: input(...) (==/!= only) or a meta()/metric()
+            comparison (any op), either side."""
+            if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
+                fail("when() takes an input()/meta()/metric() comparison")
+            op = _AST_OPS.get(type(cond_node.ops[0]))
+            if op is None:
+                fail(f"unsupported when() operator at line {cond_node.lineno}")
+            left, right = cond_node.left, cond_node.comparators[0]
+            if call_name(left) == "input" or call_name(right) == "input":
+                if op not in ("==", "!="):
+                    fail("when() input conditions support only == and !=")
+                if call_name(left) == "input":
+                    ref, const = extract_input_ref(left), right
+                else:
+                    ref, const = extract_input_ref(right), left
+                if not isinstance(const, ast.Constant):
+                    fail("when() input conditions compare against a literal")
                 return routing_dsl.InputCondition(ref, op, const.value)
+            if call_name(left) in ("meta", "metric"):
+                sel, const = _extract_ms_selector(left), right
+            elif call_name(right) in ("meta", "metric"):
+                sel, const, op = _extract_ms_selector(right), left, _FLIPPED[op]
+            else:
+                fail("one side of a when() condition must be input()/meta()/metric()")
+            if not isinstance(const, ast.Constant):
+                fail("when() worker conditions compare against a literal")
+            try:
+                return routing_dsl.Condition(sel, op, const.value)
             except ValueError as e:
-                raise SyntaxError(f"Invalid routing when() condition: {e}") from e
+                raise SyntaxError(f"Invalid when() condition: {e}") from e
 
         def extract_service(svc_node: ast.AST) -> Any:
             assert isinstance(svc_node, ast.Call)
@@ -926,7 +994,7 @@ class WorkflowCatalog(ABC):
                     if len(term_node.args) != 2 or kwargs:
                         fail("when() takes a condition and a term, and no keyword arguments")
                     return routing_dsl.when(
-                        extract_input_condition(term_node.args[0]),
+                        extract_when_condition(term_node.args[0]),
                         extract_term(term_node.args[1]),
                     )
                 if len(term_node.args) != 1:
