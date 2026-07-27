@@ -155,3 +155,76 @@ async def wf(ctx):
 """
     [info] = _parse(source)
     assert info.affinity is None
+
+
+def test_label_ordered_comparison_still_raises_syntax_error():
+    source = b"""
+from flux import workflow
+from flux.routing import require, label
+
+
+@workflow.with_options(affinity=require(label("x") < 5))
+async def wf(ctx):
+    return 1
+"""
+    with pytest.raises(SyntaxError, match="only == and !="):
+        _parse(source)
+
+
+def test_meta_ordered_comparison_extracts():
+    source = b"""
+from flux import workflow
+from flux.routing import require, meta
+
+
+@workflow.with_options(affinity=require(meta("health") >= 0.8))
+async def wf(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    assert info.affinity == [
+        {"kind": "match", "selector": "meta:health", "op": ">=", "value": 0.8},
+    ]
+
+
+def test_meta_reversed_ordered_comparison_extracts():
+    source = b"""
+from flux import workflow
+from flux.routing import require, meta
+
+
+@workflow.with_options(affinity=require(0.8 <= meta("health")))
+async def wf(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    assert info.affinity == [
+        {"kind": "match", "selector": "meta:health", "op": ">=", "value": 0.8},
+    ]
+
+
+def test_when_meta_condition_extracts_in_require():
+    source = b"""
+from flux import workflow
+from flux.routing import require, when, meta, label
+
+
+@workflow.with_options(
+    affinity=require(when(meta("class") == "gpu", label("cleared") == "true")),
+)
+async def wf(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    assert info.affinity == [
+        {
+            "kind": "when",
+            "if": {"selector": "meta:class", "op": "==", "value": "gpu"},
+            "then": {
+                "kind": "match",
+                "selector": "label:cleared",
+                "op": "==",
+                "value": "true",
+            },
+        },
+    ]
