@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
-from flux._concurrency import gather_batch
+from flux._concurrency import CANCELLED_ROLLBACK_TIMEOUT, gather_batch
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
@@ -11,6 +11,7 @@ from flux.utils import get_func_args, make_deterministic, maybe_awaitable
 
 
 import asyncio
+import contextlib
 import hashlib
 import inspect
 import json
@@ -367,6 +368,17 @@ class task:
                 )
                 await ctx.checkpoint()
                 return output
+            except asyncio.CancelledError:
+                # A resumed retry chain is as interruptible as a first run.
+                await self.__handle_cancellation(
+                    ctx,
+                    task_id,
+                    full_name,
+                    task_args,
+                    args,
+                    kwargs,
+                )
+                raise
             finally:
                 _RESUME_TASK.reset(resume_token)
 
@@ -388,8 +400,6 @@ class task:
                         value=task_args,
                     ),
                 )
-
-            import contextlib
 
             from flux.observability import get_metrics, is_enabled
 
@@ -483,6 +493,13 @@ class task:
 
             await ctx.checkpoint()
             return output
+        except asyncio.CancelledError:
+            # Covers a cancel delivered anywhere in the task's lifetime after
+            # TASK_STARTED: the body, retry sleeps, a fallback body, output
+            # storage, or the final checkpoint (the terminal-event guard in
+            # __handle_cancellation makes the post-terminal window a no-op).
+            await self.__handle_cancellation(ctx, task_id, full_name, task_args, args, kwargs)
+            raise
         finally:
             _CURRENT_TASK.reset(task_token)
 
@@ -884,6 +901,98 @@ class task:
                 raise ExecutionError(ex)
 
             return output
+
+    async def __handle_cancellation(
+        self,
+        ctx: ExecutionContext,
+        task_id: str,
+        task_full_name: str,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+    ) -> None:
+        """Record a cancelled task and run its declared rollback (issue #149).
+
+        ``TASK_CANCELLED`` is audit-only: the replay short-circuit matches
+        ``TASK_COMPLETED``/``TASK_FAILED`` only, so a cancelled task re-runs on
+        resume — the same semantics as a worker crash, which never gets to
+        write an event at all. Retry and fallback are deliberately skipped: a
+        fallback would append ``TASK_COMPLETED`` with a substitute result that
+        replay would then honor forever, letting a cancellation silently
+        change the workflow's outcome. Rollback only compensates; the
+        ``CancelledError`` always propagates to the caller.
+
+        No eager checkpoint here — the events ride the workflow-level flush in
+        ``workflow.__call__``'s ``finally``, so a cancel-all of a wide fan-out
+        produces one checkpoint rather than one per in-flight task.
+        """
+        terminal = (
+            ExecutionEventType.TASK_COMPLETED,
+            ExecutionEventType.TASK_FAILED,
+            ExecutionEventType.TASK_CANCELLED,
+        )
+        if any(e.source_id == task_id and e.type in terminal for e in ctx.events):
+            return
+
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_CANCELLED,
+                source_id=task_id,
+                name=task_full_name,
+            ),
+        )
+
+        if not self.rollback:
+            return
+
+        # This coroutine is unwinding from a delivered CancelledError, so the
+        # rollback runs in its own task (whose awaits start uncancelled) and
+        # is awaited through a shield: a second cancel — a worker drain
+        # escalating — interrupts the wait, not the compensation. The deadline
+        # is what keeps a wedged rollback from stranding that drain.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + CANCELLED_ROLLBACK_TIMEOUT
+        rollback_task = asyncio.ensure_future(
+            self.__handle_rollback(ctx, task_id, task_full_name, task_args, args, kwargs),
+        )
+        while True:
+            if rollback_task.done():
+                # __handle_rollback already recorded ROLLBACK_COMPLETED or
+                # ROLLBACK_FAILED; retrieve the outcome so asyncio does not
+                # log it as never-retrieved.
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    rollback_task.result()
+                return
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                rollback_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.gather(rollback_task, return_exceptions=True)
+                if rollback_task.cancelled():
+                    # Timed out mid-rollback: ROLLBACK_STARTED is in the log
+                    # with no terminal — close it with the timeout as the
+                    # failure so the interruption is visible.
+                    ctx.events.append(
+                        ExecutionEvent(
+                            type=ExecutionEventType.TASK_ROLLBACK_FAILED,
+                            source_id=task_id,
+                            name=task_full_name,
+                            value=ExecutionError(
+                                message=(
+                                    f"Rollback for task '{task_full_name}' did not "
+                                    f"finish within {CANCELLED_ROLLBACK_TIMEOUT}s "
+                                    "during cancellation"
+                                ),
+                            ),
+                        ),
+                    )
+                return
+            # Suppress everything: a re-cancel or timeout loops back to the
+            # deadline check, and a rollback exception is retrieved (and was
+            # already recorded as ROLLBACK_FAILED) by the done() branch — it
+            # must not escape here and mask the CancelledError being re-raised.
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(rollback_task), timeout=remaining)
 
     async def __handle_rollback(
         self,

@@ -13,13 +13,13 @@ recorded as ``PAUSED`` or ``FAILED``.
 siblings are given a bounded chance to *finish* before they are cancelled.
 
 Why finishing beats killing: cancellation does not prevent a sibling's side
-effect, it only destroys the *record* of it. ``CancelledError`` is a
-``BaseException``, so it bypasses the ``except Exception`` in ``flux/task.py``
-that drives retry -> fallback -> rollback. A sibling cancelled after its side
-effect landed but before its terminal event was appended therefore leaves the
-effect done, unrecorded, and uncompensated — and replay runs it again. Letting
-it finish instead records it, runs its rollback if it fails, and lets replay
-short-circuit on resume.
+effect, it only interrupts the *record* of it. A cancelled task appends an
+audit-only ``TASK_CANCELLED`` event and runs its declared rollback (issue
+#149, ``flux/task.py::__handle_cancellation``), but the rollback compensates
+rather than completes: the task's real outcome is lost and replay re-runs the
+body on resume. Letting a sibling finish instead records its actual result,
+runs its rollback only if it genuinely fails, and lets replay short-circuit
+on resume.
 
 The contract, in order:
 
@@ -49,6 +49,14 @@ from typing import Any
 # Small enough that a pause still surfaces promptly, large enough that ordinary
 # task bodies (a file write, an HTTP call) finish inside it.
 DEFAULT_DRAIN_TIMEOUT = 2.0
+
+# Bound on a cancelled task's rollback (flux/task.py::__handle_cancellation).
+# The rollback runs shielded so a second cancel (a worker drain escalating)
+# cannot interrupt the compensation, which means this deadline is the only
+# thing keeping a wedged rollback from stranding the drain. Sized above the
+# drain timeout: compensation is allowed to outlast the patience we extend to
+# the original body.
+CANCELLED_ROLLBACK_TIMEOUT = 10.0
 
 
 async def gather_batch(
