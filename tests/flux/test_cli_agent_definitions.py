@@ -84,6 +84,27 @@ class TestInlineHelper:
         with pytest.raises(click.ClickException, match="not a directory"):
             _inline_agent_file_refs({"skills_dir": "./no_such_skills"})
 
+    def test_unreadable_file_fails_loudly(self, tmp_path):
+        """A read that raises (here: undecodable bytes) must surface as a
+        ClickException, not fall into the commands' generic handler that
+        prints and exits 0."""
+        import click
+
+        bad = tmp_path / "tools.py"
+        bad.write_bytes(b"\xff\xfe\x00 not utf-8")
+        with pytest.raises(click.ClickException, match="Cannot read tools_file"):
+            _inline_agent_file_refs({"tools_file": str(bad)})
+
+    def test_unreadable_skill_file_fails_loudly(self, tmp_path):
+        import click
+
+        skill = tmp_path / "skills" / "hello"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# hello")
+        (skill / "data.bin").write_bytes(b"\xff\xfe\x00binary")
+        with pytest.raises(click.ClickException, match="Cannot read skills_dir file"):
+            _inline_agent_file_refs({"skills_dir": str(tmp_path / "skills")})
+
     def test_skills_dir_is_bundled(self, tmp_path):
         skill = tmp_path / "skills" / "hello"
         skill.mkdir(parents=True)
