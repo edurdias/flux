@@ -2308,6 +2308,57 @@ def agent():
     pass
 
 
+def _inline_agent_file_refs(data: dict) -> dict:
+    """Inline ``tools_file``/``workflow_file``/``skills_dir`` references.
+
+    A definition travels with its code: path references are read on the
+    client and stored as *content* (``skills_dir`` as a JSON bundle of the
+    skill tree). Values that are already content — a multiline scalar, or a
+    JSON object — pass through untouched, so an already-inlined definition
+    round-trips. A single-line value that does not resolve on disk fails
+    loudly: silently storing the path string is the corruption described in
+    issue #148.
+    """
+    for key in ("tools_file", "workflow_file"):
+        value = data.get(key)
+        if not value or not isinstance(value, str):
+            continue
+        if "\n" in value:
+            continue
+        path = Path(value)
+        if path.is_file():
+            data[key] = path.read_text()
+        else:
+            raise click.ClickException(
+                f"{key} '{value}' does not exist (expected a file path or inline content)",
+            )
+
+    value = data.get("skills_dir")
+    if value and isinstance(value, str):
+        try:
+            already_bundled = isinstance(json.loads(value), dict)
+        except ValueError:
+            already_bundled = False
+        if not already_bundled:
+            skills_path = Path(value)
+            if not skills_path.is_dir():
+                raise click.ClickException(
+                    f"skills_dir '{value}' is not a directory "
+                    "(expected a directory path or a bundled skills JSON object)",
+                )
+            skills_data = {}
+            for skill_dir in sorted(skills_path.iterdir()):
+                if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                    skill_files = {}
+                    for f in sorted(skill_dir.rglob("*")):
+                        if f.is_file():
+                            rel = str(f.relative_to(skills_path))
+                            skill_files[rel] = f.read_text()
+                    skills_data[skill_dir.name] = skill_files
+            data["skills_dir"] = json.dumps(skills_data)
+    return data
+
+
 @agent.command("create")
 @click.argument("name")
 @click.option("--model", "-m", required=False, help="Model in provider/model_name format")
@@ -2405,29 +2456,7 @@ def create_agent(
         if reasoning_effort:
             data["reasoning_effort"] = reasoning_effort
 
-        if data.get("tools_file"):
-            tools_path = Path(data["tools_file"])
-            if tools_path.exists() and tools_path.is_file():
-                data["tools_file"] = tools_path.read_text()
-
-        if data.get("workflow_file"):
-            wf_path = Path(data["workflow_file"])
-            if wf_path.exists() and wf_path.is_file():
-                data["workflow_file"] = wf_path.read_text()
-
-        if data.get("skills_dir"):
-            skills_path = Path(data["skills_dir"])
-            if skills_path.is_dir():
-                skills_data = {}
-                for skill_dir in skills_path.iterdir():
-                    if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                        skill_files = {}
-                        for f in skill_dir.rglob("*"):
-                            if f.is_file():
-                                rel = str(f.relative_to(skills_path))
-                                skill_files[rel] = f.read_text()
-                        skills_data[skill_dir.name] = skill_files
-                data["skills_dir"] = json.dumps(skills_data)
+        data = _inline_agent_file_refs(data)
 
         definition = AgentDefinition(**data)
 
@@ -2441,6 +2470,8 @@ def create_agent(
         else:
             click.echo(f"Agent '{name}' created successfully.")
 
+    except click.ClickException:
+        raise
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 409:
             click.echo(f"Agent '{name}' already exists.", err=True)
@@ -2560,20 +2591,31 @@ def update_agent(
     output_format,
     server_url,
 ):
-    """Update an agent definition."""
+    """Update an agent definition.
+
+    With -f, the file is the complete desired state (replace semantics,
+    mirroring how `create -f` reads it) and file references are inlined the
+    same way; other flags override on top of the file. Without -f, the
+    flags patch the stored definition.
+    """
     import yaml
+
+    from flux.agents.types import AgentDefinition
 
     try:
         base_url = server_url or get_server_url()
-        with get_http_client() as client:
-            get_resp = client.get(f"{base_url}/admin/agents/{name}")
-            get_resp.raise_for_status()
-            data = get_resp.json()
-
         if definition_file:
+            # Replace semantics: build the definition from the file alone.
+            # Merging the raw file over the stored row is what corrupted
+            # inlined tools_file/workflow_file/skills_dir content on every
+            # second apply (issue #148).
             with open(definition_file) as f:
-                file_data = yaml.safe_load(f)
-                data.update(file_data)
+                data = yaml.safe_load(f) or {}
+        else:
+            with get_http_client() as client:
+                get_resp = client.get(f"{base_url}/admin/agents/{name}")
+                get_resp.raise_for_status()
+                data = get_resp.json()
 
         if model:
             data["model"] = model
@@ -2593,6 +2635,10 @@ def update_agent(
 
         data["name"] = name
 
+        if definition_file:
+            data = _inline_agent_file_refs(data)
+            data = AgentDefinition(**data).model_dump()
+
         with get_http_client() as client:
             put_resp = client.put(f"{base_url}/admin/agents/{name}", json=data)
             put_resp.raise_for_status()
@@ -2602,6 +2648,8 @@ def update_agent(
         else:
             click.echo(f"Agent '{name}' updated successfully.")
 
+    except click.ClickException:
+        raise
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
             click.echo(f"Agent '{name}' not found.", err=True)
@@ -2611,6 +2659,76 @@ def update_agent(
         click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error updating agent: {str(ex)}", err=True)
+
+
+@agent.command("apply")
+@click.argument("name", required=False)
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    required=True,
+    help="YAML definition file (the complete desired state)",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def apply_agent(name, definition_file, output_format, server_url):
+    """Create or update an agent from a definition file (idempotent).
+
+    The file is the complete desired state: apply creates the agent when it
+    does not exist and replaces it when it does, so re-running the same file
+    always converges to the same agent. NAME defaults to the ``name`` field
+    in the file.
+    """
+    import yaml
+
+    from flux.agents.types import AgentDefinition
+
+    try:
+        with open(definition_file) as f:
+            data = yaml.safe_load(f) or {}
+        if name:
+            data["name"] = name
+        if not data.get("name"):
+            raise click.ClickException(
+                "Agent name missing: pass NAME or set 'name' in the definition file",
+            )
+        name = data["name"]
+
+        data = _inline_agent_file_refs(data)
+        payload = AgentDefinition(**data).model_dump()
+
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            action = "updated"
+            resp = client.put(f"{base_url}/admin/agents/{name}", json=payload)
+            if resp.status_code == 404:
+                action = "created"
+                resp = client.post(f"{base_url}/admin/agents", json=payload)
+                if resp.status_code == 409:
+                    # Lost a create race; the agent exists now — update it.
+                    action = "updated"
+                    resp = client.put(f"{base_url}/admin/agents/{name}", json=payload)
+            resp.raise_for_status()
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name, "action": action}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' {action} successfully.")
+
+    except click.ClickException:
+        raise
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error applying agent: {str(ex)}", err=True)
 
 
 @agent.command("delete")
