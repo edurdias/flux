@@ -49,7 +49,7 @@ poetry run flux execution list|show
 poetry run flux schedule create|list|show|pause|resume|history|delete
 poetry run flux secrets   set|get|list|remove
 poetry run flux config    set|get|list|remove
-poetry run flux agent     create|list|show|update|delete
+poetry run flux agent     create|apply|list|show|update|delete
 poetry run flux roles | principals | auth                        # security admin
 poetry run flux server bootstrap-token                           # print the auto-generated worker token
 ```
