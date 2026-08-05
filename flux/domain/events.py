@@ -46,6 +46,13 @@ class ExecutionEventType(str, Enum):
     TASK_STARTED = "TASK_STARTED"
     TASK_COMPLETED = "TASK_COMPLETED"
     TASK_FAILED = "TASK_FAILED"
+    # Audit-only terminal marker for a task interrupted by cancellation
+    # (issue #149). Deliberately invisible to the replay short-circuit in
+    # flux/task.py, which matches TASK_COMPLETED/TASK_FAILED only: the
+    # outcome of a cancelled body is unknown, and a worker crash produces
+    # the same interruption with no event at all — so replay treats both
+    # identically and re-runs the task.
+    TASK_CANCELLED = "TASK_CANCELLED"
     TASK_PAUSED = "TASK_PAUSED"
     TASK_RESUMED = "TASK_RESUMED"
     TASK_PROGRESS = "TASK_PROGRESS"
