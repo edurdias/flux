@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0013_worker_metadata"
+HEAD = "0014_task_cancelled_event"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to

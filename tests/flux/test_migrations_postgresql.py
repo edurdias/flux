@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0013_worker_metadata"
+HEAD = "0014_task_cancelled_event"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
