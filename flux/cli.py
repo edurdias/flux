@@ -2327,7 +2327,10 @@ def _inline_agent_file_refs(data: dict) -> dict:
             continue
         path = Path(value)
         if path.is_file():
-            data[key] = path.read_text()
+            try:
+                data[key] = path.read_text()
+            except (OSError, UnicodeDecodeError) as ex:
+                raise click.ClickException(f"Cannot read {key} '{value}': {ex}")
         else:
             raise click.ClickException(
                 f"{key} '{value}' does not exist (expected a file path or inline content)",
@@ -2353,7 +2356,12 @@ def _inline_agent_file_refs(data: dict) -> dict:
                     for f in sorted(skill_dir.rglob("*")):
                         if f.is_file():
                             rel = str(f.relative_to(skills_path))
-                            skill_files[rel] = f.read_text()
+                            try:
+                                skill_files[rel] = f.read_text()
+                            except (OSError, UnicodeDecodeError) as ex:
+                                raise click.ClickException(
+                                    f"Cannot read skills_dir file '{f}': {ex}",
+                                )
                     skills_data[skill_dir.name] = skill_files
             data["skills_dir"] = json.dumps(skills_data)
     return data
