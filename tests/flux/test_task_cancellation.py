@@ -243,6 +243,52 @@ class TestCancelledRollbackDiscipline:
         assert "did not finish" in str(failed[0].value)
         assert not _events(ctx, ExecutionEventType.TASK_ROLLBACK_COMPLETED)
 
+    @pytest.mark.asyncio
+    async def test_uncooperative_rollback_is_abandoned_within_grace(self, monkeypatch):
+        """A rollback that suppresses CancelledError cannot be force-killed;
+        the wait for it must still be bounded (deadline + drain grace) so it
+        cannot strand a drain, and the abandonment must be recorded."""
+        mod = sys.modules["flux.task"]
+        monkeypatch.setattr(mod, "CANCELLED_ROLLBACK_TIMEOUT", 0.2)
+        monkeypatch.setattr(mod, "DEFAULT_DRAIN_TIMEOUT", 0.2)
+        stop = asyncio.Event()
+
+        async def stubborn():
+            while not stop.is_set():
+                try:
+                    await asyncio.sleep(0.05)
+                except asyncio.CancelledError:
+                    pass  # deliberately ignores cancellation
+
+        @task.with_options(rollback=stubborn)
+        async def hang():
+            await asyncio.sleep(30)
+
+        @workflow
+        async def wf(ctx: ExecutionContext):
+            await hang()
+
+        ctx = _make_ctx("wf_cancel_stubborn_rollback")
+        run = asyncio.create_task(wf(ctx))
+        await asyncio.sleep(0.2)
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+        elapsed = loop.time() - started
+
+        # Deadline (0.2) + grace (0.2) + slack — nowhere near the 30s the
+        # stubborn rollback would have imposed on an unbounded wait.
+        assert elapsed < 2.0
+        failed = _events(ctx, ExecutionEventType.TASK_ROLLBACK_FAILED)
+        assert len(failed) == 1
+        assert "ignored cancellation" in str(failed[0].value)
+
+        # Let the abandoned rollback exit so the loop closes cleanly.
+        stop.set()
+        await asyncio.sleep(0.1)
+
 
 class TestReplayAfterCancellation:
     @pytest.mark.asyncio

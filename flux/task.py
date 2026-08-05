@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
-from flux._concurrency import CANCELLED_ROLLBACK_TIMEOUT, gather_batch
+from flux._concurrency import CANCELLED_ROLLBACK_TIMEOUT, DEFAULT_DRAIN_TIMEOUT, gather_batch
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
@@ -38,6 +38,14 @@ def _get_auth_http_client():
 
         _auth_http_client = httpx.AsyncClient(timeout=10.0)
     return _auth_http_client
+
+
+def _retrieve_silently(task: asyncio.Task) -> None:
+    """Consume an abandoned task's outcome so asyncio never logs it as
+    never-retrieved. Used when a rollback ignores cancellation and the wait
+    for it is given up (see ``__handle_cancellation``)."""
+    with contextlib.suppress(BaseException):
+        task.exception()
 
 
 class TaskMetadata:
@@ -966,26 +974,40 @@ class task:
             remaining = deadline - loop.time()
             if remaining <= 0:
                 rollback_task.cancel()
+                # Bounded even here: a rollback that suppresses CancelledError
+                # cannot be force-killed, and an unbounded wait for it would
+                # strand the drain past the deadline this branch exists to
+                # enforce. Give it the drain-window grace to unwind, then
+                # abandon the wait.
                 with contextlib.suppress(asyncio.CancelledError):
-                    await asyncio.gather(rollback_task, return_exceptions=True)
-                if rollback_task.cancelled():
-                    # Timed out mid-rollback: ROLLBACK_STARTED is in the log
-                    # with no terminal — close it with the timeout as the
-                    # failure so the interruption is visible.
-                    ctx.events.append(
-                        ExecutionEvent(
-                            type=ExecutionEventType.TASK_ROLLBACK_FAILED,
-                            source_id=task_id,
-                            name=task_full_name,
-                            value=ExecutionError(
-                                message=(
-                                    f"Rollback for task '{task_full_name}' did not "
-                                    f"finish within {CANCELLED_ROLLBACK_TIMEOUT}s "
-                                    "during cancellation"
-                                ),
+                    await asyncio.wait({rollback_task}, timeout=DEFAULT_DRAIN_TIMEOUT)
+                if not rollback_task.done():
+                    rollback_task.add_done_callback(_retrieve_silently)
+                    detail = "ignored cancellation after running"
+                elif rollback_task.cancelled():
+                    detail = "did not finish within"
+                else:
+                    # Finished (or failed) right at the deadline;
+                    # __handle_rollback recorded its own terminal event.
+                    with contextlib.suppress(Exception):
+                        rollback_task.result()
+                    return
+                # ROLLBACK_STARTED is in the log with no terminal — close it
+                # with the timeout as the failure so the interruption is
+                # visible.
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_ROLLBACK_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=ExecutionError(
+                            message=(
+                                f"Rollback for task '{task_full_name}' {detail} "
+                                f"{CANCELLED_ROLLBACK_TIMEOUT}s during cancellation"
                             ),
                         ),
-                    )
+                    ),
+                )
                 return
             # Suppress everything: a re-cancel or timeout loops back to the
             # deadline check, and a rollback exception is retrieved (and was
