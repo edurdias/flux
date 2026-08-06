@@ -385,6 +385,11 @@ class AgentModel(Base):
     max_tokens = Column(Integer, nullable=False, default=4096)
     stream = Column(Boolean, nullable=False, default=True)
     approval_mode = Column(String, nullable=False, default="default")
+    # Split policy (issue #146): autonomy ceiling (strict/default/autonomous)
+    # and approval routing (inline/notify). NULL — every pre-#146 row —
+    # defers to the legacy approval_mode mapping.
+    autonomy = Column(String, nullable=True)
+    approval_routing = Column(String, nullable=True)
     reasoning_effort = Column(String, nullable=True)
     long_term_memory = Column(JSON, nullable=True)
     created_by = Column(String, nullable=True)

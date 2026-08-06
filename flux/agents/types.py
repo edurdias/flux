@@ -25,6 +25,10 @@ class AgentDefinition(BaseModel):
     max_tokens: int = 4096
     stream: bool = True
     approval_mode: str = "default"
+    # Split policy (issue #146): explicit values win over the legacy
+    # approval_mode mapping. None defers.
+    autonomy: str | None = None
+    approval_routing: str | None = None
     reasoning_effort: str | None = None
     long_term_memory: dict[str, Any] | None = None
 
@@ -33,6 +37,24 @@ class AgentDefinition(BaseModel):
     def validate_model_format(cls, v: str) -> str:
         if "/" not in v:
             raise ValueError(f"Model must be in 'provider/model_name' format, got: '{v}'")
+        return v
+
+    @field_validator("autonomy")
+    @classmethod
+    def validate_autonomy(cls, v: str | None) -> str | None:
+        from flux.tasks.ai.approval_policy import AUTONOMY_LEVELS
+
+        if v is not None and v not in AUTONOMY_LEVELS:
+            raise ValueError(f"autonomy must be one of {AUTONOMY_LEVELS}, got: '{v}'")
+        return v
+
+    @field_validator("approval_routing")
+    @classmethod
+    def validate_approval_routing(cls, v: str | None) -> str | None:
+        from flux.tasks.ai.approval_policy import ROUTING_MODES
+
+        if v is not None and v not in ROUTING_MODES:
+            raise ValueError(f"approval_routing must be one of {ROUTING_MODES}, got: '{v}'")
         return v
 
     @field_validator("reasoning_effort")
