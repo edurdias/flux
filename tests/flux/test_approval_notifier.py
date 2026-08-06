@@ -127,6 +127,7 @@ def _row():
     row.approver_provider = None
     row.reason = None
     row.scope = None
+    row.target_value = None
     return row
 
 

@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0017_pause_wakes"
+HEAD = "0018_approval_target_value"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

@@ -870,8 +870,14 @@ class ApprovalRequestModel(Base):
     # Decision scope: "call" (default; NULL on pre-existing rows reads as
     # "call") decides this task_call_id only; "execution" is a standing
     # grant — later gates on the same task name in this execution
-    # auto-approve without pausing (issue #74).
+    # auto-approve without pausing (issue #74); "target" is a standing
+    # grant bound to target_value (issue #143).
     scope = Column(String, nullable=True)
+    # Resolved value of the task's declared approval_target argument, bound
+    # at row creation (issue #143). NULL — including every pre-existing row
+    # — means no target was declared or bindable, so the row can neither
+    # mint nor match a target-scoped grant.
+    target_value = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("execution_id", "task_call_id", name="uq_approval_exec_call"),

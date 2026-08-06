@@ -265,6 +265,7 @@ class SubprocessRunner(Runner):
                 {
                     "task_call_id": frame["task_call_id"],
                     "task_name": frame["task_name"],
+                    "target_value": frame.get("target_value"),
                 },
             )
         raise RuntimeError(f"Unknown RPC frame type: {kind}")

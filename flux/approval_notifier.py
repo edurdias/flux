@@ -126,12 +126,17 @@ def get_notifier() -> ApprovalNotifier | None:
     from flux.config import Configuration
 
     approvals = Configuration.get().settings.approvals
-    if not approvals.webhook_url:
+    url = getattr(approvals, "webhook_url", None)
+    # Strict type checks: a mocked or partial Configuration (common in
+    # tests) must read as "no notifier", not fire garbage requests.
+    if not isinstance(url, str) or not url:
         return None
+    secret = getattr(approvals, "webhook_secret", None)
+    timeout = getattr(approvals, "webhook_timeout", 5.0)
     return WebhookApprovalNotifier(
-        url=approvals.webhook_url,
-        secret=approvals.webhook_secret,
-        timeout=approvals.webhook_timeout,
+        url=url,
+        secret=secret if isinstance(secret, str) else None,
+        timeout=timeout if isinstance(timeout, (int, float)) else 5.0,
     )
 
 
