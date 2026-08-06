@@ -226,7 +226,9 @@ class ExecutionRoutesMixin:
                     logger.debug(
                         f"Found execution {execution_id} in state: {summary['state']}",
                     )
-                    return summary
+                    from flux.security.redaction import redact_response
+
+                    return await redact_response(summary)
 
                 ctx = manager.get(execution_id)
 
@@ -273,7 +275,13 @@ class ExecutionRoutesMixin:
                 result = dto.summary() if not detailed else dto
 
                 logger.debug(f"Found execution {execution_id} in state: {ctx.state.value}")
-                return result
+                # Presentation-boundary secret redaction (issue #147 phase 1):
+                # the detailed DTO carries every task's recorded inputs and
+                # outputs, and execution:*:read is a much wider grant than
+                # secret-read. The stored event log is untouched.
+                from flux.security.redaction import redact_response
+
+                return await redact_response(result)
 
             except ExecutionContextNotFoundError:
                 raise HTTPException(
