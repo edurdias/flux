@@ -653,12 +653,22 @@ class DatabaseContextManager(ContextManager):
                 )
                 .all()
             )
-            for execution_id, watched_id in watchers:
-                watched_state = (
-                    session.query(ExecutionContextModel.state)
-                    .filter(ExecutionContextModel.execution_id == watched_id)
-                    .scalar()
+            # One query for every watched execution's state, then check in
+            # memory — a per-watcher lookup would make the tick O(paused
+            # executions) round-trips.
+            watched_ids = {watched_id for _, watched_id in watchers}
+            watched_states = (
+                dict(
+                    session.query(
+                        ExecutionContextModel.execution_id,
+                        ExecutionContextModel.state,
+                    ).filter(ExecutionContextModel.execution_id.in_(watched_ids)),
                 )
+                if watched_ids
+                else {}
+            )
+            for execution_id, watched_id in watchers:
+                watched_state = watched_states.get(watched_id)
                 # A watched id that does not exist wakes immediately: waiting
                 # forever on a typo is strictly worse than resuming, and the
                 # workflow can inspect the child itself.
