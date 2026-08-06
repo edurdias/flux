@@ -392,14 +392,28 @@ class ExecutionContext(Generic[WorkflowInputType]):
         )
         return event.value
 
-    def pause(self, id: str, name: str, output: Any = None) -> Self:
+    def pause(
+        self,
+        id: str,
+        name: str,
+        output: Any = None,
+        wake_at: str | None = None,
+        wake_on_complete: str | None = None,
+    ) -> Self:
         self._state = ExecutionState.PAUSED
+        value = PausedEventValue(name=name, output=output)
+        # Only record a wake when one was requested, so pre-#145 event
+        # shapes stay byte-identical for existing pauses.
+        if wake_at is not None:
+            value["wake_at"] = wake_at
+        if wake_on_complete is not None:
+            value["wake_on_complete"] = wake_on_complete
         self.events.append(
             ExecutionEvent(
                 type=ExecutionEventType.WORKFLOW_PAUSED,
                 source_id=id,
                 name=self.workflow_name,
-                value=PausedEventValue(name=name, output=output),
+                value=value,
                 subject=None,
             ),
         )

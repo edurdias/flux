@@ -103,7 +103,7 @@ Implementation hot-spots:
 - `execution_context.py` — `ExecutionContext[T]` (Generic over input type). State is a `ContextVar`; tasks call `await ExecutionContext.get()` to retrieve the current context — never pass it manually. `ctx.checkpoint()` flushes events through the registered checkpoint callable (server-side: HTTP POST; inline: SQLAlchemy save).
 - `events.py` — `ExecutionState` (CREATED → SCHEDULED → CLAIMED → RUNNING → COMPLETED/FAILED/CANCELLED, with PAUSED/RESUMING/RESUME_SCHEDULED/RESUME_CLAIMED/CANCELLING intermediates) and `ExecutionEventType` (workflow + task lifecycle, plus retry/fallback/rollback variants). Convenience flags on `ExecutionContext`: `has_finished`, `has_succeeded`, `has_failed`, `is_paused`, `is_cancelled`, `is_resuming`.
 - `resource_request.py` — used by both resource matching and label affinity.
-- `schedule.py` — `cron(...)`, `interval(...)`, `once(...)` factories; `schedule_factory` builds them from raw config.
+- `schedule.py` — `cron(...)`, `interval(...)`, `once(...)` factories (each takes `overlap="skip"|"allow"` — issue #142; NULL rows from before the policy read as allow); `schedule_factory` builds them from raw config.
 
 ### Persistence
 
@@ -125,7 +125,7 @@ Higher-level managers wrap the repositories:
 
 - `builtins.py` — `parallel`, `pipeline`, `now`, `sleep`, `uuid4`, `choice`, `randint`.
 - `graph.py` — `Graph` for DAG composition with cycle detection.
-- `pause.py`, `call.py`, `progress.py`, `config_task.py`.
+- `pause.py` (`pause(name, until=|after=|on_complete=)` — wake conditions fire from the scheduler tick, distributed path only; issue #145), `call.py`, `progress.py`, `config_task.py`.
 - `ai/` — the agent system. `agent.py` is the user-facing `agent()` task; `agent_loop.py` is the shared tool-execution loop; provider modules (`ollama.py`, `openai.py`, `anthropic.py`, `gemini.py`) are each a `(factory, formatter)` pair conforming to the ABC in `formatter.py`. Other pieces: `agent_plan.py` (multi-step planning + replanning), `delegation.py` (sub-agents / workflow agents), `dreaming.py` (memory consolidation), `memory/`, `skills.py`, `tools/`, `tool_executor.py`, `approval.py` (human-in-the-loop tool approval).
 - `mcp/` — MCP *client* (Flux calling external MCP servers from a workflow). The MCP *server* exposing Flux workflows is `flux/mcp_server.py` / `flux/service_mcp.py`.
 
@@ -133,7 +133,7 @@ Higher-level managers wrap the repositories:
 
 - `flux/agents/` — first-class **AI agent harness**: `manager.py` (CRUD), `process.py` + `session.py` (conversation lifecycle), `template.py`, `tools_resolver.py`, plus `ui/` (terminal + Textual + web) and a static `web/index.html`. Agents are stored in the `agents` table and *also* mirrored into the configs table under `agent:<name>` so workflow templates can fetch them via `get_config`.
 - `flux/service_*` modules + `flux/service_mcp.py` — **Workflow services**: a workflow can be exposed as an HTTP endpoint or MCP tool with a stable name. `service_resolver.py` handles collision detection; `service_proxy.py` provides standalone MCP endpoints with lazy discovery.
-- `flux/schedule_manager.py` — runs inside the server process; polls scheduled workflows, dispatches them, and tracks history.
+- `flux/schedule_manager.py` — runs inside the server process; polls scheduled workflows, dispatches them, and tracks history. The scheduler tick (under the cross-replica dispatch lock) also runs the overlap-skip check (#142), the park-TTL sweep failing executions unclaimed past `executions.park_deadline` (#157), and the pause-wake pass resuming executions whose `wake_at`/`wake_on_complete` fired (#145) — wake columns are stamped atomically with the PAUSED state write in `flux/context_managers.py::_sync_wake_columns`.
 - `flux/observability/` — OpenTelemetry tracing/metrics + a Prometheus `/metrics` endpoint, gated by `[flux.observability] enabled` and the `observability` extra.
 
 ## Configuration
