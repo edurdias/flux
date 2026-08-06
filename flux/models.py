@@ -901,9 +901,18 @@ class ScheduleModel(Base):
     # Service account to run scheduled executions as (required when auth is enabled)
     run_as_service_account = Column(String, nullable=True)
 
+    # Overlap policy (issue #142): "skip" | "allow". NULL — every row
+    # created before the column existed — reads as "allow", the pre-policy
+    # behavior, so upgrades change nothing silently.
+    overlap_policy = Column(String, nullable=True)
+
     # Statistics
     run_count = Column(Integer, nullable=False, default=0)
     failure_count = Column(Integer, nullable=False, default=0)
+    # Overlap skips (issue #142). Nullable so pre-existing rows read as 0
+    # without a backfill.
+    skip_count = Column(Integer, nullable=True)
+    last_skipped_at = Column(DateTime, nullable=True)
 
     # Relationships
     workflow = relationship("WorkflowModel", backref="schedules")
@@ -939,6 +948,9 @@ class ScheduleModel(Base):
         self.status = status
         self.input_data = input_data
         self.run_as_service_account = run_as_service_account
+        # getattr: Schedule objects unpickled from pre-#142 rows have no
+        # overlap attribute.
+        self.overlap_policy = getattr(schedule, "overlap", None)
         self.next_run_at = schedule.next_run_time()
 
     def get_schedule(self) -> Schedule:
@@ -985,6 +997,28 @@ class ScheduleModel(Base):
     def mark_failure(self):
         """Mark that the schedule execution failed"""
         self.failure_count += 1
+
+    def mark_skip(self, run_time: datetime | None = None):
+        """Record an overlap-skipped fire (issue #142).
+
+        Advances ``next_run_at`` exactly like a run — the fire is consumed,
+        not deferred — but counts it separately and leaves ``last_run_at`` /
+        ``run_count`` untouched, so run statistics still mean "executions
+        dispatched".
+        """
+        if run_time is None:
+            run_time = datetime.now(timezone.utc)
+        self.skip_count = (self.skip_count or 0) + 1
+        self.last_skipped_at = run_time
+
+        schedule = self.get_schedule()
+        from flux.domain.schedule import IntervalSchedule
+
+        if isinstance(schedule, IntervalSchedule):
+            schedule.mark_run(run_time)
+            self.schedule_config = schedule
+
+        self.update_next_run()
 
 
 class ServiceModel(Base):
