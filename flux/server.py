@@ -1289,6 +1289,25 @@ class Server(
             )
             self._bootstrap_token = token
 
+            # First-admin bootstrap (issue #154): with auth enabled and no
+            # admin principal yet, seed one with a random API key delivered
+            # via a host-local 0600 file — never over the network. Runs after
+            # seed_built_in_roles (the app was constructed before lifespan
+            # fires), so the admin role row exists. Init-only: a no-op
+            # whenever any enabled admin principal already exists.
+            if startup_settings.security.auth.enabled:
+                from flux.security import admin_bootstrap
+
+                try:
+                    await admin_bootstrap.ensure_admin_key(
+                        auth_service,
+                        principal_registry,
+                        self._get_db_session,
+                        startup_settings.home,
+                    )
+                except Exception:
+                    logger.error("Admin-key bootstrap failed", exc_info=True)
+
             # All blocking DB work reaches the loop through asyncio.to_thread,
             # which uses the loop's default executor — normally capped at
             # min(32, cpu+4) threads, an invisible throughput ceiling shared

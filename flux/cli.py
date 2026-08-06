@@ -1588,6 +1588,67 @@ def server_bootstrap_token(rotate: bool):
     raise click.exceptions.Exit(1)
 
 
+@server_group.command("admin-key")
+@click.option(
+    "--rotate",
+    is_flag=True,
+    default=False,
+    help=(
+        "Mint a fresh admin bootstrap key (revoking the previous one) and "
+        "persist it. Runs directly against the server's database — a running "
+        "server picks the new key up on its next lookup, since keys are "
+        "verified against the stored hash per request."
+    ),
+)
+def server_admin_key(rotate: bool):
+    """Print the admin bootstrap API key (or rotate it). Host-local.
+
+    Reading prints the persisted file at <home>/admin-bootstrap-key; it is
+    written on the first auth-enabled server start when no admin principal
+    exists (issue #154). This command operates on the local config and
+    datastore only — the first admin credential is never served over the
+    network; the boundary is access to the server host's disk.
+    """
+    import asyncio as _asyncio
+
+    from flux.config import Configuration
+    from flux.security import admin_bootstrap
+
+    settings = Configuration.get().settings
+    home = settings.home
+
+    if rotate:
+        from flux.models import RepositoryFactory
+        from flux.security.auth_service import AuthService
+        from flux.security.principals import PrincipalRegistry
+
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=repo.session)
+        auth_service = AuthService(
+            config=settings.security.auth,
+            session_factory=repo.session,
+            registry=registry,
+        )
+        # Roles may not exist yet on a database the server never started on.
+        auth_service.seed_built_in_roles()
+        key = _asyncio.run(admin_bootstrap.rotate(auth_service, registry, home))
+        click.echo(key)
+        return
+
+    persisted = admin_bootstrap.read_persisted(home)
+    if persisted:
+        click.echo(persisted)
+        return
+
+    click.echo(
+        "No admin bootstrap key found. Start the server with auth enabled to "
+        "generate one (first run only), or run 'flux server admin-key --rotate' "
+        "to mint one now.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
+
+
 @cli.group()
 def schedule():
     """Manage workflow schedules."""
