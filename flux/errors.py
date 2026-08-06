@@ -303,3 +303,18 @@ class TransientDurabilityError(ExecutionError):
                 f"durability='transient' to use it."
             ),
         )
+
+
+class ModelProviderError(ExecutionError):
+    """An LLM provider call failed, wrapped with actionable guidance.
+
+    Raw SDK exceptions (auth failures, missing models, rate limits, context
+    overflows, unreachable endpoints) surface as opaque task failures;
+    ``flux.tasks.ai.errors.friendly_model_error`` maps the common ones to
+    text that names the fix, and this error carries it with the original
+    exception preserved as ``inner_exception``.
+    """
+
+    def __init__(self, model: str, message: str, inner_exception: Exception | None = None):
+        self.model = model
+        super().__init__(inner_exception=inner_exception, message=message)
