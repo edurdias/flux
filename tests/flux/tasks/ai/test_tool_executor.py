@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 
+import pytest
 
 from flux import task
 from flux.tasks.ai.tool_executor import (
@@ -511,6 +512,223 @@ def test_pause_in_a_turn_drains_the_other_tools():
     ctx = test_wf.run()
     assert ctx.has_succeeded, ctx.output
     assert ctx.output is True, "sibling tool was killed instead of drained"
+
+
+def test_risk_option_validates_and_inherits():
+    with pytest.raises(ValueError, match="risk must be one of"):
+
+        @task.with_options(risk="destructive")
+        async def bad_tool() -> str:
+            return "x"
+
+    @task.with_options(risk="write")
+    async def write_tool() -> str:
+        return "x"
+
+    assert write_tool.risk == "write"
+    # with_options-derived variants (the executor's per-iteration rename)
+    # keep the declaration.
+    assert write_tool.with_options(name="write_tool_1").risk == "write"
+
+
+def test_with_options_preserves_approval_target():
+    # The executor renames tools per iteration via with_options; the #143
+    # target declaration must survive that (it used to be dropped).
+    @task.with_options(requires_approval=True, approval_target="path")
+    async def gated(path: str) -> str:
+        return path
+
+    assert gated.with_options(name="gated_1").approval_target == "path"
+
+
+def test_write_then_read_runs_in_emission_order():
+    """The #140 acceptance case: write_file then a read of the same resource
+    must be deterministic — the read always observes the completed write."""
+    from flux import ExecutionContext, workflow
+
+    log: list[str] = []
+
+    @task.with_options(risk="write")
+    async def write_tool(value: str) -> str:
+        # Long enough that a concurrent read would win the race.
+        await asyncio.sleep(0.15)
+        log.append(f"write:{value}")
+        return f"wrote:{value}"
+
+    @task.with_options(risk="read")
+    async def read_tool() -> str:
+        log.append("read")
+        return ",".join(log)
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "write_tool", "arguments": {"value": "x"}},
+            {"id": "2", "name": "read_tool", "arguments": {}},
+        ]
+        return await execute_tools(calls, [write_tool, read_tool])
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output[0]["output"] == "wrote:x"
+    # The read ran after the write settled and saw its effect.
+    assert ctx.output[1]["output"] == "write:x,read"
+
+
+def test_reads_between_barriers_stay_ordered_relative_to_them():
+    from flux import ExecutionContext, workflow
+
+    log: list[str] = []
+
+    @task.with_options(risk="read")
+    async def probe(label: str) -> str:
+        log.append(f"read:{label}")
+        return label
+
+    @task.with_options(risk="exec")
+    async def run_cmd() -> str:
+        await asyncio.sleep(0.1)
+        log.append("exec")
+        return "ran"
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "probe", "arguments": {"label": "before"}},
+            {"id": "2", "name": "run_cmd", "arguments": {}},
+            {"id": "3", "name": "probe", "arguments": {"label": "after"}},
+        ]
+        results = await execute_tools(calls, [probe, run_cmd])
+        return {"results": results, "log": log}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["log"] == ["read:before", "exec", "read:after"]
+    # Results stay in emission order.
+    assert [r["output"] for r in ctx.output["results"]] == ["before", "ran", "after"]
+
+
+def test_declared_reads_still_run_concurrently():
+    from flux import ExecutionContext, workflow
+
+    @task.with_options(risk="read")
+    async def slow_read(label: str) -> str:
+        await asyncio.sleep(0.3)
+        return f"done:{label}"
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": str(i), "name": "slow_read", "arguments": {"label": str(i)}} for i in range(3)
+        ]
+        start = time.monotonic()
+        results = await execute_tools(calls, [slow_read])
+        return {"n": len(results), "elapsed": time.monotonic() - start}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["n"] == 3
+    # Concurrent: well under the 0.9s a serialized run would take.
+    assert ctx.output["elapsed"] < 0.8
+
+
+def test_undeclared_approval_gated_tool_is_a_barrier():
+    """Zero-config fallback: requires_approval (declared) means "not a read"."""
+    from flux import ExecutionContext, workflow
+
+    log: list[str] = []
+
+    @task.with_options(requires_approval=True)
+    async def consequential(value: str) -> str:
+        await asyncio.sleep(0.15)
+        log.append(f"effect:{value}")
+        return f"did:{value}"
+
+    @task
+    async def observe() -> str:
+        log.append("observe")
+        return ",".join(log)
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "consequential", "arguments": {"value": "x"}},
+            {"id": "2", "name": "observe", "arguments": {}},
+        ]
+        # autonomous lifts the gate at execution time; the *declared*
+        # requires_approval still classifies the tool as a barrier.
+        return await execute_tools(calls, [consequential, observe], autonomy="autonomous")
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output[1]["output"] == "effect:x,observe"
+
+
+def test_parallel_tool_calls_false_serializes_everything():
+    from flux import ExecutionContext, workflow
+
+    log: list[str] = []
+
+    @task
+    async def plain(label: str) -> str:
+        await asyncio.sleep(0.1)
+        log.append(label)
+        return label
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "plain", "arguments": {"label": "a"}},
+            {"id": "2", "name": "plain", "arguments": {"label": "b"}},
+            {"id": "3", "name": "plain", "arguments": {"label": "c"}},
+        ]
+        start = time.monotonic()
+        await execute_tools(calls, [plain], parallel_tool_calls=False)
+        return {"log": log, "elapsed": time.monotonic() - start}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["log"] == ["a", "b", "c"]
+    assert ctx.output["elapsed"] >= 0.25  # three strictly serial 0.1s calls
+
+
+def test_pause_in_a_barrier_settles_prior_reads_and_stops_later_calls():
+    from flux import ExecutionContext, workflow
+    from flux.errors import PauseRequested
+
+    log: list[str] = []
+
+    @task.with_options(risk="read")
+    async def early_read() -> str:
+        log.append("early")
+        return "early"
+
+    @task.with_options(risk="write")
+    async def pausing_write() -> str:
+        raise PauseRequested(name="gate")
+
+    @task.with_options(risk="read")
+    async def late_read() -> str:
+        log.append("late")
+        return "late"
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "early_read", "arguments": {}},
+            {"id": "2", "name": "pausing_write", "arguments": {}},
+            {"id": "3", "name": "late_read", "arguments": {}},
+        ]
+        try:
+            await execute_tools(calls, [early_read, pausing_write, late_read])
+        except PauseRequested:
+            return log
+        return None
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded, ctx.output
+    # The read before the barrier completed; the one after it never started.
+    assert ctx.output == ["early"]
 
 
 def test_pause_in_a_turn_drains_the_other_tools_when_bounded():

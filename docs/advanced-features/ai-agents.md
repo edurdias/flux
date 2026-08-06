@@ -43,6 +43,48 @@ pip install anthropic        # for Anthropic models
 pip install google-genai     # for Google Gemini models
 ```
 
+## Model Capabilities
+
+Flux knows what a model can do — without a network call — through a
+two-stage lookup (`flux.tasks.ai.capabilities.resolve_capabilities`):
+
+1. A **curated matrix** keyed by the full model string exactly as
+   `agent(model=...)` receives it (version tags included, so
+   `ollama/qwen2.5-coder:32b` resolves correctly).
+2. **Conservative per-provider heuristics** for anything not listed, so
+   user-supplied model strings keep working at their own risk.
+
+```python
+from flux.tasks.ai.capabilities import resolve_capabilities
+
+caps = resolve_capabilities("ollama/llama3.3")
+caps.tools                 # True — can call tools
+caps.parallel_tool_calls   # False — parallel calls are faked; Flux serializes
+caps.vision, caps.pdf      # informational; the agent input surface is text-only
+caps.streaming             # True — token streaming is safe
+```
+
+The agent runtime consumes the record automatically:
+
+- Passing tools to a model that cannot call them (e.g. `ollama/llava`)
+  raises a clear Flux error instead of a provider 400.
+- Token streaming is skipped for models known not to support it.
+- On models with `parallel_tool_calls=False`, a turn's tool calls run
+  strictly in emission order — see
+  [Parallel Tool Execution](parallel-tool-execution.md).
+
+Deployments can pin capabilities for models Flux does not know:
+
+```python
+from flux.tasks.ai.capabilities import register_model_capabilities
+from flux.tasks.ai.models import ModelCapabilities
+
+register_model_capabilities(
+    "ollama/my-finetune:v3",
+    ModelCapabilities(tools=True, parallel_tool_calls=False),
+)
+```
+
 ## Quick Start by Provider
 
 ### Ollama

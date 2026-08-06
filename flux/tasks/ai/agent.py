@@ -80,7 +80,14 @@ async def agent(
         max_tool_calls: Maximum tool call iterations before forcing a final answer.
         max_concurrent_tools: Maximum number of tools to run concurrently when
             the LLM emits multiple tool calls in a single turn. None means
-            unlimited. Defaults to None.
+            unlimited. Defaults to None. This bounds concurrency only — it
+            guarantees no ordering between the calls it admits. Ordering
+            comes from risk declarations (issue #140): tools declaring
+            ``risk="read"`` (or declaring nothing and not approval-gated)
+            run concurrently; every other call runs alone, in emission
+            order. On models whose capabilities report
+            ``parallel_tool_calls=False`` every call runs in emission order
+            regardless of declarations.
         max_tokens: Maximum tokens in the LLM response (used by OpenAI, Anthropic, and Google; ignored by Ollama).
         stream: If True, enable streaming responses. Automatically disabled when response_format is set.
         on_complete: List of hook callables fired after the agent returns.
@@ -178,8 +185,6 @@ async def agent(
 
         system_prompt = system_prompt + build_tools_preamble(tools, autonomy=effective_autonomy)
 
-    effective_stream = stream and response_format is None
-
     if "/" not in model:
         raise ValueError(
             f"Model must be in 'provider/model_name' format, got: '{model}'. "
@@ -188,6 +193,25 @@ async def agent(
         )
 
     provider, model_name = model.split("/", 1)
+
+    # Model capabilities (issue #141): one no-network lookup — exact matrix
+    # hit or per-provider heuristics — consumed here to fail fast on
+    # tool-less models and skip known-broken streaming, and passed to the
+    # loop so tool calls run strictly ordered on models that fake parallel
+    # calls (issue #140).
+    from flux.tasks.ai.capabilities import resolve_capabilities
+
+    capabilities = resolve_capabilities(model)
+    if tools and not capabilities.tools:
+        raise ValueError(
+            f"Model '{model}' does not support tool calling, but this agent "
+            f"carries {len(tools)} tool(s). Choose a tool-capable model or "
+            "remove the tools (including skills/memory/planning, which add "
+            "tools implicitly).",
+        )
+    if stream and not capabilities.streaming:
+        logger.info("Streaming disabled: model '%s' is known not to support it", model)
+    effective_stream = stream and response_format is None and capabilities.streaming
 
     if provider == "ollama":
         from flux.tasks.ai.agent_loop import run_agent_loop
@@ -224,6 +248,7 @@ async def agent(
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
+                parallel_tool_calls=capabilities.parallel_tool_calls,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 autonomy=effective_autonomy,
@@ -266,6 +291,7 @@ async def agent(
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
+                parallel_tool_calls=capabilities.parallel_tool_calls,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 autonomy=effective_autonomy,
@@ -308,6 +334,7 @@ async def agent(
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
+                parallel_tool_calls=capabilities.parallel_tool_calls,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 autonomy=effective_autonomy,
@@ -350,6 +377,7 @@ async def agent(
                 working_memory=working_memory,
                 max_tool_calls=max_tool_calls,
                 max_concurrent_tools=max_concurrent_tools,
+                parallel_tool_calls=capabilities.parallel_tool_calls,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
                 autonomy=effective_autonomy,

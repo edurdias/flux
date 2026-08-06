@@ -200,3 +200,40 @@ async def test_agent_accepts_max_concurrent_tools():
 async def test_agent_max_concurrent_tools_defaults_to_none():
     a = await agent("You are a test agent.", model="ollama/llama3")
     assert a is not None
+
+
+# --- model capability gating (issue #141A) ---
+
+
+async def test_agent_rejects_tools_on_tool_less_model():
+    from flux import task
+
+    @task
+    async def some_tool(query: str) -> str:
+        """A tool."""
+        return query
+
+    with pytest.raises(ValueError, match="does not support tool calling"):
+        await agent("test", model="ollama/llava", tools=[some_tool])
+
+
+async def test_agent_skills_count_as_tools_for_capability_gate():
+    from flux.tasks.ai.skills import Skill, SkillCatalog
+
+    catalog = SkillCatalog([Skill(name="s", description="d.", instructions="i.")])
+    with pytest.raises(ValueError, match="does not support tool calling"):
+        await agent("test", model="ollama/llava", skills=catalog)
+
+
+async def test_agent_tool_less_model_without_tools_is_fine():
+    a = await agent("Describe the image.", model="ollama/llava")
+    assert a is not None
+
+
+async def test_agent_streaming_disabled_for_non_streaming_model(monkeypatch):
+    # openai/o1 is matrixed streaming=False; the agent silently downgrades
+    # instead of letting the provider reject the stream. Provider build needs
+    # an API key but no network.
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    a = await agent("test", model="openai/o1", stream=True)
+    assert a is not None

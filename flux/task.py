@@ -23,6 +23,13 @@ from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+# Side-effect classes a task may declare via ``risk=`` (issue #140). Only
+# "read" is safe to run concurrently with batch siblings in an agent turn;
+# the other levels exist so authors state *what kind* of effect a tool has —
+# ordering treats them all as barriers today, and finer policy (e.g. approval
+# defaults per level) can build on the distinction later.
+RISK_LEVELS = ("read", "write", "exec", "external")
+
 _auth_http_client = None
 
 
@@ -82,6 +89,7 @@ class _WithOptions:
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
+        risk: str | None = None,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -101,6 +109,7 @@ class _WithOptions:
                 auth_exempt=auth_exempt,
                 requires_approval=requires_approval,
                 approval_target=approval_target,
+                risk=risk,
             )
 
         return wrapper
@@ -127,7 +136,12 @@ class task:
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
+        risk: str | None = None,
     ):
+        if risk is not None and risk not in RISK_LEVELS:
+            raise ValueError(
+                f"risk must be one of {RISK_LEVELS} or None, got: '{risk}'",
+            )
         self._func = func
         self.name = name if name else func.__name__
         self.description: str | None = None
@@ -148,6 +162,11 @@ class task:
         # binds to (issue #143). A task that declares nothing cannot mint
         # target-scoped grants — fail-closed by construction.
         self.approval_target = approval_target
+        # Declared side-effect class (issue #140): "read" runs concurrently
+        # with its batch siblings; anything else is an ordering barrier in
+        # an agent turn. None (undeclared) keeps legacy concurrent behavior
+        # unless the task is approval-gated.
+        self.risk = risk
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -539,6 +558,8 @@ class task:
         metadata: bool | None = None,
         auth_exempt: bool | None = None,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
+        approval_target: str | None = None,
+        risk: str | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -565,6 +586,10 @@ class task:
             requires_approval=(
                 requires_approval if requires_approval is not None else self.requires_approval
             ),
+            approval_target=(
+                approval_target if approval_target is not None else self.approval_target
+            ),
+            risk=risk if risk is not None else self.risk,
         )
 
     async def _evaluate_approval_predicate(self, args: tuple, kwargs: dict) -> bool:

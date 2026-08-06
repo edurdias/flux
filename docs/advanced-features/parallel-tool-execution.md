@@ -7,10 +7,44 @@ web searches, concurrent file reads, simultaneous agent delegations.
 ## How It Works
 
 Most LLM providers support multiple tool calls per response. When the LLM decides
-to call 3 tools at once, Flux runs all 3 concurrently via `asyncio.gather` instead
-of waiting for each to finish before starting the next.
+to call 3 tools at once, Flux runs all 3 concurrently instead of waiting for each
+to finish before starting the next.
 
 This is automatic — no configuration needed. Any agent with tools benefits.
+
+## The Ordering Contract
+
+Concurrency is safe for reads and dangerous for effects: a turn that emits
+`write_file(...)` and `wc -l` on the same file must not race them, or the
+wrong result gets checkpointed and then **replays deterministically forever**.
+Flux partitions each turn by declared risk:
+
+- Tools declaring `risk="read"` — or declaring nothing and not
+  approval-gated — run **concurrently** with their neighbors.
+- Every other call is a **barrier**: it runs alone, in the order the model
+  emitted it, after everything before it has settled.
+
+```python
+@task.with_options(risk="read")
+async def read_doc(path: str) -> str: ...
+
+@task.with_options(risk="write")
+async def write_file(path: str, content: str) -> str: ...
+```
+
+`risk` accepts `"read"`, `"write"`, `"exec"`, and `"external"` — only
+`"read"` is concurrent-eligible; the finer non-read levels document what
+kind of effect the tool has.
+
+Defaults are compatible: an unannotated tool keeps the legacy concurrent
+behavior, **unless** it declares `requires_approval` — a tool the author
+gates behind a human is consequential by definition, so it is treated as a
+barrier without any annotation.
+
+On models whose [capability record](ai-agents.md#model-capabilities) reports
+`parallel_tool_calls=False` (most local Ollama models — many accept the
+parallel-call wire format but mis-execute it), every call runs as a barrier
+in emission order regardless of declarations.
 
 ## Limiting Concurrency
 
@@ -31,6 +65,9 @@ assistant = await agent(
 - `None` (default): unlimited concurrency
 - `int`: maximum concurrent tool executions via semaphore
 - `1`: sequential execution (same as pre-0.17.0 behavior)
+
+`max_concurrent_tools` bounds *how many* tools run at once; it guarantees
+nothing about *order*. Ordering comes from the risk partition above.
 
 ## Result Ordering
 
