@@ -493,33 +493,6 @@ class SchedulingConfig(BaseConfig):
     )
 
 
-class ApprovalsConfig(BaseConfig):
-    """Approval delivery configuration (issue #144).
-
-    The webhook notifier POSTs approval lifecycle events (requested /
-    resolved) to ``webhook_url``, embedding the correlation token an
-    operator's reply glue passes back to ``POST /approvals/resolve``.
-    Unset URL disables outbound delivery entirely; the approval rows and
-    the CLI/API decision paths are unaffected either way.
-    """
-
-    webhook_url: str | None = Field(
-        default=None,
-        description="URL to POST approval lifecycle events to (unset disables)",
-    )
-    webhook_secret: str | None = Field(
-        default=None,
-        description=(
-            "Optional HMAC-SHA256 secret; when set, request bodies are signed "
-            "and the hex digest sent as X-Flux-Signature: sha256=<hex>"
-        ),
-    )
-    webhook_timeout: float = Field(
-        default=5.0,
-        description="Timeout in seconds for webhook deliveries",
-    )
-
-
 class FluxConfig(BaseSettings):
     """Main configuration class for Flux framework."""
 
@@ -607,7 +580,6 @@ class FluxConfig(BaseSettings):
     )
 
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
-    approvals: ApprovalsConfig = Field(default_factory=ApprovalsConfig)
     security: SecurityConfig = Field(
         default_factory=lambda: __import__(
             "flux.security.config",
