@@ -119,6 +119,8 @@ Higher-level managers wrap the repositories:
 
 - Two auth layers: **OIDC** (`providers/oidc.py`) and **API keys** (`providers/api_key.py`). Both feed into a `FluxIdentity`; `AuthService` resolves it to a permission set via `RoleModel` rows. Built-in roles: `admin` (`*`), `operator`, `viewer`, `worker`.
 - **Bootstrap token** (`bootstrap_token.py`) — used once by a worker to obtain an API key + service-principal during `POST /workers/register`. If the server's `[flux.workers] bootstrap_token` is unset, one is auto-generated and persisted to `<home>/bootstrap-token` on first start; surface it via `flux server bootstrap-token`.
+- **Admin bootstrap** (`admin_bootstrap.py`, #154) — the human analog: on the first auth-enabled start with no enabled admin principal, a random admin API key is minted (hash in DB, bound to the built-in `admin` role) and the plaintext written to `<home>/admin-bootstrap-key` (0600). Init-only; `flux server admin-key [--rotate]` prints/rotates host-locally.
+- **Presentation redaction** (`redaction.py`, #147 phase 1) — execution-read API responses are scrubbed of known secret values by value identity (config `[flux.security] redact_secrets_in_responses`, default on). Presentation-boundary only: the event log and replay are untouched.
 - **Execution token** (`execution_token.py`) — short-lived JWT scoped to a single execution; used by the worker when calling back into the server during a workflow.
 - Most server routes go through `Depends(require_permission("workflow:{namespace}:{name}:run"))` etc. Permissions follow `resource:scope:scope:verb` with `*` wildcards.
 

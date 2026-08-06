@@ -120,5 +120,14 @@ class SecurityConfig(_BaseConfig):
             "and resume, so it only needs to outlive one continuous run."
         ),
     )
+    redact_secrets_in_responses: bool = Field(
+        default=True,
+        description=(
+            "Redact known secret values (by value identity, from the secret "
+            "store) in execution-read API responses and therefore CLI "
+            "rendering (issue #147 phase 1). Presentation-boundary only: the "
+            "stored event log and replay behavior are unchanged."
+        ),
+    )
 
     model_config = {"arbitrary_types_allowed": True}
