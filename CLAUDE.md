@@ -52,6 +52,7 @@ poetry run flux config    set|get|list|remove
 poetry run flux agent     create|apply|list|show|update|delete
 poetry run flux roles | principals | auth                        # security admin
 poetry run flux server bootstrap-token                           # print the auto-generated worker token
+poetry run flux server admin-key [--rotate]                      # print/rotate the first-admin bootstrap key (#154)
 ```
 
 ### Pytest markers (pyproject.toml)
