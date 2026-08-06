@@ -321,6 +321,7 @@ class ExecutionRoutesMixin:
                 ),
                 "reason": r.reason,
                 "scope": r.scope or "call",
+                "target_value": getattr(r, "target_value", None),
             }
 
         # (workflow-read scoping uses the shared _check_workflow_read helper
@@ -663,13 +664,24 @@ class ExecutionRoutesMixin:
         ):
             reason = body.reason if body is not None else None
             always = body.always if body is not None else False
+            always_for_target = body.always_for_target if body is not None else False
+            if always and always_for_target:
+                raise HTTPException(
+                    status_code=400,
+                    detail="always and always_for_target are mutually exclusive",
+                )
+            scope = "call"
+            if always:
+                scope = "execution"
+            elif always_for_target:
+                scope = "target"
             return await _decide_approval(
                 execution_id,
                 task_call_id,
                 identity,
                 approved=True,
                 reason=reason,
-                scope="execution" if always else "call",
+                scope=scope,
             )
 
         @api.post("/executions/{execution_id}/approvals/{task_call_id:path}/reject")

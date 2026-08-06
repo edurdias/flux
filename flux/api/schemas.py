@@ -145,13 +145,17 @@ class ApprovalDecideRequest(BaseModel):
     """Body for POST /executions/{id}/approvals/{call}/{approve|reject}.
 
     The decision verb (approve/reject) is path-derived; the body carries the
-    optional reason and, for approvals, the standing-grant flag: ``always``
+    optional reason and, for approvals, the standing-grant flags: ``always``
     scopes the approval to the whole execution, so later gates on the same
-    task name auto-approve without pausing.
+    task name auto-approve without pausing; ``always_for_target`` (issue
+    #143) scopes it to this task against this exact bound target value —
+    mutually exclusive with ``always``, and rejected when the approval
+    bound no target value.
     """
 
     reason: str | None = None
     always: bool = False
+    always_for_target: bool = False
 
 
 class APIKeyRequest(BaseModel):

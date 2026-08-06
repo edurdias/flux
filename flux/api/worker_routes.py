@@ -976,6 +976,7 @@ class WorkerRoutesMixin:
             self._verify_worker_identity(identity, name)
             task_call_id = payload.get("task_call_id")
             task_name = payload.get("task_name")
+            target_value = payload.get("target_value") or None
             if not task_call_id or not task_name:
                 raise HTTPException(
                     status_code=400,
@@ -993,7 +994,11 @@ class WorkerRoutesMixin:
                 mgr = ApprovalManager()
                 if mgr.get_by_call(execution_id, task_call_id) is not None:
                     return "exists"
-                grant = mgr.find_standing_grant(execution_id, task_name)
+                grant = mgr.find_standing_grant(
+                    execution_id,
+                    task_name,
+                    target_value=target_value,
+                )
                 with UnitOfWork() as uow:
                     model = uow.session.execute(
                         select(ExecutionContextModel)
@@ -1027,6 +1032,7 @@ class WorkerRoutesMixin:
                             task_name=task_name,
                             grant=grant,
                             uow=uow,
+                            target_value=target_value,
                         )
                         uow.commit()
                         return "granted"
@@ -1037,6 +1043,7 @@ class WorkerRoutesMixin:
                         workflow_name=model.workflow_name,
                         task_name=task_name,
                         uow=uow,
+                        target_value=target_value,
                     )
                     uow.commit()
                 # After the commit: a notification for a row that failed to

@@ -104,6 +104,7 @@ class ApprovalSnapshot:
     approver_provider: str | None = None
     reason: str | None = None
     scope: str = "call"
+    target_value: str | None = None
 
     @classmethod
     def from_model(cls, row: ApprovalRequestModel) -> ApprovalSnapshot:
@@ -118,6 +119,7 @@ class ApprovalSnapshot:
             approver_provider=row.approver_provider,
             reason=row.reason,
             scope=row.scope or "call",
+            target_value=getattr(row, "target_value", None),
         )
 
     @classmethod
@@ -133,6 +135,7 @@ class ApprovalSnapshot:
             approver_provider=data.get("approver_provider"),
             reason=data.get("reason"),
             scope=data.get("scope") or "call",
+            target_value=data.get("target_value"),
         )
 
     def to_dict(self) -> dict:
@@ -147,6 +150,7 @@ class ApprovalSnapshot:
             "approver_provider": self.approver_provider,
             "reason": self.reason,
             "scope": self.scope,
+            "target_value": self.target_value,
         }
 
 
@@ -167,7 +171,14 @@ class LocalApprovalStore:
         row = ApprovalManager().get_by_call(execution_id, task_call_id)
         return ApprovalSnapshot.from_model(row) if row else None
 
-    async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
+    async def register(
+        self,
+        ctx,
+        task_call_id: str,
+        task_name: str,
+        awaiting_event,
+        target_value: str | None = None,
+    ) -> str:
         """Atomically persist the awaiting event and the PENDING row.
 
         Returns ``"created"``, ``"exists"``, ``"granted"``, or
@@ -192,7 +203,11 @@ class LocalApprovalStore:
         # already moved the execution to CANCELLING (or a terminal state)
         # wins, and the gated body must not run on the back of an
         # auto-approved row.
-        grant = mgr.find_standing_grant(ctx.execution_id, task_name)
+        grant = mgr.find_standing_grant(
+            ctx.execution_id,
+            task_name,
+            target_value=target_value,
+        )
         if grant is not None:
             cm = ContextManager.create()
             with UnitOfWork() as uow:
@@ -206,6 +221,7 @@ class LocalApprovalStore:
                     task_name=task_name,
                     grant=grant,
                     uow=uow,
+                    target_value=target_value,
                 )
                 uow.commit()
             return "granted"
@@ -229,6 +245,7 @@ class LocalApprovalStore:
                 workflow_name=ctx.workflow_name,
                 task_name=task_name,
                 uow=uow,
+                target_value=target_value,
             )
             uow.commit()
         from flux.approval_notifier import fire_notify
@@ -257,8 +274,14 @@ class ApprovalManager:
         task_name: str,
         *,
         uow: UnitOfWork,
+        target_value: str | None = None,
     ) -> ApprovalRequestModel:
-        """Insert a pending approval row. Caller commits the UoW."""
+        """Insert a pending approval row. Caller commits the UoW.
+
+        ``target_value`` is the resolved value of the task's declared
+        ``approval_target`` argument (issue #143), bound at creation so a
+        later target-scoped decision has an exact value to grant against.
+        """
         row = ApprovalRequestModel(
             id=uuid.uuid4().hex,
             execution_id=execution_id,
@@ -268,6 +291,7 @@ class ApprovalManager:
             task_name=task_name,
             requested_at=datetime.now(timezone.utc),
             status=ApprovalStatus.PENDING,
+            target_value=target_value,
         )
         uow.session.add(row)
         uow.session.flush()
@@ -280,20 +304,33 @@ class ApprovalManager:
         task_name: str,
         *,
         uow: UnitOfWork | None = None,
+        target_value: str | None = None,
     ) -> ApprovalRequestModel | None:
-        """The newest approved scope="execution" row for this task name.
+        """The newest standing grant covering this task call, or None.
 
-        A standing grant means the approver opted into "always approve" for
-        this execution: later gates on the same task name (including its
-        retry attempts) auto-approve without pausing.
+        Two grant shapes (issue #74 / #143): ``scope="execution"`` covers
+        every later gate on the task name; ``scope="target"`` covers only
+        calls whose bound target value equals the grant's. A call that
+        bound no target value can never match a target-scoped grant —
+        fail-closed on both sides.
         """
+        from sqlalchemy import and_, or_
+
+        scope_clauses = [ApprovalRequestModel.scope == "execution"]
+        if target_value is not None:
+            scope_clauses.append(
+                and_(
+                    ApprovalRequestModel.scope == "target",
+                    ApprovalRequestModel.target_value == target_value,
+                ),
+            )
         stmt = (
             select(ApprovalRequestModel)
             .where(
                 ApprovalRequestModel.execution_id == execution_id,
                 ApprovalRequestModel.task_name == task_name,
                 ApprovalRequestModel.status == ApprovalStatus.APPROVED,
-                ApprovalRequestModel.scope == "execution",
+                or_(*scope_clauses),
             )
             .order_by(ApprovalRequestModel.decided_at.desc())
             .limit(1)
@@ -313,11 +350,18 @@ class ApprovalManager:
         grant: ApprovalRequestModel,
         *,
         uow: UnitOfWork,
+        target_value: str | None = None,
     ) -> ApprovalRequestModel:
         """Materialize an auto-approved row for a call covered by a standing
         grant, so every gated call stays visible in the audit trail. Caller
-        commits the UoW."""
+        commits the UoW. The audit reason names the grant that applied —
+        which grant, not just "a standing grant" (issue #143)."""
         now = datetime.now(timezone.utc)
+        grant_scope = grant.scope or "execution"
+        reason = f"standing grant {grant.id} (scope={grant_scope}"
+        if grant_scope == "target":
+            reason += f", target={grant.target_value!r}"
+        reason += ")"
         row = ApprovalRequestModel(
             id=uuid.uuid4().hex,
             execution_id=execution_id,
@@ -330,8 +374,9 @@ class ApprovalManager:
             decided_at=now,
             approver_subject=grant.approver_subject,
             approver_provider=grant.approver_provider,
-            reason="standing grant",
+            reason=reason,
             scope="call",
+            target_value=target_value,
         )
         uow.session.add(row)
         uow.session.flush()
@@ -529,10 +574,33 @@ class ApprovalManager:
         pausing. Only approvals can carry it — a standing rejection would
         silently fail every future call.
         """
-        if scope not in ("call", "execution"):
-            raise ValueError(f"scope must be 'call' or 'execution', got: '{scope}'")
-        if scope == "execution" and not approved:
-            raise ValueError("scope='execution' is only valid for approvals")
+        if scope not in ("call", "execution", "target"):
+            raise ValueError(
+                f"scope must be 'call', 'execution', or 'target', got: '{scope}'",
+            )
+        if scope in ("execution", "target") and not approved:
+            raise ValueError(f"scope='{scope}' is only valid for approvals")
+        if scope == "target":
+            # Fail-closed (issue #143): a target-scoped grant is only
+            # expressible when the task declared an approval_target and the
+            # gate bound a concrete value at row creation. Anything else is
+            # rejected loudly — never silently widened to execution scope.
+            row = uow.session.execute(
+                select(ApprovalRequestModel).where(
+                    ApprovalRequestModel.execution_id == execution_id,
+                    ApprovalRequestModel.task_call_id == task_call_id,
+                ),
+            ).scalar_one_or_none()
+            if row is None:
+                raise LookupError(
+                    f"No approval found for execution={execution_id} task_call_id={task_call_id}",
+                )
+            if not row.target_value:
+                raise ValueError(
+                    "scope='target' requires the task to declare "
+                    "approval_target and the call to bind a non-empty scalar "
+                    "value for it; this approval has no bound target",
+                )
         new_status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
         decided_at = datetime.now(timezone.utc)
 

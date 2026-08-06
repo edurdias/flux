@@ -50,4 +50,4 @@ def test_standing_grant_covers_remaining_regions():
     rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
     assert len(rows) == 3
     assert sum(1 for r in rows if (r.scope or "call") == "execution") == 1
-    assert sum(1 for r in rows if r.reason == "standing grant") == 2
+    assert sum(1 for r in rows if (r.reason or "").startswith("standing grant")) == 2
