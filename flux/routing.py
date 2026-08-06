@@ -933,6 +933,11 @@ def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, str, _P
     Returns ``(kind, key, None)`` or ``(kind, "", problem)``."""
     if isinstance(selector, str) and selector.startswith("label:"):
         return "label", selector[len("label:") :], None
+    if isinstance(selector, str) and selector.startswith("meta:"):
+        # Callers usually branch on static meta selectors before reaching
+        # here; handled anyway so the resolver's contract holds for every
+        # selector shape it documents.
+        return "meta", selector[len("meta:") :], None
     if isinstance(selector, dict) and selector.get("kind") in ("label", "meta"):
         kind = selector["kind"]
         prefix, path = selector.get("prefix"), selector.get("input")

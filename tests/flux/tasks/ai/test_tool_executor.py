@@ -692,6 +692,36 @@ def test_parallel_tool_calls_false_serializes_everything():
     assert ctx.output["elapsed"] >= 0.25  # three strictly serial 0.1s calls
 
 
+def test_parallel_tool_calls_false_serializes_around_unknown_tools():
+    """An unknown tool in the turn must not re-open concurrency when the
+    model cannot do parallel calls — every call is a barrier, known or not."""
+    from flux import ExecutionContext, workflow
+
+    log: list[str] = []
+
+    @task
+    async def plain(label: str) -> str:
+        await asyncio.sleep(0.1)
+        log.append(label)
+        return label
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        calls = [
+            {"id": "1", "name": "plain", "arguments": {"label": "a"}},
+            {"id": "2", "name": "not_a_tool", "arguments": {}},
+            {"id": "3", "name": "plain", "arguments": {"label": "b"}},
+        ]
+        results = await execute_tools(calls, [plain], parallel_tool_calls=False)
+        return {"log": log, "results": results}
+
+    ctx = test_wf.run()
+    assert ctx.has_succeeded
+    assert ctx.output["log"] == ["a", "b"]
+    assert "Unknown tool" in ctx.output["results"][1]["output"]
+    assert [r["output"] for r in (ctx.output["results"][0], ctx.output["results"][2])] == ["a", "b"]
+
+
 def test_pause_in_a_barrier_settles_prior_reads_and_stops_later_calls():
     from flux import ExecutionContext, workflow
     from flux.errors import PauseRequested

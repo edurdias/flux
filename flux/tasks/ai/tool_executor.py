@@ -409,10 +409,11 @@ async def execute_tools(
 
     for index, call in enumerate(tool_calls):
         tool_fn = tool_map.get(call["name"])
-        # Unknown tools resolve to an error result inside _run_one — no side
-        # effects, so they stay concurrent-eligible.
-        is_barrier = tool_fn is not None and (
-            not parallel_tool_calls or _is_ordering_barrier(tool_fn)
+        # parallel_tool_calls=False means every call is a barrier, known or
+        # not. Otherwise unknown tools resolve to an error result inside
+        # _run_one — no side effects, so they stay concurrent-eligible.
+        is_barrier = not parallel_tool_calls or (
+            tool_fn is not None and _is_ordering_barrier(tool_fn)
         )
         if not is_barrier:
             pending.append(index)
