@@ -23,8 +23,13 @@ from flux.routing import (
 from flux.worker_registry import WorkerInfo
 
 
-def _worker(name: str, labels: dict | None = None, metrics: dict | None = None) -> WorkerInfo:
-    return WorkerInfo(name=name, labels=labels, metrics=metrics)
+def _worker(
+    name: str,
+    labels: dict | None = None,
+    metrics: dict | None = None,
+    metadata: dict | None = None,
+) -> WorkerInfo:
+    return WorkerInfo(name=name, labels=labels, metrics=metrics, metadata=metadata)
 
 
 class TestFactories:
@@ -401,13 +406,16 @@ class TestDynamicScoring:
         assert prefer(service("inference"))["selector"] == "label:flux.service.inference"
 
     def test_least_and_most_still_reject_dynamic_keys(self):
-        from flux.routing import label_for
+        from flux.routing import label_for, meta_for
 
-        dynamic = label_for("cache.", input_ref("dataset"))
-        with pytest.raises(ValueError, match="no ordering"):
-            least(dynamic)
-        with pytest.raises(ValueError, match="no ordering"):
-            most(dynamic)
+        for dynamic in (
+            label_for("cache.", input_ref("dataset")),
+            meta_for("approved.", input_ref("artefact")),
+        ):
+            with pytest.raises(ValueError, match="dynamic keys"):
+                least(dynamic)
+            with pytest.raises(ValueError, match="dynamic keys"):
+                most(dynamic)
 
     def test_when_wraps_score_terms(self):
         from flux.routing import when
@@ -469,6 +477,53 @@ class TestDynamicScoring:
         assert pick_worker([warm, cold], policy, loads=loads, input_value={}) is cold
         assert (
             pick_worker([warm, cold], policy, loads=loads, input_value={"dataset": "../x"}) is cold
+        )
+
+    def test_prefer_accepts_dynamic_meta_key(self):
+        from flux.routing import meta_for
+
+        term = prefer(meta_for("approved.", input_ref("artefact")) == "true", weight=5)
+        assert term == {
+            "kind": "prefer",
+            "selector": {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+            "op": "==",
+            "value": "true",
+            "weight": 5.0,
+        }
+
+    def test_pick_worker_resolves_dynamic_meta_key_from_metadata_only(self):
+        from flux.routing import meta_for
+
+        approved = _worker("approved", metadata={"approved.model-a": "true"})
+        # A worker asserting the same key as a label gets no credit — the
+        # term reads the server-held metadata dict exclusively.
+        pretender = _worker("pretender", labels={"approved.model-a": "true"})
+        policy = score(
+            prefer(meta_for("approved.", input_ref("artefact")) == "true", weight=10),
+            least(load()),
+        )
+        picked = pick_worker(
+            [approved, pretender],
+            policy,
+            loads={"approved": 5, "pretender": 0},
+            input_value={"artefact": "model-a"},
+        )
+        assert picked is approved
+
+    def test_pick_worker_dynamic_meta_key_unresolved_cannot_discriminate(self):
+        from flux.routing import meta_for
+
+        approved = _worker("approved", metadata={"approved.model-a": "true"})
+        idle = _worker("idle")
+        policy = score(
+            prefer(meta_for("approved.", input_ref("artefact")) == "true", weight=10),
+            least(load()),
+        )
+        loads = {"approved": 5, "idle": 0}
+        assert pick_worker([approved, idle], policy, loads=loads, input_value={}) is idle
+        assert (
+            pick_worker([approved, idle], policy, loads=loads, input_value={"artefact": "../x"})
+            is idle
         )
 
     def test_pick_worker_malformed_dynamic_selector_degrades(self):

@@ -163,10 +163,37 @@ async def routed(ctx):
     }
 
 
+def test_meta_for_extracted_in_score():
+    source = b"""
+from flux import workflow
+from flux.routing import score, prefer, least, load, meta_for, input
+
+
+@workflow.with_options(
+    routing=score(
+        prefer(meta_for("approved.", input("artefact")) == "true", weight=5),
+        least(load()),
+    ),
+)
+async def routed(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    terms = (info.metadata or {})["routing"]["terms"]
+    assert terms[0] == {
+        "kind": "prefer",
+        "selector": {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+        "op": "==",
+        "value": "true",
+        "weight": 5.0,
+    }
+
+
 @pytest.mark.parametrize(
     ("term", "reason"),
     [
-        ('least(label_for("c.", input("d")))', "no ordering"),
+        ('least(label_for("c.", input("d")))', "dynamic keys"),
+        ('least(meta_for("c.", input("d")))', "dynamic keys"),
         ('when(label("x") == "1", least(load()))', "must be input"),
         ('when(input("t") == "1", label("y") == "1")', "expected prefer"),
         ('when(input("t") == "1", when(input("u") == "1", least(load())))', "when"),
@@ -177,7 +204,7 @@ async def routed(ctx):
 def test_unparseable_dynamic_score_terms_fail_loudly(term, reason):
     source = f"""
 from flux import workflow
-from flux.routing import score, prefer, least, when, load, label, label_for, service, input
+from flux.routing import score, prefer, least, when, load, label, label_for, meta_for, service, input
 
 prefix = "c."
 
