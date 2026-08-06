@@ -1597,17 +1597,22 @@ def server_bootstrap_token(rotate: bool):
         "Mint a fresh admin bootstrap key (revoking the previous one) and "
         "persist it. Runs directly against the server's database — a running "
         "server picks the new key up on its next lookup, since keys are "
-        "verified against the stored hash per request."
+        "verified against the stored hash per request. The key only "
+        "authenticates when the API-key provider "
+        "([flux.security.auth.api_keys] enabled = true) is on."
     ),
 )
 def server_admin_key(rotate: bool):
     """Print the admin bootstrap API key (or rotate it). Host-local.
 
     Reading prints the persisted file at <home>/admin-bootstrap-key; it is
-    written on the first auth-enabled server start when no admin principal
-    exists (issue #154). This command operates on the local config and
-    datastore only — the first admin credential is never served over the
-    network; the boundary is access to the server host's disk.
+    written on the first server start with auth and the API-key provider
+    enabled, when no admin principal exists (issue #154). API keys are only
+    accepted while [flux.security.auth.api_keys] is enabled — in an
+    OIDC-only deployment this key cannot authenticate; grant the admin role
+    to an OIDC principal instead. This command operates on the local config
+    and datastore only — the first admin credential is never served over
+    the network; the boundary is access to the server host's disk.
     """
     import asyncio as _asyncio
 
@@ -1621,6 +1626,13 @@ def server_admin_key(rotate: bool):
         from flux.models import RepositoryFactory
         from flux.security.auth_service import AuthService
         from flux.security.principals import PrincipalRegistry
+
+        if not settings.security.auth.api_keys.enabled:
+            click.echo(
+                "Warning: [flux.security.auth.api_keys] is disabled — the minted "
+                "key cannot authenticate until that provider is enabled.",
+                err=True,
+            )
 
         repo = RepositoryFactory.create_repository()
         registry = PrincipalRegistry(session_factory=repo.session)
