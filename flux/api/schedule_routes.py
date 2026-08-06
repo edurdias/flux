@@ -63,6 +63,11 @@ class ScheduleRoutesMixin:
                 run_count=schedule.run_count,
                 failure_count=schedule.failure_count,
                 run_as_service_account=getattr(schedule, "run_as_service_account", None),
+                overlap_policy=getattr(schedule, "overlap_policy", None),
+                skip_count=getattr(schedule, "skip_count", None) or 0,
+                last_skipped_at=schedule.last_skipped_at.isoformat()
+                if getattr(schedule, "last_skipped_at", None)
+                else None,
             )
 
         def _resolve_schedule_id_or_name(schedule_id_or_name: str, schedule_manager):
