@@ -672,8 +672,14 @@ class WorkflowRoutesMixin:
                 if pending_rows:
                     from flux.approval_notifier import fire_retract
 
+                    # Re-fetch after the commit: the bulk UPDATE that
+                    # cancelled the rows does not synchronize the instances
+                    # snapshotted above, so firing those would report
+                    # status=pending for rows the store already cancelled.
                     for row in pending_rows:
-                        fire_retract(row)
+                        fresh = approval_mgr.get(row.id)
+                        if fresh is not None:
+                            fire_retract(fresh)
 
                 self._execution_queue_times.pop(execution_id, None)
 
