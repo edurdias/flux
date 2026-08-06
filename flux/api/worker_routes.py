@@ -1030,7 +1030,7 @@ class WorkerRoutesMixin:
                         )
                         uow.commit()
                         return "granted"
-                    mgr.create(
+                    row = mgr.create(
                         execution_id=execution_id,
                         task_call_id=task_call_id,
                         workflow_namespace=model.workflow_namespace,
@@ -1039,6 +1039,12 @@ class WorkerRoutesMixin:
                         uow=uow,
                     )
                     uow.commit()
+                # After the commit: a notification for a row that failed to
+                # land would be worse than none (issue #144). Best-effort;
+                # never raises.
+                from flux.approval_notifier import fire_notify
+
+                fire_notify(row)
                 return "created"
 
             try:

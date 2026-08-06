@@ -644,6 +644,12 @@ class ExecutionRoutesMixin:
 
             self._notify_next_worker()
 
+            # Retract stale out-of-band prompts (issue #144): the decision
+            # landed, so chat surfaces can withdraw or annotate the ask.
+            from flux.approval_notifier import fire_retract
+
+            fire_retract(updated)
+
             payload = _approval_to_dict(updated)
             payload["execution_state"] = exec_ctx.state.value
             return payload
@@ -681,6 +687,56 @@ class ExecutionRoutesMixin:
                 approved=False,
                 reason=reason,
             )
+
+        @api.post("/approvals/resolve")
+        async def resolve_approval_from_reply(
+            body: dict = Body(...),
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """Resolve an approval from a free-form reply (issue #144).
+
+            The reply glue (a chat bot, an inbound-email hook) POSTs
+            ``{"text": "<the operator's message>"}``. The message must carry
+            the correlation token the notifier embedded
+            (``[flux-approval:<id>]``) and a recognizable intent. No token or
+            no clear intent is a no-op (200 with status "ignored"), not an
+            error — chat glue should never bounce on unrelated chatter.
+
+            This is an authorization boundary, deliberately not a shared
+            secret in a URL: the caller authenticates like any API client,
+            and the decision runs through the same two-stage authorization
+            as the approve/reject routes, so the recorded
+            ``approver_subject`` is the authenticated principal driving the
+            reply. Duplicate deliveries and racing operators fall out of the
+            decide-once CAS: first responder wins, everyone else gets a
+            clean 409.
+            """
+            from flux.approval_notifier import extract_token, parse_intent
+            from flux.approvals import ApprovalManager
+
+            text = str(body.get("text") or "")
+            approval_id = extract_token(text)
+            if approval_id is None:
+                return {"status": "ignored", "detail": "no correlation token found"}
+
+            intent = parse_intent(text)
+            if intent is None:
+                return {"status": "ignored", "detail": "no clear approve/reject intent"}
+
+            row = ApprovalManager().get(approval_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+            result = await _decide_approval(
+                row.execution_id,
+                row.task_call_id,
+                identity,
+                approved=intent,
+                reason=f"resolved from reply: {text[:200]}",
+            )
+            if isinstance(result, JSONResponse):
+                return result
+            return {"status": "resolved", "approved": intent, "approval": result}
 
         @api.get(
             "/workflows/{namespace}/{workflow_name}/executions",
