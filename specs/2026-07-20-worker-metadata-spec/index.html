@@ -1534,8 +1534,8 @@ values for general visibility.</p>
   unchanged: an absent key fails <code>==</code> and passes <code>!=</code> (the documented
   inversion, which makes <code>meta("maintenance") != "true"</code> work without
   seeding every worker). <code>optional()</code>/<code>when()</code> compose unchanged.
-  There is no dynamic <code>meta_for(...)</code> — metadata keys are static;
-  input-completed keys can be added later if a use case appears.</li>
+  Dynamic input-completed keys were initially left out; <code>meta_for(...)</code>
+  was added later once a concrete use case appeared (issue #158).</li>
 <li><code>score(...)</code>: <code>meta(...)</code> is valid in <code>prefer()</code> (equality) and in
   <code>least()</code>/<code>most()</code> (numeric, 0–1 normalized across the eligible set
   like every other term; non-numeric or absent values score 0).</li>

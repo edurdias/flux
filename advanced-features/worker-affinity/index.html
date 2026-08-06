@@ -1752,6 +1752,10 @@ Same workflow, different eligible sets, zero catalog churn.</p>
   instead of a self-advertised label. Same <code>==</code>/<code>!=</code> semantics as <code>label</code>,
   including the absent-≠-value inversion. See
   <a href="#server-side-worker-metadata">Server-Side Worker Metadata</a> below.</li>
+<li><code>meta_for(prefix, input("path"))</code> — dynamic metadata key, the
+  authoritative twin of <code>label_for</code>: the author declares the namespace,
+  input completes the key, and the value is read from server-held metadata
+  a worker cannot write. The resolved key must be a valid metadata key.</li>
 <li><code>optional(term)</code> — skipped when its input is absent; a resolved
   comparison that is false still fails the match, and input that resolves
   to something invalid (bad label key, non-scalar, invalid service name)
@@ -1826,7 +1830,7 @@ may join later).</p>
 <td>term inactive</td>
 </tr>
 <tr>
-<td><code>label_for(...)</code>, resolved key invalid</td>
+<td><code>label_for(...)</code>/<code>meta_for(...)</code>, resolved key invalid</td>
 <td>yes</td>
 <td>—</td>
 <td>no match; execution <strong>fails</strong> with a named diagnostic</td>
@@ -1860,6 +1864,13 @@ default), <code>GET</code>/<code>DELETE</code> on the same path, and
 current values.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Soft-drain a worker without touching the worker or the workflows</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">meta</span><span class="p">(</span><span class="s2">&quot;maintenance&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="s2">&quot;true&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Per-artefact certification: the control plane approves worker/artefact</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># pairs; the key is completed from this execution&#39;s input (meta_for)</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="n">service</span><span class="p">(</span><span class="nb">input</span><span class="p">(</span><span class="s2">&quot;artefact&quot;</span><span class="p">)),</span>                          <span class="c1"># capability</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">meta_for</span><span class="p">(</span><span class="s2">&quot;approved.&quot;</span><span class="p">,</span> <span class="nb">input</span><span class="p">(</span><span class="s2">&quot;artefact&quot;</span><span class="p">))</span> <span class="o">==</span> <span class="s2">&quot;true&quot;</span><span class="p">,</span>  <span class="c1"># policy</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="p">)</span>
 </code></pre></div>
 <p>Properties that distinguish metadata from labels:</p>
 <ul>
@@ -1879,8 +1890,9 @@ current values.</p>
 <p>Affinity decides which workers <em>can</em> run a workflow. To rank the eligible
 workers — by latency, load, locality, or custom metrics — add a scoring
 policy on top: see <a href="../dynamic-routing/">Dynamic Routing</a>. The dynamic
-vocabulary spans both stages — <code>input(...)</code> values, <code>label_for(...)</code> keys,
-<code>service(...)</code>, and <code>when(...)</code> work in <code>prefer()</code> too, so the same
+vocabulary spans both stages — <code>input(...)</code> values, <code>label_for(...)</code>/
+<code>meta_for(...)</code> keys, <code>service(...)</code>, and <code>when(...)</code> work in <code>prefer()</code>
+too, so the same
 comparison can be a hard wall in <code>require()</code> and a soft preference in
 <code>score()</code>.</p>
 
