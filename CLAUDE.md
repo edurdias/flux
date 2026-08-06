@@ -193,5 +193,5 @@ Run `pre-commit`, the unit suite, and the E2E suite locally before pushing — r
 | Add a CLI command | `flux/cli.py` (Click groups: `workflow`, `execution`, `schedule`, `secrets`, `config`, `agent`, `roles`, `principals`, `auth`, `start`, `server`) |
 | Add an event type / state | `flux/domain/events.py` *and* the corresponding `ExecutionContext` method in `execution_context.py` |
 | Add a built-in task primitive | `flux/tasks/builtins.py` (re-exports via `flux/tasks/__init__.py`) |
-| Add an LLM provider | `flux/tasks/ai/<provider>.py` — implement a `(factory, formatter)` pair against `formatter.py::LLMFormatter` |
+| Add an LLM provider | OpenAI-compatible vendors need no module: a `[flux.ai.providers.<name>]` descriptor row (or `flux/tasks/ai/providers.py::register_provider`) — #141B. Only genuinely different wire formats get a module: `flux/tasks/ai/<provider>.py`, a `(factory, formatter)` pair against `formatter.py::LLMFormatter` |
 | Add an auth provider | `flux/security/providers/` |

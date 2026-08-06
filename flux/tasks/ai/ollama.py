@@ -39,8 +39,11 @@ def build_ollama_provider(
         messages: list[dict],
         **kwargs: Any,
     ) -> LLMResponse:
+        from flux.tasks.ai.errors import wrap_provider_errors
+
         tool_names: set[str] = kwargs.pop("tool_names", set())
-        response = await client.chat(messages=messages, **kwargs)
+        with wrap_provider_errors(f"ollama/{model_name}"):
+            response = await client.chat(messages=messages, **kwargs)
         return _to_llm_response(response, tool_names)
 
     formatter = OllamaFormatter(model_name, client, response_format, reasoning_effort)

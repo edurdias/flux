@@ -43,6 +43,59 @@ pip install anthropic        # for Anthropic models
 pip install google-genai     # for Google Gemini models
 ```
 
+### OpenAI-Compatible Providers
+
+Any vendor speaking the OpenAI chat-completions wire format — DeepSeek,
+Together, Fireworks, Groq, Mistral, xAI, a local vLLM — is a **descriptor**,
+not a new provider module. Declare it in config:
+
+```toml
+[flux.ai.providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key_env = "DEEPSEEK_API_KEY"      # or api_key_secret = "deepseek-key"
+models = ["deepseek-chat"]            # informational
+```
+
+or programmatically:
+
+```python
+from flux.tasks.ai.providers import ProviderDescriptor, register_provider
+
+register_provider(ProviderDescriptor(
+    name="fireworks",
+    base_url="https://api.fireworks.ai/inference/v1",
+    api_key_env="FIREWORKS_API_KEY",
+))
+```
+
+then address it by its prefix: `agent(model="deepseek/deepseek-chat")`.
+Several descriptors coexist in one process, each with its own endpoint and
+key. Model names keep colons intact (`myvllm/qwen2.5-coder:32b`) — only a
+prefix that resolves to a registered descriptor (or a built-in provider) is
+treated as one. The API key resolves from `api_key_env` first, then the
+Flux secret store via `api_key_secret`; endpoints that need no key
+(local vLLM) can omit both. Clients are cached per descriptor;
+`flux.tasks.ai.providers.invalidate()` picks up a config or key change
+without rebuilding agents.
+
+Built-in provider names cannot be redefined, and the native Anthropic /
+Gemini clients are not replaceable by a compat shim.
+
+> **The env-var escape hatch, and its caveat.** The OpenAI and Ollama SDKs
+> also read `OPENAI_BASE_URL` / `OLLAMA_HOST` from the environment, so you
+> *can* point Flux at a compatible vendor without a descriptor — but that
+> is process-global and single-valued: one endpoint per process, applied to
+> every `openai/*` model string, silently changing what they mean. Prefer a
+> descriptor.
+
+### Provider Errors
+
+Common provider failures — key missing or invalid, model not available on
+this account, rate limits, context length exceeded, endpoint unreachable —
+are raised as `flux.errors.ModelProviderError` with one line of actionable
+text and the raw SDK exception preserved as `inner_exception`, instead of
+surfacing as an opaque task failure.
+
 ## Model Capabilities
 
 Flux knows what a model can do — without a network call — through a

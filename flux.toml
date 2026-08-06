@@ -78,3 +78,12 @@ prometheus_enabled = true               # Expose Prometheus /metrics endpoint
 # otlp_endpoint = "http://localhost:4317" # OTLP collector endpoint (uncomment to enable push export)
 trace_sample_rate = 1.0                 # Trace sampling rate (0.0 to 1.0)
 metric_export_interval = 60             # OTLP metric push interval in seconds
+
+# OpenAI-compatible provider descriptors (#141B): each table registers one
+# vendor speaking the chat-completions wire format, addressed as
+# agent(model="<name>/<model>"). Several can coexist in one process — unlike
+# the OPENAI_BASE_URL env var, which is process-global and single-valued.
+# [flux.ai.providers.deepseek]
+# base_url = "https://api.deepseek.com/v1"
+# api_key_env = "DEEPSEEK_API_KEY"      # or api_key_secret = "deepseek-key" (Flux secret store)
+# models = ["deepseek-chat", "deepseek-reasoner"]   # informational

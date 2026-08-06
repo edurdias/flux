@@ -389,10 +389,72 @@ async def agent(
 
         result = _google_agent
     else:
-        raise ValueError(
-            f"Unknown provider: '{provider}'. "
-            "Supported providers: ollama, openai, anthropic, google",
+        # OpenAI-compatible descriptor lookup (issue #141B): a prefix that
+        # resolves to a registered descriptor is a provider; anything else
+        # is an error naming what *is* registered.
+        from flux.tasks.ai.providers import (
+            build_openai_compatible_provider,
+            get_provider_descriptor,
+            registered_provider_names,
         )
+
+        descriptor = get_provider_descriptor(provider)
+        if descriptor is None:
+            compat = registered_provider_names()
+            compat_hint = (
+                f" Registered compatible providers: {', '.join(compat)}." if compat else ""
+            )
+            raise ValueError(
+                f"Unknown provider: '{provider}'. "
+                f"Supported providers: ollama, openai, anthropic, google.{compat_hint} "
+                "Register an OpenAI-compatible vendor under [flux.ai.providers] "
+                "or flux.tasks.ai.providers.register_provider(...).",
+            )
+
+        from flux.tasks.ai.agent_loop import run_agent_loop
+        from flux.tasks.ai.openai import _to_openai_tools
+        from flux.tasks.ai.tool_executor import build_tool_schemas
+
+        llm_task, formatter = await build_openai_compatible_provider(
+            descriptor,
+            model_name,
+            response_format=response_format,
+            reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
+        )
+
+        tool_schemas = build_tool_schemas(tools) if tools else None
+        compat_tools = _to_openai_tools(tool_schemas) if tool_schemas else None
+
+        sanitized = model_name.replace(":", "_").replace("-", "_").replace(".", "_")
+        task_name = name or f"agent_{provider}_{sanitized}"
+
+        @task.with_options(name=task_name)
+        async def _compat_agent(instruction: str, *, context: str = "") -> str | BaseModel:
+            return await run_agent_loop(
+                llm_task=llm_task,
+                formatter=formatter,
+                system_prompt=system_prompt,
+                instruction=instruction,
+                context=context,
+                tools=tools,
+                tool_schemas=compat_tools,
+                response_format=response_format,
+                max_schema_retries=max_schema_retries,
+                working_memory=working_memory,
+                max_tool_calls=max_tool_calls,
+                max_concurrent_tools=max_concurrent_tools,
+                parallel_tool_calls=capabilities.parallel_tool_calls,
+                stream=effective_stream,
+                plan_summary_fn=plan_summary_fn,
+                autonomy=effective_autonomy,
+                on_complete=on_complete,
+                on_pause=on_pause,
+                agent_name=task_name,
+                budget=budget,
+            )
+
+        result = _compat_agent
 
     if description is not None:
         result.description = description
