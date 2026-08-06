@@ -646,13 +646,40 @@ class WorkflowRoutesMixin:
                     )
 
                 from flux.unit_of_work import UnitOfWork
-                from flux.approvals import ApprovalManager
+                from flux.approvals import ApprovalManager, ApprovalStatus
+                from flux.models import ApprovalRequestModel
 
+                approval_mgr = ApprovalManager()
                 with UnitOfWork() as uow:
-                    ApprovalManager().cancel_pending_for_execution(execution_id, uow=uow)
+                    # Snapshot the rows being cancelled before the update so
+                    # their out-of-band prompts can be retracted (issue #144)
+                    # once the cancellation has committed.
+                    pending_rows = (
+                        uow.session.query(ApprovalRequestModel)
+                        .filter(
+                            ApprovalRequestModel.execution_id == execution_id,
+                            ApprovalRequestModel.status == ApprovalStatus.PENDING,
+                        )
+                        .all()
+                    )
+                    for row in pending_rows:
+                        uow.session.expunge(row)
+                    approval_mgr.cancel_pending_for_execution(execution_id, uow=uow)
                     ctx.start_cancel()
                     manager.save(ctx, uow=uow)
                     uow.commit()
+
+                if pending_rows:
+                    from flux.approval_notifier import fire_retract
+
+                    # Re-fetch after the commit: the bulk UPDATE that
+                    # cancelled the rows does not synchronize the instances
+                    # snapshotted above, so firing those would report
+                    # status=pending for rows the store already cancelled.
+                    for row in pending_rows:
+                        fresh = approval_mgr.get(row.id)
+                        if fresh is not None:
+                            fire_retract(fresh)
 
                 self._execution_queue_times.pop(execution_id, None)
 

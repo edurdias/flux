@@ -39,7 +39,9 @@ async def agent(
     max_concurrent_tools: int | None = None,
     max_tokens: int = 4096,
     stream: bool = True,
-    approval_mode: str = "default",
+    approval_mode: str | None = None,
+    autonomy: str | None = None,
+    approval_routing: str | None = None,
     on_complete: list[Callable] | None = None,
     on_pause: list[Callable] | None = None,
     reasoning_effort: str | None = None,
@@ -104,6 +106,27 @@ async def agent(
             f"reasoning_effort must be 'low', 'medium', 'high', or None, got: '{reasoning_effort}'",
         )
 
+    # Approval policy (issue #146): resolve the deprecated approval_mode and
+    # the new autonomy/approval_routing into one validated pair, exactly
+    # once. Downstream (loop, executor, preamble) sees only the ceiling;
+    # routing is operator delivery configuration and never reaches the model.
+    from flux.tasks.ai.approval_policy import resolve_approval_policy
+
+    effective_autonomy, effective_routing = resolve_approval_policy(
+        approval_mode,
+        autonomy,
+        approval_routing,
+    )
+    if effective_routing == "notify":
+        from flux.approval_notifier import get_notifier
+
+        if get_notifier() is None:
+            logger.warning(
+                "approval_routing='notify' but no approval notifier is "
+                "configured ([flux.approvals] webhook_url) — gates will pause "
+                "with nothing delivered out-of-band",
+            )
+
     if skills is not None:
         from flux.tasks.ai.skills import build_skills_preamble, build_use_skill
 
@@ -152,7 +175,7 @@ async def agent(
     if tools:
         from flux.tasks.ai.tool_executor import build_tools_preamble
 
-        system_prompt = system_prompt + build_tools_preamble(tools, approval_mode=approval_mode)
+        system_prompt = system_prompt + build_tools_preamble(tools, autonomy=effective_autonomy)
 
     effective_stream = stream and response_format is None
 
@@ -202,7 +225,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
-                approval_mode=approval_mode,
+                autonomy=effective_autonomy,
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
@@ -244,7 +267,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
-                approval_mode=approval_mode,
+                autonomy=effective_autonomy,
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
@@ -286,7 +309,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
-                approval_mode=approval_mode,
+                autonomy=effective_autonomy,
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,
@@ -328,7 +351,7 @@ async def agent(
                 max_concurrent_tools=max_concurrent_tools,
                 stream=effective_stream,
                 plan_summary_fn=plan_summary_fn,
-                approval_mode=approval_mode,
+                autonomy=effective_autonomy,
                 on_complete=on_complete,
                 on_pause=on_pause,
                 agent_name=task_name,

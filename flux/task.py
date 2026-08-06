@@ -81,6 +81,7 @@ class _WithOptions:
         metadata: bool = False,
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
+        approval_target: str | None = None,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -99,6 +100,7 @@ class _WithOptions:
                 metadata=metadata,
                 auth_exempt=auth_exempt,
                 requires_approval=requires_approval,
+                approval_target=approval_target,
             )
 
         return wrapper
@@ -124,6 +126,7 @@ class task:
         metadata: bool = False,
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
+        approval_target: str | None = None,
     ):
         self._func = func
         self.name = name if name else func.__name__
@@ -141,6 +144,10 @@ class task:
         self.metadata = metadata
         self.auth_exempt = auth_exempt
         self.requires_approval = requires_approval
+        # Name of the argument whose value a target-scoped standing grant
+        # binds to (issue #143). A task that declares nothing cannot mint
+        # target-scoped grants — fail-closed by construction.
+        self.approval_target = approval_target
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -587,6 +594,23 @@ class task:
             result = await result
         return bool(result)
 
+    def _resolve_approval_target(self, args: tuple, kwargs: dict) -> str | None:
+        """The bound target value for a target-scoped grant (issue #143).
+
+        Fail-closed at binding time: no declared ``approval_target``, an
+        absent argument, a non-scalar, or an empty string all bind nothing —
+        and a row without a bound value can never mint or match a
+        target-scoped grant.
+        """
+        if not self.approval_target:
+            return None
+        merged = get_func_args(self._func, args)
+        value = merged.get(self.approval_target, kwargs.get(self.approval_target))
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            return None
+        text = str(value).strip()
+        return text or None
+
     async def _approval_gate(
         self,
         ctx: ExecutionContext,
@@ -646,6 +670,7 @@ class task:
                 return False
 
             if existing is None:
+                target_value = self._resolve_approval_target(args, kwargs)
                 awaiting_event = ExecutionEvent(
                     type=ExecutionEventType.TASK_AWAITING_APPROVAL,
                     source_id=call_id,
@@ -655,13 +680,20 @@ class task:
                         "workflow_namespace": ctx.workflow_namespace,
                         "workflow_name": ctx.workflow_name,
                         "task_name": self.name,
+                        "target_value": target_value,
                     },
                 )
                 # The store persists the PENDING row (and, for the local
                 # store, the awaiting event atomically with it). "cancelled"
                 # means a concurrent cancel already made the execution
                 # non-pausable — unwind so the cancellation flow proceeds.
-                status = await store.register(ctx, call_id, self.name, awaiting_event)
+                status = await store.register(
+                    ctx,
+                    call_id,
+                    self.name,
+                    awaiting_event,
+                    target_value=target_value,
+                )
                 if status == "cancelled":
                     raise asyncio.CancelledError()
 
