@@ -831,7 +831,7 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
     # EXECUTION and TASK CALL ID are shown in full: they are the exact
     # arguments `flux execution approve|reject` require, so a truncated value
     # would not be actionable.
-    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS"]
+    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS", "SCOPE"]
     click.echo("  ".join(headers))
     for a in approvals:
         wf_task = (
@@ -843,8 +843,13 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
         task_call_id = a.get("task_call_id", "")
         requested = (a.get("requested_at") or "")[:19]
         status = a.get("status", "?")
+        # Scope + bound target (issue #143), so an operator can see exactly
+        # what a standing grant authorizes.
+        scope = a.get("scope") or "call"
+        if scope == "target" and a.get("target_value"):
+            scope = f"target={a['target_value']}"
         click.echo(
-            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}",
+            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}  {scope}",
         )
 
 
@@ -937,6 +942,7 @@ def _post_decision(
     reason: str | None,
     server_url: str | None,
     always: bool = False,
+    always_for_target: bool = False,
 ) -> dict[str, Any]:
     base_url = server_url or get_server_url()
     body: dict[str, Any] = {}
@@ -944,6 +950,8 @@ def _post_decision(
         body["reason"] = reason
     if always:
         body["always"] = True
+    if always_for_target:
+        body["always_for_target"] = True
     with get_http_client() as client:
         response = client.post(
             f"{base_url}/executions/{execution_id}/approvals/{quote(task_call_id, safe='')}/{verb}",
@@ -969,6 +977,17 @@ def _post_decision(
     ),
 )
 @click.option(
+    "--always-for-target",
+    is_flag=True,
+    default=False,
+    help=(
+        "Target-scoped standing grant (issue #143): auto-approve later gates "
+        "on the same task ONLY when its declared approval_target argument "
+        "resolves to the same value as this call. Requires the task to "
+        "declare approval_target; mutually exclusive with --always."
+    ),
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -979,10 +998,14 @@ def execution_approve(
     task_call_id: str,
     reason: str | None,
     always: bool,
+    always_for_target: bool,
     server_url: str | None,
 ):
     """Approve a pending approval request."""
     try:
+        if always and always_for_target:
+            click.echo("Error: --always and --always-for-target are mutually exclusive.", err=True)
+            raise click.exceptions.Exit(1)
         resp = _post_decision(
             execution_id,
             task_call_id,
@@ -990,6 +1013,7 @@ def execution_approve(
             reason,
             server_url,
             always=always,
+            always_for_target=always_for_target,
         )
         if resp.get("error"):
             click.echo(
