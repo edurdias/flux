@@ -588,6 +588,17 @@ class TestMetaFor:
         with pytest.raises(ValueError, match="not valid when"):
             when(meta_for("approved.", input_("artefact")) == "true", label("a") == "b")
 
+    def test_selector_key_resolver_handles_every_documented_shape(self):
+        from flux.routing import _resolve_selector_key
+
+        assert _resolve_selector_key("label:gpu", None) == ("label", "gpu", None)
+        assert _resolve_selector_key("meta:zone", None) == ("meta", "zone", None)
+        kind, key, problem = _resolve_selector_key(
+            {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+            {"artefact": "model-a"},
+        )
+        assert (kind, key, problem) == ("meta", "approved.model-a", None)
+
 
 class TestRequireWhenWorkerState:
     """when() gating on meta()/metric() (dynamic per-worker state), the

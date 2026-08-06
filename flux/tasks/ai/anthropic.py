@@ -34,10 +34,13 @@ def build_anthropic_provider(
 
     @task.with_options(name="anthropic_llm")
     async def anthropic_llm(messages: list[dict], **kwargs: Any) -> LLMResponse:
-        response = await client.messages.create(
-            messages=messages,
-            **kwargs,
-        )
+        from flux.tasks.ai.errors import wrap_provider_errors
+
+        with wrap_provider_errors(f"anthropic/{model_name}"):
+            response = await client.messages.create(
+                messages=messages,
+                **kwargs,
+            )
         return _to_llm_response(response)
 
     formatter = AnthropicFormatter(
