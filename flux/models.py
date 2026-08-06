@@ -642,6 +642,13 @@ class ExecutionContextModel(Base):
     # sweep instead of waiting forever for a matching worker. NULL — the
     # default and every pre-#157 row — means "park indefinitely".
     park_deadline = Column(DateTime, nullable=True)
+    # Pause wake condition (issue #145): stamped in the same transaction as
+    # the PAUSED state write from the latest WORKFLOW_PAUSED event, cleared
+    # on every other state write. wake_at: resume at this UTC instant;
+    # wake_on_complete: resume when this execution id reaches a terminal
+    # state. The scheduler tick's wake pass reads them.
+    wake_at = Column(DateTime, nullable=True)
+    wake_on_complete = Column(String, nullable=True)
 
     # Relationship to events
     events = relationship(

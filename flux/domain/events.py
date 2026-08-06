@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from flux.utils import FluxEncoder, make_hashable  # noqa: F401  (make_hashable kept for back-compat)
 
@@ -12,6 +12,10 @@ from flux.utils import FluxEncoder, make_hashable  # noqa: F401  (make_hashable 
 class PausedEventValue(TypedDict):
     name: str
     output: Any
+    # Wake condition (issue #145), present when the pause carries one.
+    # wake_at is ISO-8601 UTC; wake_on_complete is a watched execution id.
+    wake_at: NotRequired[str | None]
+    wake_on_complete: NotRequired[str | None]
 
 
 class ExecutionState(str, Enum):
