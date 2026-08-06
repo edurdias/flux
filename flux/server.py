@@ -455,6 +455,7 @@ class Server(
         input_data: Any = None,
         version: int | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
         if not workflow:
@@ -471,6 +472,7 @@ class Server(
                 requests=workflow.requests,
             ),
             preferred_worker=preferred_worker or None,
+            park_ttl=park_ttl,
         )
 
         # Every run of a dynamic workflow refreshes its GC clock — this is
@@ -1049,6 +1051,20 @@ class Server(
                                     f"Failed to trigger schedule '{schedule.name}': {str(e)}",
                                     exc_info=True,
                                 )
+
+                        # Park-TTL sweep (issue #157): executions that opted
+                        # into a bound and are still unclaimed past it fail
+                        # terminally instead of waiting forever. Shares the
+                        # dispatch lock so exactly one replica sweeps.
+                        try:
+                            expired = ContextManager.create().fail_expired_parked(current_time)
+                            if expired:
+                                logger.warning(
+                                    f"Park TTL expired for {len(expired)} unclaimed "
+                                    f"execution(s): {', '.join(expired)}",
+                                )
+                        except Exception:
+                            logger.error("Park-TTL sweep failed", exc_info=True)
 
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)

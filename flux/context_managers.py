@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func
@@ -69,6 +70,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -79,6 +81,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
 
@@ -346,8 +349,9 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:
-        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker)
+        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker, park_ttl=park_ttl)
         return ctx
 
     def save_checked(
@@ -356,6 +360,7 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:
         if uow is not None:
             return self._save_with_session(
@@ -363,6 +368,7 @@ class DatabaseContextManager(ContextManager):
                 uow.session,
                 manage_transaction=False,
                 preferred_worker=preferred_worker,
+                park_ttl=park_ttl,
             )
         with self.session() as session:
             return self._save_with_session(
@@ -370,6 +376,7 @@ class DatabaseContextManager(ContextManager):
                 session,
                 manage_transaction=True,
                 preferred_worker=preferred_worker,
+                park_ttl=park_ttl,
             )
 
     def _save_with_session(
@@ -379,6 +386,7 @@ class DatabaseContextManager(ContextManager):
         *,
         manage_transaction: bool,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:
         try:
             model = self._lock_for_write(session, ctx.execution_id)
@@ -396,6 +404,19 @@ class DatabaseContextManager(ContextManager):
                     # pick a fresh row up immediately, so a hint written in a
                     # follow-up UPDATE could be missed.
                     new_model.preferred_worker = preferred_worker
+                # Park TTL (issue #157): per-run override wins; otherwise the
+                # config default. 0 / unset means park indefinitely (NULL).
+                from flux.config import Configuration as _Configuration
+
+                effective_park_ttl = (
+                    park_ttl
+                    if park_ttl is not None
+                    else _Configuration.get().settings.workers.park_ttl
+                )
+                if effective_park_ttl and effective_park_ttl > 0:
+                    new_model.park_deadline = datetime.now(timezone.utc) + timedelta(
+                        seconds=effective_park_ttl,
+                    )
                 session.add(new_model)
             if manage_transaction:
                 session.commit()
@@ -475,15 +496,75 @@ class DatabaseContextManager(ContextManager):
 
         return require_diagnostic(workflow.affinity, model.input)
 
-    def _fail_undispatchable(self, model, session: Session, diagnostic: str) -> None:
+    def _fail_undispatchable(
+        self,
+        model,
+        session: Session,
+        diagnostic: str,
+        error_type: str = "AffinityResolutionError",
+    ) -> None:
         ctx = model.to_plain()
         ctx.fail(
             ctx.execution_id,
-            {"type": "AffinityResolutionError", "message": diagnostic},
+            {"type": error_type, "message": diagnostic},
         )
         model.state = ctx.state
+        model.output = ctx.output
         session.add_all(self._get_additional_events(ctx, session))
         logger.warning(f"Execution {ctx.execution_id} failed at dispatch: {diagnostic}")
+
+    def fail_expired_parked(self, now: datetime | None = None) -> list[str]:
+        """Fail executions still unclaimed past their park deadline (issue #157).
+
+        A parked execution — state CREATED, waiting for a worker its
+        constraints match — normally waits indefinitely; that is right for
+        elastic batch fleets and wrong for an interactive caller, for whom a
+        park is indistinguishable from a hang. Rows that opted into a bound
+        (``park_deadline`` set at submission, from the per-run override or
+        the ``[flux.workers] park_ttl`` default) are failed terminally with a
+        diagnosable ``ParkTimeoutError`` once the deadline passes.
+
+        Runs in the scheduler tick under the dispatch lock. Row locks
+        (``skip_locked``) keep the sweep from racing a concurrent claim on
+        PostgreSQL: a row a worker is claiming right now is simply skipped
+        and re-examined next tick — by which time it is no longer CREATED.
+        Returns the failed execution ids.
+        """
+        if now is None:
+            now = datetime.now(timezone.utc)
+        failed: list[str] = []
+        with self.session() as session:
+            query = (
+                session.query(ExecutionContextModel, WorkflowModel)
+                .join(WorkflowModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.CREATED,
+                    ExecutionContextModel.park_deadline.isnot(None),
+                    ExecutionContextModel.park_deadline < now,
+                )
+                .with_for_update(skip_locked=True, of=ExecutionContextModel)
+            )
+            for model, workflow in query:
+                constraints: list[str] = []
+                if workflow.affinity:
+                    constraints.append(f"affinity={workflow.affinity!r}")
+                if workflow.requests:
+                    constraints.append("resource requests present")
+                detail = "; ".join(constraints) if constraints else "no declared constraints"
+                self._fail_undispatchable(
+                    model,
+                    session,
+                    (
+                        f"No eligible worker claimed this execution before its "
+                        f"park deadline ({model.park_deadline}); {detail}. "
+                        "A worker matching the execution's constraints never "
+                        "became available within the park TTL."
+                    ),
+                    error_type="ParkTimeoutError",
+                )
+                failed.append(model.execution_id)
+            session.commit()
+        return failed
 
     def _next_matching_execution(
         self,
