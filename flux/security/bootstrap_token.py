@@ -31,27 +31,30 @@ TOKEN_FILENAME = "bootstrap-token"
 _FILE_MODE = stat.S_IRUSR | stat.S_IWUSR  # 0600
 
 
-def _path(home: str | Path) -> Path:
-    return Path(home) / TOKEN_FILENAME
+def _path(home: str | Path, filename: str = TOKEN_FILENAME) -> Path:
+    return Path(home) / filename
 
 
-def read_persisted(home: str | Path) -> str | None:
-    """Return the persisted bootstrap token if present, else None."""
-    p = _path(home)
+def read_persisted(home: str | Path, filename: str = TOKEN_FILENAME) -> str | None:
+    """Return the persisted secret file's contents if present, else None."""
+    p = _path(home, filename)
     if not p.exists():
         return None
     return p.read_text().strip() or None
 
 
-def write(home: str | Path, token: str) -> Path:
-    """Persist ``token`` to ``<home>/bootstrap-token`` with mode 0600.
+def write(home: str | Path, token: str, filename: str = TOKEN_FILENAME) -> Path:
+    """Persist ``token`` to ``<home>/<filename>`` with mode 0600.
 
     Creates the file atomically with restrictive permissions: ``os.open`` with
     ``O_CREAT|O_TRUNC`` and ``mode=0600`` ensures the file never briefly exists
     with the umask-derived permissions before the chmod. Falls back to a
     second chmod for the case where the file already existed with wider mode.
+
+    ``filename`` defaults to the worker bootstrap token; the admin-key
+    bootstrap (issue #154) reuses this helper for its own 0600 file.
     """
-    p = _path(home)
+    p = _path(home, filename)
     p.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
     fd = os.open(str(p), flags, _FILE_MODE)
