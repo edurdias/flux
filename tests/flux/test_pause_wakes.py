@@ -98,6 +98,35 @@ class TestPauseTaskWakeArguments:
         assert paused[0].value["wake_at"] == wake.isoformat()
 
     @pytest.mark.asyncio
+    async def test_until_with_non_utc_offset_is_normalized_to_utc(self):
+        from datetime import timezone as tz
+
+        offset = tz(timedelta(hours=-7))
+        wake = datetime.now(tz=offset) + timedelta(hours=1)
+
+        @workflow
+        async def wf(ctx: ExecutionContext):
+            await pause("await_vendor", until=wake)
+
+        ctx = ExecutionContext(
+            workflow_id="w",
+            workflow_namespace="default",
+            workflow_name="wf_until_tz",
+            input=None,
+        )
+
+        async def cp(c):
+            return c
+
+        ctx.set_checkpoint(cp)
+        ctx = await wf(ctx)
+
+        paused = [e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_PAUSED]
+        stored = datetime.fromisoformat(paused[0].value["wake_at"])
+        assert stored.utcoffset() == timedelta(0), "stored instant must carry a UTC offset"
+        assert stored == wake, "normalization must not change the instant"
+
+    @pytest.mark.asyncio
     async def test_after_resolves_to_absolute_instant(self):
         @workflow
         async def wf(ctx: ExecutionContext):
