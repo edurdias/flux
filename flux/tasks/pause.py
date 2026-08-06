@@ -64,7 +64,10 @@ async def pause(
     if until is not None:
         if until.tzinfo is None:
             until = until.replace(tzinfo=timezone.utc)
-        wake_at = until.isoformat()
+        # Normalize aware datetimes to UTC so the stored instant carries one
+        # consistent offset, matching the docstring and the scheduler's
+        # UTC-based comparisons.
+        wake_at = until.astimezone(timezone.utc).isoformat()
     elif after is not None:
         if after.total_seconds() <= 0:
             raise ExecutionError(message="pause(after=...) must be a positive timedelta")
