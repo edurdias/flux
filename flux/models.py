@@ -637,6 +637,11 @@ class ExecutionContextModel(Base):
     # Set when the execution was dispatched by a schedule; lets schedule
     # history be scoped to the originating schedule rather than the workflow.
     schedule_id = Column(String, nullable=True)
+    # Park TTL (issue #157): when set, an execution still unclaimed (state
+    # CREATED) past this instant is failed terminally by the scheduler tick's
+    # sweep instead of waiting forever for a matching worker. NULL — the
+    # default and every pre-#157 row — means "park indefinitely".
+    park_deadline = Column(DateTime, nullable=True)
 
     # Relationship to events
     events = relationship(
