@@ -155,15 +155,16 @@ async def _resolve_api_key(descriptor: ProviderDescriptor) -> str:
         sources = [
             s
             for s in (
-                f"environment variable '{descriptor.api_key_env}'" if descriptor.api_key_env else None,
+                f"environment variable '{descriptor.api_key_env}'"
+                if descriptor.api_key_env
+                else None,
                 f"secret '{descriptor.api_key_secret}'" if descriptor.api_key_secret else None,
             )
             if s
         ]
         raise ModelProviderError(
             f"{descriptor.name}/",
-            f"No API key found for provider '{descriptor.name}': set "
-            f"{' or '.join(sources)}.",
+            f"No API key found for provider '{descriptor.name}': set {' or '.join(sources)}.",
         )
     return "flux-no-key"
 

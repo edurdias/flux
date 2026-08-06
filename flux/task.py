@@ -30,6 +30,12 @@ F = TypeVar("F", bound=Callable[..., Any])
 # defaults per level) can build on the distinction later.
 RISK_LEVELS = ("read", "write", "exec", "external")
 
+# What a sensitive task's recorded arguments and output look like in the
+# event log (issue #147 phase 2). The marker is data, not a signal: replay
+# skipping is driven by the task's declared ``sensitive`` flag, never by
+# recognizing this string.
+REDACTED_SENSITIVE = "[REDACTED:sensitive]"
+
 _auth_http_client = None
 
 
@@ -90,6 +96,7 @@ class _WithOptions:
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
         risk: str | None = None,
+        sensitive: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -110,6 +117,7 @@ class _WithOptions:
                 requires_approval=requires_approval,
                 approval_target=approval_target,
                 risk=risk,
+                sensitive=sensitive,
             )
 
         return wrapper
@@ -137,11 +145,16 @@ class task:
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
         risk: str | None = None,
+        sensitive: bool = False,
     ):
         if risk is not None and risk not in RISK_LEVELS:
             raise ValueError(
                 f"risk must be one of {RISK_LEVELS} or None, got: '{risk}'",
             )
+        if sensitive and cache:
+            # The cache is another at-rest store for the exact value a
+            # sensitive task exists to keep out of at-rest stores.
+            raise ValueError("sensitive=True cannot be combined with cache=True")
         self._func = func
         self.name = name if name else func.__name__
         self.description: str | None = None
@@ -167,6 +180,12 @@ class task:
         # an agent turn. None (undeclared) keeps legacy concurrent behavior
         # unless the task is approval-gated.
         self.risk = risk
+        # Issue #147 phase 2: the output of a sensitive task is a credential.
+        # Its recorded arguments and output are stored as REDACTED_SENSITIVE,
+        # and replay deliberately re-executes the body instead of returning
+        # the stored value — the author accepts re-execution as the price of
+        # keeping the value out of the event log.
+        self.sensitive = sensitive
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -330,6 +349,14 @@ class task:
             )
         ]
 
+        if len(finished) > 0 and self.sensitive:
+            # A sensitive task's stored TASK_COMPLETED value is the redaction
+            # marker, not the credential — returning it would hand the
+            # workflow a bogus value. Re-execute instead (the documented
+            # trade of sensitive=True). Stored failures still replay: they
+            # carry an exception, not the output.
+            finished = [e for e in finished if e.type == ExecutionEventType.TASK_FAILED]
+
         if len(finished) > 0:
             event = finished[0]
             value = event.value
@@ -397,7 +424,7 @@ class task:
                         type=ExecutionEventType.TASK_COMPLETED,
                         source_id=task_id,
                         name=full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
                 await ctx.checkpoint()
@@ -431,7 +458,10 @@ class task:
                         type=ExecutionEventType.TASK_STARTED,
                         source_id=task_id,
                         name=full_name,
-                        value=task_args,
+                        # Positional arguments are recorded verbatim for every
+                        # ordinary task; a sensitive task's arguments are as
+                        # credential-shaped as its output (#147).
+                        value=self._recorded_args(task_args),
                     ),
                 )
 
@@ -521,7 +551,7 @@ class task:
                     type=ExecutionEventType.TASK_COMPLETED,
                     source_id=task_id,
                     name=full_name,
-                    value=self.output_storage.store(task_id, output),
+                    value=self._stored_output(task_id, output),
                 ),
             )
 
@@ -536,6 +566,21 @@ class task:
             raise
         finally:
             _CURRENT_TASK.reset(task_token)
+
+    def _stored_output(self, task_id: str, output: Any) -> Any:
+        """Persist a terminal output value, substituting the redaction marker
+        for sensitive tasks (#147 phase 2). The caller still returns the real
+        value in-process — only the event log carries the marker."""
+        if self.sensitive:
+            output = REDACTED_SENSITIVE
+        return self.output_storage.store(task_id, output)
+
+    def _recorded_args(self, task_args: dict) -> dict:
+        """The argument dict recorded on *_STARTED events — redacted per key
+        for sensitive tasks (#147 phase 2)."""
+        if self.sensitive:
+            return dict.fromkeys(task_args, REDACTED_SENSITIVE)
+        return task_args
 
     @property
     def func(self) -> Callable:
@@ -560,6 +605,7 @@ class task:
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
         approval_target: str | None = None,
         risk: str | None = None,
+        sensitive: bool | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -590,6 +636,7 @@ class task:
                 approval_target if approval_target is not None else self.approval_target
             ),
             risk=risk if risk is not None else self.risk,
+            sensitive=sensitive if sensitive is not None else self.sensitive,
         )
 
     async def _evaluate_approval_predicate(self, args: tuple, kwargs: dict) -> bool:
@@ -939,7 +986,7 @@ class task:
                     type=ExecutionEventType.TASK_FALLBACK_STARTED,
                     source_id=task_id,
                     name=task_full_name,
-                    value=task_args,
+                    value=self._recorded_args(task_args),
                 ),
             )
             try:
@@ -949,7 +996,7 @@ class task:
                         type=ExecutionEventType.TASK_FALLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
             except Exception as ex:
@@ -1088,7 +1135,7 @@ class task:
                     type=ExecutionEventType.TASK_ROLLBACK_STARTED,
                     source_id=task_id,
                     name=task_full_name,
-                    value=task_args,
+                    value=self._recorded_args(task_args),
                 ),
             )
             try:
@@ -1098,7 +1145,7 @@ class task:
                         type=ExecutionEventType.TASK_ROLLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
                 return output

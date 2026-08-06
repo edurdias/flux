@@ -170,8 +170,16 @@ class TestAgentFallThrough:
 
         monkeypatch.setenv("A_KEY", "sk-a")
         monkeypatch.setenv("B_KEY", "sk-b")
-        da = ProviderDescriptor(name="vendora", base_url="https://a.example/v1", api_key_env="A_KEY")
-        db = ProviderDescriptor(name="vendorb", base_url="https://b.example/v1", api_key_env="B_KEY")
+        da = ProviderDescriptor(
+            name="vendora",
+            base_url="https://a.example/v1",
+            api_key_env="A_KEY",
+        )
+        db = ProviderDescriptor(
+            name="vendorb",
+            base_url="https://b.example/v1",
+            api_key_env="B_KEY",
+        )
         register_provider(da)
         register_provider(db)
         agent_a = await agent("test", model="vendora/model-1")

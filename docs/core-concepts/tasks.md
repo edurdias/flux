@@ -77,6 +77,49 @@ def task_with_rollback(input_data):
     pass
 ```
 
+### Sensitive Outputs
+
+```python
+@task.with_options(sensitive=True)
+async def exchange_token(code: str) -> str:
+    # Returns a credential — must never land in the event log
+    ...
+```
+
+A `sensitive=True` task's recorded arguments and output are stored as a
+redaction marker (`[REDACTED:sensitive]`) instead of the real values, and
+**replay re-executes the task** instead of short-circuiting from the stored
+value — the marker would otherwise become the workflow's "credential". That
+is the explicit trade: a sensitive task must be safe to re-run (idempotent,
+or cheap to repeat). `sensitive=True` cannot be combined with `cache=True`
+(the cache is another at-rest store). Stored *failures* still replay
+normally — they carry an exception, not the output.
+
+## What Lands in the Event Log
+
+The event log is the replay substrate, long-lived and readable by anyone
+holding execution-read. What each piece of a task call does and does not
+write there:
+
+- **Injected secrets and configs never land.** Secrets requested via
+  `secret_requests` (and configs via `config_requests`) are injected into
+  the call *after* the recorded argument dict is built, into separate
+  kwargs — `TASK_STARTED` records only the declared positional arguments.
+  This is a guarantee, covered by a regression test.
+- **Keyword arguments are not recorded.** Argument recording binds
+  parameter names against the positional tuple only; `send_email(api_key=token)`
+  records nothing for `api_key`. Agent tool calls invoke tools all-keyword,
+  so they are safe on the argument side by construction.
+- **Positional arguments are recorded verbatim** — avoid passing raw
+  credentials positionally; use `secret_requests`, or mark the task
+  `sensitive=True`.
+- **Return values are recorded verbatim** for ordinary tasks (they are what
+  replay returns). Two protections exist: values resolved through the
+  secret manager are scrubbed from API/CLI responses at the presentation
+  boundary (`[flux.security] redact_secrets_in_responses`, on by default),
+  and `sensitive=True` keeps the value out of storage entirely at the cost
+  of re-execution on replay.
+
 ## Task Composition
 
 Flux provides several ways to compose tasks:
