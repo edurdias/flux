@@ -1066,6 +1066,18 @@ class Server(
                         except Exception:
                             logger.error("Park-TTL sweep failed", exc_info=True)
 
+                        # Pause-wake pass (issue #145): resume paused
+                        # executions whose timed or completion wake fired.
+                        # Same lock, same timing authority as the schedules.
+                        try:
+                            woken = ContextManager.create().fire_due_wakes(current_time)
+                            if woken:
+                                logger.info(
+                                    f"Fired {len(woken)} pause wake(s): {', '.join(woken)}",
+                                )
+                        except Exception:
+                            logger.error("Pause-wake pass failed", exc_info=True)
+
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
 

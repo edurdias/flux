@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0016_execution_park_deadline"
+HEAD = "0017_pause_wakes"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
