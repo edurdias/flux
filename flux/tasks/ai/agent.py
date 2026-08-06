@@ -120,8 +120,10 @@ async def agent(
     if effective_routing == "notify":
         # The routing contract is fixed here; the out-of-band delivery
         # mechanism itself is #144, whose design is still open. Until it
-        # lands, notify-routed gates pause exactly like inline ones.
-        logger.info(
+        # lands, notify-routed gates pause exactly like inline ones — warn
+        # so operators expecting out-of-band delivery see the gap even at
+        # default log levels (an unwatched gate stalls the workflow).
+        logger.warning(
             "approval_routing='notify' declared; out-of-band delivery (#144) "
             "is not implemented yet, so gates pause on the current surface",
         )

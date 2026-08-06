@@ -310,6 +310,14 @@ class DynamicMeta(Selector):
         # input value can produce a valid key from an invalid namespace.
         if not _LABEL_KEY_RE.match(prefix.rstrip("._-") or ""):
             raise ValueError(f"meta_for() prefix is not a valid metadata key prefix: '{prefix}'")
+        # A prefix at or past the metadata key bound leaves no room for the
+        # input fragment — no resolution could ever produce a valid key, so
+        # fail at authoring time (mirrors meta(key) validation).
+        if len(prefix) >= MAX_METADATA_KEY_LENGTH:
+            raise ValueError(
+                f"meta_for() prefix exceeds the metadata key bound "
+                f"({MAX_METADATA_KEY_LENGTH} chars): '{prefix}'",
+            )
         self.spec = {"kind": "meta", "prefix": prefix, "input": ref.path}
 
 

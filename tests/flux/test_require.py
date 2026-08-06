@@ -488,6 +488,11 @@ class TestMetaFor:
             meta_for("approved.", "model-a")
         with pytest.raises(ValueError, match="not a valid metadata key prefix"):
             meta_for("../", input_("artefact"))
+        # A prefix at or past the metadata key bound can never resolve to a
+        # valid key — rejected at authoring time, not left to dispatch.
+        with pytest.raises(ValueError, match="metadata key bound"):
+            meta_for("a" * 64, input_("artefact"))
+        assert meta_for("a" * 63, input_("artefact")).spec["prefix"] == "a" * 63
 
     def test_dynamic_key_resolution_reads_metadata_not_labels(self):
         spec = require(meta_for("approved.", input_("artefact")) == "true")
