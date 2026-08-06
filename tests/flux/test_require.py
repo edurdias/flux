@@ -12,6 +12,7 @@ from flux.routing import (
     label_for,
     least,
     meta,
+    meta_for,
     metric,
     most,
     optional,
@@ -160,9 +161,9 @@ class TestRequireCompile:
             "prefix": "sku.",
             "input": "model",
         }
-        with pytest.raises(ValueError, match="no ordering"):
+        with pytest.raises(ValueError, match="dynamic keys"):
             least(dynamic)
-        with pytest.raises(ValueError, match="no ordering"):
+        with pytest.raises(ValueError, match="dynamic keys"):
             most(dynamic)
 
     def test_condition_still_usable_for_score(self):
@@ -464,6 +465,128 @@ class TestRequireMetaOrderedOps:
     def test_label_ordered_ops_still_rejected(self):
         with pytest.raises(ValueError, match="only == and !="):
             require(label("x") < 5)
+
+
+class TestMetaFor:
+    """meta_for(prefix, input(...)): the dynamic-key twin of label_for that
+    reads server-held metadata instead of worker-advertised labels (#158)."""
+
+    def test_compiles_to_dynamic_meta_selector(self):
+        assert require(meta_for("approved.", input_("artefact")) == "true") == [
+            {
+                "kind": "match",
+                "selector": {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+                "op": "==",
+                "value": "true",
+            },
+        ]
+
+    def test_requires_prefix_and_input_ref(self):
+        with pytest.raises(ValueError, match="non-empty string prefix"):
+            meta_for("", input_("artefact"))
+        with pytest.raises(ValueError, match="input"):
+            meta_for("approved.", "model-a")
+        with pytest.raises(ValueError, match="not a valid metadata key prefix"):
+            meta_for("../", input_("artefact"))
+        # A prefix at or past the metadata key bound can never resolve to a
+        # valid key — rejected at authoring time, not left to dispatch.
+        with pytest.raises(ValueError, match="metadata key bound"):
+            meta_for("a" * 64, input_("artefact"))
+        assert meta_for("a" * 63, input_("artefact")).spec["prefix"] == "a" * 63
+
+    def test_dynamic_key_resolution_reads_metadata_not_labels(self):
+        spec = require(meta_for("approved.", input_("artefact")) == "true")
+        assert require_matches(
+            spec,
+            {},
+            {"artefact": "model-a"},
+            worker_metadata={"approved.model-a": "true"},
+        )
+        # A worker asserting the same key as a label cannot satisfy the term —
+        # the whole point of the metadata channel.
+        assert not require_matches(
+            spec,
+            {"approved.model-a": "true"},
+            {"artefact": "model-a"},
+            worker_metadata={},
+        )
+        assert not require_matches(
+            spec,
+            {},
+            {"artefact": "model-b"},
+            worker_metadata={"approved.model-a": "true"},
+        )
+
+    def test_negation_absent_key_passes(self):
+        spec = require(meta_for("revoked.", input_("artefact")) != "true")
+        assert require_matches(spec, {}, {"artefact": "model-a"}, worker_metadata={})
+        assert not require_matches(
+            spec,
+            {},
+            {"artefact": "model-a"},
+            worker_metadata={"revoked.model-a": "true"},
+        )
+
+    def test_ordered_ops_allowed_like_static_meta(self):
+        spec = require(meta_for("score.", input_("artefact")) >= 0.8)
+        assert require_matches(
+            spec,
+            {},
+            {"artefact": "model-a"},
+            worker_metadata={"score.model-a": 0.9},
+        )
+        assert not require_matches(
+            spec,
+            {},
+            {"artefact": "model-a"},
+            worker_metadata={"score.model-a": 0.5},
+        )
+        assert not require_matches(spec, {}, {"artefact": "model-a"}, worker_metadata={})
+
+    def test_unresolved_input_fails_closed_and_diagnoses(self):
+        spec = require(meta_for("approved.", input_("artefact")) == "true")
+        assert not require_matches(spec, {}, {}, worker_metadata={"approved.x": "true"})
+        message = require_diagnostic(spec, {})
+        assert message is not None and "'artefact'" in message
+
+    def test_optional_forgives_only_absent_input(self):
+        spec = require(optional(meta_for("approved.", input_("artefact")) == "true"))
+        assert require_matches(spec, {}, {}, worker_metadata={})  # absent: skipped
+        assert not require_matches(spec, {}, {"artefact": "../x"}, worker_metadata={})
+        assert require_diagnostic(spec, {}) is None
+
+    def test_invalid_resolved_key_fails_and_diagnoses(self):
+        spec = require(meta_for("approved.", input_("artefact")) == "true")
+        assert not require_matches(spec, {}, {"artefact": "../x"}, worker_metadata={})
+        message = require_diagnostic(spec, {"artefact": "../x"})
+        assert message is not None and "invalid meta key" in message
+
+    def test_resolved_key_held_to_metadata_bound(self):
+        # Metadata keys cap at 64 chars (validate_worker_metadata); a key that
+        # would be a legal *label* key (128) still fails as a metadata key.
+        spec = require(meta_for("approved.", input_("artefact")) == "true")
+        long_fragment = "a" * 80
+        assert not require_matches(spec, {}, {"artefact": long_fragment}, worker_metadata={})
+        message = require_diagnostic(spec, {"artefact": long_fragment})
+        assert message is not None and "invalid meta key" in message
+        label_spec = require(label_for("approved.", input_("artefact")) == "true")
+        assert require_diagnostic(label_spec, {"artefact": long_fragment}) is None
+
+    def test_dynamic_selector_in_score_terms(self):
+        dynamic = meta_for("approved.", input_("artefact"))
+        assert prefer(dynamic == "true")["selector"] == {
+            "kind": "meta",
+            "prefix": "approved.",
+            "input": "artefact",
+        }
+        with pytest.raises(ValueError, match="dynamic keys"):
+            least(dynamic)
+        with pytest.raises(ValueError, match="dynamic keys"):
+            most(dynamic)
+
+    def test_rejected_as_when_condition(self):
+        with pytest.raises(ValueError, match="not valid when"):
+            when(meta_for("approved.", input_("artefact")) == "true", label("a") == "b")
 
 
 class TestRequireWhenWorkerState:

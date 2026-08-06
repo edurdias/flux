@@ -238,7 +238,7 @@ class LocalApprovalStore:
             if not cm.save_checked(ctx, uow=uow):
                 ctx.events.remove(awaiting_event)
                 return "cancelled"
-            row = mgr.create(
+            mgr.create(
                 execution_id=ctx.execution_id,
                 task_call_id=task_call_id,
                 workflow_namespace=ctx.workflow_namespace,
@@ -248,9 +248,6 @@ class LocalApprovalStore:
                 target_value=target_value,
             )
             uow.commit()
-        from flux.approval_notifier import fire_notify
-
-        fire_notify(row)
         return "created"
 
 

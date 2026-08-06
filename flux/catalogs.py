@@ -625,21 +625,22 @@ class WorkflowCatalog(ABC):
                     except (TypeError, ValueError) as e:
                         raise SyntaxError(f"Invalid affinity selector '{name}': {e}") from e
                 fail(f"{name}() takes a literal key")
-            if name == "label_for":
+            if name in ("label_for", "meta_for"):
+                dyn = routing_dsl.label_for if name == "label_for" else routing_dsl.meta_for
                 if (
                     len(sel_node.args) == 2
                     and isinstance(sel_node.args[0], ast.Constant)
                     and call_name(sel_node.args[1]) == "input"
                 ):
                     try:
-                        return routing_dsl.label_for(
+                        return dyn(
                             sel_node.args[0].value,
                             extract_input_ref(sel_node.args[1]),
                         )
                     except (TypeError, ValueError) as e:
-                        raise SyntaxError(f"Invalid affinity selector 'label_for': {e}") from e
-                fail("label_for() takes a literal prefix and input(...)")
-            fail(f"expected label()/label_for()/meta(), got '{name}'")
+                        raise SyntaxError(f"Invalid affinity selector '{name}': {e}") from e
+                fail(f"{name}() takes a literal prefix and input(...)")
+            fail(f"expected label()/label_for()/meta()/meta_for(), got '{name}'")
 
         def extract_value(value_node: ast.AST) -> Any:
             if isinstance(value_node, ast.Constant):
@@ -670,7 +671,7 @@ class WorkflowCatalog(ABC):
             if op is None:
                 fail(f"unsupported comparison operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            selector_names = ("label", "label_for", "meta")
+            selector_names = ("label", "label_for", "meta", "meta_for")
             if call_name(left) in selector_names:
                 sel_name, selector, value = (
                     call_name(left),
@@ -685,7 +686,10 @@ class WorkflowCatalog(ABC):
                     _FLIPPED[op],
                 )
             else:
-                fail("one side of a require() comparison must be label()/label_for()/meta()")
+                fail(
+                    "one side of a require() comparison must be "
+                    "label()/label_for()/meta()/meta_for()",
+                )
             if sel_name in ("label", "label_for") and op not in ("==", "!="):
                 fail(
                     f"require() label terms support only == and != (line {cond_node.lineno}); "
@@ -842,27 +846,30 @@ class WorkflowCatalog(ABC):
             name = call_name(sel_node)
             if name is None:
                 fail(
-                    f"expected label()/label_for()/metric()/meta()/resource()/load(), got '{name}'",
+                    f"expected label()/label_for()/metric()/meta()/meta_for()/"
+                    f"resource()/load(), got '{name}'",
                 )
             assert isinstance(sel_node, ast.Call)
-            if name == "label_for":
+            if name in ("label_for", "meta_for"):
+                dyn = routing_dsl.label_for if name == "label_for" else routing_dsl.meta_for
                 if (
                     len(sel_node.args) == 2
                     and isinstance(sel_node.args[0], ast.Constant)
                     and call_name(sel_node.args[1]) == "input"
                 ):
                     try:
-                        return routing_dsl.label_for(
+                        return dyn(
                             sel_node.args[0].value,
                             extract_input_ref(sel_node.args[1]),
                         )
                     except (TypeError, ValueError) as e:
-                        raise SyntaxError(f"Invalid routing selector 'label_for': {e}") from e
-                fail("label_for() takes a literal prefix and input(...)")
+                        raise SyntaxError(f"Invalid routing selector '{name}': {e}") from e
+                fail(f"{name}() takes a literal prefix and input(...)")
             factory = _SELECTOR_FACTORIES.get(name or "")
             if factory is None:
                 fail(
-                    f"expected label()/label_for()/metric()/meta()/resource()/load(), got '{name}'",
+                    f"expected label()/label_for()/metric()/meta()/meta_for()/"
+                    f"resource()/load(), got '{name}'",
                 )
             args = []
             for arg in sel_node.args:
@@ -902,7 +909,7 @@ class WorkflowCatalog(ABC):
             if op is None:
                 fail(f"unsupported comparison operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            selector_names = (*_SELECTOR_FACTORIES, "label_for")
+            selector_names = (*_SELECTOR_FACTORIES, "label_for", "meta_for")
             if call_name(left) in selector_names:
                 selector, value = extract_selector(left), extract_value(right)
             elif call_name(right) in selector_names:

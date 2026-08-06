@@ -9,9 +9,9 @@ reached when a gate fires*. The split:
   ``requires_approval`` (today's behavior); ``autonomous`` removes the
   gates (the old ``approval_mode="autonomous"``).
 - **Approval routing** — *how* a fired gate reaches a human: ``inline``
-  pauses on the current surface (today's behavior); ``notify`` pauses and
-  expects out-of-band delivery via the #144 notifier, resolvable from any
-  surface.
+  pauses on the current surface (today's behavior); ``notify`` declares
+  reliance on out-of-band delivery (issue #144 — mechanism pending its
+  design), resolvable from any surface once it lands.
 
 The invariant, enforced here by construction: routing never changes the
 ceiling, and the ceiling never changes routing — they are resolved and

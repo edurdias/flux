@@ -114,8 +114,8 @@ from flux.routing import require, score, meta, least, most, prefer
   unchanged: an absent key fails `==` and passes `!=` (the documented
   inversion, which makes `meta("maintenance") != "true"` work without
   seeding every worker). `optional()`/`when()` compose unchanged.
-  There is no dynamic `meta_for(...)` — metadata keys are static;
-  input-completed keys can be added later if a use case appears.
+  Dynamic input-completed keys were initially left out; `meta_for(...)`
+  was added later once a concrete use case appeared (issue #158).
 - `score(...)`: `meta(...)` is valid in `prefer()` (equality) and in
   `least()`/`most()` (numeric, 0–1 normalized across the eligible set
   like every other term; non-numeric or absent values score 0).
