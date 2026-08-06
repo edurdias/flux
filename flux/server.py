@@ -1016,9 +1016,31 @@ class Server(
                         if due_schedules:
                             logger.info(f"Found {len(due_schedules)} due schedule(s)")
 
-                        # Trigger each due schedule
+                        # Trigger each due schedule. Catch-up policy is
+                        # run-once: record_run advances next_run_at from the
+                        # current time, so a schedule due many intervals ago
+                        # (server downtime) fires exactly once on recovery,
+                        # not once per missed interval.
                         for schedule in due_schedules:
                             try:
+                                # Overlap policy (issue #142): "skip" consumes
+                                # this fire while a previous execution of the
+                                # schedule is still non-terminal. NULL (rows
+                                # from before the policy existed) means
+                                # "allow" — dispatch regardless, the historic
+                                # behavior.
+                                if getattr(
+                                    schedule,
+                                    "overlap_policy",
+                                    None,
+                                ) == "skip" and schedule_manager.has_active_execution(schedule.id):
+                                    logger.info(
+                                        f"Schedule '{schedule.name}': previous execution "
+                                        "still running; skipping this fire "
+                                        "(overlap_policy=skip)",
+                                    )
+                                    schedule_manager.record_skip(schedule.id, current_time)
+                                    continue
                                 await self._trigger_scheduled_workflow(schedule, current_time)
                             except Exception as e:
                                 # The trigger path already recorded the failure before

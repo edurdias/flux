@@ -111,6 +111,11 @@ class ScheduleResponse(BaseModel):
     run_count: int
     failure_count: int
     run_as_service_account: str | None = None
+    # Overlap policy (issue #142): "skip" | "allow"; None on rows created
+    # before the policy existed (treated as "allow").
+    overlap_policy: str | None = None
+    skip_count: int = 0
+    last_skipped_at: str | None = None
 
 
 class ScheduleUpdateRequest(BaseModel):

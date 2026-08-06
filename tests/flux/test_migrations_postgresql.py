@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0014_task_cancelled_event"
+HEAD = "0015_schedule_overlap_policy"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

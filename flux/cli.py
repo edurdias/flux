@@ -1639,6 +1639,15 @@ def schedule():
     help="Service account to run the schedule as (required when auth is enabled)",
 )
 @click.option(
+    "--overlap",
+    type=click.Choice(["skip", "allow"]),
+    default="skip",
+    help=(
+        "What to do when a fire comes due while a previous execution is "
+        "still running: skip it (default) or dispatch anyway"
+    ),
+)
+@click.option(
     "--format",
     "-f",
     type=click.Choice(["simple", "json"]),
@@ -1661,6 +1670,7 @@ def create_schedule(
     description: str | None,
     input: str | None,
     run_as: str | None,
+    overlap: str,
     format: str,
     server_url: str | None,
 ):
@@ -1686,12 +1696,14 @@ def create_schedule(
                 "type": "cron",
                 "cron_expression": cron,
                 "timezone": timezone,
+                "overlap": overlap,
             }
         else:
             schedule_config = {
                 "type": "interval",
                 "interval_seconds": (interval_hours or 0) * 3600 + (interval_minutes or 0) * 60,
                 "timezone": timezone,
+                "overlap": overlap,
             }
 
         # Parse input if provided
@@ -1837,6 +1849,12 @@ def show_schedule(schedule_id: str, format: str, server_url: str | None):
             click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
             click.echo(f"Total runs: {schedule['run_count']}")
             click.echo(f"Failures: {schedule['failure_count']}")
+            click.echo(f"Overlap policy: {schedule.get('overlap_policy') or 'allow'}")
+            if schedule.get("skip_count"):
+                click.echo(
+                    f"Skipped fires: {schedule['skip_count']} "
+                    f"(last: {schedule.get('last_skipped_at', 'unknown')})",
+                )
 
             if schedule.get("description"):
                 click.echo(f"Description: {schedule['description']}")
