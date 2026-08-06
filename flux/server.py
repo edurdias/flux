@@ -1295,7 +1295,14 @@ class Server(
             # seed_built_in_roles (the app was constructed before lifespan
             # fires), so the admin role row exists. Init-only: a no-op
             # whenever any enabled admin principal already exists.
-            if startup_settings.security.auth.enabled:
+            # Requires the API-key provider: in an OIDC-only deployment the
+            # minted key could never authenticate, so nothing is seeded —
+            # the first admin there is an OIDC principal granted the admin
+            # role instead.
+            if (
+                startup_settings.security.auth.enabled
+                and startup_settings.security.auth.api_keys.enabled
+            ):
                 from flux.security import admin_bootstrap
 
                 try:
