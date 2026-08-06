@@ -228,7 +228,13 @@ class TestApprovalRpcRelay:
 
         async def register_approval(execution_id, payload):
             assert execution_id == "e1"
-            assert payload == {"task_call_id": "c1", "task_name": "deploy"}
+            assert payload == {
+            "task_call_id": "c1",
+            "task_name": "deploy",
+            # Bound approval target (issue #143); None when the frame
+            # carries none.
+            "target_value": None,
+        }
             return {"status": "created"}
 
         hooks.get_approval = get_approval

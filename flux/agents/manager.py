@@ -120,6 +120,8 @@ class DatabaseAgentManager(AgentManager):
             max_tokens=model.max_tokens,
             stream=model.stream,
             approval_mode=model.approval_mode,
+            autonomy=model.autonomy,
+            approval_routing=model.approval_routing,
             reasoning_effort=model.reasoning_effort,
             long_term_memory=model.long_term_memory,
         )

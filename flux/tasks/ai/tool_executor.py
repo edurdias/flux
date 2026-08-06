@@ -137,7 +137,11 @@ def _resolve_json_type(hint: Any) -> str:
     return "string"
 
 
-def build_tools_preamble(tools: list[Any], approval_mode: str = "default") -> str:
+def build_tools_preamble(
+    tools: list[Any],
+    approval_mode: str | None = None,
+    autonomy: str | None = None,
+) -> str:
     """Build a system-prompt section listing available tools.
 
     Reinforces the API-level tool schema with a human-readable summary
@@ -175,12 +179,21 @@ def build_tools_preamble(tools: list[Any], approval_mode: str = "default") -> st
         ],
     )
 
-    approval_tools = [
-        (t.func if hasattr(t, "func") else t).__name__
-        for t in tools
-        if getattr(t, "requires_approval", False)
-    ]
-    if approval_tools and approval_mode != "autonomous":
+    # The preamble describes the autonomy ceiling only — never the routing
+    # (issue #146): where the human is reached is operator configuration,
+    # not something the model should see or reason about.
+    from flux.tasks.ai.approval_policy import resolve_approval_policy
+
+    effective_autonomy, _ = resolve_approval_policy(approval_mode, autonomy, None)
+    if effective_autonomy == "strict":
+        approval_tools = [(t.func if hasattr(t, "func") else t).__name__ for t in tools]
+    else:
+        approval_tools = [
+            (t.func if hasattr(t, "func") else t).__name__
+            for t in tools
+            if getattr(t, "requires_approval", False)
+        ]
+    if approval_tools and effective_autonomy != "autonomous":
         lines.extend(
             [
                 "",
@@ -241,7 +254,8 @@ async def execute_tools(
     tools: list[Any],
     iteration: int = 0,
     max_concurrent: int | None = None,
-    approval_mode: str = "default",
+    approval_mode: str | None = None,
+    autonomy: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
 
@@ -256,12 +270,20 @@ async def execute_tools(
         max_concurrent: Maximum number of tools to run concurrently.
             When ``None`` (the default) all tools run in parallel with no limit.
             Set to ``1`` for fully sequential execution.
-        approval_mode: When set to ``"autonomous"``, each tool in this batch
+        autonomy: The autonomy ceiling (issue #146): ``"strict"`` gates
+            every tool call in this batch regardless of declarations;
+            ``"default"`` gates what declares ``requires_approval``;
+            ``"autonomous"`` removes the gates.
+        approval_mode: Deprecated alias. When set to ``"autonomous"``, each tool in this batch
             runs as a ``with_options(requires_approval=False)`` variant so the
             engine-side approval gate is skipped. The override is scoped to
             these tool invocations — it is not shared workflow state, so an
             approval-gated task running concurrently is unaffected.
     """
+    from flux.tasks.ai.approval_policy import resolve_approval_policy
+
+    effective_autonomy, _ = resolve_approval_policy(approval_mode, autonomy, None)
+
     tool_map: dict[str, Callable] = {}
     for tool in tools:
         func = tool.func if hasattr(tool, "func") else tool
@@ -301,10 +323,14 @@ async def execute_tools(
                 overrides: dict[str, Any] = {}
                 if iteration > 0:
                     overrides["name"] = f"{name}_{iteration}"
-                if approval_mode == "autonomous":
+                if effective_autonomy == "autonomous":
                     # Run a non-gated variant so this batch skips the approval
                     # gate without touching shared workflow state.
                     overrides["requires_approval"] = False
+                elif effective_autonomy == "strict":
+                    # Gate everything: without a risk classification (#140),
+                    # every tool call is "consequential" under strict.
+                    overrides["requires_approval"] = True
                 if overrides:
                     effective_tool = tool_fn.with_options(**overrides)
             result = await effective_tool(**args)
