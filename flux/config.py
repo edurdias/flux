@@ -92,6 +92,17 @@ class WorkersConfig(BaseConfig):
         default=7200,
         description="Seconds to keep offline workers in memory before pruning",
     )
+    park_ttl: int = Field(
+        default=0,
+        description=(
+            "Seconds an execution may wait unclaimed (parked — e.g. its "
+            "affinity currently matches no worker) before the server fails it "
+            "terminally with a diagnostic (issue #157). 0 disables the bound: "
+            "parked executions wait indefinitely, the historic behavior. "
+            "Per-run override via the park_ttl query parameter on the run "
+            "endpoints."
+        ),
+    )
     module_cache_ttl: int = Field(
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",

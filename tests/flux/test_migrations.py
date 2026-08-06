@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0015_schedule_overlap_policy"
+HEAD = "0016_execution_park_deadline"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to
