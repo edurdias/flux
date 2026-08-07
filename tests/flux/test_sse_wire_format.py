@@ -15,6 +15,7 @@ from datetime import datetime
 from datetime import timezone
 
 import pytest
+from typing import Literal
 
 from flux.api.schemas import _inject_trace_context
 from flux.domain.events import ExecutionEvent
@@ -84,7 +85,7 @@ def test_inject_trace_context_keeps_the_payload_on_one_line(monkeypatch):
 
 
 class _TickingEvent(asyncio.Event):
-    async def wait(self) -> bool:
+    async def wait(self) -> Literal[True]:
         await asyncio.sleep(0.01)
         return True
 

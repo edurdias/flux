@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, TypedDict
 
 from flux.utils import FluxEncoder, make_hashable  # noqa: F401  (make_hashable kept for back-compat)
+
+
+def as_utc(value: datetime | str) -> datetime:
+    """Coerce an event timestamp to timezone-aware UTC.
+
+    Naive values are interpreted as UTC. That is the single rule applied at
+    every boundary — construction, DB load, wire ingest — because a log is
+    stamped on whichever machine creates each event (the server schedules and
+    claims, the worker runs), and mixing naive with aware raises rather than
+    compares. Rows written before events became aware carry local wall time
+    with no offset left to recover; reading them as UTC keeps them orderable.
+    """
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 class PausedEventValue(TypedDict):
@@ -73,7 +90,7 @@ class ExecutionEvent:
         source_id: str,
         name: str,
         value: Any | None = None,
-        time: datetime | None = None,
+        time: datetime | str | None = None,
         id: str | None = None,
         subject: str | None = None,
     ):
@@ -83,7 +100,7 @@ class ExecutionEvent:
         self.value = value
         self.subject = subject
 
-        self.time = time or datetime.now()
+        self.time = as_utc(time) if time is not None else datetime.now(timezone.utc)
 
         self.id = id if id else self.__generate_id()
 

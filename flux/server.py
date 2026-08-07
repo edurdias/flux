@@ -510,6 +510,13 @@ class Server(
         # advanced past what `ctx` already holds. The hydrated flag (not the
         # ordinal itself) marks "seen at least once" so an execution with an
         # empty event log (ordinal None) also skips repeat hydration.
+        #
+        # Whether to *emit* the hydrated context is then decided by the last
+        # event's identity, never by its timestamp. Events are stamped on
+        # whichever machine creates them, so any backwards clock movement — a
+        # worker mid-upgrade, an NTP step — used to make every later event
+        # compare as older; since the ordinal had already advanced past it,
+        # the context was never refreshed again and the stream hung open.
         last_seen_ordinal: int | None = None
         hydrated_once = False
 
@@ -577,7 +584,7 @@ class Server(
                         if (
                             new_ctx is not None
                             and new_ctx.events
-                            and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
+                            and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                         ):
                             ctx = new_ctx
                             dto = ExecutionContextDTO.from_domain(ctx)
@@ -595,7 +602,7 @@ class Server(
                     if (
                         new_ctx is not None
                         and new_ctx.events
-                        and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
+                        and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                     ):
                         ctx = new_ctx
                         dto = ExecutionContextDTO.from_domain(ctx)
