@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in Flux behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please do **not** report security vulnerabilities here —
+        see [SECURITY.md](../blob/main/SECURITY.md) for private reporting.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A minimal workflow or command sequence that reproduces the problem.
+      render: python
+    validations:
+      required: true
+
+  - type: dropdown
+    id: execution-path
+    attributes:
+      label: Execution path
+      description: Which path did you hit this on?
+      options:
+        - Inline (workflow.run(...))
+        - Distributed (flux start server + flux start worker)
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Flux version
+      description: "Output of `poetry run flux --version`, or the flux-core version installed."
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - SQLite (default)
+        - PostgreSQL
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      description: Relevant server/worker output. Redact any secrets or tokens.
+      render: shell
