@@ -217,3 +217,67 @@ class TestRotate:
         principal = registry.find(admin_bootstrap.ADMIN_SUBJECT, admin_bootstrap.ADMIN_ISSUER)
         assert "admin" in registry.get_roles(principal.id)
         assert admin_bootstrap.read_persisted(tmp_path) == key
+
+
+class TestBootstrapKeyAuthenticates:
+    """Issue #170: the seeding test and the provider test each passed alone
+    while the minted key could never authenticate — the bootstrap principal
+    was 'user'-typed and the api-key provider only accepts service accounts.
+    These tests drive the bootstrap key through the *real* provider."""
+
+    async def test_bootstrap_key_authenticates_through_api_key_provider(
+        self,
+        auth_service,
+        registry,
+        session_factory,
+        tmp_path,
+    ):
+        from flux.security.providers.api_key import APIKeyProvider
+
+        key = await admin_bootstrap.ensure_admin_key(
+            auth_service,
+            registry,
+            session_factory,
+            tmp_path,
+        )
+        assert key is not None
+
+        identity = await APIKeyProvider(session_factory, registry=registry).authenticate(key)
+        assert identity is not None, "bootstrap key must authenticate through the real provider"
+        assert identity.subject == admin_bootstrap.ADMIN_SUBJECT
+        assert "admin" in identity.roles
+
+        principal = registry.find(admin_bootstrap.ADMIN_SUBJECT, admin_bootstrap.ADMIN_ISSUER)
+        assert principal.type == "service_account"
+
+    async def test_rotate_repairs_user_typed_principal_from_broken_deployment(
+        self,
+        auth_service,
+        registry,
+        session_factory,
+        tmp_path,
+    ):
+        """A deployment seeded by the pre-#170 implementation holds a
+        'user'-typed bootstrap principal with a dead key; rotating must flip
+        the type and mint a key that authenticates."""
+        from flux.security.providers.api_key import APIKeyProvider
+
+        broken = registry.create(
+            type="user",
+            subject=admin_bootstrap.ADMIN_SUBJECT,
+            external_issuer=admin_bootstrap.ADMIN_ISSUER,
+        )
+        registry.assign_role(broken.id, admin_bootstrap.ADMIN_ROLE, assigned_by="test")
+        dead_key = await auth_service.create_api_key(broken.id, admin_bootstrap.ADMIN_KEY_NAME)
+        provider = APIKeyProvider(session_factory, registry=registry)
+        assert await provider.authenticate(dead_key) is None  # the #170 symptom
+
+        fresh = await admin_bootstrap.rotate(auth_service, registry, tmp_path)
+        identity = await provider.authenticate(fresh)
+        assert identity is not None and "admin" in identity.roles
+        assert (
+            registry.find(admin_bootstrap.ADMIN_SUBJECT, admin_bootstrap.ADMIN_ISSUER).type
+            == "service_account"
+        )
+        # The dead key was revoked, not left as a second credential.
+        assert await provider.authenticate(dead_key) is None

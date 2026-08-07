@@ -86,12 +86,25 @@ async def _mint(
     """
     principal = registry.find(ADMIN_SUBJECT, ADMIN_ISSUER)
     if principal is None:
+        # service_account, not user: the API-key provider only authenticates
+        # service accounts (an API key is a machine credential), and this
+        # principal exists solely to hold the bootstrap key — a user-typed
+        # principal here mints a key that can never authenticate (issue #170).
         principal = registry.create(
-            type="user",
+            type="service_account",
             subject=ADMIN_SUBJECT,
             external_issuer=ADMIN_ISSUER,
             display_name="Bootstrap admin",
             metadata={"via": "admin-bootstrap"},
+        )
+    elif principal.type != "service_account":
+        # Repair a principal seeded by the #154 implementation that minted
+        # dead keys: rotating (or re-minting) heals the deployment in place.
+        registry.set_type(principal.id, "service_account")
+        logger.warning(
+            "Repaired bootstrap admin principal '%s': type changed to "
+            "'service_account' so its API key can authenticate (issue #170)",
+            ADMIN_SUBJECT,
         )
     registry.assign_role(principal.id, ADMIN_ROLE, assigned_by="admin-bootstrap")
 

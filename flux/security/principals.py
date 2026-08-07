@@ -182,6 +182,26 @@ class PrincipalRegistry:
         finally:
             session.close()
 
+    def set_type(self, principal_id: str, type: str) -> None:
+        """Change a principal's type.
+
+        Exists for the admin-bootstrap repair path (issue #170): a bootstrap
+        principal minted as 'user' holds an API key the api-key provider will
+        never accept, and healing it requires flipping the type in place.
+        """
+        session = self._session_factory()
+        try:
+            principal = session.query(PrincipalModel).filter_by(id=principal_id).first()
+            if principal is None:
+                raise ValueError(f"Principal '{principal_id}' not found")
+            principal.type = type
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def set_enabled(self, principal_id: str, enabled: bool) -> None:
         session = self._session_factory()
         try:
