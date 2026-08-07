@@ -49,13 +49,16 @@ def build_gemini_provider(
         tools: list | None = None,
         **kwargs: Any,
     ) -> LLMResponse:
+        from flux.tasks.ai.errors import wrap_provider_errors
+
         if tools is not None and config is not None:
             config = _config_with_tools(config, tools)
-        response = await _client().aio.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        with wrap_provider_errors(f"google/{model_name}"):
+            response = await _client().aio.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config,
+            )
         return _to_llm_response(response)
 
     formatter = GeminiFormatter(

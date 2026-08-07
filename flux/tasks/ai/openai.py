@@ -29,10 +29,13 @@ def build_openai_provider(
 
     @task.with_options(name="openai_llm")
     async def openai_llm(messages: list[dict], **kwargs: Any) -> LLMResponse:
-        response = await client.chat.completions.create(
-            messages=messages,
-            **kwargs,
-        )
+        from flux.tasks.ai.errors import wrap_provider_errors
+
+        with wrap_provider_errors(f"openai/{model_name}"):
+            response = await client.chat.completions.create(
+                messages=messages,
+                **kwargs,
+            )
         return _to_llm_response(response)
 
     formatter = OpenAIFormatter(

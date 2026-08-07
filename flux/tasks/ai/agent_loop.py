@@ -129,9 +129,11 @@ async def run_agent_loop(
     working_memory: WorkingMemory | None = None,
     max_tool_calls: int = 10,
     max_concurrent_tools: int | None = None,
+    parallel_tool_calls: bool = True,
     stream: bool = False,
     plan_summary_fn: Any | None = None,
-    approval_mode: str = "default",
+    approval_mode: str | None = None,
+    autonomy: str = "default",
     on_complete: list[Any] | None = None,
     on_pause: list[Any] | None = None,
     agent_name: str = "agent",
@@ -236,7 +238,9 @@ async def run_agent_loop(
                 tools,
                 iteration=tool_iteration,
                 max_concurrent=max_concurrent_tools,
+                autonomy=autonomy if approval_mode is None else None,
                 approval_mode=approval_mode,
+                parallel_tool_calls=parallel_tool_calls,
             )
         except PauseRequested:
             await _fire_hooks(on_pause, agent_name, None)

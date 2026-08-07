@@ -199,7 +199,17 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
         max_concurrent_tools=agent_def.get("max_concurrent_tools"),
         max_tokens=agent_def.get("max_tokens", 4096),
         stream=agent_def.get("stream", True),
-        approval_mode=agent_def.get("approval_mode", "default"),
+        # Legacy approval_mode is only forwarded when it says something —
+        # "default" (the column default on every pre-#146 row) resolves
+        # identically when omitted, and omitting it keeps stored agents
+        # that never chose a mode off the deprecation path.
+        approval_mode=(
+            agent_def.get("approval_mode")
+            if agent_def.get("approval_mode") not in (None, "default")
+            else None
+        ),
+        autonomy=agent_def.get("autonomy"),
+        approval_routing=agent_def.get("approval_routing"),
         reasoning_effort=agent_def.get("reasoning_effort"),
     )
 

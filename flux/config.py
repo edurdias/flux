@@ -92,6 +92,17 @@ class WorkersConfig(BaseConfig):
         default=7200,
         description="Seconds to keep offline workers in memory before pruning",
     )
+    park_ttl: int = Field(
+        default=0,
+        description=(
+            "Seconds an execution may wait unclaimed (parked — e.g. its "
+            "affinity currently matches no worker) before the server fails it "
+            "terminally with a diagnostic (issue #157). 0 disables the bound: "
+            "parked executions wait indefinitely, the historic behavior. "
+            "Per-run override via the park_ttl query parameter on the run "
+            "endpoints."
+        ),
+    )
     module_cache_ttl: int = Field(
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",
@@ -457,6 +468,44 @@ class EncryptionConfig(BaseConfig):
     )
 
 
+class AIProviderConfig(BaseConfig):
+    """One OpenAI-compatible provider descriptor (issue #141B).
+
+    A table row under ``[flux.ai.providers.<name>]`` — registering DeepSeek,
+    Fireworks, Groq, or any other chat-completions-compatible vendor takes a
+    ``base_url`` and a key reference, not a new provider module. Several
+    descriptors coexist in one process, each addressed as
+    ``agent(model="<name>/<model>")``.
+    """
+
+    base_url: str = Field(description="Chat-completions-compatible API base URL")
+    api_key_env: str | None = Field(
+        default=None,
+        description="Environment variable holding the API key",
+    )
+    api_key_secret: str | None = Field(
+        default=None,
+        description="Flux secret name holding the API key (checked after api_key_env)",
+    )
+    models: list[str] = Field(
+        default_factory=list,
+        description="Informational list of model ids this provider serves",
+    )
+
+
+class AIConfig(BaseConfig):
+    """Configuration for the AI/agent subsystem."""
+
+    providers: dict[str, AIProviderConfig] = Field(
+        default_factory=dict,
+        description=(
+            "OpenAI-compatible provider descriptors keyed by provider prefix "
+            "(the '<prefix>/' in agent model strings). Built-in provider "
+            "names (ollama/openai/anthropic/google) cannot be overridden."
+        ),
+    )
+
+
 class SchedulingConfig(BaseConfig):
     """Configuration for workflow scheduling."""
 
@@ -581,6 +630,7 @@ class FluxConfig(BaseSettings):
     dynamic_workflows: DynamicWorkflowsConfig = Field(default_factory=DynamicWorkflowsConfig)
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    ai: AIConfig = Field(default_factory=AIConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:

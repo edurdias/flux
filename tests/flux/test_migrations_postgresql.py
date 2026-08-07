@@ -28,7 +28,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0013_worker_metadata"
+HEAD = "0019_agent_approval_policy"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

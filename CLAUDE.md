@@ -49,9 +49,10 @@ poetry run flux execution list|show
 poetry run flux schedule create|list|show|pause|resume|history|delete
 poetry run flux secrets   set|get|list|remove
 poetry run flux config    set|get|list|remove
-poetry run flux agent     create|list|show|update|delete
+poetry run flux agent     create|apply|list|show|update|delete
 poetry run flux roles | principals | auth                        # security admin
 poetry run flux server bootstrap-token                           # print the auto-generated worker token
+poetry run flux server admin-key [--rotate]                      # print/rotate the first-admin bootstrap key (#154)
 ```
 
 ### Pytest markers (pyproject.toml)
@@ -94,7 +95,7 @@ Implementation hot-spots:
 
 ### Decorators and the programming model
 
-- `flux/task.py` — `task` is a class with `__call__`; `task.with_options(...)` returns a decorator that wraps a function in `task(...)`. Options: `name`, `fallback`, `rollback`, `retry_max_attempts/_delay/_backoff`, `timeout`, `secret_requests`, `config_requests`, `output_storage`, `cache`, `metadata`, `auth_exempt`, `requires_approval` (bool or runtime predicate — pauses the workflow until an operator decides via `flux execution approve|reject` or `POST /executions/{id}/approvals/{call}/{verb}`; rejection raises `ApprovalRejected` and **bypasses retry/fallback/rollback** since the body never ran; `approve --always` records a standing grant — `scope="execution"` on the approval row — so later gates on the same task name in that execution auto-approve at `register` time, each materializing an audit row with `reason="standing grant"`). The error-handling chain is **retry → fallback → rollback**; each step emits its own event types.
+- `flux/task.py` — `task` is a class with `__call__`; `task.with_options(...)` returns a decorator that wraps a function in `task(...)`. Options: `name`, `fallback`, `rollback`, `retry_max_attempts/_delay/_backoff`, `timeout`, `secret_requests`, `config_requests`, `output_storage`, `cache`, `metadata`, `auth_exempt`, `requires_approval` (bool or runtime predicate — pauses the workflow until an operator decides via `flux execution approve|reject` or `POST /executions/{id}/approvals/{call}/{verb}`; rejection raises `ApprovalRejected` and **bypasses retry/fallback/rollback** since the body never ran; `approve --always` records a standing grant — `scope="execution"` on the approval row — so later gates on the same task name in that execution auto-approve at `register` time, each materializing an audit row naming the applied grant; `approval_target="<arg>"` additionally enables target-scoped grants — `approve --always-for-target` authorizes only calls whose declared argument resolves to the same value, fail-closed when nothing is bound, #143), `risk` (`read`/`write`/`exec`/`external`, #140 — in an agent turn only `read` runs concurrently with sibling tool calls; anything else is an ordering barrier in emission order; undeclared + `requires_approval` truthy counts as non-read), `sensitive` (#147 phase 2 — recorded args/output stored as `[REDACTED:sensitive]` and **replay re-executes the body** instead of short-circuiting, so the task must be safe to re-run; incompatible with `cache`). Agents split the old `approval_mode` into `autonomy` (strict/default/autonomous) × `approval_routing` (inline/notify) with the legacy value mapped and deprecated (#146). The error-handling chain is **retry → fallback → rollback**; each step emits its own event types.
 - `flux/workflow.py` — `workflow.with_options(...)` adds `namespace`, `requests` (ResourceRequest), `affinity` (label dict), `routing` (scoring policy from `flux/routing.py`), `schedule` (Schedule from `flux/domain/schedule.py`), plus `name`, `secret_requests`, `output_storage`. A workflow's first parameter is always `ctx: ExecutionContext[T]`; if `T` is a Pydantic `BaseModel`, the catalog publishes its JSON schema (`flux/catalogs.py::extract_workflow_input_schema`).
 - `flux/__init__.py` — installs a custom `_FluxModule` class on `sys.modules["flux"]` so that `flux.task` and `flux.workflow` resolve to the *classes* even though they're also submodules. If you import-rename anything at the top of `flux/`, exercise both `from flux import task` and `import flux.task` — the lazy/wildcard machinery is fragile.
 
@@ -103,11 +104,11 @@ Implementation hot-spots:
 - `execution_context.py` — `ExecutionContext[T]` (Generic over input type). State is a `ContextVar`; tasks call `await ExecutionContext.get()` to retrieve the current context — never pass it manually. `ctx.checkpoint()` flushes events through the registered checkpoint callable (server-side: HTTP POST; inline: SQLAlchemy save).
 - `events.py` — `ExecutionState` (CREATED → SCHEDULED → CLAIMED → RUNNING → COMPLETED/FAILED/CANCELLED, with PAUSED/RESUMING/RESUME_SCHEDULED/RESUME_CLAIMED/CANCELLING intermediates) and `ExecutionEventType` (workflow + task lifecycle, plus retry/fallback/rollback variants). Convenience flags on `ExecutionContext`: `has_finished`, `has_succeeded`, `has_failed`, `is_paused`, `is_cancelled`, `is_resuming`.
 - `resource_request.py` — used by both resource matching and label affinity.
-- `schedule.py` — `cron(...)`, `interval(...)`, `once(...)` factories; `schedule_factory` builds them from raw config.
+- `schedule.py` — `cron(...)`, `interval(...)`, `once(...)` factories (each takes `overlap="skip"|"allow"` — issue #142; NULL rows from before the policy read as allow); `schedule_factory` builds them from raw config.
 
 ### Persistence
 
-`flux/models.py` defines the SQLAlchemy ORM (`Base`, `WorkflowModel`, `ExecutionContextModel`, `ExecutionEventModel`, plus `RoleModel`, `APIKeyModel`, `AgentModel`, `ConfigModel`, `WorkerModel`, …). `RepositoryFactory.create_repository()` dispatches on `database_url` (`sqlite://` vs `postgresql://`); engines are cached per (repository class, URL) tuple. Schema changes go through Alembic (`flux/migrations/`, run automatically on first connect by `flux/migrations/runner.py`); add a numbered revision AND the ORM column together, and update `HEAD` in `tests/flux/test_migrations.py` (its parity test compares migration output against the full metadata).
+`flux/models.py` defines the SQLAlchemy ORM (`Base`, `WorkflowModel`, `ExecutionContextModel`, `ExecutionEventModel`, plus `RoleModel`, `APIKeyModel`, `AgentModel`, `ConfigModel`, `WorkerModel`, …). `RepositoryFactory.create_repository()` dispatches on `database_url` (`sqlite://` vs `postgresql://`); engines are cached per (repository class, URL) tuple. Schema changes go through Alembic (`flux/migrations/`, run automatically on first connect by `flux/migrations/runner.py`); add a numbered revision AND the ORM column together, and update `HEAD` in **both** `tests/flux/test_migrations.py` (its parity test compares migration output against the full metadata) and `tests/flux/test_migrations_postgresql.py` (postgresql-marked, so a stale value there only surfaces in CI's migrations-postgres job).
 
 Higher-level managers wrap the repositories:
 - `WorkflowCatalog` (`flux/catalogs.py`) — register / parse / lookup workflows; AST-based parsing of source files extracts each workflow's docstring and resource requests.
@@ -118,6 +119,8 @@ Higher-level managers wrap the repositories:
 
 - Two auth layers: **OIDC** (`providers/oidc.py`) and **API keys** (`providers/api_key.py`). Both feed into a `FluxIdentity`; `AuthService` resolves it to a permission set via `RoleModel` rows. Built-in roles: `admin` (`*`), `operator`, `viewer`, `worker`.
 - **Bootstrap token** (`bootstrap_token.py`) — used once by a worker to obtain an API key + service-principal during `POST /workers/register`. If the server's `[flux.workers] bootstrap_token` is unset, one is auto-generated and persisted to `<home>/bootstrap-token` on first start; surface it via `flux server bootstrap-token`.
+- **Admin bootstrap** (`admin_bootstrap.py`, #154) — the human analog: on the first auth-enabled start with no enabled admin principal, a random admin API key is minted (hash in DB, bound to the built-in `admin` role) and the plaintext written to `<home>/admin-bootstrap-key` (0600). Init-only; `flux server admin-key [--rotate]` prints/rotates host-locally.
+- **Presentation redaction** (`redaction.py`, #147 phase 1) — execution-read API responses are scrubbed of known secret values by value identity (config `[flux.security] redact_secrets_in_responses`, default on). Presentation-boundary only: the event log and replay are untouched.
 - **Execution token** (`execution_token.py`) — short-lived JWT scoped to a single execution; used by the worker when calling back into the server during a workflow.
 - Most server routes go through `Depends(require_permission("workflow:{namespace}:{name}:run"))` etc. Permissions follow `resource:scope:scope:verb` with `*` wildcards.
 
@@ -125,15 +128,15 @@ Higher-level managers wrap the repositories:
 
 - `builtins.py` — `parallel`, `pipeline`, `now`, `sleep`, `uuid4`, `choice`, `randint`.
 - `graph.py` — `Graph` for DAG composition with cycle detection.
-- `pause.py`, `call.py`, `progress.py`, `config_task.py`.
-- `ai/` — the agent system. `agent.py` is the user-facing `agent()` task; `agent_loop.py` is the shared tool-execution loop; provider modules (`ollama.py`, `openai.py`, `anthropic.py`, `gemini.py`) are each a `(factory, formatter)` pair conforming to the ABC in `formatter.py`. Other pieces: `agent_plan.py` (multi-step planning + replanning), `delegation.py` (sub-agents / workflow agents), `dreaming.py` (memory consolidation), `memory/`, `skills.py`, `tools/`, `tool_executor.py`, `approval.py` (human-in-the-loop tool approval).
+- `pause.py` (`pause(name, until=|after=|on_complete=)` — wake conditions fire from the scheduler tick, distributed path only; issue #145), `call.py`, `progress.py`, `config_task.py`.
+- `ai/` — the agent system. `agent.py` is the user-facing `agent()` task; `agent_loop.py` is the shared tool-execution loop; provider modules (`ollama.py`, `openai.py`, `anthropic.py`, `gemini.py`) are each a `(factory, formatter)` pair conforming to the ABC in `formatter.py`. Other pieces: `agent_plan.py` (multi-step planning + replanning), `delegation.py` (sub-agents / workflow agents), `dreaming.py` (memory consolidation), `memory/`, `skills.py`, `tools/`, `tool_executor.py` (also the #140 risk partition: reads concurrent, non-reads barriers in emission order), `approval.py` (human-in-the-loop tool approval), `capabilities.py` (#141A — `resolve_capabilities("provider/model")`: curated matrix + conservative heuristics, no network; gates tool support, streaming, and parallel tool dispatch).
 - `mcp/` — MCP *client* (Flux calling external MCP servers from a workflow). The MCP *server* exposing Flux workflows is `flux/mcp_server.py` / `flux/service_mcp.py`.
 
 ### Other subsystems
 
 - `flux/agents/` — first-class **AI agent harness**: `manager.py` (CRUD), `process.py` + `session.py` (conversation lifecycle), `template.py`, `tools_resolver.py`, plus `ui/` (terminal + Textual + web) and a static `web/index.html`. Agents are stored in the `agents` table and *also* mirrored into the configs table under `agent:<name>` so workflow templates can fetch them via `get_config`.
 - `flux/service_*` modules + `flux/service_mcp.py` — **Workflow services**: a workflow can be exposed as an HTTP endpoint or MCP tool with a stable name. `service_resolver.py` handles collision detection; `service_proxy.py` provides standalone MCP endpoints with lazy discovery.
-- `flux/schedule_manager.py` — runs inside the server process; polls scheduled workflows, dispatches them, and tracks history.
+- `flux/schedule_manager.py` — runs inside the server process; polls scheduled workflows, dispatches them, and tracks history. The scheduler tick (under the cross-replica dispatch lock) also runs the overlap-skip check (#142), the park-TTL sweep failing executions unclaimed past `executions.park_deadline` (#157), and the pause-wake pass resuming executions whose `wake_at`/`wake_on_complete` fired (#145) — wake columns are stamped atomically with the PAUSED state write in `flux/context_managers.py::_sync_wake_columns`.
 - `flux/observability/` — OpenTelemetry tracing/metrics + a Prometheus `/metrics` endpoint, gated by `[flux.observability] enabled` and the `observability` extra.
 
 ## Configuration
@@ -175,6 +178,7 @@ Run `pre-commit`, the unit suite, and the E2E suite locally before pushing — r
 - **Auto-scheduling is on by default.** `@workflow.with_options(schedule=cron(...))` creates a `<workflow>_auto` schedule on registration. Disable with `[flux.scheduling] auto_schedule_enabled = false` if testing schedule semantics manually.
 - **Path-traversal guard for skills.** `flux/agents/` blocks symlinks/escapes from the configured `skills_dir`; if you add new file-loading entry points there, route them through the same helper (see commit `3d8d489`).
 - **Batched tasks must be idempotent.** `parallel(...)`, `task.map(...)`, and an agent's tool calls in one turn all run through `flux/_concurrency.py::gather_batch`, which favors durability over promptness: when any member ends the batch (pause, failure, or cancellation) the siblings get a bounded window to finish so their terminal events and rollbacks land, and stragglers past it are cancelled. A cancelled straggler re-executes on resume, so anything batched alongside work that can pause or fail needs an idempotent body.
+- **Cancellation records an audit event and compensates — replay still re-runs.** A task interrupted by `CancelledError` appends `TASK_CANCELLED` (audit-only: invisible to the replay short-circuit, same re-run semantics as a worker crash that writes nothing) and runs its declared rollback shielded against re-cancel with a `CANCELLED_ROLLBACK_TIMEOUT` bound (`flux/task.py::__handle_cancellation`, issue #149). Retry and fallback are deliberately skipped on cancel — a fallback would record a substitute `TASK_COMPLETED` that replay honors forever. Fallback preempts rollback on *failure* only.
 - **`name-tests-test --pytest-test-first`** is enabled in pre-commit. Test files must be named `test_*.py`, not `*_test.py` (excluded under `tests/*/fixtures/`).
 
 ## Useful entry points when navigating
@@ -189,5 +193,5 @@ Run `pre-commit`, the unit suite, and the E2E suite locally before pushing — r
 | Add a CLI command | `flux/cli.py` (Click groups: `workflow`, `execution`, `schedule`, `secrets`, `config`, `agent`, `roles`, `principals`, `auth`, `start`, `server`) |
 | Add an event type / state | `flux/domain/events.py` *and* the corresponding `ExecutionContext` method in `execution_context.py` |
 | Add a built-in task primitive | `flux/tasks/builtins.py` (re-exports via `flux/tasks/__init__.py`) |
-| Add an LLM provider | `flux/tasks/ai/<provider>.py` — implement a `(factory, formatter)` pair against `formatter.py::LLMFormatter` |
+| Add an LLM provider | OpenAI-compatible vendors need no module: a `[flux.ai.providers.<name>]` descriptor row (or `flux/tasks/ai/providers.py::register_provider`) — #141B. Only genuinely different wire formats get a module: `flux/tasks/ai/<provider>.py`, a `(factory, formatter)` pair against `formatter.py::LLMFormatter` |
 | Add an auth provider | `flux/security/providers/` |

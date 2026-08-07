@@ -102,12 +102,31 @@ class BudgetExceededError(ExecutionError):
 
 
 class PauseRequested(ExecutionError):
-    def __init__(self, name: str, output: Any = None):
+    def __init__(
+        self,
+        name: str,
+        output: Any = None,
+        wake_at: str | None = None,
+        wake_on_complete: str | None = None,
+    ):
         super().__init__(
             message="Pause Requested.",
         )
         self._name = name
         self._output = output
+        # Wake condition (issue #145). wake_at is an ISO-8601 UTC instant —
+        # already absolute, so replay re-records the same wake; wake_on_complete
+        # is an execution id to wake on when it reaches a terminal state.
+        self._wake_at = wake_at
+        self._wake_on_complete = wake_on_complete
+
+    @property
+    def wake_at(self) -> str | None:
+        return self._wake_at
+
+    @property
+    def wake_on_complete(self) -> str | None:
+        return self._wake_on_complete
 
     @property
     def name(self) -> str:
@@ -284,3 +303,18 @@ class TransientDurabilityError(ExecutionError):
                 f"durability='transient' to use it."
             ),
         )
+
+
+class ModelProviderError(ExecutionError):
+    """An LLM provider call failed, wrapped with actionable guidance.
+
+    Raw SDK exceptions (auth failures, missing models, rate limits, context
+    overflows, unreachable endpoints) surface as opaque task failures;
+    ``flux.tasks.ai.errors.friendly_model_error`` maps the common ones to
+    text that names the fix, and this error carries it with the original
+    exception preserved as ``inner_exception``.
+    """
+
+    def __init__(self, model: str, message: str, inner_exception: Exception | None = None):
+        self.model = model
+        super().__init__(inner_exception=inner_exception, message=message)

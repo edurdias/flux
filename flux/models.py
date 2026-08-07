@@ -385,6 +385,11 @@ class AgentModel(Base):
     max_tokens = Column(Integer, nullable=False, default=4096)
     stream = Column(Boolean, nullable=False, default=True)
     approval_mode = Column(String, nullable=False, default="default")
+    # Split policy (issue #146): autonomy ceiling (strict/default/autonomous)
+    # and approval routing (inline/notify). NULL — every pre-#146 row —
+    # defers to the legacy approval_mode mapping.
+    autonomy = Column(String, nullable=True)
+    approval_routing = Column(String, nullable=True)
     reasoning_effort = Column(String, nullable=True)
     long_term_memory = Column(JSON, nullable=True)
     created_by = Column(String, nullable=True)
@@ -637,6 +642,18 @@ class ExecutionContextModel(Base):
     # Set when the execution was dispatched by a schedule; lets schedule
     # history be scoped to the originating schedule rather than the workflow.
     schedule_id = Column(String, nullable=True)
+    # Park TTL (issue #157): when set, an execution still unclaimed (state
+    # CREATED) past this instant is failed terminally by the scheduler tick's
+    # sweep instead of waiting forever for a matching worker. NULL — the
+    # default and every pre-#157 row — means "park indefinitely".
+    park_deadline = Column(DateTime, nullable=True)
+    # Pause wake condition (issue #145): stamped in the same transaction as
+    # the PAUSED state write from the latest WORKFLOW_PAUSED event, cleared
+    # on every other state write. wake_at: resume at this UTC instant;
+    # wake_on_complete: resume when this execution id reaches a terminal
+    # state. The scheduler tick's wake pass reads them.
+    wake_at = Column(DateTime, nullable=True)
+    wake_on_complete = Column(String, nullable=True)
 
     # Relationship to events
     events = relationship(
@@ -858,8 +875,14 @@ class ApprovalRequestModel(Base):
     # Decision scope: "call" (default; NULL on pre-existing rows reads as
     # "call") decides this task_call_id only; "execution" is a standing
     # grant — later gates on the same task name in this execution
-    # auto-approve without pausing (issue #74).
+    # auto-approve without pausing (issue #74); "target" is a standing
+    # grant bound to target_value (issue #143).
     scope = Column(String, nullable=True)
+    # Resolved value of the task's declared approval_target argument, bound
+    # at row creation (issue #143). NULL — including every pre-existing row
+    # — means no target was declared or bindable, so the row can neither
+    # mint nor match a target-scoped grant.
+    target_value = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("execution_id", "task_call_id", name="uq_approval_exec_call"),
@@ -901,9 +924,18 @@ class ScheduleModel(Base):
     # Service account to run scheduled executions as (required when auth is enabled)
     run_as_service_account = Column(String, nullable=True)
 
+    # Overlap policy (issue #142): "skip" | "allow". NULL — every row
+    # created before the column existed — reads as "allow", the pre-policy
+    # behavior, so upgrades change nothing silently.
+    overlap_policy = Column(String, nullable=True)
+
     # Statistics
     run_count = Column(Integer, nullable=False, default=0)
     failure_count = Column(Integer, nullable=False, default=0)
+    # Overlap skips (issue #142). Nullable so pre-existing rows read as 0
+    # without a backfill.
+    skip_count = Column(Integer, nullable=True)
+    last_skipped_at = Column(DateTime, nullable=True)
 
     # Relationships
     workflow = relationship("WorkflowModel", backref="schedules")
@@ -939,6 +971,9 @@ class ScheduleModel(Base):
         self.status = status
         self.input_data = input_data
         self.run_as_service_account = run_as_service_account
+        # getattr: Schedule objects unpickled from pre-#142 rows have no
+        # overlap attribute.
+        self.overlap_policy = getattr(schedule, "overlap", None)
         self.next_run_at = schedule.next_run_time()
 
     def get_schedule(self) -> Schedule:
@@ -985,6 +1020,28 @@ class ScheduleModel(Base):
     def mark_failure(self):
         """Mark that the schedule execution failed"""
         self.failure_count += 1
+
+    def mark_skip(self, run_time: datetime | None = None):
+        """Record an overlap-skipped fire (issue #142).
+
+        Advances ``next_run_at`` exactly like a run — the fire is consumed,
+        not deferred — but counts it separately and leaves ``last_run_at`` /
+        ``run_count`` untouched, so run statistics still mean "executions
+        dispatched".
+        """
+        if run_time is None:
+            run_time = datetime.now(timezone.utc)
+        self.skip_count = (self.skip_count or 0) + 1
+        self.last_skipped_at = run_time
+
+        schedule = self.get_schedule()
+        from flux.domain.schedule import IntervalSchedule
+
+        if isinstance(schedule, IntervalSchedule):
+            schedule.mark_run(run_time)
+            self.schedule_config = schedule
+
+        self.update_next_run()
 
 
 class ServiceModel(Base):

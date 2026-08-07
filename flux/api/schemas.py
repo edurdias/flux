@@ -111,6 +111,11 @@ class ScheduleResponse(BaseModel):
     run_count: int
     failure_count: int
     run_as_service_account: str | None = None
+    # Overlap policy (issue #142): "skip" | "allow"; None on rows created
+    # before the policy existed (treated as "allow").
+    overlap_policy: str | None = None
+    skip_count: int = 0
+    last_skipped_at: str | None = None
 
 
 class ScheduleUpdateRequest(BaseModel):
@@ -140,13 +145,17 @@ class ApprovalDecideRequest(BaseModel):
     """Body for POST /executions/{id}/approvals/{call}/{approve|reject}.
 
     The decision verb (approve/reject) is path-derived; the body carries the
-    optional reason and, for approvals, the standing-grant flag: ``always``
+    optional reason and, for approvals, the standing-grant flags: ``always``
     scopes the approval to the whole execution, so later gates on the same
-    task name auto-approve without pausing.
+    task name auto-approve without pausing; ``always_for_target`` (issue
+    #143) scopes it to this task against this exact bound target value —
+    mutually exclusive with ``always``, and rejected when the approval
+    bound no target value.
     """
 
     reason: str | None = None
     always: bool = False
+    always_for_target: bool = False
 
 
 class APIKeyRequest(BaseModel):

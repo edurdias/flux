@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from flux import ExecutionContext
-from flux._concurrency import gather_batch
+from flux._concurrency import CANCELLED_ROLLBACK_TIMEOUT, DEFAULT_DRAIN_TIMEOUT, gather_batch
 from flux.cache import CacheManager
 from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionError, ExecutionTimeoutError, PauseRequested, RetryError
@@ -11,6 +11,7 @@ from flux.utils import get_func_args, make_deterministic, maybe_awaitable
 
 
 import asyncio
+import contextlib
 import hashlib
 import inspect
 import json
@@ -21,6 +22,19 @@ from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Side-effect classes a task may declare via ``risk=`` (issue #140). Only
+# "read" is safe to run concurrently with batch siblings in an agent turn;
+# the other levels exist so authors state *what kind* of effect a tool has —
+# ordering treats them all as barriers today, and finer policy (e.g. approval
+# defaults per level) can build on the distinction later.
+RISK_LEVELS = ("read", "write", "exec", "external")
+
+# What a sensitive task's recorded arguments and output look like in the
+# event log (issue #147 phase 2). The marker is data, not a signal: replay
+# skipping is driven by the task's declared ``sensitive`` flag, never by
+# recognizing this string.
+REDACTED_SENSITIVE = "[REDACTED:sensitive]"
 
 _auth_http_client = None
 
@@ -37,6 +51,14 @@ def _get_auth_http_client():
 
         _auth_http_client = httpx.AsyncClient(timeout=10.0)
     return _auth_http_client
+
+
+def _retrieve_silently(task: asyncio.Task) -> None:
+    """Consume an abandoned task's outcome so asyncio never logs it as
+    never-retrieved. Used when a rollback ignores cancellation and the wait
+    for it is given up (see ``__handle_cancellation``)."""
+    with contextlib.suppress(BaseException):
+        task.exception()
 
 
 class TaskMetadata:
@@ -72,6 +94,9 @@ class _WithOptions:
         metadata: bool = False,
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
+        approval_target: str | None = None,
+        risk: str | None = None,
+        sensitive: bool = False,
     ) -> Callable[[F], task]:
         def wrapper(func: F) -> task:
             return task(
@@ -90,6 +115,9 @@ class _WithOptions:
                 metadata=metadata,
                 auth_exempt=auth_exempt,
                 requires_approval=requires_approval,
+                approval_target=approval_target,
+                risk=risk,
+                sensitive=sensitive,
             )
 
         return wrapper
@@ -115,7 +143,18 @@ class task:
         metadata: bool = False,
         auth_exempt: bool = False,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
+        approval_target: str | None = None,
+        risk: str | None = None,
+        sensitive: bool = False,
     ):
+        if risk is not None and risk not in RISK_LEVELS:
+            raise ValueError(
+                f"risk must be one of {RISK_LEVELS} or None, got: '{risk}'",
+            )
+        if sensitive and cache:
+            # The cache is another at-rest store for the exact value a
+            # sensitive task exists to keep out of at-rest stores.
+            raise ValueError("sensitive=True cannot be combined with cache=True")
         self._func = func
         self.name = name if name else func.__name__
         self.description: str | None = None
@@ -132,6 +171,21 @@ class task:
         self.metadata = metadata
         self.auth_exempt = auth_exempt
         self.requires_approval = requires_approval
+        # Name of the argument whose value a target-scoped standing grant
+        # binds to (issue #143). A task that declares nothing cannot mint
+        # target-scoped grants — fail-closed by construction.
+        self.approval_target = approval_target
+        # Declared side-effect class (issue #140): "read" runs concurrently
+        # with its batch siblings; anything else is an ordering barrier in
+        # an agent turn. None (undeclared) keeps legacy concurrent behavior
+        # unless the task is approval-gated.
+        self.risk = risk
+        # Issue #147 phase 2: the output of a sensitive task is a credential.
+        # Its recorded arguments and output are stored as REDACTED_SENSITIVE,
+        # and replay deliberately re-executes the body instead of returning
+        # the stored value — the author accepts re-execution as the price of
+        # keeping the value out of the event log.
+        self.sensitive = sensitive
         wraps(func)(self)
 
     def __get__(self, instance, owner):
@@ -295,6 +349,14 @@ class task:
             )
         ]
 
+        if len(finished) > 0 and self.sensitive:
+            # A sensitive task's stored TASK_COMPLETED value is the redaction
+            # marker, not the credential — returning it would hand the
+            # workflow a bogus value. Re-execute instead (the documented
+            # trade of sensitive=True). Stored failures still replay: they
+            # carry an exception, not the output.
+            finished = [e for e in finished if e.type == ExecutionEventType.TASK_FAILED]
+
         if len(finished) > 0:
             event = finished[0]
             value = event.value
@@ -362,11 +424,22 @@ class task:
                         type=ExecutionEventType.TASK_COMPLETED,
                         source_id=task_id,
                         name=full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
                 await ctx.checkpoint()
                 return output
+            except asyncio.CancelledError:
+                # A resumed retry chain is as interruptible as a first run.
+                await self.__handle_cancellation(
+                    ctx,
+                    task_id,
+                    full_name,
+                    task_args,
+                    args,
+                    kwargs,
+                )
+                raise
             finally:
                 _RESUME_TASK.reset(resume_token)
 
@@ -385,11 +458,12 @@ class task:
                         type=ExecutionEventType.TASK_STARTED,
                         source_id=task_id,
                         name=full_name,
-                        value=task_args,
+                        # Positional arguments are recorded verbatim for every
+                        # ordinary task; a sensitive task's arguments are as
+                        # credential-shaped as its output (#147).
+                        value=self._recorded_args(task_args),
                     ),
                 )
-
-            import contextlib
 
             from flux.observability import get_metrics, is_enabled
 
@@ -477,14 +551,36 @@ class task:
                     type=ExecutionEventType.TASK_COMPLETED,
                     source_id=task_id,
                     name=full_name,
-                    value=self.output_storage.store(task_id, output),
+                    value=self._stored_output(task_id, output),
                 ),
             )
 
             await ctx.checkpoint()
             return output
+        except asyncio.CancelledError:
+            # Covers a cancel delivered anywhere in the task's lifetime after
+            # TASK_STARTED: the body, retry sleeps, a fallback body, output
+            # storage, or the final checkpoint (the terminal-event guard in
+            # __handle_cancellation makes the post-terminal window a no-op).
+            await self.__handle_cancellation(ctx, task_id, full_name, task_args, args, kwargs)
+            raise
         finally:
             _CURRENT_TASK.reset(task_token)
+
+    def _stored_output(self, task_id: str, output: Any) -> Any:
+        """Persist a terminal output value, substituting the redaction marker
+        for sensitive tasks (#147 phase 2). The caller still returns the real
+        value in-process — only the event log carries the marker."""
+        if self.sensitive:
+            output = REDACTED_SENSITIVE
+        return self.output_storage.store(task_id, output)
+
+    def _recorded_args(self, task_args: dict) -> dict:
+        """The argument dict recorded on *_STARTED events — redacted per key
+        for sensitive tasks (#147 phase 2)."""
+        if self.sensitive:
+            return dict.fromkeys(task_args, REDACTED_SENSITIVE)
+        return task_args
 
     @property
     def func(self) -> Callable:
@@ -507,6 +603,9 @@ class task:
         metadata: bool | None = None,
         auth_exempt: bool | None = None,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
+        approval_target: str | None = None,
+        risk: str | None = None,
+        sensitive: bool | None = None,
     ) -> task:
         """Return a new task with merged options. Values not provided inherit from this task."""
         return task(
@@ -533,6 +632,11 @@ class task:
             requires_approval=(
                 requires_approval if requires_approval is not None else self.requires_approval
             ),
+            approval_target=(
+                approval_target if approval_target is not None else self.approval_target
+            ),
+            risk=risk if risk is not None else self.risk,
+            sensitive=sensitive if sensitive is not None else self.sensitive,
         )
 
     async def _evaluate_approval_predicate(self, args: tuple, kwargs: dict) -> bool:
@@ -561,6 +665,23 @@ class task:
         if inspect.isawaitable(result):
             result = await result
         return bool(result)
+
+    def _resolve_approval_target(self, args: tuple, kwargs: dict) -> str | None:
+        """The bound target value for a target-scoped grant (issue #143).
+
+        Fail-closed at binding time: no declared ``approval_target``, an
+        absent argument, a non-scalar, or an empty string all bind nothing —
+        and a row without a bound value can never mint or match a
+        target-scoped grant.
+        """
+        if not self.approval_target:
+            return None
+        merged = get_func_args(self._func, args)
+        value = merged.get(self.approval_target, kwargs.get(self.approval_target))
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            return None
+        text = str(value).strip()
+        return text or None
 
     async def _approval_gate(
         self,
@@ -621,6 +742,7 @@ class task:
                 return False
 
             if existing is None:
+                target_value = self._resolve_approval_target(args, kwargs)
                 awaiting_event = ExecutionEvent(
                     type=ExecutionEventType.TASK_AWAITING_APPROVAL,
                     source_id=call_id,
@@ -630,13 +752,20 @@ class task:
                         "workflow_namespace": ctx.workflow_namespace,
                         "workflow_name": ctx.workflow_name,
                         "task_name": self.name,
+                        "target_value": target_value,
                     },
                 )
                 # The store persists the PENDING row (and, for the local
                 # store, the awaiting event atomically with it). "cancelled"
                 # means a concurrent cancel already made the execution
                 # non-pausable — unwind so the cancellation flow proceeds.
-                status = await store.register(ctx, call_id, self.name, awaiting_event)
+                status = await store.register(
+                    ctx,
+                    call_id,
+                    self.name,
+                    awaiting_event,
+                    target_value=target_value,
+                )
                 if status == "cancelled":
                     raise asyncio.CancelledError()
 
@@ -857,7 +986,7 @@ class task:
                     type=ExecutionEventType.TASK_FALLBACK_STARTED,
                     source_id=task_id,
                     name=task_full_name,
-                    value=task_args,
+                    value=self._recorded_args(task_args),
                 ),
             )
             try:
@@ -867,7 +996,7 @@ class task:
                         type=ExecutionEventType.TASK_FALLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
             except Exception as ex:
@@ -885,6 +1014,112 @@ class task:
 
             return output
 
+    async def __handle_cancellation(
+        self,
+        ctx: ExecutionContext,
+        task_id: str,
+        task_full_name: str,
+        task_args: dict,
+        args: tuple,
+        kwargs: dict,
+    ) -> None:
+        """Record a cancelled task and run its declared rollback (issue #149).
+
+        ``TASK_CANCELLED`` is audit-only: the replay short-circuit matches
+        ``TASK_COMPLETED``/``TASK_FAILED`` only, so a cancelled task re-runs on
+        resume — the same semantics as a worker crash, which never gets to
+        write an event at all. Retry and fallback are deliberately skipped: a
+        fallback would append ``TASK_COMPLETED`` with a substitute result that
+        replay would then honor forever, letting a cancellation silently
+        change the workflow's outcome. Rollback only compensates; the
+        ``CancelledError`` always propagates to the caller.
+
+        No eager checkpoint here — the events ride the workflow-level flush in
+        ``workflow.__call__``'s ``finally``, so a cancel-all of a wide fan-out
+        produces one checkpoint rather than one per in-flight task.
+        """
+        terminal = (
+            ExecutionEventType.TASK_COMPLETED,
+            ExecutionEventType.TASK_FAILED,
+            ExecutionEventType.TASK_CANCELLED,
+        )
+        if any(e.source_id == task_id and e.type in terminal for e in ctx.events):
+            return
+
+        ctx.events.append(
+            ExecutionEvent(
+                type=ExecutionEventType.TASK_CANCELLED,
+                source_id=task_id,
+                name=task_full_name,
+            ),
+        )
+
+        if not self.rollback:
+            return
+
+        # This coroutine is unwinding from a delivered CancelledError, so the
+        # rollback runs in its own task (whose awaits start uncancelled) and
+        # is awaited through a shield: a second cancel — a worker drain
+        # escalating — interrupts the wait, not the compensation. The deadline
+        # is what keeps a wedged rollback from stranding that drain.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + CANCELLED_ROLLBACK_TIMEOUT
+        rollback_task = asyncio.ensure_future(
+            self.__handle_rollback(ctx, task_id, task_full_name, task_args, args, kwargs),
+        )
+        while True:
+            if rollback_task.done():
+                # __handle_rollback already recorded ROLLBACK_COMPLETED or
+                # ROLLBACK_FAILED; retrieve the outcome so asyncio does not
+                # log it as never-retrieved.
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    rollback_task.result()
+                return
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                rollback_task.cancel()
+                # Bounded even here: a rollback that suppresses CancelledError
+                # cannot be force-killed, and an unbounded wait for it would
+                # strand the drain past the deadline this branch exists to
+                # enforce. Give it the drain-window grace to unwind, then
+                # abandon the wait.
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.wait({rollback_task}, timeout=DEFAULT_DRAIN_TIMEOUT)
+                if not rollback_task.done():
+                    rollback_task.add_done_callback(_retrieve_silently)
+                    detail = "ignored cancellation after running"
+                elif rollback_task.cancelled():
+                    detail = "did not finish within"
+                else:
+                    # Finished (or failed) right at the deadline;
+                    # __handle_rollback recorded its own terminal event.
+                    with contextlib.suppress(Exception):
+                        rollback_task.result()
+                    return
+                # ROLLBACK_STARTED is in the log with no terminal — close it
+                # with the timeout as the failure so the interruption is
+                # visible.
+                ctx.events.append(
+                    ExecutionEvent(
+                        type=ExecutionEventType.TASK_ROLLBACK_FAILED,
+                        source_id=task_id,
+                        name=task_full_name,
+                        value=ExecutionError(
+                            message=(
+                                f"Rollback for task '{task_full_name}' {detail} "
+                                f"{CANCELLED_ROLLBACK_TIMEOUT}s during cancellation"
+                            ),
+                        ),
+                    ),
+                )
+                return
+            # Suppress everything: a re-cancel or timeout loops back to the
+            # deadline check, and a rollback exception is retrieved (and was
+            # already recorded as ROLLBACK_FAILED) by the done() branch — it
+            # must not escape here and mask the CancelledError being re-raised.
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(rollback_task), timeout=remaining)
+
     async def __handle_rollback(
         self,
         ctx: ExecutionContext,
@@ -900,7 +1135,7 @@ class task:
                     type=ExecutionEventType.TASK_ROLLBACK_STARTED,
                     source_id=task_id,
                     name=task_full_name,
-                    value=task_args,
+                    value=self._recorded_args(task_args),
                 ),
             )
             try:
@@ -910,7 +1145,7 @@ class task:
                         type=ExecutionEventType.TASK_ROLLBACK_COMPLETED,
                         source_id=task_id,
                         name=task_full_name,
-                        value=self.output_storage.store(task_id, output),
+                        value=self._stored_output(task_id, output),
                     ),
                 )
                 return output
