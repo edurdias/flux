@@ -768,7 +768,7 @@ class ExecutionEventModel(Base):
     type = Column(SqlEnum(ExecutionEventType), nullable=False)
     name = Column(String, nullable=False)
     value = Column(SignedPickleType(), nullable=True)
-    time = Column(DateTime, nullable=False)
+    time = Column(DateTime(timezone=True), nullable=False)
     subject = Column(String, nullable=True)
     execution = relationship(
         "ExecutionContextModel",

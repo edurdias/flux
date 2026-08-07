@@ -203,3 +203,9 @@ for event in ctx.events:
 # Get last event
 last_event = ctx.events[-1]
 ```
+
+`event.time` is a timezone-aware UTC `datetime`. Events are stamped wherever
+they are created — the server stamps scheduling and claim events, the worker
+stamps workflow and task events — so a single log is only orderable if every
+stamp shares one zone. Convert with `event.time.astimezone()` to display a
+local time.

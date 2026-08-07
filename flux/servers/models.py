@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from pydantic import field_validator
 
 from flux import domain
+from flux.domain.events import as_utc
 
 
 class ExecutionEvent(BaseModel):
@@ -20,9 +21,9 @@ class ExecutionEvent(BaseModel):
 
     @field_validator("time", mode="before")
     def parse_datetime(cls, value):
-        if isinstance(value, str):
-            return datetime.fromisoformat(value)
-        return value
+        # Checkpoints arriving from an older worker carry naive times; reading
+        # them as UTC keeps them comparable against the server's own stamps.
+        return as_utc(value)
 
     class Config:
         arbitrary_types_allowed = True
