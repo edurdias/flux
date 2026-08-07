@@ -203,6 +203,91 @@ async def wf(ctx):
     ]
 
 
+def test_meta_for_extracts_into_affinity():
+    source = b"""
+from flux import workflow
+from flux.routing import require, optional, meta_for, service, input
+
+
+@workflow.with_options(
+    affinity=require(
+        service(input("artefact")),
+        meta_for("approved.", input("artefact")) == "true",
+        optional(meta_for("score.", input("artefact")) >= 0.8),
+    ),
+)
+async def certified(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    assert info.affinity == [
+        {
+            "kind": "match",
+            "selector": {"kind": "label", "prefix": "flux.service.", "input": "artefact"},
+            "op": "==",
+            "value": "true",
+        },
+        {
+            "kind": "match",
+            "selector": {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+            "op": "==",
+            "value": "true",
+        },
+        {
+            "kind": "match",
+            "selector": {"kind": "meta", "prefix": "score.", "input": "artefact"},
+            "op": ">=",
+            "value": 0.8,
+            "optional": True,
+        },
+    ]
+
+
+def test_meta_for_reversed_comparison_extracts_symmetrically():
+    source = b"""
+from flux import workflow
+from flux.routing import require, meta_for, input
+
+
+@workflow.with_options(affinity=require("true" == meta_for("approved.", input("artefact"))))
+async def wf(ctx):
+    return 1
+"""
+    [info] = _parse(source)
+    assert info.affinity == [
+        {
+            "kind": "match",
+            "selector": {"kind": "meta", "prefix": "approved.", "input": "artefact"},
+            "op": "==",
+            "value": "true",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("decorator", "reason"),
+    [
+        ('require(meta_for(prefix, input("m")) == "true")', "literal prefix"),
+        ('require(meta_for("../", input("m")) == "true")', "metadata key prefix"),
+        ('require(meta_for("approved.", "m") == "true")', "literal prefix and input"),
+    ],
+)
+def test_unparseable_meta_for_fails_registration_loudly(decorator, reason):
+    source = f"""
+from flux import workflow
+from flux.routing import require, meta_for, input
+
+prefix = "approved."
+
+
+@workflow.with_options(affinity={decorator})
+async def wf(ctx):
+    return 1
+""".encode()
+    with pytest.raises(SyntaxError, match=reason):
+        _parse(source)
+
+
 def test_when_meta_condition_extracts_in_require():
     source = b"""
 from flux import workflow

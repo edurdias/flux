@@ -137,7 +137,11 @@ def _resolve_json_type(hint: Any) -> str:
     return "string"
 
 
-def build_tools_preamble(tools: list[Any], approval_mode: str = "default") -> str:
+def build_tools_preamble(
+    tools: list[Any],
+    approval_mode: str | None = None,
+    autonomy: str | None = None,
+) -> str:
     """Build a system-prompt section listing available tools.
 
     Reinforces the API-level tool schema with a human-readable summary
@@ -175,12 +179,21 @@ def build_tools_preamble(tools: list[Any], approval_mode: str = "default") -> st
         ],
     )
 
-    approval_tools = [
-        (t.func if hasattr(t, "func") else t).__name__
-        for t in tools
-        if getattr(t, "requires_approval", False)
-    ]
-    if approval_tools and approval_mode != "autonomous":
+    # The preamble describes the autonomy ceiling only — never the routing
+    # (issue #146): where the human is reached is operator configuration,
+    # not something the model should see or reason about.
+    from flux.tasks.ai.approval_policy import resolve_approval_policy
+
+    effective_autonomy, _ = resolve_approval_policy(approval_mode, autonomy, None)
+    if effective_autonomy == "strict":
+        approval_tools = [(t.func if hasattr(t, "func") else t).__name__ for t in tools]
+    else:
+        approval_tools = [
+            (t.func if hasattr(t, "func") else t).__name__
+            for t in tools
+            if getattr(t, "requires_approval", False)
+        ]
+    if approval_tools and effective_autonomy != "autonomous":
         lines.extend(
             [
                 "",
@@ -236,17 +249,45 @@ def build_tool_schemas(tools: list[Any]) -> list[dict[str, Any]]:
     return schemas
 
 
+def _is_ordering_barrier(tool_fn: Any) -> bool:
+    """Whether a tool call must run alone, in emission order (issue #140).
+
+    A declared ``risk`` decides outright: ``"read"`` runs concurrently with
+    its neighbors, anything else is a barrier. An undeclared tool keeps the
+    legacy concurrent behavior *unless* it is approval-gated — a tool the
+    author gates behind a human is consequential by definition, so its
+    declared ``requires_approval`` (truthy, including predicates) is the
+    zero-config "not a read" signal. The autonomy ceiling's approval
+    overrides do not participate: strict mode gates reads too, and gating
+    is not what makes a tool unsafe to reorder.
+    """
+    risk = getattr(tool_fn, "risk", None)
+    if risk is not None:
+        return risk != "read"
+    return bool(getattr(tool_fn, "requires_approval", False))
+
+
 async def execute_tools(
     tool_calls: list[dict[str, Any]],
     tools: list[Any],
     iteration: int = 0,
     max_concurrent: int | None = None,
-    approval_mode: str = "default",
+    approval_mode: str | None = None,
+    autonomy: str | None = None,
+    parallel_tool_calls: bool = True,
 ) -> list[dict[str, Any]]:
     """Execute tool calls and return results.
 
     Each tool call is a dict with 'name' and 'arguments'.
     Tools are Flux @task functions — each invocation produces task events.
+
+    Ordering contract (issue #140): calls whose tool declares
+    ``risk="read"`` — or declares nothing and is not approval-gated — run
+    concurrently with their neighbors; every other call is a barrier that
+    runs alone, in the order the model emitted it, after everything before
+    it has settled. Results are returned in emission order regardless of
+    execution order. With ``parallel_tool_calls=False`` every call is a
+    barrier.
 
     Args:
         tool_calls: List of tool calls from the LLM.
@@ -254,14 +295,27 @@ async def execute_tools(
         iteration: The tool call iteration number within the agent call.
             Used to generate deterministic _call_id values for replay safety.
         max_concurrent: Maximum number of tools to run concurrently.
-            When ``None`` (the default) all tools run in parallel with no limit.
-            Set to ``1`` for fully sequential execution.
-        approval_mode: When set to ``"autonomous"``, each tool in this batch
+            When ``None`` (the default) concurrent segments run with no
+            limit. Set to ``1`` for fully sequential execution. Bounds
+            concurrency only — ordering comes from the risk partition.
+        autonomy: The autonomy ceiling (issue #146): ``"strict"`` gates
+            every tool call in this batch regardless of declarations;
+            ``"default"`` gates what declares ``requires_approval``;
+            ``"autonomous"`` removes the gates.
+        approval_mode: Deprecated alias. When set to ``"autonomous"``, each tool in this batch
             runs as a ``with_options(requires_approval=False)`` variant so the
             engine-side approval gate is skipped. The override is scoped to
             these tool invocations — it is not shared workflow state, so an
             approval-gated task running concurrently is unaffected.
+        parallel_tool_calls: Whether this model reliably supports several
+            tool calls in one turn (issue #141). When False — many local
+            models fake parallel calls — every call runs as a barrier in
+            emission order.
     """
+    from flux.tasks.ai.approval_policy import resolve_approval_policy
+
+    effective_autonomy, _ = resolve_approval_policy(approval_mode, autonomy, None)
+
     tool_map: dict[str, Callable] = {}
     for tool in tools:
         func = tool.func if hasattr(tool, "func") else tool
@@ -301,10 +355,14 @@ async def execute_tools(
                 overrides: dict[str, Any] = {}
                 if iteration > 0:
                     overrides["name"] = f"{name}_{iteration}"
-                if approval_mode == "autonomous":
+                if effective_autonomy == "autonomous":
                     # Run a non-gated variant so this batch skips the approval
                     # gate without touching shared workflow state.
                     overrides["requires_approval"] = False
+                elif effective_autonomy == "strict":
+                    # Gate everything: without a risk classification (#140),
+                    # every tool call is "consequential" under strict.
+                    overrides["requires_approval"] = True
                 if overrides:
                     effective_tool = tool_fn.with_options(**overrides)
             result = await effective_tool(**args)
@@ -315,18 +373,52 @@ async def execute_tools(
             logger.warning("Tool '%s' failed: %s (args=%s)", name, e, args)
             return {"tool_call_id": call.get("id", name), "output": f"Error: {e!s}"}
 
+    sem: asyncio.Semaphore | None = None
     if max_concurrent is not None:
         if max_concurrent < 1:
             raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
         sem = asyncio.Semaphore(max_concurrent)
 
-        async def _limited(call: dict[str, Any]) -> dict[str, Any]:
-            async with sem:
-                return await _run_one(call)
+    async def _guarded(call: dict[str, Any]) -> dict[str, Any]:
+        if sem is None:
+            return await _run_one(call)
+        async with sem:
+            return await _run_one(call)
 
-        return await gather_batch(_limited(c) for c in tool_calls)
+    # Partition the turn into ordered segments (issue #140): maximal runs of
+    # concurrent-eligible calls gather as one batch; each barrier call runs
+    # alone between them, in emission order. Results land at their original
+    # positions, so the message history the model sees is unchanged.
+    #
+    # gather_batch, not asyncio.gather, for the concurrent segments: an
+    # approval-gated tool raises PauseRequested out of its batch, and plain
+    # gather would leave the other tools in the same segment running against
+    # a paused execution. The pause also stops later segments from starting —
+    # their calls simply never run, and replay re-dispatches them on resume
+    # while completed segments short-circuit from the event log.
+    results: list[dict[str, Any]] = [{} for _ in tool_calls]
+    pending: list[int] = []
 
-    # gather_batch, not asyncio.gather: an approval-gated tool raises
-    # PauseRequested out of this batch, and plain gather would leave the other
-    # tools in the same assistant turn running against a paused execution.
-    return await gather_batch(_run_one(c) for c in tool_calls)
+    async def _flush_pending() -> None:
+        if not pending:
+            return
+        batch = await gather_batch(_guarded(tool_calls[i]) for i in pending)
+        for position, result in zip(pending, batch):
+            results[position] = result
+        pending.clear()
+
+    for index, call in enumerate(tool_calls):
+        tool_fn = tool_map.get(call["name"])
+        # parallel_tool_calls=False means every call is a barrier, known or
+        # not. Otherwise unknown tools resolve to an error result inside
+        # _run_one — no side effects, so they stay concurrent-eligible.
+        is_barrier = not parallel_tool_calls or (
+            tool_fn is not None and _is_ordering_barrier(tool_fn)
+        )
+        if not is_barrier:
+            pending.append(index)
+            continue
+        await _flush_pending()
+        results[index] = await _guarded(call)
+    await _flush_pending()
+    return results

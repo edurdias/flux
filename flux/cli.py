@@ -831,7 +831,7 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
     # EXECUTION and TASK CALL ID are shown in full: they are the exact
     # arguments `flux execution approve|reject` require, so a truncated value
     # would not be actionable.
-    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS"]
+    headers = ["REQUESTED", "WORKFLOW/TASK", "EXECUTION", "TASK CALL ID", "STATUS", "SCOPE"]
     click.echo("  ".join(headers))
     for a in approvals:
         wf_task = (
@@ -843,8 +843,13 @@ def _render_approvals_table(approvals: list[dict[str, Any]]) -> None:
         task_call_id = a.get("task_call_id", "")
         requested = (a.get("requested_at") or "")[:19]
         status = a.get("status", "?")
+        # Scope + bound target (issue #143), so an operator can see exactly
+        # what a standing grant authorizes.
+        scope = a.get("scope") or "call"
+        if scope == "target" and a.get("target_value"):
+            scope = f"target={a['target_value']}"
         click.echo(
-            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}",
+            f"{requested}  {wf_task}  {execution_id}  {task_call_id}  {status}  {scope}",
         )
 
 
@@ -937,6 +942,7 @@ def _post_decision(
     reason: str | None,
     server_url: str | None,
     always: bool = False,
+    always_for_target: bool = False,
 ) -> dict[str, Any]:
     base_url = server_url or get_server_url()
     body: dict[str, Any] = {}
@@ -944,6 +950,8 @@ def _post_decision(
         body["reason"] = reason
     if always:
         body["always"] = True
+    if always_for_target:
+        body["always_for_target"] = True
     with get_http_client() as client:
         response = client.post(
             f"{base_url}/executions/{execution_id}/approvals/{quote(task_call_id, safe='')}/{verb}",
@@ -969,6 +977,17 @@ def _post_decision(
     ),
 )
 @click.option(
+    "--always-for-target",
+    is_flag=True,
+    default=False,
+    help=(
+        "Target-scoped standing grant (issue #143): auto-approve later gates "
+        "on the same task ONLY when its declared approval_target argument "
+        "resolves to the same value as this call. Requires the task to "
+        "declare approval_target; mutually exclusive with --always."
+    ),
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -979,10 +998,14 @@ def execution_approve(
     task_call_id: str,
     reason: str | None,
     always: bool,
+    always_for_target: bool,
     server_url: str | None,
 ):
     """Approve a pending approval request."""
     try:
+        if always and always_for_target:
+            click.echo("Error: --always and --always-for-target are mutually exclusive.", err=True)
+            raise click.exceptions.Exit(1)
         resp = _post_decision(
             execution_id,
             task_call_id,
@@ -990,6 +1013,7 @@ def execution_approve(
             reason,
             server_url,
             always=always,
+            always_for_target=always_for_target,
         )
         if resp.get("error"):
             click.echo(
@@ -1588,6 +1612,79 @@ def server_bootstrap_token(rotate: bool):
     raise click.exceptions.Exit(1)
 
 
+@server_group.command("admin-key")
+@click.option(
+    "--rotate",
+    is_flag=True,
+    default=False,
+    help=(
+        "Mint a fresh admin bootstrap key (revoking the previous one) and "
+        "persist it. Runs directly against the server's database — a running "
+        "server picks the new key up on its next lookup, since keys are "
+        "verified against the stored hash per request. The key only "
+        "authenticates when the API-key provider "
+        "([flux.security.auth.api_keys] enabled = true) is on."
+    ),
+)
+def server_admin_key(rotate: bool):
+    """Print the admin bootstrap API key (or rotate it). Host-local.
+
+    Reading prints the persisted file at <home>/admin-bootstrap-key; it is
+    written on the first server start with auth and the API-key provider
+    enabled, when no admin principal exists (issue #154). API keys are only
+    accepted while [flux.security.auth.api_keys] is enabled — in an
+    OIDC-only deployment this key cannot authenticate; grant the admin role
+    to an OIDC principal instead. This command operates on the local config
+    and datastore only — the first admin credential is never served over
+    the network; the boundary is access to the server host's disk.
+    """
+    import asyncio as _asyncio
+
+    from flux.config import Configuration
+    from flux.security import admin_bootstrap
+
+    settings = Configuration.get().settings
+    home = settings.home
+
+    if rotate:
+        from flux.models import RepositoryFactory
+        from flux.security.auth_service import AuthService
+        from flux.security.principals import PrincipalRegistry
+
+        if not settings.security.auth.api_keys.enabled:
+            click.echo(
+                "Warning: [flux.security.auth.api_keys] is disabled — the minted "
+                "key cannot authenticate until that provider is enabled.",
+                err=True,
+            )
+
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=repo.session)
+        auth_service = AuthService(
+            config=settings.security.auth,
+            session_factory=repo.session,
+            registry=registry,
+        )
+        # Roles may not exist yet on a database the server never started on.
+        auth_service.seed_built_in_roles()
+        key = _asyncio.run(admin_bootstrap.rotate(auth_service, registry, home))
+        click.echo(key)
+        return
+
+    persisted = admin_bootstrap.read_persisted(home)
+    if persisted:
+        click.echo(persisted)
+        return
+
+    click.echo(
+        "No admin bootstrap key found. Start the server with auth enabled to "
+        "generate one (first run only), or run 'flux server admin-key --rotate' "
+        "to mint one now.",
+        err=True,
+    )
+    raise click.exceptions.Exit(1)
+
+
 @cli.group()
 def schedule():
     """Manage workflow schedules."""
@@ -1639,6 +1736,15 @@ def schedule():
     help="Service account to run the schedule as (required when auth is enabled)",
 )
 @click.option(
+    "--overlap",
+    type=click.Choice(["skip", "allow"]),
+    default="skip",
+    help=(
+        "What to do when a fire comes due while a previous execution is "
+        "still running: skip it (default) or dispatch anyway"
+    ),
+)
+@click.option(
     "--format",
     "-f",
     type=click.Choice(["simple", "json"]),
@@ -1661,6 +1767,7 @@ def create_schedule(
     description: str | None,
     input: str | None,
     run_as: str | None,
+    overlap: str,
     format: str,
     server_url: str | None,
 ):
@@ -1686,12 +1793,14 @@ def create_schedule(
                 "type": "cron",
                 "cron_expression": cron,
                 "timezone": timezone,
+                "overlap": overlap,
             }
         else:
             schedule_config = {
                 "type": "interval",
                 "interval_seconds": (interval_hours or 0) * 3600 + (interval_minutes or 0) * 60,
                 "timezone": timezone,
+                "overlap": overlap,
             }
 
         # Parse input if provided
@@ -1837,6 +1946,12 @@ def show_schedule(schedule_id: str, format: str, server_url: str | None):
             click.echo(f"Next run: {schedule.get('next_run_at', 'Not scheduled')}")
             click.echo(f"Total runs: {schedule['run_count']}")
             click.echo(f"Failures: {schedule['failure_count']}")
+            click.echo(f"Overlap policy: {schedule.get('overlap_policy') or 'allow'}")
+            if schedule.get("skip_count"):
+                click.echo(
+                    f"Skipped fires: {schedule['skip_count']} "
+                    f"(last: {schedule.get('last_skipped_at', 'unknown')})",
+                )
 
             if schedule.get("description"):
                 click.echo(f"Description: {schedule['description']}")
@@ -2308,6 +2423,65 @@ def agent():
     pass
 
 
+def _inline_agent_file_refs(data: dict) -> dict:
+    """Inline ``tools_file``/``workflow_file``/``skills_dir`` references.
+
+    A definition travels with its code: path references are read on the
+    client and stored as *content* (``skills_dir`` as a JSON bundle of the
+    skill tree). Values that are already content — a multiline scalar, or a
+    JSON object — pass through untouched, so an already-inlined definition
+    round-trips. A single-line value that does not resolve on disk fails
+    loudly: silently storing the path string is the corruption described in
+    issue #148.
+    """
+    for key in ("tools_file", "workflow_file"):
+        value = data.get(key)
+        if not value or not isinstance(value, str):
+            continue
+        if "\n" in value:
+            continue
+        path = Path(value)
+        if path.is_file():
+            try:
+                data[key] = path.read_text()
+            except (OSError, UnicodeDecodeError) as ex:
+                raise click.ClickException(f"Cannot read {key} '{value}': {ex}")
+        else:
+            raise click.ClickException(
+                f"{key} '{value}' does not exist (expected a file path or inline content)",
+            )
+
+    value = data.get("skills_dir")
+    if value and isinstance(value, str):
+        try:
+            already_bundled = isinstance(json.loads(value), dict)
+        except ValueError:
+            already_bundled = False
+        if not already_bundled:
+            skills_path = Path(value)
+            if not skills_path.is_dir():
+                raise click.ClickException(
+                    f"skills_dir '{value}' is not a directory "
+                    "(expected a directory path or a bundled skills JSON object)",
+                )
+            skills_data = {}
+            for skill_dir in sorted(skills_path.iterdir()):
+                if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                    skill_files = {}
+                    for f in sorted(skill_dir.rglob("*")):
+                        if f.is_file():
+                            rel = str(f.relative_to(skills_path))
+                            try:
+                                skill_files[rel] = f.read_text()
+                            except (OSError, UnicodeDecodeError) as ex:
+                                raise click.ClickException(
+                                    f"Cannot read skills_dir file '{f}': {ex}",
+                                )
+                    skills_data[skill_dir.name] = skill_files
+            data["skills_dir"] = json.dumps(skills_data)
+    return data
+
+
 @agent.command("create")
 @click.argument("name")
 @click.option("--model", "-m", required=False, help="Model in provider/model_name format")
@@ -2405,29 +2579,7 @@ def create_agent(
         if reasoning_effort:
             data["reasoning_effort"] = reasoning_effort
 
-        if data.get("tools_file"):
-            tools_path = Path(data["tools_file"])
-            if tools_path.exists() and tools_path.is_file():
-                data["tools_file"] = tools_path.read_text()
-
-        if data.get("workflow_file"):
-            wf_path = Path(data["workflow_file"])
-            if wf_path.exists() and wf_path.is_file():
-                data["workflow_file"] = wf_path.read_text()
-
-        if data.get("skills_dir"):
-            skills_path = Path(data["skills_dir"])
-            if skills_path.is_dir():
-                skills_data = {}
-                for skill_dir in skills_path.iterdir():
-                    if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-                        skill_files = {}
-                        for f in skill_dir.rglob("*"):
-                            if f.is_file():
-                                rel = str(f.relative_to(skills_path))
-                                skill_files[rel] = f.read_text()
-                        skills_data[skill_dir.name] = skill_files
-                data["skills_dir"] = json.dumps(skills_data)
+        data = _inline_agent_file_refs(data)
 
         definition = AgentDefinition(**data)
 
@@ -2441,6 +2593,8 @@ def create_agent(
         else:
             click.echo(f"Agent '{name}' created successfully.")
 
+    except click.ClickException:
+        raise
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 409:
             click.echo(f"Agent '{name}' already exists.", err=True)
@@ -2560,20 +2714,31 @@ def update_agent(
     output_format,
     server_url,
 ):
-    """Update an agent definition."""
+    """Update an agent definition.
+
+    With -f, the file is the complete desired state (replace semantics,
+    mirroring how `create -f` reads it) and file references are inlined the
+    same way; other flags override on top of the file. Without -f, the
+    flags patch the stored definition.
+    """
     import yaml
+
+    from flux.agents.types import AgentDefinition
 
     try:
         base_url = server_url or get_server_url()
-        with get_http_client() as client:
-            get_resp = client.get(f"{base_url}/admin/agents/{name}")
-            get_resp.raise_for_status()
-            data = get_resp.json()
-
         if definition_file:
+            # Replace semantics: build the definition from the file alone.
+            # Merging the raw file over the stored row is what corrupted
+            # inlined tools_file/workflow_file/skills_dir content on every
+            # second apply (issue #148).
             with open(definition_file) as f:
-                file_data = yaml.safe_load(f)
-                data.update(file_data)
+                data = yaml.safe_load(f) or {}
+        else:
+            with get_http_client() as client:
+                get_resp = client.get(f"{base_url}/admin/agents/{name}")
+                get_resp.raise_for_status()
+                data = get_resp.json()
 
         if model:
             data["model"] = model
@@ -2593,6 +2758,10 @@ def update_agent(
 
         data["name"] = name
 
+        if definition_file:
+            data = _inline_agent_file_refs(data)
+            data = AgentDefinition(**data).model_dump()
+
         with get_http_client() as client:
             put_resp = client.put(f"{base_url}/admin/agents/{name}", json=data)
             put_resp.raise_for_status()
@@ -2602,6 +2771,8 @@ def update_agent(
         else:
             click.echo(f"Agent '{name}' updated successfully.")
 
+    except click.ClickException:
+        raise
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
             click.echo(f"Agent '{name}' not found.", err=True)
@@ -2611,6 +2782,76 @@ def update_agent(
         click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
     except Exception as ex:
         click.echo(f"Error updating agent: {str(ex)}", err=True)
+
+
+@agent.command("apply")
+@click.argument("name", required=False)
+@click.option(
+    "--file",
+    "-f",
+    "definition_file",
+    type=click.Path(exists=True),
+    required=True,
+    help="YAML definition file (the complete desired state)",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+)
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def apply_agent(name, definition_file, output_format, server_url):
+    """Create or update an agent from a definition file (idempotent).
+
+    The file is the complete desired state: apply creates the agent when it
+    does not exist and replaces it when it does, so re-running the same file
+    always converges to the same agent. NAME defaults to the ``name`` field
+    in the file.
+    """
+    import yaml
+
+    from flux.agents.types import AgentDefinition
+
+    try:
+        with open(definition_file) as f:
+            data = yaml.safe_load(f) or {}
+        if name:
+            data["name"] = name
+        if not data.get("name"):
+            raise click.ClickException(
+                "Agent name missing: pass NAME or set 'name' in the definition file",
+            )
+        name = data["name"]
+
+        data = _inline_agent_file_refs(data)
+        payload = AgentDefinition(**data).model_dump()
+
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            action = "updated"
+            resp = client.put(f"{base_url}/admin/agents/{name}", json=payload)
+            if resp.status_code == 404:
+                action = "created"
+                resp = client.post(f"{base_url}/admin/agents", json=payload)
+                if resp.status_code == 409:
+                    # Lost a create race; the agent exists now — update it.
+                    action = "updated"
+                    resp = client.put(f"{base_url}/admin/agents/{name}", json=payload)
+            resp.raise_for_status()
+
+        if output_format == "json":
+            click.echo(json.dumps({"status": "ok", "name": name, "action": action}, indent=2))
+        else:
+            click.echo(f"Agent '{name}' {action} successfully.")
+
+    except click.ClickException:
+        raise
+    except httpx.ConnectError:
+        click.echo(f"Cannot connect to server at {server_url or get_server_url()}", err=True)
+    except Exception as ex:
+        click.echo(f"Error applying agent: {str(ex)}", err=True)
 
 
 @agent.command("delete")

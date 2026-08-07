@@ -455,6 +455,7 @@ class Server(
         input_data: Any = None,
         version: int | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
         if not workflow:
@@ -471,6 +472,7 @@ class Server(
                 requests=workflow.requests,
             ),
             preferred_worker=preferred_worker or None,
+            park_ttl=park_ttl,
         )
 
         # Every run of a dynamic workflow refreshes its GC clock — this is
@@ -1023,9 +1025,31 @@ class Server(
                         if due_schedules:
                             logger.info(f"Found {len(due_schedules)} due schedule(s)")
 
-                        # Trigger each due schedule
+                        # Trigger each due schedule. Catch-up policy is
+                        # run-once: record_run advances next_run_at from the
+                        # current time, so a schedule due many intervals ago
+                        # (server downtime) fires exactly once on recovery,
+                        # not once per missed interval.
                         for schedule in due_schedules:
                             try:
+                                # Overlap policy (issue #142): "skip" consumes
+                                # this fire while a previous execution of the
+                                # schedule is still non-terminal. NULL (rows
+                                # from before the policy existed) means
+                                # "allow" — dispatch regardless, the historic
+                                # behavior.
+                                if getattr(
+                                    schedule,
+                                    "overlap_policy",
+                                    None,
+                                ) == "skip" and schedule_manager.has_active_execution(schedule.id):
+                                    logger.info(
+                                        f"Schedule '{schedule.name}': previous execution "
+                                        "still running; skipping this fire "
+                                        "(overlap_policy=skip)",
+                                    )
+                                    schedule_manager.record_skip(schedule.id, current_time)
+                                    continue
                                 await self._trigger_scheduled_workflow(schedule, current_time)
                             except Exception as e:
                                 # The trigger path already recorded the failure before
@@ -1034,6 +1058,32 @@ class Server(
                                     f"Failed to trigger schedule '{schedule.name}': {str(e)}",
                                     exc_info=True,
                                 )
+
+                        # Park-TTL sweep (issue #157): executions that opted
+                        # into a bound and are still unclaimed past it fail
+                        # terminally instead of waiting forever. Shares the
+                        # dispatch lock so exactly one replica sweeps.
+                        try:
+                            expired = ContextManager.create().fail_expired_parked(current_time)
+                            if expired:
+                                logger.warning(
+                                    f"Park TTL expired for {len(expired)} unclaimed "
+                                    f"execution(s): {', '.join(expired)}",
+                                )
+                        except Exception:
+                            logger.error("Park-TTL sweep failed", exc_info=True)
+
+                        # Pause-wake pass (issue #145): resume paused
+                        # executions whose timed or completion wake fired.
+                        # Same lock, same timing authority as the schedules.
+                        try:
+                            woken = ContextManager.create().fire_due_wakes(current_time)
+                            if woken:
+                                logger.info(
+                                    f"Fired {len(woken)} pause wake(s): {', '.join(woken)}",
+                                )
+                        except Exception:
+                            logger.error("Pause-wake pass failed", exc_info=True)
 
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
@@ -1245,6 +1295,32 @@ class Server(
                 configured=startup_settings.workers.bootstrap_token,
             )
             self._bootstrap_token = token
+
+            # First-admin bootstrap (issue #154): with auth enabled and no
+            # admin principal yet, seed one with a random API key delivered
+            # via a host-local 0600 file — never over the network. Runs after
+            # seed_built_in_roles (the app was constructed before lifespan
+            # fires), so the admin role row exists. Init-only: a no-op
+            # whenever any enabled admin principal already exists.
+            # Requires the API-key provider: in an OIDC-only deployment the
+            # minted key could never authenticate, so nothing is seeded —
+            # the first admin there is an OIDC principal granted the admin
+            # role instead.
+            if (
+                startup_settings.security.auth.enabled
+                and startup_settings.security.auth.api_keys.enabled
+            ):
+                from flux.security import admin_bootstrap
+
+                try:
+                    await admin_bootstrap.ensure_admin_key(
+                        auth_service,
+                        principal_registry,
+                        self._get_db_session,
+                        startup_settings.home,
+                    )
+                except Exception:
+                    logger.error("Admin-key bootstrap failed", exc_info=True)
 
             # All blocking DB work reaches the loop through asyncio.to_thread,
             # which uses the loop's default executor — normally capped at

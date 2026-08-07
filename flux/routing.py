@@ -16,9 +16,9 @@ Two families of factories live here:
   dispatch; works in both poll and event dispatch modes). See ``require``.
 
 The dynamic constructs span both stages: ``input(...)`` values,
-``label_for(...)`` dynamic keys, and ``service(...)`` work in ``require``
-terms and in ``prefer()``; ``when(input(...) == const, term)`` gates a term
-in either stage. The same comparison is a hard wall under ``require`` and a
+``label_for(...)``/``meta_for(...)`` dynamic keys, and ``service(...)`` work
+in ``require`` terms and in ``prefer()``; ``when(input(...) == const, term)``
+gates a term in either stage. The same comparison is a hard wall under ``require`` and a
 soft preference under ``prefer`` — pair them for floor-plus-preference
 routing.
 
@@ -286,6 +286,41 @@ class DynamicLabel(Selector):
         self.spec = {"kind": "label", "prefix": prefix, "input": ref.path}
 
 
+class DynamicMeta(Selector):
+    """A metadata selector whose key is completed from execution input.
+
+    ``meta_for("approved.", input("artefact"))`` inspects server-held
+    metadata key ``approved.<artefact>`` on each candidate worker — the
+    control-plane-authoritative twin of :class:`DynamicLabel` (issue #158).
+    Same prefix-is-mandatory rule; the resolved key is held to the metadata
+    key shape and bound (``validate_worker_metadata``), so a term can never
+    name a key the admin API could not have written. Valid in
+    ``require(...)`` terms and in ``prefer()``; not in ``least()``/
+    ``most()`` (the dynamic-key numeric variant stays out of scope).
+    """
+
+    def __init__(self, prefix: str, ref: InputRef):
+        if not prefix or not isinstance(prefix, str):
+            raise ValueError("meta_for() requires a non-empty string prefix")
+        if not isinstance(ref, InputRef):
+            raise ValueError(
+                f"meta_for() key must be completed from input(...), got: {type(ref).__name__}",
+            )
+        # Same rule as label_for: the prefix must be a valid key head so no
+        # input value can produce a valid key from an invalid namespace.
+        if not _LABEL_KEY_RE.match(prefix.rstrip("._-") or ""):
+            raise ValueError(f"meta_for() prefix is not a valid metadata key prefix: '{prefix}'")
+        # A prefix at or past the metadata key bound leaves no room for the
+        # input fragment — no resolution could ever produce a valid key, so
+        # fail at authoring time (mirrors meta(key) validation).
+        if len(prefix) >= MAX_METADATA_KEY_LENGTH:
+            raise ValueError(
+                f"meta_for() prefix exceeds the metadata key bound "
+                f"({MAX_METADATA_KEY_LENGTH} chars): '{prefix}'",
+            )
+        self.spec = {"kind": "meta", "prefix": prefix, "input": ref.path}
+
+
 def _validate_weight(weight: Any) -> float:
     try:
         weight = float(weight)
@@ -304,8 +339,8 @@ def _require_selector(value: Any, term: str) -> Selector:
         )
     if not isinstance(value.spec, str):
         raise ValueError(
-            f"label_for() keys resolve to label strings, which have no ordering — "
-            f"use it in prefer() or require(), not in {term}()",
+            f"label_for()/meta_for() dynamic keys are valid in prefer() and "
+            f"require(), not in {term}()",
         )
     return value
 
@@ -418,8 +453,9 @@ def score(*terms: dict) -> dict:
 # value) — the one deliberate inversion, so maintenance-window style terms
 # work without every worker carrying the label. Resolved input values are
 # compared against labels/metadata as strings (bools as "true"/"false").
-# ``meta(...)`` terms read the server-held metadata dict instead of labels —
-# the control-plane-authoritative channel a worker cannot advertise into.
+# ``meta(...)``/``meta_for(...)`` terms read the server-held metadata dict
+# instead of labels — the control-plane-authoritative channel a worker cannot
+# advertise into.
 
 _REQUIRE_OPS = ("==", "!=")
 
@@ -432,6 +468,20 @@ def label_for(prefix: str, ref: InputRef) -> DynamicLabel:
     only test them; the resolved key must be a valid label key.
     """
     return DynamicLabel(prefix, ref)
+
+
+def meta_for(prefix: str, ref: InputRef) -> DynamicMeta:
+    """Metadata selector whose key is ``prefix`` completed from execution input.
+
+    ``meta_for("approved.", input("artefact")) == "true"`` checks server-held
+    metadata ``approved.<artefact>`` on each candidate — the authoritative
+    counterpart of ``label_for`` for facts the control plane asserts about a
+    worker (workers have no write path into metadata). Inputs never create
+    metadata, only test it; the resolved key must be a valid metadata key.
+    Comparison semantics follow ``meta(...)``: typed values, ordered ops
+    allowed, and ``!=`` treats an absent key as passing.
+    """
+    return DynamicMeta(prefix, ref)
 
 
 def service(name: str | InputRef) -> dict:
@@ -473,13 +523,18 @@ def _compile_match(term: Any, context: str) -> dict:
             f'label("region") == input("region"), got: {type(term).__name__}',
         )
     spec = term.selector.spec
-    is_meta = isinstance(spec, str) and spec.startswith("meta:")
-    is_matchable = (isinstance(spec, str) and (spec.startswith("label:") or is_meta)) or (
-        isinstance(spec, dict) and spec.get("kind") == "label"
+    is_meta = (isinstance(spec, str) and spec.startswith("meta:")) or (
+        isinstance(spec, dict) and spec.get("kind") == "meta"
+    )
+    is_matchable = (
+        is_meta
+        or (isinstance(spec, str) and spec.startswith("label:"))
+        or (isinstance(spec, dict) and spec.get("kind") == "label")
     )
     if not is_matchable:
         raise ValueError(
-            f"require() terms compare labels or metadata (label()/label_for()/meta()); "
+            f"require() terms compare labels or metadata "
+            f"(label()/label_for()/meta()/meta_for()); "
             f"metric()/resource()/load() belong to requests= and routing=, got: '{spec}'",
         )
     # Labels are stringly-typed, so ordered comparisons stay out; metadata is
@@ -772,17 +827,17 @@ def pick_worker(
 
         selector = term.get("selector")
         if kind == "prefer" and isinstance(selector, dict):
-            # Dynamic label key (label_for/service): resolve once per term
+            # Dynamic key (label_for/meta_for/service): resolve once per term
             # against the execution input. Unresolved input or an invalid
             # resolved key means the term cannot discriminate — everyone
             # scores 0 for it — while a malformed spec degrades the policy.
-            key, problem = _resolve_selector_key(selector, input_value)
+            selector_kind, key, problem = _resolve_selector_key(selector, input_value)
             if problem is not None:
                 if problem.category == "malformed":
                     logger.warning(f"Malformed routing term ignored: {term!r}")
                     return None
                 continue
-            selector = f"label:{key}"
+            selector = f"{selector_kind}:{key}"
         elif not isinstance(selector, str):
             logger.warning(f"Malformed routing term ignored: {term!r}")
             return None
@@ -871,41 +926,63 @@ class _Problem(NamedTuple):
     message: str
 
 
-def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, _Problem | None]:
-    """Resolve a label selector (static ``"label:key"`` or dynamic
-    ``{"kind": "label", "prefix", "input"}``) to its label key.
+def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, str, _Problem | None]:
+    """Resolve a label/meta selector (static ``"label:key"`` or dynamic
+    ``{"kind": "label"|"meta", "prefix", "input"}``) to its kind and key.
 
-    Returns ``(key, None)`` or ``("", problem)``."""
+    Returns ``(kind, key, None)`` or ``(kind, "", problem)``."""
     if isinstance(selector, str) and selector.startswith("label:"):
-        return selector[len("label:") :], None
-    if isinstance(selector, dict) and selector.get("kind") == "label":
+        return "label", selector[len("label:") :], None
+    if isinstance(selector, str) and selector.startswith("meta:"):
+        # Callers usually branch on static meta selectors before reaching
+        # here; handled anyway so the resolver's contract holds for every
+        # selector shape it documents.
+        return "meta", selector[len("meta:") :], None
+    if isinstance(selector, dict) and selector.get("kind") in ("label", "meta"):
+        kind = selector["kind"]
         prefix, path = selector.get("prefix"), selector.get("input")
         if not isinstance(prefix, str) or not prefix or not isinstance(path, str) or not path:
-            return "", _Problem("malformed", f"malformed label selector: {selector!r}")
+            return kind, "", _Problem("malformed", f"malformed {kind} selector: {selector!r}")
         resolved = _resolve_require_input(input_value, path)
         if resolved is _UNRESOLVED:
-            return "", _Problem(
-                "unresolved",
-                f"label key requires input '{path}', which is not present",
+            return (
+                kind,
+                "",
+                _Problem(
+                    "unresolved",
+                    f"{kind} key requires input '{path}', which is not present",
+                ),
             )
         if resolved is None or isinstance(resolved, (dict, list)):
-            return "", _Problem("invalid", f"label key input '{path}' must be a scalar")
+            return kind, "", _Problem("invalid", f"{kind} key input '{path}' must be a scalar")
         fragment = _label_value_str(resolved)
-        if prefix == SERVICE_LABEL_PREFIX and not is_valid_service_name(fragment):
-            # A name worker registration could never grant would otherwise
-            # park the execution forever instead of failing fast.
-            return "", _Problem(
-                "invalid",
-                f"input '{path}' resolves to an invalid service name: '{fragment}'",
-            )
+        if kind == "label" and prefix == SERVICE_LABEL_PREFIX:
+            if not is_valid_service_name(fragment):
+                # A name worker registration could never grant would otherwise
+                # park the execution forever instead of failing fast.
+                return (
+                    kind,
+                    "",
+                    _Problem(
+                        "invalid",
+                        f"input '{path}' resolves to an invalid service name: '{fragment}'",
+                    ),
+                )
         key = prefix + fragment
-        if len(key) > MAX_LABEL_KEY_LENGTH or not _LABEL_KEY_RE.match(key):
-            return "", _Problem(
-                "invalid",
-                f"input '{path}' resolves to an invalid label key: '{key}'",
+        # Metadata keys are held to the admin-API bound (validate_worker_metadata)
+        # so a term can never name a key that channel could not have written.
+        max_length = MAX_LABEL_KEY_LENGTH if kind == "label" else MAX_METADATA_KEY_LENGTH
+        if len(key) > max_length or not _LABEL_KEY_RE.match(key):
+            return (
+                kind,
+                "",
+                _Problem(
+                    "invalid",
+                    f"input '{path}' resolves to an invalid {kind} key: '{key}'",
+                ),
             )
-        return key, None
-    return "", _Problem("malformed", f"malformed label selector: {selector!r}")
+        return kind, key, None
+    return "label", "", _Problem("malformed", f"malformed label selector: {selector!r}")
 
 
 def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] | _Problem:
@@ -917,8 +994,7 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] 
     if isinstance(selector, str) and selector.startswith("meta:"):
         kind, key = "meta", selector[len("meta:") :]
     else:
-        kind = "label"
-        key, problem = _resolve_selector_key(selector, input_value)
+        kind, key, problem = _resolve_selector_key(selector, input_value)
         if problem is not None:
             if problem.category == "malformed":
                 return problem

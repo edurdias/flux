@@ -418,7 +418,7 @@ def test_worker_register_materializes_standing_grant(client):
     row = ApprovalManager().get_by_call(eid, "call-grant-2")
     assert row is not None
     assert row.status.value == "approved"
-    assert row.reason == "standing grant"
+    assert (row.reason or "").startswith("standing grant")
     assert row.approver_subject == "alice"
 
 

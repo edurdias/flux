@@ -149,13 +149,21 @@ class _PipeApprovalStore:
         data = values.get("approval")
         return ApprovalSnapshot.from_dict(data) if data else None
 
-    async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
+    async def register(
+        self,
+        ctx,
+        task_call_id: str,
+        task_name: str,
+        awaiting_event,
+        target_value: str | None = None,
+    ) -> str:
         values = await self._io.call(
             "approval_register_request",
             {
                 "execution_id": ctx.execution_id,
                 "task_call_id": task_call_id,
                 "task_name": task_name,
+                "target_value": target_value,
             },
         )
         status = values.get("status", "cancelled")
