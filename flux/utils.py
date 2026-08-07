@@ -167,6 +167,18 @@ def to_json(obj):
     return json.dumps(obj, indent=4, cls=FluxEncoder)
 
 
+def to_wire_json(obj):
+    """Serialize for an SSE ``data`` field: one JSON document, one line.
+
+    sse-starlette splits a payload on newlines, so the indented form shipped
+    each event as a run of ``data:`` lines. Compact JSON escapes newlines
+    inside strings, so the payload is a single line by construction — which is
+    both what line-based SSE consumers expect and ~30-50% less to send on the
+    per-progress-event hot path.
+    """
+    return json.dumps(obj, separators=(",", ":"), cls=FluxEncoder)
+
+
 def import_module(name: str) -> Any:
     return imodule(name)
 
