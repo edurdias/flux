@@ -25,7 +25,7 @@ from flux.api.schemas import _inject_trace_context
 from flux.config import Configuration
 from flux.context_managers import ContextManager
 from flux.utils import get_logger
-from flux.utils import to_json
+from flux.utils import to_wire_json
 
 if TYPE_CHECKING:
     from flux.server import Server
@@ -253,7 +253,7 @@ class Dispatcher:
                     frame={
                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                         "event": "execution_cancelled",
-                        "data": _inject_trace_context(to_json({"context": ctx})),
+                        "data": _inject_trace_context(to_wire_json({"context": ctx})),
                     },
                 ),
             )
@@ -276,7 +276,7 @@ class Dispatcher:
                     frame={
                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                         "event": event,
-                        "data": _inject_trace_context(to_json(payload)),
+                        "data": _inject_trace_context(to_wire_json(payload)),
                     },
                 ),
             )

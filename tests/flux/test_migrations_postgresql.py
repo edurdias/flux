@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import datetime
+from datetime import timezone
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
@@ -28,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0019_agent_approval_policy"
+HEAD = "0020_event_time_utc"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
@@ -91,6 +93,67 @@ def test_pg_migration_is_idempotent():
         run_migrations(engine)
         run_migrations(engine)
         assert current_revision(engine) == HEAD
+    finally:
+        engine.dispose()
+        _drop_schema(admin, schema)
+        admin.dispose()
+
+
+def test_pg_event_time_is_timestamptz_and_reinterprets_legacy_rows_as_utc():
+    """0014 converts execution_events.time to timestamptz.
+
+    PostgreSQL hands back a naive datetime from a plain ``timestamp`` column,
+    which cannot be compared against the aware stamps events now carry (#169).
+    The conversion must pin existing naive values to UTC explicitly — without a
+    USING clause PostgreSQL reinterprets them through the session TimeZone,
+    which varies by deployment.
+    """
+    engine, schema, admin = _fresh_schema_engine()
+    try:
+        Base.metadata.create_all(engine)
+        # Emulate a pre-0014 schema holding a naive timestamp.
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE execution_events ALTER COLUMN time TYPE timestamp"),
+            )
+            # PostgreSQL enforces the workflows/executions FKs SQLite ignores.
+            conn.execute(
+                text(
+                    "INSERT INTO workflows (id, namespace, name, version, source) "
+                    "VALUES ('wf-1', 'default', 'wf', 1, '')",
+                ),
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO executions (execution_id, workflow_id, "
+                    "workflow_namespace, workflow_name, state, claim_generation) "
+                    "VALUES ('exec-1', 'wf-1', 'default', 'wf', 'COMPLETED', 0)",
+                ),
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO execution_events "
+                    "(execution_id, source_id, event_id, type, name, time) "
+                    "VALUES ('exec-1', 'src', 'abc123', 'WORKFLOW_STARTED', 'wf', "
+                    "'2026-08-07 00:57:11')",
+                ),
+            )
+
+        run_migrations(engine)
+
+        assert current_revision(engine) == HEAD
+        col = next(
+            c for c in inspect(engine).get_columns("execution_events") if c["name"] == "time"
+        )
+        assert col["type"].timezone is True, f"expected timestamptz, got {col['type']}"
+
+        # The pre-existing naive value is pinned to UTC, not to the session zone.
+        with engine.begin() as conn:
+            conn.execute(text("SET TIME ZONE 'America/New_York'"))
+            stored = conn.execute(
+                text("SELECT time FROM execution_events WHERE event_id = 'abc123'"),
+            ).scalar_one()
+        assert stored == datetime(2026, 8, 7, 0, 57, 11, tzinfo=timezone.utc)
     finally:
         engine.dispose()
         _drop_schema(admin, schema)

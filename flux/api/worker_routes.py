@@ -36,7 +36,7 @@ from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
 from flux.utils import get_logger
-from flux.utils import to_json
+from flux.utils import to_wire_json
 from flux.worker_registry import WorkerInfo
 from flux.worker_registry import WorkerRegistry
 from flux.api.schemas import (
@@ -617,7 +617,7 @@ class WorkerRoutesMixin:
                                         f"Sending execution to worker {name}: {ctx.execution_id} (workflow: {ctx.workflow_name})",
                                     )
 
-                                    data_payload = _inject_trace_context(to_json(payload_dict))
+                                    data_payload = _inject_trace_context(to_wire_json(payload_dict))
 
                                     yield {
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
@@ -642,7 +642,7 @@ class WorkerRoutesMixin:
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_cancelled",
                                         "data": _inject_trace_context(
-                                            to_json({"context": ctx}),
+                                            to_wire_json({"context": ctx}),
                                         ),
                                     }
 
@@ -664,7 +664,7 @@ class WorkerRoutesMixin:
                                         "id": f"{ctx.execution_id}_{uuid4().hex}",
                                         "event": "execution_resumed",
                                         "data": _inject_trace_context(
-                                            to_json(resume_payload_dict),
+                                            to_wire_json(resume_payload_dict),
                                         ),
                                     }
 

@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0019_agent_approval_policy"
+HEAD = "0020_event_time_utc"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to

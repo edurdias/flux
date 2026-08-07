@@ -24,7 +24,7 @@ from flux.errors import WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
-from flux.utils import to_json
+from flux.utils import to_wire_json
 from flux.schedule_manager import create_schedule_manager
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service
@@ -512,6 +512,13 @@ class Server(
         # advanced past what `ctx` already holds. The hydrated flag (not the
         # ordinal itself) marks "seen at least once" so an execution with an
         # empty event log (ordinal None) also skips repeat hydration.
+        #
+        # Whether to *emit* the hydrated context is then decided by the last
+        # event's identity, never by its timestamp. Events are stamped on
+        # whichever machine creates them, so any backwards clock movement — a
+        # worker mid-upgrade, an NTP step — used to make every later event
+        # compare as older; since the ordinal had already advanced past it,
+        # the context was never refreshed again and the stream hung open.
         last_seen_ordinal: int | None = None
         hydrated_once = False
 
@@ -531,7 +538,7 @@ class Server(
             dto = ExecutionContextDTO.from_domain(ctx)
             yield {
                 "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                "data": to_json(dto if detailed else dto.summary()),
+                "data": to_wire_json(dto if detailed else dto.summary()),
             }
         try:
             while not ctx.has_finished:
@@ -562,7 +569,7 @@ class Server(
                         for p in items:
                             yield {
                                 "event": "task.progress",
-                                "data": to_json(
+                                "data": to_wire_json(
                                     {
                                         "type": p.type.value,
                                         "source_id": p.source_id,
@@ -579,13 +586,13 @@ class Server(
                         if (
                             new_ctx is not None
                             and new_ctx.events
-                            and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
+                            and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                         ):
                             ctx = new_ctx
                             dto = ExecutionContextDTO.from_domain(ctx)
                             yield {
                                 "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                "data": to_json(dto if detailed else dto.summary()),
+                                "data": to_wire_json(dto if detailed else dto.summary()),
                             }
                 else:
                     try:
@@ -597,13 +604,13 @@ class Server(
                     if (
                         new_ctx is not None
                         and new_ctx.events
-                        and (not ctx.events or new_ctx.events[-1].time > ctx.events[-1].time)
+                        and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                     ):
                         ctx = new_ctx
                         dto = ExecutionContextDTO.from_domain(ctx)
                         yield {
                             "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                            "data": to_json(dto if detailed else dto.summary()),
+                            "data": to_wire_json(dto if detailed else dto.summary()),
                         }
         finally:
             for t in active_tasks:
