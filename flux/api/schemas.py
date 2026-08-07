@@ -314,6 +314,7 @@ def _inject_trace_context(data_payload: str) -> str:
     try:
         event_data = _json.loads(data_payload)
         event_data["trace_context"] = inject_trace_context()
-        return _json.dumps(event_data)
+        # Compact: the result is an SSE data field, which must stay one line.
+        return _json.dumps(event_data, separators=(",", ":"))
     except Exception:
         return data_payload
