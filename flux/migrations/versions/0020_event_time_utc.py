@@ -16,8 +16,8 @@ on who runs it.
 SQLite is skipped: it stores datetimes as text and ignores the column's
 timezone flag entirely, so the rule is enforced on load instead.
 
-Revision ID: 0014_event_time_utc
-Revises: 0013_worker_metadata
+Revision ID: 0020_event_time_utc
+Revises: 0019_agent_approval_policy
 Create Date: 2026-08-06
 """
 
@@ -28,8 +28,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0014_event_time_utc"
-down_revision: str | None = "0013_worker_metadata"
+revision: str = "0020_event_time_utc"
+down_revision: str | None = "0019_agent_approval_policy"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

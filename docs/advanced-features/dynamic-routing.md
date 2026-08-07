@@ -72,7 +72,11 @@ soft preference under `prefer(...)`:
   execution's dataset without excluding cold ones. Unresolved input (or an
   invalid resolved key) just means the term cannot discriminate — everyone
   scores 0 for it; the policy does not degrade. (`least`/`most` reject
-  `label_for` — label strings have no ordering.)
+  dynamic keys — `label_for` and `meta_for` alike.)
+- `prefer(meta_for("approved.", input("artefact")) == "true", weight=5)` —
+  the same dynamic-key mechanics against **server-held metadata** the
+  worker cannot write; see
+  [worker metadata](worker-affinity.md#server-side-worker-metadata).
 - `prefer(service(input("model")), weight=2)` — prefer a worker with the
   granted service socket, fall back to the rest.
 - `when(input("latency_sensitive") == "true", least(load(), weight=10))` —

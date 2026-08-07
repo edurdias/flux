@@ -167,7 +167,7 @@ def test_approve_always_covers_later_gates_on_same_task(cli):
     assert len(grants) == 1, rows
     assert grants[0]["task_call_id"] == pending["task_call_id"]
     # ...and one materialized audit row per auto-approved later gate.
-    materialized = [row for row in rows if row["reason"] == "standing grant"]
+    materialized = [row for row in rows if (row["reason"] or "").startswith("standing grant")]
     assert len(materialized) == 2, rows
     assert all(row["scope"] == "call" for row in materialized), rows
 

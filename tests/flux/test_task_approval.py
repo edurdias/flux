@@ -903,7 +903,9 @@ def test_standing_grant_skips_pause_on_later_calls(isolated_db):
     rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
     assert len(rows) == 3
     granted = [r for r in rows if (r.scope or "call") == "execution"]
-    materialized = [r for r in rows if r.reason == "standing grant"]
+    # The audit reason names the applied grant (issue #143): "standing
+    # grant <id> (scope=...)".
+    materialized = [r for r in rows if (r.reason or "").startswith("standing grant")]
     assert len(granted) == 1
     assert len(materialized) == 2
     assert all(r.approver_subject == "alice" for r in materialized)
@@ -1017,7 +1019,7 @@ def test_standing_grant_yields_to_concurrent_cancel(isolated_db):
 
     rows = mgr.list(execution_id=ctx.execution_id, status=ApprovalStatus.APPROVED, limit=None)
     assert len(rows) == 1  # the grant itself; nothing materialized
-    assert not any(r.reason == "standing grant" for r in rows)
+    assert not any((r.reason or "").startswith("standing grant") for r in rows)
 
 
 def test_plain_approval_remains_single_call(isolated_db):

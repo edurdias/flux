@@ -175,6 +175,10 @@ affinity=require(label("maintenance") != "true")
   instead of a self-advertised label. Same `==`/`!=` semantics as `label`,
   including the absent-≠-value inversion. See
   [Server-Side Worker Metadata](#server-side-worker-metadata) below.
+- `meta_for(prefix, input("path"))` — dynamic metadata key, the
+  authoritative twin of `label_for`: the author declares the namespace,
+  input completes the key, and the value is read from server-held metadata
+  a worker cannot write. The resolved key must be a valid metadata key.
 - `optional(term)` — skipped when its input is absent; a resolved
   comparison that is false still fails the match, and input that resolves
   to something invalid (bad label key, non-scalar, invalid service name)
@@ -202,7 +206,7 @@ may join later).
 | `optional(term)` | yes, false | — | no match (optional ≠ decorative) |
 | `optional(term)` | yes, invalid key | — | no match; execution **fails** (optional forgives absence only) |
 | `when(if, then)`, `if` unresolved | — | — | term inactive |
-| `label_for(...)`, resolved key invalid | yes | — | no match; execution **fails** with a named diagnostic |
+| `label_for(...)`/`meta_for(...)`, resolved key invalid | yes | — | no match; execution **fails** with a named diagnostic |
 
 Input values compare against labels as strings (booleans as
 `"true"`/`"false"`). The dict form remains valid forever and its semantics
@@ -240,6 +244,13 @@ current values.
 ```python
 # Soft-drain a worker without touching the worker or the workflows
 affinity=require(meta("maintenance") != "true")
+
+# Per-artefact certification: the control plane approves worker/artefact
+# pairs; the key is completed from this execution's input (meta_for)
+affinity=require(
+    service(input("artefact")),                          # capability
+    meta_for("approved.", input("artefact")) == "true",  # policy
+)
 ```
 
 Properties that distinguish metadata from labels:
@@ -261,7 +272,8 @@ Properties that distinguish metadata from labels:
 Affinity decides which workers *can* run a workflow. To rank the eligible
 workers — by latency, load, locality, or custom metrics — add a scoring
 policy on top: see [Dynamic Routing](dynamic-routing.md). The dynamic
-vocabulary spans both stages — `input(...)` values, `label_for(...)` keys,
-`service(...)`, and `when(...)` work in `prefer()` too, so the same
+vocabulary spans both stages — `input(...)` values, `label_for(...)`/
+`meta_for(...)` keys, `service(...)`, and `when(...)` work in `prefer()`
+too, so the same
 comparison can be a hard wall in `require()` and a soft preference in
 `score()`.

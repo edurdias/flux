@@ -129,6 +129,16 @@ class ScheduleManager(ABC):
         pass
 
     @abstractmethod
+    def has_active_execution(self, schedule_id: str) -> bool:
+        """Return True if a non-terminal execution of this schedule exists."""
+        pass
+
+    @abstractmethod
+    def record_skip(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist an overlap-skipped fire: advance next_run_at + skip stats."""
+        pass
+
+    @abstractmethod
     def get_schedule_history(
         self,
         schedule_id: str,
@@ -473,6 +483,63 @@ class DatabaseScheduleManager(ScheduleManager):
         except Exception:
             logger.error(
                 f"Failed to record failure for schedule '{schedule_id}'",
+                exc_info=True,
+            )
+
+    def has_active_execution(self, schedule_id: str) -> bool:
+        """Return True if a non-terminal execution of this schedule exists.
+
+        The overlap check for ``overlap_policy="skip"`` (issue #142): a single
+        indexed query on ``executions.schedule_id`` (``idx_execution_schedule_id``)
+        against the non-terminal states, run inside the dispatch lock the
+        cycle already holds. Fails open (False) on error: dispatching like
+        pre-policy behavior beats wedging the scheduler on a query failure.
+        """
+        from flux.domain.events import ExecutionState
+        from flux.models import ExecutionContextModel
+
+        terminal = (
+            ExecutionState.COMPLETED,
+            ExecutionState.FAILED,
+            ExecutionState.CANCELLED,
+        )
+        try:
+            with self._repository.session() as session:
+                row = (
+                    session.query(ExecutionContextModel.execution_id)
+                    .filter(
+                        ExecutionContextModel.schedule_id == schedule_id,
+                        ExecutionContextModel.state.notin_(terminal),
+                    )
+                    .first()
+                )
+                return row is not None
+        except Exception:
+            logger.error(
+                f"Overlap check failed for schedule '{schedule_id}'; allowing dispatch",
+                exc_info=True,
+            )
+            return False
+
+    def record_skip(self, schedule_id: str, run_time: datetime) -> None:
+        """Persist an overlap-skipped fire: advances ``next_run_at`` and the
+        skip statistics without touching run stats (issue #142).
+
+        Never raises — see ``record_run``.
+        """
+        try:
+            with self._repository.session() as session:
+                model = session.query(ScheduleModel).filter(ScheduleModel.id == schedule_id).first()
+                if model is None:
+                    logger.warning(
+                        f"Schedule '{schedule_id}' disappeared before its skip could be recorded",
+                    )
+                    return
+                model.mark_skip(run_time)
+                session.commit()
+        except Exception:
+            logger.error(
+                f"Failed to record skip for schedule '{schedule_id}'",
                 exc_info=True,
             )
 

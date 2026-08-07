@@ -150,10 +150,21 @@ class RemoteApprovalStore:
         data = resp.json().get("approval")
         return ApprovalSnapshot.from_dict(data) if data else None
 
-    async def register(self, ctx, task_call_id: str, task_name: str, awaiting_event) -> str:
+    async def register(
+        self,
+        ctx,
+        task_call_id: str,
+        task_name: str,
+        awaiting_event,
+        target_value: str | None = None,
+    ) -> str:
         resp = await self._client.post(
             f"{self._server_url}/workers/{self._worker_name}/approvals/{ctx.execution_id}",
-            json={"task_call_id": task_call_id, "task_name": task_name},
+            json={
+                "task_call_id": task_call_id,
+                "task_name": task_name,
+                "target_value": target_value,
+            },
             headers=self._headers(),
         )
         resp.raise_for_status()

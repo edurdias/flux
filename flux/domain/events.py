@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from flux.utils import FluxEncoder, make_hashable  # noqa: F401  (make_hashable kept for back-compat)
 
@@ -29,6 +29,10 @@ def as_utc(value: datetime | str) -> datetime:
 class PausedEventValue(TypedDict):
     name: str
     output: Any
+    # Wake condition (issue #145), present when the pause carries one.
+    # wake_at is ISO-8601 UTC; wake_on_complete is a watched execution id.
+    wake_at: NotRequired[str | None]
+    wake_on_complete: NotRequired[str | None]
 
 
 class ExecutionState(str, Enum):
@@ -63,6 +67,13 @@ class ExecutionEventType(str, Enum):
     TASK_STARTED = "TASK_STARTED"
     TASK_COMPLETED = "TASK_COMPLETED"
     TASK_FAILED = "TASK_FAILED"
+    # Audit-only terminal marker for a task interrupted by cancellation
+    # (issue #149). Deliberately invisible to the replay short-circuit in
+    # flux/task.py, which matches TASK_COMPLETED/TASK_FAILED only: the
+    # outcome of a cancelled body is unknown, and a worker crash produces
+    # the same interruption with no event at all — so replay treats both
+    # identically and re-runs the task.
+    TASK_CANCELLED = "TASK_CANCELLED"
     TASK_PAUSED = "TASK_PAUSED"
     TASK_RESUMED = "TASK_RESUMED"
     TASK_PROGRESS = "TASK_PROGRESS"

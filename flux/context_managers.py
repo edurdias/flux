@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func
@@ -69,6 +70,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -79,6 +81,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
 
@@ -346,8 +349,9 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> ExecutionContext:
-        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker)
+        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker, park_ttl=park_ttl)
         return ctx
 
     def save_checked(
@@ -356,6 +360,7 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:
         if uow is not None:
             return self._save_with_session(
@@ -363,6 +368,7 @@ class DatabaseContextManager(ContextManager):
                 uow.session,
                 manage_transaction=False,
                 preferred_worker=preferred_worker,
+                park_ttl=park_ttl,
             )
         with self.session() as session:
             return self._save_with_session(
@@ -370,6 +376,7 @@ class DatabaseContextManager(ContextManager):
                 session,
                 manage_transaction=True,
                 preferred_worker=preferred_worker,
+                park_ttl=park_ttl,
             )
 
     def _save_with_session(
@@ -379,6 +386,7 @@ class DatabaseContextManager(ContextManager):
         *,
         manage_transaction: bool,
         preferred_worker: str | None = None,
+        park_ttl: int | None = None,
     ) -> bool:
         try:
             model = self._lock_for_write(session, ctx.execution_id)
@@ -387,15 +395,35 @@ class DatabaseContextManager(ContextManager):
                 if accepted:
                     model.state = ctx.state
                     model.output = ctx.output
+                    self._sync_wake_columns(model, ctx)
                     session.add_all(self._get_additional_events(ctx, session))
             else:
                 accepted = True
                 new_model = ExecutionContextModel.from_plain(ctx)
+                self._sync_wake_columns(new_model, ctx)
                 if preferred_worker:
                     # Same transaction as the insert: event-mode dispatch can
                     # pick a fresh row up immediately, so a hint written in a
                     # follow-up UPDATE could be missed.
                     new_model.preferred_worker = preferred_worker
+                # Park TTL (issue #157): per-run override wins; otherwise the
+                # config default. 0 / unset means park indefinitely (NULL).
+                # int() + fallback: a mocked/partial Configuration (common in
+                # tests) must degrade to "no deadline", never break a save.
+                effective_park_ttl = park_ttl
+                if effective_park_ttl is None:
+                    try:
+                        from flux.config import Configuration as _Configuration
+
+                        effective_park_ttl = int(
+                            _Configuration.get().settings.workers.park_ttl,
+                        )
+                    except Exception:
+                        effective_park_ttl = 0
+                if effective_park_ttl and effective_park_ttl > 0:
+                    new_model.park_deadline = datetime.now(timezone.utc) + timedelta(
+                        seconds=effective_park_ttl,
+                    )
                 session.add(new_model)
             if manage_transaction:
                 session.commit()
@@ -426,6 +454,7 @@ class DatabaseContextManager(ContextManager):
             if _accept_state_write(ctx.state, model.state):
                 model.state = ctx.state
                 model.output = ctx.output
+                self._sync_wake_columns(model, ctx)
                 session.add_all(self._get_additional_events(ctx, session))
             session.commit()
             return ctx
@@ -475,15 +504,192 @@ class DatabaseContextManager(ContextManager):
 
         return require_diagnostic(workflow.affinity, model.input)
 
-    def _fail_undispatchable(self, model, session: Session, diagnostic: str) -> None:
+    def _fail_undispatchable(
+        self,
+        model,
+        session: Session,
+        diagnostic: str,
+        error_type: str = "AffinityResolutionError",
+    ) -> None:
         ctx = model.to_plain()
         ctx.fail(
             ctx.execution_id,
-            {"type": "AffinityResolutionError", "message": diagnostic},
+            {"type": error_type, "message": diagnostic},
         )
         model.state = ctx.state
+        model.output = ctx.output
         session.add_all(self._get_additional_events(ctx, session))
         logger.warning(f"Execution {ctx.execution_id} failed at dispatch: {diagnostic}")
+
+    def fail_expired_parked(self, now: datetime | None = None) -> list[str]:
+        """Fail executions still unclaimed past their park deadline (issue #157).
+
+        A parked execution — state CREATED, waiting for a worker its
+        constraints match — normally waits indefinitely; that is right for
+        elastic batch fleets and wrong for an interactive caller, for whom a
+        park is indistinguishable from a hang. Rows that opted into a bound
+        (``park_deadline`` set at submission, from the per-run override or
+        the ``[flux.workers] park_ttl`` default) are failed terminally with a
+        diagnosable ``ParkTimeoutError`` once the deadline passes.
+
+        Runs in the scheduler tick under the dispatch lock. Row locks
+        (``skip_locked``) keep the sweep from racing a concurrent claim on
+        PostgreSQL: a row a worker is claiming right now is simply skipped
+        and re-examined next tick — by which time it is no longer CREATED.
+        Returns the failed execution ids.
+        """
+        if now is None:
+            now = datetime.now(timezone.utc)
+        failed: list[str] = []
+        with self.session() as session:
+            query = (
+                session.query(ExecutionContextModel, WorkflowModel)
+                .join(WorkflowModel)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.CREATED,
+                    ExecutionContextModel.park_deadline.isnot(None),
+                    ExecutionContextModel.park_deadline < now,
+                )
+                .with_for_update(skip_locked=True, of=ExecutionContextModel)
+            )
+            for model, workflow in query:
+                constraints: list[str] = []
+                if workflow.affinity:
+                    constraints.append(f"affinity={workflow.affinity!r}")
+                if workflow.requests:
+                    constraints.append("resource requests present")
+                detail = "; ".join(constraints) if constraints else "no declared constraints"
+                self._fail_undispatchable(
+                    model,
+                    session,
+                    (
+                        f"No eligible worker claimed this execution before its "
+                        f"park deadline ({model.park_deadline}); {detail}. "
+                        "A worker matching the execution's constraints never "
+                        "became available within the park TTL."
+                    ),
+                    error_type="ParkTimeoutError",
+                )
+                failed.append(model.execution_id)
+            session.commit()
+        return failed
+
+    @staticmethod
+    def _sync_wake_columns(model, ctx: ExecutionContext) -> None:
+        """Mirror the pause's wake condition (issue #145) onto the row.
+
+        Stamped in the same transaction as the PAUSED state write — there is
+        no window in which the execution is PAUSED without its wake being
+        durable (the race class documented for approvals in #70). Every
+        non-PAUSED state write clears the columns, so resuming, cancelling,
+        or finishing an execution retires its pending wake atomically.
+        """
+        if ctx.state != ExecutionState.PAUSED:
+            model.wake_at = None
+            model.wake_on_complete = None
+            return
+
+        wake_at_raw: str | None = None
+        wake_on_complete: str | None = None
+        for event in reversed(ctx.events):
+            if event.type.value == "WORKFLOW_PAUSED":
+                value = event.value if isinstance(event.value, dict) else {}
+                wake_at_raw = value.get("wake_at")
+                wake_on_complete = value.get("wake_on_complete")
+                break
+        wake_at = None
+        if wake_at_raw:
+            try:
+                wake_at = datetime.fromisoformat(wake_at_raw)
+            except ValueError:
+                logger.error(
+                    f"Execution {ctx.execution_id}: unparsable wake_at "
+                    f"{wake_at_raw!r}; treating the pause as indefinite",
+                )
+        model.wake_at = wake_at
+        model.wake_on_complete = wake_on_complete or None
+
+    def fire_due_wakes(self, now: datetime | None = None) -> list[str]:
+        """Resume paused executions whose wake condition fired (issue #145).
+
+        Two conditions, read from the columns ``_sync_wake_columns`` stamps:
+        a timed wake (``wake_at <= now``) and a completion wake (the watched
+        execution reached a terminal state). Firing is exactly the operator
+        resume transition — ``start_resuming()`` — so downstream dispatch is
+        unchanged, and the resume's state write clears the wake columns, so
+        an overdue backlog after downtime fires each wake once.
+
+        Runs in the scheduler tick under the dispatch lock (one firing
+        replica). Returns the resumed execution ids.
+        """
+        if now is None:
+            now = datetime.now(timezone.utc)
+        terminal = (
+            ExecutionState.COMPLETED,
+            ExecutionState.FAILED,
+            ExecutionState.CANCELLED,
+        )
+        due: list[str] = []
+        with self.session() as session:
+            timed = (
+                session.query(ExecutionContextModel.execution_id)
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.PAUSED,
+                    ExecutionContextModel.wake_at.isnot(None),
+                    ExecutionContextModel.wake_at <= now,
+                )
+                .all()
+            )
+            due.extend(row.execution_id for row in timed)
+
+            watchers = (
+                session.query(
+                    ExecutionContextModel.execution_id,
+                    ExecutionContextModel.wake_on_complete,
+                )
+                .filter(
+                    ExecutionContextModel.state == ExecutionState.PAUSED,
+                    ExecutionContextModel.wake_on_complete.isnot(None),
+                )
+                .all()
+            )
+            # One query for every watched execution's state, then check in
+            # memory — a per-watcher lookup would make the tick O(paused
+            # executions) round-trips.
+            watched_ids = {watched_id for _, watched_id in watchers}
+            watched_states = (
+                dict(
+                    session.query(
+                        ExecutionContextModel.execution_id,
+                        ExecutionContextModel.state,
+                    ).filter(ExecutionContextModel.execution_id.in_(watched_ids)),
+                )
+                if watched_ids
+                else {}
+            )
+            for execution_id, watched_id in watchers:
+                watched_state = watched_states.get(watched_id)
+                # A watched id that does not exist wakes immediately: waiting
+                # forever on a typo is strictly worse than resuming, and the
+                # workflow can inspect the child itself.
+                if watched_state is None or watched_state in terminal:
+                    due.append(execution_id)
+
+        resumed: list[str] = []
+        for execution_id in due:
+            try:
+                ctx = self.get(execution_id)
+                if not ctx.is_paused:
+                    continue  # raced a concurrent resume/cancel; theirs wins
+                ctx.start_resuming()
+                self.save(ctx)
+                resumed.append(execution_id)
+            except Exception:
+                logger.error(
+                    f"Failed to fire wake for execution {execution_id}",
+                    exc_info=True,
+                )
+        return resumed
 
     def _next_matching_execution(
         self,

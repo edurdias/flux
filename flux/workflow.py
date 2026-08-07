@@ -207,7 +207,13 @@ class workflow:
             )
             ctx.complete(self.id, output_value)
         except PauseRequested as ex:
-            ctx.pause(self.id, ex.name, ex.output)
+            ctx.pause(
+                self.id,
+                ex.name,
+                ex.output,
+                wake_at=getattr(ex, "wake_at", None),
+                wake_on_complete=getattr(ex, "wake_on_complete", None),
+            )
         except asyncio.CancelledError:
             ctx.cancel()
             raise

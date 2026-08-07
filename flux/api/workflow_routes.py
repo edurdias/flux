@@ -198,6 +198,7 @@ class WorkflowRoutesMixin:
             mode: str = "async",
             detailed: bool = False,
             version: int | None = None,
+            park_ttl: int | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             identity: FluxIdentity = Depends(get_identity),
         ):
@@ -242,12 +243,22 @@ class WorkflowRoutesMixin:
                     if not preferred_worker or len(preferred_worker) > 256:
                         preferred_worker = None
 
+                # Per-run park-TTL override (issue #157): bounds how long this
+                # execution may wait unclaimed. None defers to the server
+                # default; 0 explicitly parks forever (batch callers).
+                if park_ttl is not None and park_ttl < 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="park_ttl must be >= 0 (0 disables the bound)",
+                    )
+
                 ctx = self._create_execution(
                     namespace,
                     workflow_name,
                     input,
                     version,
                     preferred_worker=preferred_worker,
+                    park_ttl=park_ttl,
                 )
                 manager = ContextManager.create()
 
