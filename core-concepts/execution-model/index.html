@@ -1860,6 +1860,11 @@
 <a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="c1"># Get last event</span>
 <a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">last_event</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">events</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
 </code></pre></div>
+<p><code>event.time</code> is a timezone-aware UTC <code>datetime</code>. Events are stamped wherever
+they are created — the server stamps scheduling and claim events, the worker
+stamps workflow and task events — so a single log is only orderable if every
+stamp shares one zone. Convert with <code>event.time.astimezone()</code> to display a
+local time.</p>
 
 
 
