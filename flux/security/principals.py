@@ -195,6 +195,9 @@ class PrincipalRegistry:
             if principal is None:
                 raise ValueError(f"Principal '{principal_id}' not found")
             principal.type = type
+            # Stamped like every other operator mutation, so a repaired
+            # principal is distinguishable from an untouched one in an audit.
+            principal.updated_at = datetime.now(timezone.utc)
             session.commit()
         except Exception:
             session.rollback()
