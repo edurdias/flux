@@ -19,6 +19,11 @@ token and kubeadm):
   bootstrap principal after creating real admins retires it for good.
 - **Rotatable** via ``flux server admin-key --rotate``.
 - **Bound to the built-in admin role**, not a bespoke grant.
+- **Typed ``service_account``** (issue #170). API keys are a machine
+  credential throughout: ``POST /admin/principals/{subject}/keys`` refuses
+  to mint one for a ``user``-typed principal and ``APIKeyProvider`` refuses
+  to accept one, so a ``user``-typed bootstrap principal produces a key no
+  enabled provider will ever honour.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from flux.security.bootstrap_token import write as _write_file
 
 if TYPE_CHECKING:
     from flux.security.auth_service import AuthService
-    from flux.security.principals import PrincipalRegistry
+    from flux.security.principals import PrincipalModel, PrincipalRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +47,9 @@ ADMIN_SUBJECT = "admin"
 ADMIN_ISSUER = "flux"
 ADMIN_KEY_NAME = "bootstrap"
 ADMIN_ROLE = "admin"
+# The credential is machine-held and delivered as an API key, so the
+# principal has to be the type API keys are issued to (issue #170).
+ADMIN_PRINCIPAL_TYPE = "service_account"
 
 
 def read_persisted(home: str | Path) -> str | None:
@@ -73,6 +81,35 @@ def has_admin_principal(session_factory: Callable) -> bool:
         session.close()
 
 
+def _normalize_principal_type(registry: PrincipalRegistry) -> PrincipalModel | None:
+    """Return the bootstrap principal, re-typing a pre-#170 ``user`` row.
+
+    Deployments seeded by the original #154 implementation hold a
+    ``user``-typed bootstrap principal whose key no provider accepts. That
+    principal still carries the admin role, so ``has_admin_principal``
+    suppresses re-seeding and the operator stays locked out — which is why
+    this runs on the plain startup path too, not only when minting.
+
+    Scoped to the ``(admin, flux)`` identity this module already claims and
+    reuses; no other principal is touched. The stored key is deliberately
+    left alone, so the operator's existing copy starts working instead of
+    being replaced by one they would have to go and fetch.
+    """
+    principal = registry.find(ADMIN_SUBJECT, ADMIN_ISSUER)
+    if principal is not None and principal.type != ADMIN_PRINCIPAL_TYPE:
+        registry.set_type(principal.id, ADMIN_PRINCIPAL_TYPE)
+        logger.warning(
+            "Repaired bootstrap admin principal '%s': type '%s' -> '%s'. Its "
+            "API key could not authenticate before this (issue #170); the key "
+            "at <home>/%s is now accepted.",
+            ADMIN_SUBJECT,
+            principal.type,
+            ADMIN_PRINCIPAL_TYPE,
+            ADMIN_KEY_FILENAME,
+        )
+    return principal
+
+
 async def _mint(
     auth_service: AuthService,
     registry: PrincipalRegistry,
@@ -80,14 +117,18 @@ async def _mint(
 ) -> str:
     """Create/repair the bootstrap admin principal and mint a fresh key.
 
-    Idempotent against partial prior runs: an existing principal is reused,
-    the role grant is re-asserted, and a stale key of the same name is
-    revoked before the new one is created.
+    Idempotent against partial prior runs: an existing principal is reused
+    (and re-typed if it predates #170), the role grant is re-asserted, and a
+    stale key of the same name is revoked before the new one is created.
     """
-    principal = registry.find(ADMIN_SUBJECT, ADMIN_ISSUER)
+    principal = _normalize_principal_type(registry)
     if principal is None:
+        # service_account, not user: the API-key provider only authenticates
+        # service accounts (an API key is a machine credential), and this
+        # principal exists solely to hold the bootstrap key — a user-typed
+        # principal here mints a key that can never authenticate (issue #170).
         principal = registry.create(
-            type="user",
+            type=ADMIN_PRINCIPAL_TYPE,
             subject=ADMIN_SUBJECT,
             external_issuer=ADMIN_ISSUER,
             display_name="Bootstrap admin",
@@ -115,7 +156,12 @@ async def ensure_admin_key(
     Returns the plaintext key when one was minted this call, else None.
     Called from the server's lifespan startup hook when auth is enabled —
     after ``seed_built_in_roles``, so the admin role row exists.
+
+    Repairs a pre-#170 bootstrap principal on the way through. That is the
+    only path which heals an already-seeded deployment: nothing is minted
+    there, the key the operator already holds simply becomes usable.
     """
+    _normalize_principal_type(registry)
     if has_admin_principal(session_factory):
         return None
     key = await _mint(auth_service, registry, home)
