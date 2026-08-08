@@ -24,6 +24,11 @@ def build_directory_tools(config: SystemToolsConfig) -> list[task]:
 
         entries = []
         for entry in sorted(resolved.iterdir(), key=lambda e: e.name):
+            # Same per-entry boundary as directory_tree: is_dir() and stat()
+            # both follow symlinks, so an unchecked entry reports the type and
+            # size of a file the workspace boundary is meant to exclude.
+            if not is_contained(config, entry):
+                continue
             info: dict[str, str | int] = {"name": entry.name}
             if entry.is_dir():
                 info["type"] = "directory"
