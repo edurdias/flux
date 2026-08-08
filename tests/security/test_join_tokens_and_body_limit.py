@@ -142,6 +142,51 @@ class TestJoinTokenLifecycle:
         assert join_tokens.purge_expired(older_than_seconds=86400) == 1
 
 
+class TestSubjectBinding:
+    """A token minted for one worker must not authorize another (#174).
+
+    Without binding, any live token authorizes registration under any name,
+    and the registration path revokes the incumbent's API keys — so a holder
+    of their own token can evict a worker and inherit admin-written metadata
+    attached to its subject.
+    """
+
+    def test_bound_token_rejects_a_different_worker(self, make_client):
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+        assert join_tokens.claim(token, "worker-b") is False
+
+    def test_bound_token_accepts_its_own_worker(self, make_client):
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+        assert join_tokens.claim(token, "worker-a") is True
+
+    def test_rejected_claim_does_not_consume_the_token(self, make_client):
+        """A failed claim must leave the token live, or an attacker who
+        guesses wrong burns a legitimate worker's credential."""
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+        assert join_tokens.claim(token, "worker-b") is False
+        assert join_tokens.claim(token, "worker-a") is True
+
+    def test_unbound_token_still_claims_for_any_worker(self, make_client):
+        """Rows minted before binding existed have a NULL subject and must
+        keep working, so an upgrade does not strand a mid-flight token."""
+        make_client()
+        token, _ = join_tokens.mint(3600)
+        assert join_tokens.claim(token, "any-worker") is True
+
+    def test_registration_rejects_token_bound_to_another_worker(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+
+        impostor = _register(client, "worker-b", token)
+        assert impostor.status_code == 403, impostor.text
+
+        legitimate = _register(client, "worker-a", token)
+        assert legitimate.status_code == 200, legitimate.text
+
+
 class TestMintRoute:
     def test_explicit_zero_ttl_is_rejected(self, make_client):
         """ttl_seconds: 0 must be a 400 from mint(), not silently replaced
@@ -155,6 +200,32 @@ class TestMintRoute:
         resp = client.post("/admin/workers/join-tokens", json={})
         assert resp.status_code == 200, resp.text
         assert resp.json()["token"]
+
+    def test_minted_subject_binds_the_token(self, make_client):
+        """Binding is only reachable if the operator-facing route exposes it;
+        otherwise every token minted through the API stays unbound."""
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={"subject": "worker-a"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subject"] == "worker-a"
+
+        token = resp.json()["token"]
+        assert join_tokens.claim(token, "worker-b") is False
+        assert join_tokens.claim(token, "worker-a") is True
+
+    def test_omitted_subject_mints_an_unbound_token(self, make_client):
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subject"] is None
+        assert join_tokens.claim(resp.json()["token"], "any-worker") is True
+
+    def test_blank_subject_is_rejected(self, make_client):
+        """An empty string must not silently mint an unbound token when the
+        operator's intent was clearly to bind one."""
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={"subject": "   "})
+        assert resp.status_code == 400, resp.text
 
 
 class TestRegistrationCredentials:
@@ -192,6 +263,37 @@ class TestRegistrationCredentials:
         client = make_client()
         resp = _register(client, "worker-bad", "not-a-real-token")
         assert resp.status_code == 403, resp.text
+
+
+class TestJoinTokenCLI:
+    """`flux server join-token` is the documented way to mint, so it has to
+    reach the binding too — otherwise operators keep minting unbound tokens.
+    Asserts against a real claim, not a call-args mock."""
+
+    def test_subject_option_binds_the_token(self, make_client):
+        from click.testing import CliRunner
+
+        from flux.cli import cli
+
+        make_client()  # initializes the DB schema on the temp database
+        result = CliRunner().invoke(cli, ["server", "join-token", "--subject", "worker-a"])
+        assert result.exit_code == 0, result.output
+
+        token = result.stdout.strip().splitlines()[0]
+        assert join_tokens.claim(token, "worker-b") is False
+        assert join_tokens.claim(token, "worker-a") is True
+
+    def test_without_subject_mints_an_unbound_token(self, make_client):
+        from click.testing import CliRunner
+
+        from flux.cli import cli
+
+        make_client()
+        result = CliRunner().invoke(cli, ["server", "join-token"])
+        assert result.exit_code == 0, result.output
+
+        token = result.stdout.strip().splitlines()[0]
+        assert join_tokens.claim(token, "any-worker") is True
 
 
 class TestBodySizeLimit:

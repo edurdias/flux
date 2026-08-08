@@ -112,6 +112,10 @@ class WorkerRoutesMixin:
             The plaintext is returned exactly once; only its hash is stored.
             Hand it to one new worker as its registration Bearer token — it
             is consumed on first use and expires after the TTL.
+
+            Pass ``subject`` to bind the token to a single worker name so it
+            cannot register under any other identity. Omitting it mints an
+            unbound token, which any name may claim.
             """
             from flux.security import join_tokens
 
@@ -121,9 +125,16 @@ class WorkerRoutesMixin:
                 # None means "not provided" — an explicit 0 must reach mint()
                 # and be rejected there, not silently become the default.
                 ttl = workers_config.join_token_ttl if raw_ttl is None else int(raw_ttl)
+                raw_subject = (body or {}).get("subject")
+                # A blank string reads as intent to bind that never took
+                # effect; refuse it rather than mint an unbound token.
+                if raw_subject is not None and not str(raw_subject).strip():
+                    raise ValueError("subject must not be blank")
+                subject = str(raw_subject).strip() if raw_subject is not None else None
                 token, expires_at = await asyncio.to_thread(
                     join_tokens.mint,
                     ttl,
+                    subject=subject,
                     created_by=identity.subject,
                 )
             except (TypeError, ValueError) as e:
@@ -133,6 +144,7 @@ class WorkerRoutesMixin:
             return {
                 "token": token,
                 "expires_at": expires_at.replace(tzinfo=_tz.utc).isoformat(),
+                "subject": subject,
             }
 
         def _apply_worker_metadata(name: str, metadata: dict) -> dict:
