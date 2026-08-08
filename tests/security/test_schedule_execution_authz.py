@@ -239,6 +239,158 @@ def test_schedule_update_denies_sa_rebind_without_workflow_run(client):
     assert resp.status_code == 403, resp.text
 
 
+def test_schedule_update_denies_retarget_without_workflow_run(client):
+    """Escalation through PUT does not require touching run_as_service_account.
+    Rewriting schedule_config/input_data alone re-aims the schedule's EXISTING
+    privileged SA at attacker-chosen input on an attacker-chosen cadence, so
+    the guard cannot be conditional on the SA being rebound."""
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    wf_id = _seed_workflow("default", f"payroll_{suffix}")
+    _seed_service_account(f"payroll-sa-{suffix}")
+
+    manager = create_schedule_manager()
+    schedule_model = manager.create_schedule(
+        workflow_id=wf_id,
+        workflow_namespace="default",
+        workflow_name=f"payroll_{suffix}",
+        name=f"payroll-auto-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+        run_as_service_account=f"payroll-sa-{suffix}",
+    )
+
+    _seed_role(f"sched_only_cfg_{suffix}", ["schedule:*:manage"])
+    identity = FluxIdentity(subject="intruder", roles=frozenset({f"sched_only_cfg_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            f"/schedules/{schedule_model.id}",
+            headers=_headers(),
+            json={
+                "schedule_config": {"type": "interval", "interval_seconds": 10},
+                "input_data": {"amount": 1000000, "account": "attacker"},
+            },
+        )
+    assert resp.status_code == 403, resp.text
+
+    # The stored schedule is untouched.
+    reloaded = manager.get_schedule(schedule_model.id)
+    assert reloaded.input_data != {"amount": 1000000, "account": "attacker"}
+
+
+def test_schedule_update_allows_retarget_for_caller_who_can_run_workflow(client):
+    """The guard must not block a caller who is authorized to run the
+    workflow — otherwise legitimate schedule edits break."""
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    wf_id = _seed_workflow("default", f"report_{suffix}")
+
+    manager = create_schedule_manager()
+    schedule_model = manager.create_schedule(
+        workflow_id=wf_id,
+        workflow_namespace="default",
+        workflow_name=f"report_{suffix}",
+        name=f"report-auto-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+    )
+
+    _seed_role(
+        f"sched_run_upd_{suffix}",
+        ["schedule:*:manage", f"workflow:default:report_{suffix}:*"],
+    )
+    identity = FluxIdentity(subject="owner", roles=frozenset({f"sched_run_upd_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            f"/schedules/{schedule_model.id}",
+            headers=_headers(),
+            json={"schedule_config": {"type": "interval", "interval_seconds": 60}},
+        )
+    assert resp.status_code == 200, resp.text
+
+
+def test_auth_permissions_lists_only_readable_workflows(client):
+    """`/auth/permissions` enumerates namespaces, workflow names and each
+    workflow's task names. Its siblings (`/workflows`, `/namespaces`) filter
+    that inventory on workflow read; this route must too."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_workflow("default", f"visible_{suffix}")
+    _seed_workflow("default", f"hidden_{suffix}")
+
+    _seed_role(f"one_wf_{suffix}", [f"workflow:default:visible_{suffix}:read"])
+    identity = FluxIdentity(subject="tenant", roles=frozenset({f"one_wf_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.get("/auth/permissions", headers=_headers())
+    assert resp.status_code == 200, resp.text
+    listed = resp.json()
+    assert f"default/visible_{suffix}" in listed
+    assert f"default/hidden_{suffix}" not in listed
+
+
+def test_auth_permissions_single_workflow_requires_read(client):
+    suffix = uuid.uuid4().hex[:6]
+    _seed_workflow("default", f"secret_{suffix}")
+
+    _seed_role(f"no_wf_{suffix}", ["execution:*:read"])
+    identity = FluxIdentity(subject="tenant", roles=frozenset({f"no_wf_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.get(
+            "/auth/permissions",
+            params={"workflow": f"default/secret_{suffix}"},
+            headers=_headers(),
+        )
+    assert resp.status_code == 403, resp.text
+
+
+def _seed_schedule(suffix: str, workflow_name: str):
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    wf_id = _seed_workflow("default", workflow_name)
+    return create_schedule_manager().create_schedule(
+        workflow_id=wf_id,
+        workflow_namespace="default",
+        workflow_name=workflow_name,
+        name=f"hist-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+    )
+
+
+def test_schedule_history_denies_reader_without_workflow_read(client):
+    """`get_schedule` scopes to the bound workflow; history exposes the same
+    workflow's execution ids, states and error strings, so it must scope too."""
+    suffix = uuid.uuid4().hex[:6]
+    schedule_model = _seed_schedule(suffix, f"finance_{suffix}")
+
+    _seed_role(f"sched_read_{suffix}", ["schedule:*:read"])
+    identity = FluxIdentity(subject="nosy", roles=frozenset({f"sched_read_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.get(f"/schedules/{schedule_model.id}/history", headers=_headers())
+    assert resp.status_code == 403, resp.text
+
+
+def test_schedule_history_allows_reader_with_workflow_read(client):
+    suffix = uuid.uuid4().hex[:6]
+    schedule_model = _seed_schedule(suffix, f"ledger_{suffix}")
+
+    _seed_role(
+        f"sched_read_ok_{suffix}",
+        ["schedule:*:read", f"workflow:default:ledger_{suffix}:read"],
+    )
+    identity = FluxIdentity(subject="owner", roles=frozenset({f"sched_read_ok_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.get(f"/schedules/{schedule_model.id}/history", headers=_headers())
+    assert resp.status_code == 200, resp.text
+
+
 def test_schedule_update_sa_rebind_fails_closed_when_workflow_unregistered(client):
     """If the schedule's workflow is gone from the catalog, the rebind guard
     cannot derive task-level permission requirements — it must refuse rather

@@ -336,17 +336,17 @@ class ScheduleRoutesMixin:
                         detail=f"Schedule '{schedule_id}' not found",
                     )
 
-                # Rebinding the service account is subject to the same
-                # escalation guard as create: the caller must be authorized
-                # to run the schedule's workflow themselves. A failed catalog
-                # lookup fails CLOSED — authorizing against empty metadata
-                # would silently drop the per-task and nested-workflow
-                # permission requirements derived from it.
-                if (
-                    auth_config.enabled
-                    and auth_service is not None
-                    and request.run_as_service_account is not None
-                ):
+                # Every update is subject to the same escalation guard as
+                # create: the caller must be authorized to run the schedule's
+                # workflow themselves. This cannot be conditional on the
+                # service account being rebound — rewriting schedule_config or
+                # input_data alone re-aims the schedule's EXISTING service
+                # account at attacker-chosen input on an attacker-chosen
+                # cadence, which is the same escalation by another route. A
+                # failed catalog lookup fails CLOSED — authorizing against
+                # empty metadata would silently drop the per-task and
+                # nested-workflow permission requirements derived from it.
+                if auth_config.enabled and auth_service is not None:
                     try:
                         workflow_def = WorkflowCatalog.create().get(
                             existing_schedule.workflow_namespace,
@@ -358,7 +358,7 @@ class ScheduleRoutesMixin:
                         raise HTTPException(
                             status_code=409,
                             detail=(
-                                f"Cannot rebind service account: workflow "
+                                f"Cannot update schedule: workflow "
                                 f"'{existing_schedule.workflow_namespace}/"
                                 f"{existing_schedule.workflow_name}' is not in the catalog"
                             ),
@@ -530,6 +530,19 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # History carries execution ids, states and error strings for
+                # the bound workflow, so it follows the same read boundary as
+                # GET /schedules/{id} rather than the flat schedule:*:read.
+                if auth_service is not None and auth_config.enabled:
+                    required = (
+                        f"workflow:{schedule.workflow_namespace}:{schedule.workflow_name}:read"
+                    )
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
 
                 # Get execution history
                 entries, total = schedule_manager.get_schedule_history(
