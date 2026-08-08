@@ -362,6 +362,59 @@ def _seed_schedule(suffix: str, workflow_name: str):
     )
 
 
+def test_schedule_resume_denies_caller_who_cannot_run_workflow(client):
+    """Resuming makes the workflow fire under the bound service account on its
+    configured cadence. Blocking the rewrite but not the resume would leave the
+    escalation reachable — an operator's deliberate pause is the only thing
+    standing between the attacker and the privileged run."""
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    schedule_model = _seed_schedule(suffix, f"payout_{suffix}")
+    manager = create_schedule_manager()
+    manager.pause_schedule(schedule_model.id)
+
+    _seed_role(f"sched_resume_{suffix}", ["schedule:*:manage"])
+    identity = FluxIdentity(subject="intruder", roles=frozenset({f"sched_resume_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(f"/schedules/{schedule_model.id}/resume", headers=_headers())
+    assert resp.status_code == 403, resp.text
+
+
+def test_schedule_resume_allows_caller_who_can_run_workflow(client):
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    schedule_model = _seed_schedule(suffix, f"batch_{suffix}")
+    manager = create_schedule_manager()
+    manager.pause_schedule(schedule_model.id)
+
+    _seed_role(
+        f"sched_resume_ok_{suffix}",
+        ["schedule:*:manage", f"workflow:default:batch_{suffix}:*"],
+    )
+    identity = FluxIdentity(subject="owner", roles=frozenset({f"sched_resume_ok_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(f"/schedules/{schedule_model.id}/resume", headers=_headers())
+    assert resp.status_code == 200, resp.text
+
+
+def test_schedule_pause_denies_caller_without_workflow_read(client):
+    """Pausing only stops execution, so it takes the lighter read boundary that
+    get_schedule uses rather than full run authorization."""
+    suffix = uuid.uuid4().hex[:6]
+    schedule_model = _seed_schedule(suffix, f"nightly_{suffix}")
+
+    _seed_role(f"sched_pause_{suffix}", ["schedule:*:manage"])
+    identity = FluxIdentity(subject="intruder", roles=frozenset({f"sched_pause_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(f"/schedules/{schedule_model.id}/pause", headers=_headers())
+    assert resp.status_code == 403, resp.text
+
+
 def test_schedule_history_denies_reader_without_workflow_read(client):
     """`get_schedule` scopes to the bound workflow; history exposes the same
     workflow's execution ids, states and error strings, so it must scope too."""
