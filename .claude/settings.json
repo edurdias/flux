@@ -18,7 +18,7 @@
           {
             "type": "command",
             "if": "Bash(gh pr *)",
-            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|🤖\\s*generated with|generated with \\[claude code\\]\\(\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in PR bodies (see CONTRIBUTING.md and AGENTS.md). Remove the trailer/footer, then retry.\"}}))'",
+            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|^\\s*🤖|^\\s*generated with \\[[^\\]]*\\]\\(https?://\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in PR bodies (see CONTRIBUTING.md and AGENTS.md). Remove the trailer/footer, then retry.\"}}))'",
             "statusMessage": "Checking PR body for attribution"
           }
         ]
