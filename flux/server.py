@@ -353,10 +353,14 @@ class Server(
         the credential — the pattern ``workers_secrets_batch`` already applies.
         """
         from flux.context_managers import ContextManager
+        from flux.errors import ExecutionContextNotFoundError
 
         try:
             ctx = ContextManager.create().get(execution_id)
-        except Exception:
+        except ExecutionContextNotFoundError:
+            # Only a genuinely absent execution is a 404; a database or
+            # catalog failure must surface as a 500 rather than be reported
+            # as "not found".
             raise HTTPException(status_code=404, detail="Execution not found") from None
         if ctx.current_worker != name:
             raise HTTPException(
