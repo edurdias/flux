@@ -1343,7 +1343,7 @@ class task:
                             "max_attempts": self.retry_max_attempts,
                             "current_delay": current_delay,
                             "backoff": self.retry_backoff,
-                            "output": self.output_storage.store(task_id, output),
+                            "output": self._stored_output(task_id, output),
                         },
                     ),
                 )
