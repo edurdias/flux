@@ -420,6 +420,20 @@ class ScheduleRoutesMixin:
                         detail=f"Schedule '{schedule_id}' not found",
                     )
 
+                # Pausing only stops execution, so it takes the read boundary
+                # get_schedule uses rather than full run authorization —
+                # stopping a runaway schedule should not require the right to
+                # run its workflow.
+                if auth_service is not None and auth_config.enabled:
+                    required = (
+                        f"workflow:{schedule.workflow_namespace}:{schedule.workflow_name}:read"
+                    )
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
+
                 # Now pause using the actual ID
                 schedule = schedule_manager.pause_schedule(schedule.id)
 
@@ -450,6 +464,43 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # Resuming makes the workflow fire under the bound service
+                # account again, so it takes the same run authorization as
+                # create/update rather than the lighter read boundary — an
+                # operator's deliberate pause would otherwise be the only
+                # thing standing between schedule:*:manage and the SA's roles.
+                if auth_config.enabled and auth_service is not None:
+                    try:
+                        workflow_def = WorkflowCatalog.create().get(
+                            schedule.workflow_namespace,
+                            schedule.workflow_name,
+                        )
+                    except Exception:
+                        workflow_def = None
+                    if workflow_def is None:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Cannot resume schedule: workflow "
+                                f"'{schedule.workflow_namespace}/"
+                                f"{schedule.workflow_name}' is not in the catalog"
+                            ),
+                        )
+                    auth_result = await auth_service.authorize(
+                        identity,
+                        schedule.workflow_namespace,
+                        schedule.workflow_name,
+                        workflow_def.metadata or {},
+                    )
+                    if not auth_result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permissions": auth_result.missing_permissions,
+                            },
+                        )
 
                 # Now resume using the actual ID
                 schedule = schedule_manager.resume_schedule(schedule.id)
