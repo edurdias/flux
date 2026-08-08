@@ -59,6 +59,21 @@ class TestLockedProfile:
         assert command.count("--cpus") == 1
         assert "--network" not in command  # only the fused --network=none form
 
+    def test_coredump_optout_forced_closed(self):
+        """The profile pins FLUX_CHILD_ALLOW_COREDUMP empty so the child's
+        PR_SET_DUMPABLE seal cannot be defeated (issue #177)."""
+        command = make_runner()._build_command("c")
+        assert "--env FLUX_CHILD_ALLOW_COREDUMP=" in " ".join(command)
+
+    def test_coredump_optout_wins_over_operator_env(self):
+        """--env is deliberately not vetoed, so the profile's empty value must
+        land after an operator's — docker env parsing is last-wins."""
+        runner = make_runner(extra_args=["--env", "FLUX_CHILD_ALLOW_COREDUMP=1"])
+        command = runner._build_command("c")
+        operator_at = command.index("FLUX_CHILD_ALLOW_COREDUMP=1")
+        profile_at = command.index("FLUX_CHILD_ALLOW_COREDUMP=")
+        assert operator_at < profile_at
+
     def test_configured_limits_flow_into_profile(self):
         runner = make_runner(memory="1g", cpus=2.0, pids_limit=64, tmp_size="16m")
         joined = " ".join(runner._build_command("c"))

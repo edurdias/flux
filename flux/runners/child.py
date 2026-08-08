@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import signal
 import sys
 from typing import Any
@@ -32,6 +33,40 @@ from flux.secret_managers import SecretManager
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
+
+_PR_SET_DUMPABLE = 4  # prctl(2)
+
+
+def _suppress_core_dumps() -> None:
+    """Make this process undumpable so a crash cannot hand its memory to a
+    host-side core collector.
+
+    When ``kernel.core_pattern`` starts with ``|`` (apport, systemd-coredump —
+    the default on typical hosts), the kernel pipes a crashing process's whole
+    address space to a handler running on the HOST, in the host's namespaces.
+    No container flag stops that path, and ``core(5)`` documents that
+    ``RLIMIT_CORE`` is ignored for piped dumps — ``PR_SET_DUMPABLE`` is the
+    only mitigation that works from inside, and it does not survive execve,
+    so it must run here in the entrypoint rather than in the launcher.
+
+    ``FLUX_CHILD_ALLOW_COREDUMP=1`` opts back into dumpable children for
+    debugging; the airgapped profile forces the variable empty after operator
+    args so the opt-out is unavailable there.
+    """
+    if os.environ.get("FLUX_CHILD_ALLOW_COREDUMP", "").strip().lower() in ("1", "true", "yes"):
+        logger.info("FLUX_CHILD_ALLOW_COREDUMP is set; leaving the runner child dumpable")
+        return
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.prctl(_PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+            errno = ctypes.get_errno()
+            raise OSError(errno, os.strerror(errno))
+    except Exception as e:
+        logger.warning(f"Could not disable core dumps for the runner child: {e}")
 
 
 class _FrameIO:
@@ -283,6 +318,9 @@ async def _run(request: dict) -> int:
 def main() -> int:
     # Stdout carries frames; force every log record to stderr.
     logging.basicConfig(stream=sys.stderr, force=True)
+    # Before the stdio protocol starts: once the request frame arrives this
+    # process holds workflow data a crash must not leak (issue #177).
+    _suppress_core_dumps()
 
     line = sys.stdin.readline()
     if not line:
