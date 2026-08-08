@@ -528,6 +528,16 @@ class AirgappedDockerRunner(DockerRunner):
             "--cpus",
             str(self._airgapped_cpus),
         ]
+        # A crash must not hand the sandbox's memory to a host-side core
+        # collector: with a piped kernel.core_pattern (apport,
+        # systemd-coredump — the default on typical hosts) the dump handler
+        # runs on the HOST, outside every flag above, and core(5) documents
+        # that RLIMIT_CORE does not apply to piped dumps. The child entrypoint
+        # suppresses dumps in-kernel via PR_SET_DUMPABLE; forcing its opt-out
+        # variable empty here — after extra_args, so last-wins parsing keeps
+        # it authoritative — makes the debugging escape hatch unavailable on
+        # this profile (issue #177).
+        args += ["--env", "FLUX_CHILD_ALLOW_COREDUMP="]
         # Named capability knobs. Emitted here — not accepted in extra_args —
         # so each grant is explicit config; read-only is forced on mounts no
         # matter what the entry said.
