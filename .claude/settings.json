@@ -11,7 +11,7 @@
           {
             "type": "command",
             "if": "Bash(git commit*)",
-            "command": "jq -r '.tool_input.command' | grep -qi 'co-authored-by' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids Co-Authored-By trailers (see CONTRIBUTING.md and AGENTS.md). Remove the trailer, then commit again.\"}}' || true",
+            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids Co-Authored-By trailers (see CONTRIBUTING.md and AGENTS.md). Remove the trailer, then commit again.\"}}))'",
             "statusMessage": "Checking commit trailers"
           }
         ]
