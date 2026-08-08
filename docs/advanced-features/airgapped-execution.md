@@ -18,7 +18,7 @@ else is closed.
 | Resources | memory / cpus / pids limits (required, never unlimited) |
 | Time | wall-clock ceiling; on expiry the container is killed and the execution fails terminally for both durabilities |
 | Credentials | none — the child holds no worker or fleet credentials |
-| Core dumps | the child entrypoint makes itself undumpable (`PR_SET_DUMPABLE=0`), and the profile pins the opt-out closed |
+| Core dumps | on Linux the child entrypoint makes itself undumpable (`PR_SET_DUMPABLE=0`), and the profile pins the opt-out closed |
 
 The profile is emitted from code *after* any operator `extra_args`, so
 docker's last-wins flag parsing keeps it authoritative; `extra_args` that
@@ -31,7 +31,11 @@ crashing process's entire address space is handed to a collector running
 *on the host*, outside the read-only rootfs, the dropped capabilities,
 and even `RLIMIT_CORE` (which `core(5)` documents as ignored for piped
 dumps). Every runner child therefore disables dumpability in-kernel at
-startup. Setting `FLUX_CHILD_ALLOW_COREDUMP=1` in the child's environment
+startup on Linux — where both the exposure and `prctl` exist. The call is
+skipped on other platforms, so a `subprocess` runner on macOS or Windows
+is unaffected either way.
+
+Setting `FLUX_CHILD_ALLOW_COREDUMP=1` in the child's environment
 re-enables dumps for debugging on the `subprocess` and plain `docker`
 runners; the airgapped profile forces the variable empty after operator
 `extra_args`, so the escape hatch does not exist on this runner.
