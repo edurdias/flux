@@ -28,6 +28,21 @@ class WorkflowRef:
     name: str
 
 
+def _is_safe_execution_id(execution_id: str) -> bool:
+    """Whether ``execution_id`` is safe to interpolate into an upstream path.
+
+    Same hazard as ``mode``: httpx collapses dot segments when merging a path
+    against ``base_url``, so a value of ``..`` walks the request off the
+    endpoint set ``proxy.resolve()`` is the allowlist for. An ASGI server
+    percent-decodes before routing, so ``%2e%2e`` arrives here as ``..``.
+    """
+    return (
+        bool(execution_id)
+        and execution_id not in (".", "..")
+        and not set("/\\") & set(execution_id)
+    )
+
+
 class StandaloneServiceProxy:
     def __init__(self, service_name: str, server_url: str, cache_ttl: int = 60):
         self.service_name = service_name
@@ -242,6 +257,17 @@ def create_standalone_app(
         execution_id: str,
         mode: str = Query("sync"),
     ):
+        # Interpolated into the upstream path below, and httpx normalizes `..`
+        # when merging against base_url — an unvalidated value escapes the
+        # endpoint set proxy.resolve() is the allowlist for.
+        if mode not in ("sync", "async"):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Standalone proxy only supports 'sync' and 'async' modes"},
+            )
+        if not _is_safe_execution_id(execution_id):
+            return JSONResponse(status_code=400, content={"detail": "Invalid execution id"})
+
         try:
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:
@@ -280,6 +306,9 @@ def create_standalone_app(
         workflow_name: str,
         execution_id: str,
     ):
+        if not _is_safe_execution_id(execution_id):
+            return JSONResponse(status_code=400, content={"detail": "Invalid execution id"})
+
         try:
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:

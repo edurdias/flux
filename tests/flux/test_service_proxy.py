@@ -55,6 +55,73 @@ class TestWorkflowRoute:
             assert r.status_code in (404, 500, 502)
 
 
+class TestModeValidation:
+    """``mode`` is interpolated into the upstream request path, and httpx
+    normalizes ``..`` segments when merging a path against ``base_url``. An
+    unvalidated value therefore walks out of the endpoint set ``proxy.resolve()``
+    is meant to be the allowlist for, reaching arbitrary Flux API routes."""
+
+    def test_run_rejects_unknown_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice", params={"mode": "bogus"})
+            assert r.status_code == 400
+
+    def test_resume_rejects_unknown_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice/resume/exec-123", params={"mode": "bogus"})
+            assert r.status_code == 400
+
+    def test_resume_rejects_traversal_in_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post(
+                "/run/invoice/resume/exec-123",
+                params={"mode": "../../../../../workflows/other-ns/other-wf/run/sync"},
+            )
+            assert r.status_code == 400
+
+
+class TestExecutionIdValidation:
+    """``execution_id`` is interpolated into the upstream path just like
+    ``mode``. Uvicorn percent-decodes before Starlette routes, so ``%2e%2e``
+    binds ``execution_id=".."`` and httpx then collapses the dot segment when
+    merging against ``base_url`` — walking off the service's endpoint set."""
+
+    def test_status_rejects_traversal_execution_id(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/run/invoice/status/%2e%2e")
+            assert r.status_code == 400, r.text
+
+    def test_resume_rejects_traversal_execution_id(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice/resume/%2e%2e")
+            assert r.status_code == 400, r.text
+
+    @pytest.mark.parametrize("bad", ["", ".", "..", "a/b", "a\\b"])
+    def test_guard_rejects_path_significant_ids(self, bad):
+        """Covers shapes the test client cannot route (an encoded slash 404s
+        here) but a different ASGI server may decode straight into the path
+        parameter."""
+        from flux.service_proxy import _is_safe_execution_id
+
+        assert not _is_safe_execution_id(bad)
+
+    def test_guard_accepts_ordinary_ids(self):
+        from flux.service_proxy import _is_safe_execution_id
+
+        assert _is_safe_execution_id("0f9c1e2a3b4d5e6f")
+
+    def test_ordinary_execution_id_still_reaches_the_handler(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.get("/run/invoice/status/0f9c1e2a3b4d5e6f")
+            assert r.status_code in (404, 500, 502)
+
+
 class TestMCPRouting:
     """Verify /mcp and /.well-known/ are routed to the FastMCP app,
     not swallowed by FastAPI's routing.
