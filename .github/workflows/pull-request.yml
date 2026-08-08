@@ -5,6 +5,16 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Allow manual triggering
 
+# Force-pushing a PR (a rebase onto main, a review fix) otherwise leaves the
+# superseded run going: it keeps a 15-minute e2e and the postgres jobs busy for
+# a commit nobody will merge, and reports its result against a PR whose head has
+# already moved — which reads as a failure on the current code. Keyed on the PR
+# number so branches never cancel each other, and falling back to the ref for
+# workflow_dispatch, where there is no PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   version-check:
     runs-on: ubuntu-latest
