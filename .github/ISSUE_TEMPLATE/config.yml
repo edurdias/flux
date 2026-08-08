@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/edurdias/flux/security/advisories/new
+    about: Report privately via GitHub security advisories — never in a public issue.
+  - name: Documentation
+    url: https://github.com/edurdias/flux/tree/main/docs
+    about: Guides for core concepts, advanced features, and production deployment.
