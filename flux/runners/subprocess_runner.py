@@ -149,13 +149,20 @@ class SubprocessRunner(Runner):
 
             async for frame in self._frames(proc):
                 kind = frame.get("type")
+                # The child's stdout is the frame channel, so workflow code can
+                # emit a frame naming any execution. Every relayed operation is
+                # bound to the execution actually dispatched; a frame claiming a
+                # different one is dropped rather than trusted or rewritten,
+                # since its events and state belong to that other execution.
+                if kind in ("checkpoint", "result") and not self._owns_frame(frame, execution_id):
+                    continue
                 if kind == "checkpoint":
                     last_ctx = self._rebuild(frame, hooks)
                     await hooks.checkpoint(last_ctx)
                 elif kind == "progress":
                     if hooks.progress:
                         hooks.progress(
-                            frame["execution_id"],
+                            execution_id,
                             frame["task_id"],
                             frame["task_name"],
                             frame["value"],
@@ -167,7 +174,7 @@ class SubprocessRunner(Runner):
                     "approval_register_request",
                 ):
                     task = asyncio.create_task(
-                        self._serve_rpc(proc, frame, hooks, stdin_lock),
+                        self._serve_rpc(proc, frame, hooks, stdin_lock, execution_id),
                     )
                     rpc_tasks.add(task)
                     task.add_done_callback(rpc_tasks.discard)
@@ -222,6 +229,18 @@ class SubprocessRunner(Runner):
             except json.JSONDecodeError:
                 logger.warning("Dropping malformed frame from runner child")
 
+    @staticmethod
+    def _owns_frame(frame: dict, execution_id: str) -> bool:
+        """Whether a context-bearing frame names the dispatched execution."""
+        claimed = (frame.get("context") or {}).get("execution_id")
+        if claimed == execution_id:
+            return True
+        logger.error(
+            f"Runner child for {execution_id} emitted a {frame.get('type')} frame "
+            f"naming execution {claimed!r}; dropping it",
+        )
+        return False
+
     def _rebuild(self, frame: dict, hooks: RunnerHooks) -> ExecutionContext:
         from flux.domain.execution_context import ExecutionContext
 
@@ -230,10 +249,17 @@ class SubprocessRunner(Runner):
             ctx.mark_transient()
         return ctx
 
-    async def _serve_rpc(self, proc, frame: dict, hooks: RunnerHooks, stdin_lock: asyncio.Lock):
+    async def _serve_rpc(
+        self,
+        proc,
+        frame: dict,
+        hooks: RunnerHooks,
+        stdin_lock: asyncio.Lock,
+        execution_id: str,
+    ):
         response: dict[str, Any] = {"type": "rpc_response", "id": frame["id"]}
         try:
-            response["values"] = await self._resolve_rpc(frame, hooks)
+            response["values"] = await self._resolve_rpc(frame, hooks, execution_id)
         except Exception as e:
             response["error"] = str(e)
         try:
@@ -243,7 +269,16 @@ class SubprocessRunner(Runner):
         except (ConnectionError, RuntimeError):
             logger.debug("Runner child went away before its RPC response was written")
 
-    async def _resolve_rpc(self, frame: dict, hooks: RunnerHooks) -> dict[str, Any]:
+    async def _resolve_rpc(
+        self,
+        frame: dict,
+        hooks: RunnerHooks,
+        execution_id: str,
+    ) -> dict[str, Any]:
+        # execution_id is the parent's, never the frame's. get_secrets is
+        # already bound this way — the parent closed over the real id when it
+        # built the hook — and the approval hooks now match, so a child cannot
+        # read or register approvals against an execution it was not given.
         kind = frame["type"]
         if kind == "secrets_request":
             return await hooks.get_secrets(frame.get("names") or [])
@@ -253,7 +288,7 @@ class SubprocessRunner(Runner):
             if hooks.get_approval is None:
                 raise RuntimeError("Approval lookups are not available for this execution")
             approval = await hooks.get_approval(
-                frame["execution_id"],
+                execution_id,
                 frame["task_call_id"],
             )
             return {"approval": approval}
@@ -261,7 +296,7 @@ class SubprocessRunner(Runner):
             if hooks.register_approval is None:
                 raise RuntimeError("Approval registration is not available for this execution")
             return await hooks.register_approval(
-                frame["execution_id"],
+                execution_id,
                 {
                     "task_call_id": frame["task_call_id"],
                     "task_name": frame["task_name"],
