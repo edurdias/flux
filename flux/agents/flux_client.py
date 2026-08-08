@@ -17,8 +17,9 @@ async def _iter_sse_data_frames(lines: AsyncIterable[str]) -> AsyncIterator[dict
     """Yield one decoded JSON object per SSE ``data:`` frame.
 
     Per the SSE spec a single event may span multiple ``data:`` lines; the
-    receiver joins them with ``\\n``. A blank line terminates the event. Flux
-    streams pretty-printed JSON, so buffering is required; parsing each line
+    receiver joins them with ``\\n``. A blank line terminates the event.
+    Buffering is therefore required in general, and specifically for servers
+    before 0.74.4, which pretty-printed payloads (#168) — parsing each line
     individually produces ``Expecting property name`` errors on ``data: {``.
     """
     buf: list[str] = []

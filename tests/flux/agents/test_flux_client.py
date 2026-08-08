@@ -80,7 +80,13 @@ async def test_start_agent_posts_body_unwrapped():
 
 @pytest.mark.asyncio
 async def test_start_agent_buffers_multiline_sse_frames():
-    """Regression: a single SSE frame can span multiple ``data:`` lines (pretty-printed JSON)."""
+    """Regression: a single SSE frame can span multiple ``data:`` lines.
+
+    The fixture below is what a pre-0.74.4 server sent (#168). Current servers
+    send one compact line per event, so this case is no longer reachable from
+    our own server — it stays because the SSE spec permits it and because a
+    current client must keep talking to older servers in the field.
+    """
     client = FluxClient(server_url="http://test", token="t")
 
     multi_line_sse = (
