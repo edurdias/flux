@@ -79,6 +79,11 @@ def build_search_tools(config: SystemToolsConfig) -> list:
         except re.error as e:
             return {"status": "error", "error": f"invalid regex: {e}"}
 
+        # Resolved, like find_files: search_root is already resolved, so
+        # relpath against the *unresolved* workspace yields a `../..` path
+        # whenever the configured workspace itself contains a symlink.
+        workspace = config.workspace.resolve()
+
         matches = []
         for root, _dirs, files in os.walk(search_root):
             for fname in sorted(files):
@@ -94,7 +99,7 @@ def build_search_tools(config: SystemToolsConfig) -> list:
                     with open(fpath, errors="replace") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
-                                rel = os.path.relpath(fpath, config.workspace)
+                                rel = os.path.relpath(fpath, workspace)
                                 matches.append(
                                     {
                                         "file": rel,

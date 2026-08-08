@@ -147,3 +147,38 @@ class TestSymlinkContainment:
 
         assert result["status"] == "ok"
         assert [m["file"] for m in result["matches"]] == ["own.txt"]
+
+    async def test_list_directory_hides_entries_that_escape(self, config):
+        """``is_dir()``/``stat()`` follow symlinks here too: without the same
+        per-entry check the listing reports the type and size of files outside
+        the workspace."""
+        from flux.tasks.ai.tools.directory import build_directory_tools
+
+        tools = self._tools(build_directory_tools, config)
+        result = await self._call(tools["list_directory"], "")
+
+        assert result["status"] == "ok"
+        assert [e["name"] for e in result["entries"]] == ["own.txt"]
+
+    async def test_grep_paths_are_relative_when_workspace_is_symlinked(self, tmp_path):
+        """A workspace path that itself contains a symlink (``/tmp`` on macOS,
+        a symlinked checkout) must still yield paths relative to it — the walk
+        starts from the *resolved* root, so relpath needs the resolved base."""
+        from flux.tasks.ai.tools.search import build_search_tools
+
+        real = tmp_path / "real_ws"
+        real.mkdir()
+        (real / "own.txt").write_text("nothing interesting\n")
+        linked = tmp_path / "linked_ws"
+        linked.symlink_to(real)
+
+        config = SystemToolsConfig(
+            workspace=linked,
+            timeout=30,
+            blocklist=[],
+            max_output_chars=100_000,
+        )
+        tools = self._tools(build_search_tools, config)
+        result = await self._call(tools["grep"], "nothing interesting")
+
+        assert [m["file"] for m in result["matches"]] == ["own.txt"]
