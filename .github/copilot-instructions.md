@@ -65,5 +65,6 @@ Test files must be named `test_*.py` — `name-tests-test` enforces it in pre-co
 
 - Bump the version in `pyproject.toml` — CI rejects any PR that doesn't raise it above `main`.
 - Run `poetry run pre-commit run --all-files`; never bypass it with `--no-verify`.
-- **Do not add `Co-Authored-By:` trailers** to commits or PR descriptions.
+- **Do not add AI attribution** to commits or PR descriptions — no `Co-Authored-By:` trailers,
+  no "Generated with" footers, no tool bylines.
 - Stay Python 3.12-compatible (`pyupgrade` runs `--py312-plus`); the project uses Poetry, never `uv`.

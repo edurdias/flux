@@ -326,7 +326,8 @@ fails fast, and waiting on CI for a first green is slow.
 
 - **Never commit directly to `main`.** Branch, then open a PR.
 - **Bump `pyproject.toml` on every PR** — patch for fixes, minor for features. CI fails without it.
-- **Do not add `Co-Authored-By:` trailers** to commits or PR descriptions on this repo.
+- **No AI attribution in commits or PR descriptions.** No `Co-Authored-By:` trailers, no
+  "Generated with" footers, no tool bylines — in the message body or the PR description.
 - **Do not bypass pre-commit** with `--no-verify`. Fix the cause or update `.pre-commit-config.yaml`
   deliberately.
 - **Comment the *why*, not the *what*.** Reserve comments for non-obvious constraints — race fixes,
