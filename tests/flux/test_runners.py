@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import sys
 import textwrap
 from unittest.mock import AsyncMock, MagicMock
 
@@ -214,6 +215,83 @@ class TestChildEnvironment:
 
         assert result.has_finished and not result.has_failed
         assert result.output == [None, None, "visible"]
+
+
+class TestCoreDumpSuppression:
+    """The child seals itself against core dumps at startup (issue #177):
+    PR_SET_DUMPABLE=0 is the only mitigation that also covers piped
+    kernel.core_pattern handlers, and it does not survive execve, so it must
+    run inside the entrypoint. Real-prctl tests run in a fresh subprocess —
+    making the pytest process itself undumpable would be a side effect."""
+
+    PROBE = textwrap.dedent(
+        """
+        import ctypes
+        from flux.runners.child import _suppress_core_dumps
+        _suppress_core_dumps()
+        print(ctypes.CDLL(None).prctl(3, 0, 0, 0, 0))  # PR_GET_DUMPABLE
+        """,
+    )
+
+    def _probe_dumpable(self, monkeypatch, allow_coredump: str | None) -> str:
+        import os
+        import subprocess
+        import sys
+
+        monkeypatch.delenv("FLUX_CHILD_ALLOW_COREDUMP", raising=False)
+        if allow_coredump is not None:
+            monkeypatch.setenv("FLUX_CHILD_ALLOW_COREDUMP", allow_coredump)
+        result = subprocess.run(
+            [sys.executable, "-c", self.PROBE],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=os.environ.copy(),
+        )
+        assert result.returncode == 0, result.stderr
+        # flux's logger may write to stdout in the probe; the prctl value is
+        # whatever printed last.
+        return result.stdout.strip().splitlines()[-1]
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="prctl is Linux-only")
+    def test_child_becomes_undumpable(self, monkeypatch):
+        assert self._probe_dumpable(monkeypatch, allow_coredump=None) == "0"
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="prctl is Linux-only")
+    def test_optout_leaves_child_dumpable(self, monkeypatch):
+        assert self._probe_dumpable(monkeypatch, allow_coredump="1") == "1"
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="prctl is Linux-only")
+    def test_empty_optout_still_seals(self, monkeypatch):
+        """The airgapped profile forces the variable EMPTY (last-wins --env);
+        empty must mean sealed, not opted out."""
+        assert self._probe_dumpable(monkeypatch, allow_coredump="") == "0"
+
+    def test_non_linux_degrades_quietly(self, monkeypatch):
+        from flux.runners import child
+
+        monkeypatch.delenv("FLUX_CHILD_ALLOW_COREDUMP", raising=False)
+        monkeypatch.setattr(child.sys, "platform", "darwin")
+        called = []
+        monkeypatch.setattr(
+            "ctypes.CDLL",
+            lambda *a, **k: called.append(a) or MagicMock(),
+        )
+        child._suppress_core_dumps()
+        assert called == []
+
+    def test_prctl_failure_is_a_warning_not_a_crash(self, monkeypatch, caplog):
+        from flux.runners import child
+
+        monkeypatch.delenv("FLUX_CHILD_ALLOW_COREDUMP", raising=False)
+        monkeypatch.setattr(child.sys, "platform", "linux")
+        monkeypatch.setattr(
+            "ctypes.CDLL",
+            MagicMock(side_effect=OSError("no libc here")),
+        )
+        with caplog.at_level("WARNING"):
+            child._suppress_core_dumps()
+        assert any("core dumps" in r.message for r in caplog.records)
 
 
 class TestApprovalRpcRelay:
