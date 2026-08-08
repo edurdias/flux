@@ -126,11 +126,18 @@ class WorkerRoutesMixin:
                 # and be rejected there, not silently become the default.
                 ttl = workers_config.join_token_ttl if raw_ttl is None else int(raw_ttl)
                 raw_subject = (body or {}).get("subject")
-                # A blank string reads as intent to bind that never took
-                # effect; refuse it rather than mint an unbound token.
-                if raw_subject is not None and not str(raw_subject).strip():
+                # subject decides which identity the token authorizes, so it is
+                # validated rather than coerced: str() would render {"a": 1} as
+                # its Python repr and bind the token to a name no worker can
+                # present, which an operator would read as a successful bind.
+                # JSON null keeps meaning "not provided", matching an omitted
+                # field; a blank string is intent to bind that never took
+                # effect, so it is refused instead of minting an unbound token.
+                if raw_subject is not None and not isinstance(raw_subject, str):
+                    raise ValueError("subject must be a string")
+                if raw_subject is not None and not raw_subject.strip():
                     raise ValueError("subject must not be blank")
-                subject = str(raw_subject).strip() if raw_subject is not None else None
+                subject = raw_subject.strip() if raw_subject is not None else None
                 token, expires_at = await asyncio.to_thread(
                     join_tokens.mint,
                     ttl,

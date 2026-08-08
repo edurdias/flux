@@ -227,6 +227,23 @@ class TestMintRoute:
         resp = client.post("/admin/workers/join-tokens", json={"subject": "   "})
         assert resp.status_code == 400, resp.text
 
+    @pytest.mark.parametrize("value", [123, True, {"a": 1}, ["worker-a"], 1.5])
+    def test_non_string_subject_is_rejected(self, make_client, value):
+        """subject decides which identity a token authorizes, so a non-string
+        must be refused rather than coerced. str() would turn {"a": 1} into
+        the Python repr "{'a': 1}" and bind the token to a name no worker can
+        ever present — an operator would read the 200 as a successful bind."""
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={"subject": value})
+        assert resp.status_code == 400, resp.text
+
+    def test_null_subject_mints_unbound(self, make_client):
+        """JSON null reads as 'not provided', matching an omitted field."""
+        client = make_client()
+        resp = client.post("/admin/workers/join-tokens", json={"subject": None})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["subject"] is None
+
 
 class TestRegistrationCredentials:
     def test_join_token_registers_and_is_consumed(self, make_client):
