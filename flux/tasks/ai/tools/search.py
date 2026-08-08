@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from flux.task import task
 
-from flux.tasks.ai.tools.system_tools import resolve_path
+from flux.tasks.ai.tools.system_tools import is_contained, resolve_path
 
 if TYPE_CHECKING:
     from flux.tasks.ai.tools.system_tools import SystemToolsConfig
@@ -79,17 +79,27 @@ def build_search_tools(config: SystemToolsConfig) -> list:
         except re.error as e:
             return {"status": "error", "error": f"invalid regex: {e}"}
 
+        # Resolved, like find_files: search_root is already resolved, so
+        # relpath against the *unresolved* workspace yields a `../..` path
+        # whenever the configured workspace itself contains a symlink.
+        workspace = config.workspace.resolve()
+
         matches = []
         for root, _dirs, files in os.walk(search_root):
             for fname in sorted(files):
                 if include and not fnmatch.fnmatch(fname, include):
                     continue
                 fpath = os.path.join(root, fname)
+                # os.walk does not descend symlinked directories by default,
+                # but a symlink to a FILE is still listed here and open()
+                # would follow it out of the workspace.
+                if not is_contained(config, fpath):
+                    continue
                 try:
                     with open(fpath, errors="replace") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
-                                rel = os.path.relpath(fpath, config.workspace)
+                                rel = os.path.relpath(fpath, workspace)
                                 matches.append(
                                     {
                                         "file": rel,
