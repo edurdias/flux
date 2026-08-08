@@ -92,8 +92,11 @@ class TestSymlinkContainment:
         ws = tmp_path / "ws"
         ws.mkdir()
         (ws / "own.txt").write_text("nothing interesting\n")
-        (ws / "link.env").symlink_to(outside / "secrets.env")
-        (ws / "dirlink").symlink_to(outside)
+        try:
+            (ws / "link.env").symlink_to(outside / "secrets.env")
+            (ws / "dirlink").symlink_to(outside, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks not supported")
         return SystemToolsConfig(
             workspace=ws,
             timeout=30,
@@ -170,7 +173,10 @@ class TestSymlinkContainment:
         real.mkdir()
         (real / "own.txt").write_text("nothing interesting\n")
         linked = tmp_path / "linked_ws"
-        linked.symlink_to(real)
+        try:
+            linked.symlink_to(real, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks not supported")
 
         config = SystemToolsConfig(
             workspace=linked,
