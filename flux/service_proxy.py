@@ -242,6 +242,15 @@ def create_standalone_app(
         execution_id: str,
         mode: str = Query("sync"),
     ):
+        # Interpolated into the upstream path below, and httpx normalizes `..`
+        # when merging against base_url — an unvalidated value escapes the
+        # endpoint set proxy.resolve() is the allowlist for.
+        if mode not in ("sync", "async"):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Standalone proxy only supports 'sync' and 'async' modes"},
+            )
+
         try:
             ref = await proxy.resolve(workflow_name)
         except KeyError as e:

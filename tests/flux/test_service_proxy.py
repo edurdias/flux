@@ -55,6 +55,34 @@ class TestWorkflowRoute:
             assert r.status_code in (404, 500, 502)
 
 
+class TestModeValidation:
+    """``mode`` is interpolated into the upstream request path, and httpx
+    normalizes ``..`` segments when merging a path against ``base_url``. An
+    unvalidated value therefore walks out of the endpoint set ``proxy.resolve()``
+    is meant to be the allowlist for, reaching arbitrary Flux API routes."""
+
+    def test_run_rejects_unknown_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice", params={"mode": "bogus"})
+            assert r.status_code == 400
+
+    def test_resume_rejects_unknown_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post("/run/invoice/resume/exec-123", params={"mode": "bogus"})
+            assert r.status_code == 400
+
+    def test_resume_rejects_traversal_in_mode(self):
+        app = create_standalone_app("test-svc", UNREACHABLE_SERVER)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            r = client.post(
+                "/run/invoice/resume/exec-123",
+                params={"mode": "../../../../../workflows/other-ns/other-wf/run/sync"},
+            )
+            assert r.status_code == 400
+
+
 class TestMCPRouting:
     """Verify /mcp and /.well-known/ are routed to the FastMCP app,
     not swallowed by FastAPI's routing.
