@@ -261,6 +261,13 @@ def test_schedule_update_denies_retarget_without_workflow_run(client):
         run_as_service_account=f"payroll-sa-{suffix}",
     )
 
+    before = {
+        "input_data": schedule_model.input_data,
+        "interval": schedule_model.schedule_config.interval,
+        "next_run_at": schedule_model.next_run_at,
+        "run_as_service_account": schedule_model.run_as_service_account,
+    }
+
     _seed_role(f"sched_only_cfg_{suffix}", ["schedule:*:manage"])
     identity = FluxIdentity(subject="intruder", roles=frozenset({f"sched_only_cfg_{suffix}"}))
 
@@ -275,9 +282,12 @@ def test_schedule_update_denies_retarget_without_workflow_run(client):
         )
     assert resp.status_code == 403, resp.text
 
-    # The stored schedule is untouched.
+    # The stored schedule is untouched — not merely free of the payload.
     reloaded = manager.get_schedule(schedule_model.id)
-    assert reloaded.input_data != {"amount": 1000000, "account": "attacker"}
+    assert reloaded.input_data == before["input_data"]
+    assert reloaded.schedule_config.interval == before["interval"]
+    assert reloaded.next_run_at == before["next_run_at"]
+    assert reloaded.run_as_service_account == before["run_as_service_account"]
 
 
 def test_schedule_update_allows_retarget_for_caller_who_can_run_workflow(client):

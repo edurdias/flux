@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from flux.catalogs import WorkflowCatalog
 from flux.domain.schedule import schedule_factory
+from flux.errors import WorkflowNotFoundError
 from flux.schedule_manager import create_schedule_manager
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
@@ -352,7 +353,10 @@ class ScheduleRoutesMixin:
                             existing_schedule.workflow_namespace,
                             existing_schedule.workflow_name,
                         )
-                    except Exception:
+                    except WorkflowNotFoundError:
+                        # Only a genuinely absent workflow is a 409; a DB or
+                        # catalog failure must surface as a 500 rather than be
+                        # reported as "not in the catalog".
                         workflow_def = None
                     if workflow_def is None:
                         raise HTTPException(
@@ -476,7 +480,10 @@ class ScheduleRoutesMixin:
                             schedule.workflow_namespace,
                             schedule.workflow_name,
                         )
-                    except Exception:
+                    except WorkflowNotFoundError:
+                        # Only a genuinely absent workflow is a 409; a DB or
+                        # catalog failure must surface as a 500 rather than be
+                        # reported as "not in the catalog".
                         workflow_def = None
                     if workflow_def is None:
                         raise HTTPException(

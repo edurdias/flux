@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from fastapi import Request
 
 from flux.catalogs import WorkflowCatalog
+from flux.errors import WorkflowNotFoundError
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
 
@@ -53,7 +54,15 @@ class AuthRoutesMixin:
                                 status_code=403,
                                 detail=f"Permission denied: requires '{required}'",
                             )
-                    wf = catalog.get(_perm_ns, _perm_name)
+                    try:
+                        wf = catalog.get(_perm_ns, _perm_name)
+                    except WorkflowNotFoundError:
+                        # Reached only by a caller who already holds read on
+                        # it, so 404 discloses nothing the permission did not.
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Workflow '{workflow}' not found",
+                        ) from None
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                     perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
                     perms.extend(
