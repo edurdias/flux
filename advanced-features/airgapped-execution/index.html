@@ -1512,11 +1512,29 @@ else is closed.</p>
 <td>Credentials</td>
 <td>none — the child holds no worker or fleet credentials</td>
 </tr>
+<tr>
+<td>Core dumps</td>
+<td>on Linux the child entrypoint makes itself undumpable (<code>PR_SET_DUMPABLE=0</code>), and the profile pins the opt-out closed</td>
+</tr>
 </tbody>
 </table>
 <p>The profile is emitted from code <em>after</em> any operator <code>extra_args</code>, so
 docker's last-wins flag parsing keeps it authoritative; <code>extra_args</code> that
 would re-open a closed surface are rejected at worker startup.</p>
+<p>The core-dump surface deserves a word, because no container flag covers
+it: when the host's <code>kernel.core_pattern</code> is a pipe (apport on Ubuntu,
+<code>systemd-coredump</code> on most other distros — i.e. the typical default), a
+crashing process's entire address space is handed to a collector running
+<em>on the host</em>, outside the read-only rootfs, the dropped capabilities,
+and even <code>RLIMIT_CORE</code> (which <code>core(5)</code> documents as ignored for piped
+dumps). Every runner child therefore disables dumpability in-kernel at
+startup on Linux — where both the exposure and <code>prctl</code> exist. The call is
+skipped on other platforms, so a <code>subprocess</code> runner on macOS or Windows
+is unaffected either way.</p>
+<p>Setting <code>FLUX_CHILD_ALLOW_COREDUMP=1</code> in the child's environment
+re-enables dumps for debugging on the <code>subprocess</code> and plain <code>docker</code>
+runners; the airgapped profile forces the variable empty after operator
+<code>extra_args</code>, so the escape hatch does not exist on this runner.</p>
 <h2 id="enabling-the-runner">Enabling the runner<a class="headerlink" href="#enabling-the-runner" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">[flux.workers]</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
