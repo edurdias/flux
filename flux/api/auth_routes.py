@@ -33,10 +33,26 @@ class AuthRoutesMixin:
         ):
             try:
                 catalog = WorkflowCatalog.create()
+                # This route enumerates namespaces, workflow names and the
+                # task names expanded by _collect_required_permissions, so it
+                # follows the same read boundary as /workflows and /namespaces.
+                scoped = auth_service is not None and auth_config.enabled
+                permissions: set[str] | frozenset[str] = set()
+                if scoped:
+                    permissions = await auth_service.resolve_permissions(identity)
                 if workflow:
                     from flux.catalogs import resolve_workflow_ref as _resolve_perm
 
                     _perm_ns, _perm_name = _resolve_perm(workflow)
+                    if scoped:
+                        required = f"workflow:{_perm_ns}:{_perm_name}:read"
+                        if not identity.has_permission(required, permissions):
+                            # Checked before the catalog lookup so a denial does
+                            # not distinguish "exists" from "does not exist".
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Permission denied: requires '{required}'",
+                            )
                     wf = catalog.get(_perm_ns, _perm_name)
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                     perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
@@ -50,6 +66,11 @@ class AuthRoutesMixin:
                     return perms
                 result = {}
                 for wf in catalog.all():
+                    if scoped and not identity.has_permission(
+                        f"workflow:{wf.namespace}:{wf.name}:read",
+                        permissions,
+                    ):
+                        continue
                     meta = wf.metadata or {} if hasattr(wf, "metadata") else {}
                     perms = [f"workflow:{wf.namespace}:{wf.name}:read"]
                     perms.extend(
@@ -61,6 +82,8 @@ class AuthRoutesMixin:
                     )
                     result[f"{wf.namespace}/{wf.name}"] = perms
                 return result
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
