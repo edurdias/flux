@@ -41,7 +41,8 @@ poetry run pre-commit install           # install the git hooks
 
 - **Don't bypass pre-commit** with `--no-verify`. If a hook fails, fix the cause or update
   `.pre-commit-config.yaml` deliberately.
-- **Don't add `Co-Authored-By:` lines** to commits or PRs.
+- **Don't add AI attribution** to commits or PRs — no `Co-Authored-By:` lines, no
+  "Generated with" footers, no tool bylines.
 - **Test files are `test_*.py`** (enforced by `name-tests-test`), except under `tests/*/fixtures/`.
 - **Stay 3.12-compatible.** `pyupgrade` runs `--py312-plus`; PEP 695 syntax is fine, but avoid
   3.13+-only features.
