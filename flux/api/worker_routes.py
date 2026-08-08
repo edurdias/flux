@@ -112,6 +112,10 @@ class WorkerRoutesMixin:
             The plaintext is returned exactly once; only its hash is stored.
             Hand it to one new worker as its registration Bearer token — it
             is consumed on first use and expires after the TTL.
+
+            Pass ``subject`` to bind the token to a single worker name so it
+            cannot register under any other identity. Omitting it mints an
+            unbound token, which any name may claim.
             """
             from flux.security import join_tokens
 
@@ -121,9 +125,23 @@ class WorkerRoutesMixin:
                 # None means "not provided" — an explicit 0 must reach mint()
                 # and be rejected there, not silently become the default.
                 ttl = workers_config.join_token_ttl if raw_ttl is None else int(raw_ttl)
+                raw_subject = (body or {}).get("subject")
+                # subject decides which identity the token authorizes, so it is
+                # validated rather than coerced: str() would render {"a": 1} as
+                # its Python repr and bind the token to a name no worker can
+                # present, which an operator would read as a successful bind.
+                # JSON null keeps meaning "not provided", matching an omitted
+                # field; a blank string is intent to bind that never took
+                # effect, so it is refused instead of minting an unbound token.
+                if raw_subject is not None and not isinstance(raw_subject, str):
+                    raise ValueError("subject must be a string")
+                if raw_subject is not None and not raw_subject.strip():
+                    raise ValueError("subject must not be blank")
+                subject = raw_subject.strip() if raw_subject is not None else None
                 token, expires_at = await asyncio.to_thread(
                     join_tokens.mint,
                     ttl,
+                    subject=subject,
                     created_by=identity.subject,
                 )
             except (TypeError, ValueError) as e:
@@ -133,6 +151,7 @@ class WorkerRoutesMixin:
             return {
                 "token": token,
                 "expires_at": expires_at.replace(tzinfo=_tz.utc).isoformat(),
+                "subject": subject,
             }
 
         def _apply_worker_metadata(name: str, metadata: dict) -> dict:
