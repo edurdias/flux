@@ -1529,7 +1529,12 @@ def server_group():
     default=None,
     help="Token lifetime in seconds (default: [flux.workers] join_token_ttl, 3600).",
 )
-def server_join_token(ttl_seconds: int | None):
+@click.option(
+    "--subject",
+    default=None,
+    help="Bind the token to this worker name; it will not register under any other.",
+)
+def server_join_token(ttl_seconds: int | None, subject: str | None):
     """Mint a one-time worker join token (printed once, stored hashed).
 
     Hand the token to exactly one new worker as its registration credential
@@ -1537,6 +1542,9 @@ def server_join_token(ttl_seconds: int | None):
     and expires after the TTL. Runs against the server's database — execute
     on the server host. Once the fleet has migrated, disable the shared
     secret with [flux.workers] bootstrap_token_enabled = false.
+
+    Prefer --subject: an unbound token registers under any name, and taking
+    over an existing name revokes that worker's keys.
     """
     from flux.config import Configuration
     from flux.security import join_tokens
@@ -1544,8 +1552,14 @@ def server_join_token(ttl_seconds: int | None):
     settings = Configuration.get().settings
     # --ttl 0 must surface mint()'s ValueError, not silently use the default.
     ttl = settings.workers.join_token_ttl if ttl_seconds is None else ttl_seconds
+    if subject is not None and not subject.strip():
+        raise click.ClickException("--subject must not be blank")
     try:
-        token, expires_at = join_tokens.mint(ttl, created_by="cli")
+        token, expires_at = join_tokens.mint(
+            ttl,
+            subject=subject.strip() if subject else None,
+            created_by="cli",
+        )
     except ValueError as e:
         raise click.ClickException(str(e))
     from datetime import timezone as _tz

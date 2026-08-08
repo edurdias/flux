@@ -18,7 +18,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime, String, or_
 
 from flux.models import Base, RepositoryFactory
 
@@ -40,16 +40,28 @@ class WorkerJoinTokenModel(Base):
     used_at = Column(DateTime, nullable=True)
     used_by = Column(String, nullable=True)
     created_by = Column(String, nullable=True)
+    # The worker name this token authorizes. NULL means unbound: any name may
+    # claim it, which is how tokens minted before binding existed behave.
+    subject = Column(String, nullable=True)
 
 
 def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def mint(ttl_seconds: int, *, created_by: str | None = None) -> tuple[str, datetime]:
+def mint(
+    ttl_seconds: int,
+    *,
+    subject: str | None = None,
+    created_by: str | None = None,
+) -> tuple[str, datetime]:
     """Create a join token; returns (plaintext, expires_at).
 
     The plaintext is never stored — surface it to the caller once.
+
+    ``subject`` binds the token to one worker name, so it cannot be used to
+    register under a different identity. Leaving it unset keeps the older
+    unbound behaviour, where any name may claim the token.
     """
     if ttl_seconds <= 0:
         raise ValueError("ttl_seconds must be positive")
@@ -62,6 +74,7 @@ def mint(ttl_seconds: int, *, created_by: str | None = None) -> tuple[str, datet
                 token_hash=_hash(token),
                 expires_at=expires_at,
                 created_by=created_by,
+                subject=subject,
             ),
         )
         session.commit()
@@ -71,9 +84,14 @@ def mint(ttl_seconds: int, *, created_by: str | None = None) -> tuple[str, datet
 def claim(token: str, worker_name: str) -> bool:
     """Atomically consume a live join token for a registering worker.
 
-    Returns True when this call claimed the token; a used, expired, or
-    unknown token returns False. Single UPDATE statement, so two racing
-    registrations cannot both succeed.
+    Returns True when this call claimed the token; a used, expired, unknown,
+    or wrongly-addressed token returns False. Single UPDATE statement, so two
+    racing registrations cannot both succeed.
+
+    A token minted with a ``subject`` only claims for that worker name. The
+    check rides in the UPDATE's WHERE clause rather than a prior SELECT, so a
+    mismatched name matches no row: the attempt neither succeeds nor consumes
+    the token, leaving the legitimate worker's credential live.
     """
     if not token:
         return False
@@ -86,6 +104,10 @@ def claim(token: str, worker_name: str) -> bool:
                 WorkerJoinTokenModel.token_hash == _hash(token),
                 WorkerJoinTokenModel.used_at.is_(None),
                 WorkerJoinTokenModel.expires_at > now,
+                or_(
+                    WorkerJoinTokenModel.subject.is_(None),
+                    WorkerJoinTokenModel.subject == worker_name,
+                ),
             )
             .update(
                 {"used_at": now, "used_by": worker_name},
