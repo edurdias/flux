@@ -175,6 +175,18 @@ class AdminRoutesMixin:
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
+        def _reject_reserved_agent_key(name: str) -> None:
+            from flux.agents.manager import AGENT_CONFIG_PREFIX
+
+            if name.startswith(AGENT_CONFIG_PREFIX):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"The '{AGENT_CONFIG_PREFIX}' config prefix is reserved; "
+                        "manage agent definitions through /admin/agents"
+                    ),
+                )
+
         @api.post("/admin/configs")
         async def admin_create_or_update_config(
             config_req: ConfigRequest = Body(...),
@@ -182,6 +194,7 @@ class AdminRoutesMixin:
         ):
             from flux.config_manager import ConfigManager
 
+            _reject_reserved_agent_key(config_req.name)
             try:
                 manager = ConfigManager.current()
                 manager.save(config_req.name, config_req.value)
@@ -189,6 +202,8 @@ class AdminRoutesMixin:
                     "status": "success",
                     "message": f"Config '{config_req.name}' saved successfully",
                 }
+            except HTTPException:
+                raise
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
@@ -199,6 +214,7 @@ class AdminRoutesMixin:
         ):
             from flux.config_manager import ConfigManager
 
+            _reject_reserved_agent_key(name)
             try:
                 manager = ConfigManager.current()
                 manager.remove(name)
@@ -206,6 +222,8 @@ class AdminRoutesMixin:
                     "status": "success",
                     "message": f"Config '{name}' deleted successfully",
                 }
+            except HTTPException:
+                raise
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
