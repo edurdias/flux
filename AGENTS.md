@@ -1,6 +1,10 @@
-# AGENT.md
+# AGENTS.md
 
-Tool-agnostic guidance for AI coding assistants (Claude Code, Cursor, Copilot, Codex, Aider, …) working on Flux. For commands, architecture, and gotchas, read `CLAUDE.md` first — this file does not duplicate that material; it covers *how* to make changes safely.
+Tool-agnostic guidance for AI coding assistants working on Flux, following the
+[AGENTS.md](https://agents.md) convention that Codex, Cursor, Copilot, Gemini CLI, Aider, Zed and
+others read automatically. For commands, architecture, and gotchas, read `CLAUDE.md` first — this
+file does not duplicate that material; it covers *how* to make changes safely. Human contributors
+should start at `CONTRIBUTING.md`.
 
 ## Operating principles
 
@@ -13,12 +17,12 @@ Tool-agnostic guidance for AI coding assistants (Claude Code, Cursor, Copilot, C
 
 ```
 1. branch off main           – never commit directly to main
-2. understand the surface    – read the touched module + its tests + adjacent CLAUDE.md / AGENT.md
+2. understand the surface    – read the touched module + its tests + CLAUDE.md / AGENTS.md
 3. make the change           – include unit tests; add/extend e2e tests when touching server/worker/CLI
 4. bump pyproject.toml       – patch for fixes, minor for features (CI enforces this)
 5. poetry run pre-commit run --all-files
 6. poetry run pytest tests/ --ignore=tests/e2e
-7. poetry run pytest tests/e2e/ -m "not ollama"
+7. poetry run pytest tests/e2e/ -m "not ollama and not network"
 8. open a PR – describe the why, not the what
 9. respond to review – commit and push fixes before replying to comments
 ```
@@ -30,7 +34,7 @@ The version bump in step 4 is enforced by `.github/workflows/pull-request.yml::v
 - **Unit first, E2E for system behavior.** Anything that reaches across server ↔ worker, CLI ↔ server, or scheduler ↔ catalog should have an E2E test. See `tests/e2e/conftest.py` for the `cli` fixture pattern.
 - **One workflow registration per E2E test module.** Worker module-cache collisions across tests are a known footgun (commit `33c7a7b`). When E2E tests register the same workflow name from different fixture files, prefer module-scoped fixtures or distinct names.
 - **Replay determinism.** When you change task/workflow event emission, replay an existing execution (`workflow.run(execution_id=...)`) and confirm the new event log is a strict superset / consistent rewrite. Determinism tests live in `tests/examples/test_determinism.py`.
-- **Don't add tests that need network access** unless they're properly skipped when the dependency is missing (see how `@pytest.mark.ollama` is handled in `tests/e2e/conftest.py`).
+- **Don't add tests that need network access** unless they're marked `@pytest.mark.network` (CI's e2e gate deselects it) or skipped when the dependency is missing (see how `@pytest.mark.ollama` is handled in `tests/e2e/conftest.py`).
 - **Don't commit databases.** `*.db`, `*.db-wal`, `*.db-shm`, `test.db` are gitignored — verify with `git status` before staging.
 
 ## Editing the public surface
@@ -41,9 +45,10 @@ The version bump in step 4 is enforced by `.github/workflows/pull-request.yml::v
   - serialization via `flux/encoders.py` if it travels in events / requests
   - documentation in the relevant `docs/advanced-features/*.md`
 - New CLI subcommands go in `flux/cli.py`; follow the existing `--format json|simple`, `--server-url`, and Click group conventions. Add a method to `tests/e2e/conftest.py::FluxCLI` so E2E tests can drive it.
-- New HTTP endpoints in `flux/server.py` should:
+- New HTTP endpoints go in the matching `flux/api/<domain>_routes.py` mixin (**not** `flux/server.py`,
+  which only composes the mixins and owns app/middleware setup). They should:
   - declare permissions via `Depends(require_permission("..."))` (skip only with deliberate justification)
-  - accept and emit Pydantic models (don't return raw dicts)
+  - accept and emit Pydantic models from `flux/api/schemas.py` (don't return raw dicts)
   - respect the same rate-limiter / CORS / auth middleware as their neighbours
 
 ## Configuration & secrets
@@ -62,9 +67,9 @@ If your task involves *running* a workflow (rather than editing the framework):
 
 ## Documentation
 
-- `README.md` is the public face — keep examples in sync with the actual decorator surface; broken README snippets are caught by `tests/test_validate_examples.py`.
+- `README.md` is the public face — keep its snippets in sync with the actual decorator surface **by hand**. Nothing validates them: no test reads `README.md`, so a stale snippet ships silently. Re-read the code you are documenting before editing an example.
 - `docs/` is published to MkDocs (`mkdocs.yml`). Major features need an entry under `docs/advanced-features/`.
-- Internal design specs that don't ship belong under `.claude/docs/` (gitignored) — not in the repo's tracked docs.
+- Design specs for landed or in-flight features live in `docs/specs/`, named `YYYY-MM-DD-<topic>-spec.md`. Scratch notes and throwaway plans belong in `.claude/` (gitignored).
 
 ## Things to avoid
 

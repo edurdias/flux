@@ -181,7 +181,9 @@ Pipfile
 
 
 # Claude
-.claude/
+.claude/*
+# …except shared, team-wide agent config (hooks enforcing repo conventions)
+!.claude/settings.json
 .superpowers/
 
 # Worktrees

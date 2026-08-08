@@ -975,7 +975,8 @@ poetry install
 
 ### Run Tests
 ```bash
-poetry run pytest
+poetry run pytest tests/ --ignore=tests/e2e                     # unit suite
+poetry run pytest tests/e2e/ -m "not ollama and not network" -v # end-to-end (spawns server + worker)
 ```
 
 ### Code Quality
@@ -1012,13 +1013,19 @@ Apache License 2.0 - See LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests. For major changes, please open an issue first to discuss what you would like to change.
+Contributions are welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, the development
+workflow, and project conventions. For major changes, open an issue first to discuss the direction.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Two things trip up most first PRs:
+
+- **Bump the version in `pyproject.toml`** — CI rejects any PR that doesn't raise it above `main`.
+- **Run the checks locally** — `pre-commit`, the unit suite, and the E2E suite all gate merges.
+
+Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). Security vulnerabilities go
+through [SECURITY.md](SECURITY.md), never a public issue.
+
+Working with an AI coding assistant? `AGENTS.md` and `CLAUDE.md` carry the architecture tour and the
+non-obvious constraints worth loading into context first.
 
 
 ## Documentation
