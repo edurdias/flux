@@ -344,6 +344,26 @@ class Server(
                 f"but accessing endpoint for '{name}'",
             )
 
+    def _verify_worker_owns_execution(self, name: str, execution_id: str) -> None:
+        """Reject a worker acting on an execution it does not hold the claim for.
+
+        ``_verify_worker_identity`` proves only that the caller is the worker
+        it claims to be. Routes that act on a specific execution need this in
+        addition, because the execution is named by the request rather than by
+        the credential — the pattern ``workers_secrets_batch`` already applies.
+        """
+        from flux.context_managers import ContextManager
+
+        try:
+            ctx = ContextManager.create().get(execution_id)
+        except Exception:
+            raise HTTPException(status_code=404, detail="Execution not found") from None
+        if ctx.current_worker != name:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Worker '{name}' does not hold the claim for execution '{execution_id}'",
+            )
+
     def _get_version(self) -> str:
         import importlib.metadata
 

@@ -76,6 +76,7 @@ def _seed_execution(execution_id: str, namespace: str, workflow_name: str) -> No
         execution_id=execution_id,
     )
     ContextManager.create().save(ctx)
+    _claim_execution(execution_id)
 
 
 def test_get_approvals_lists_pending(client):
@@ -369,6 +370,22 @@ def test_cancel_marks_pending_approvals_cancelled(client):
 # ---------------------------------------------------------------------------
 # Worker-side approval registration (POST /workers/{name}/approvals/{eid})
 # ---------------------------------------------------------------------------
+
+
+def _claim_execution(execution_id: str, worker: str = "w1") -> None:
+    """Mark the execution as held by `worker`.
+
+    The worker-facing approval routes require the caller to hold the claim,
+    matching /workers/{name}/secrets/batch — a worker only registers or reads
+    approvals for executions dispatched to it.
+    """
+    from flux.models import ExecutionContextModel
+    from flux.unit_of_work import UnitOfWork
+
+    with UnitOfWork() as uow:
+        model = uow.session.get(ExecutionContextModel, execution_id)
+        model.worker_name = worker
+        uow.commit()
 
 
 def _set_execution_state(execution_id: str, state) -> None:

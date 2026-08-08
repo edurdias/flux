@@ -842,6 +842,17 @@ class WorkerRoutesMixin:
                 self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
 
+                # _verify_worker_identity only proves the caller is this
+                # worker, not that this worker owns the execution it is
+                # writing to. The body carries its own execution_id, so
+                # without both checks a worker can write to any execution.
+                if context.execution_id != execution_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Checkpoint body does not match the execution in the path",
+                    )
+                self._verify_worker_owns_execution(name, execution_id)
+
                 context_manager = ContextManager.create()
                 domain_ctx = context.to_domain()
 
@@ -967,6 +978,7 @@ class WorkerRoutesMixin:
             from flux.approvals import ApprovalManager, ApprovalSnapshot
 
             self._verify_worker_identity(identity, name)
+            self._verify_worker_owns_execution(name, execution_id)
             row = await asyncio.to_thread(
                 lambda: ApprovalManager().get_by_call(execution_id, task_call_id),
             )
@@ -993,6 +1005,7 @@ class WorkerRoutesMixin:
             checkpoint path.
             """
             self._verify_worker_identity(identity, name)
+            self._verify_worker_owns_execution(name, execution_id)
             task_call_id = payload.get("task_call_id")
             task_name = payload.get("task_name")
             target_value = payload.get("target_value") or None

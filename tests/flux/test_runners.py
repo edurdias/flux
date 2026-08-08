@@ -321,6 +321,7 @@ class TestApprovalRpcRelay:
         got = await runner._resolve_rpc(
             {"type": "approval_get_request", "execution_id": "e1", "task_call_id": "c1"},
             hooks,
+            "e1",
         )
         assert got == {"approval": {"id": "a1", "status": "pending"}}
 
@@ -332,6 +333,7 @@ class TestApprovalRpcRelay:
                 "task_name": "deploy",
             },
             hooks,
+            "e1",
         )
         assert registered == {"status": "created"}
 
@@ -339,7 +341,7 @@ class TestApprovalRpcRelay:
     async def test_resolve_rpc_rejects_unknown_frames(self):
         runner = SubprocessRunner(term_grace=5)
         with pytest.raises(RuntimeError, match="Unknown RPC frame"):
-            await runner._resolve_rpc({"type": "bogus_request", "id": 1}, make_hooks())
+            await runner._resolve_rpc({"type": "bogus_request", "id": 1}, make_hooks(), "e1")
 
 
 class TestCrashDurabilityMapping:
@@ -483,3 +485,81 @@ async def isolated_wf(ctx: ExecutionContext[str]):
             payload = server._build_dispatch_payload(ctx)
 
         assert payload.get("runner") == "subprocess"
+
+
+class TestChildExecutionBinding:
+    """The child's stdout IS the frame channel, so workflow code can emit a
+    frame naming any execution it likes. The parent must bind every relayed
+    operation to the execution it actually dispatched, never to what the
+    frame claims."""
+
+    @pytest.mark.asyncio
+    async def test_forged_checkpoint_cannot_target_another_execution(self):
+        source = """
+            import json
+            from flux import task, workflow, ExecutionContext
+
+            @workflow
+            async def forger(ctx: ExecutionContext):
+                print(json.dumps({
+                    "type": "checkpoint",
+                    "transient": False,
+                    "context": {
+                        "workflow_id": "victim/deploy",
+                        "workflow_namespace": "victim",
+                        "workflow_name": "deploy",
+                        "execution_id": "VICTIM-EXECUTION",
+                        "input": None,
+                        "output": {"owned": True},
+                        "state": "COMPLETED",
+                        "events": [],
+                    },
+                }), flush=True)
+                return "done"
+        """
+        checkpoints: list = []
+        request = make_request(source, "forger")
+        runner = SubprocessRunner(term_grace=5)
+
+        await runner.execute(request, make_hooks(checkpoints=checkpoints))
+
+        targeted = {c.execution_id for c in checkpoints}
+        assert "VICTIM-EXECUTION" not in targeted, (
+            f"a forged frame reached the checkpoint hook: {targeted}"
+        )
+        assert targeted <= {request.context.execution_id}
+
+    @pytest.mark.asyncio
+    async def test_approval_rpcs_ignore_the_execution_id_in_the_frame(self):
+        runner = SubprocessRunner(term_grace=5)
+        hooks = make_hooks()
+        seen: list = []
+
+        async def get_approval(execution_id, task_call_id):
+            seen.append(("get", execution_id))
+            return None
+
+        async def register_approval(execution_id, payload):
+            seen.append(("register", execution_id))
+            return {"status": "created"}
+
+        hooks.get_approval = get_approval
+        hooks.register_approval = register_approval
+
+        await runner._resolve_rpc(
+            {"type": "approval_get_request", "execution_id": "VICTIM", "task_call_id": "c1"},
+            hooks,
+            "MINE",
+        )
+        await runner._resolve_rpc(
+            {
+                "type": "approval_register_request",
+                "execution_id": "VICTIM",
+                "task_call_id": "c1",
+                "task_name": "deploy",
+            },
+            hooks,
+            "MINE",
+        )
+
+        assert seen == [("get", "MINE"), ("register", "MINE")]
