@@ -15,6 +15,7 @@ from fastapi import HTTPException
 
 from flux.catalogs import WorkflowCatalog
 from flux.domain.schedule import schedule_factory
+from flux.errors import WorkflowNotFoundError
 from flux.schedule_manager import create_schedule_manager
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
@@ -336,29 +337,32 @@ class ScheduleRoutesMixin:
                         detail=f"Schedule '{schedule_id}' not found",
                     )
 
-                # Rebinding the service account is subject to the same
-                # escalation guard as create: the caller must be authorized
-                # to run the schedule's workflow themselves. A failed catalog
-                # lookup fails CLOSED — authorizing against empty metadata
-                # would silently drop the per-task and nested-workflow
-                # permission requirements derived from it.
-                if (
-                    auth_config.enabled
-                    and auth_service is not None
-                    and request.run_as_service_account is not None
-                ):
+                # Every update is subject to the same escalation guard as
+                # create: the caller must be authorized to run the schedule's
+                # workflow themselves. This cannot be conditional on the
+                # service account being rebound — rewriting schedule_config or
+                # input_data alone re-aims the schedule's EXISTING service
+                # account at attacker-chosen input on an attacker-chosen
+                # cadence, which is the same escalation by another route. A
+                # failed catalog lookup fails CLOSED — authorizing against
+                # empty metadata would silently drop the per-task and
+                # nested-workflow permission requirements derived from it.
+                if auth_config.enabled and auth_service is not None:
                     try:
                         workflow_def = WorkflowCatalog.create().get(
                             existing_schedule.workflow_namespace,
                             existing_schedule.workflow_name,
                         )
-                    except Exception:
+                    except WorkflowNotFoundError:
+                        # Only a genuinely absent workflow is a 409; a DB or
+                        # catalog failure must surface as a 500 rather than be
+                        # reported as "not in the catalog".
                         workflow_def = None
                     if workflow_def is None:
                         raise HTTPException(
                             status_code=409,
                             detail=(
-                                f"Cannot rebind service account: workflow "
+                                f"Cannot update schedule: workflow "
                                 f"'{existing_schedule.workflow_namespace}/"
                                 f"{existing_schedule.workflow_name}' is not in the catalog"
                             ),
@@ -420,6 +424,20 @@ class ScheduleRoutesMixin:
                         detail=f"Schedule '{schedule_id}' not found",
                     )
 
+                # Pausing only stops execution, so it takes the read boundary
+                # get_schedule uses rather than full run authorization —
+                # stopping a runaway schedule should not require the right to
+                # run its workflow.
+                if auth_service is not None and auth_config.enabled:
+                    required = (
+                        f"workflow:{schedule.workflow_namespace}:{schedule.workflow_name}:read"
+                    )
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
+
                 # Now pause using the actual ID
                 schedule = schedule_manager.pause_schedule(schedule.id)
 
@@ -450,6 +468,46 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # Resuming makes the workflow fire under the bound service
+                # account again, so it takes the same run authorization as
+                # create/update rather than the lighter read boundary — an
+                # operator's deliberate pause would otherwise be the only
+                # thing standing between schedule:*:manage and the SA's roles.
+                if auth_config.enabled and auth_service is not None:
+                    try:
+                        workflow_def = WorkflowCatalog.create().get(
+                            schedule.workflow_namespace,
+                            schedule.workflow_name,
+                        )
+                    except WorkflowNotFoundError:
+                        # Only a genuinely absent workflow is a 409; a DB or
+                        # catalog failure must surface as a 500 rather than be
+                        # reported as "not in the catalog".
+                        workflow_def = None
+                    if workflow_def is None:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"Cannot resume schedule: workflow "
+                                f"'{schedule.workflow_namespace}/"
+                                f"{schedule.workflow_name}' is not in the catalog"
+                            ),
+                        )
+                    auth_result = await auth_service.authorize(
+                        identity,
+                        schedule.workflow_namespace,
+                        schedule.workflow_name,
+                        workflow_def.metadata or {},
+                    )
+                    if not auth_result.ok:
+                        raise HTTPException(
+                            status_code=403,
+                            detail={
+                                "error": "forbidden",
+                                "missing_permissions": auth_result.missing_permissions,
+                            },
+                        )
 
                 # Now resume using the actual ID
                 schedule = schedule_manager.resume_schedule(schedule.id)
@@ -530,6 +588,19 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # History carries execution ids, states and error strings for
+                # the bound workflow, so it follows the same read boundary as
+                # GET /schedules/{id} rather than the flat schedule:*:read.
+                if auth_service is not None and auth_config.enabled:
+                    required = (
+                        f"workflow:{schedule.workflow_namespace}:{schedule.workflow_name}:read"
+                    )
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
 
                 # Get execution history
                 entries, total = schedule_manager.get_schedule_history(
