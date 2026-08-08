@@ -67,8 +67,11 @@ async def _agent_server(
 async def _read_sse_events(response: httpx.Response):
     """Parse SSE events from an httpx streaming response.
 
-    Yields ``(kind, payload)`` tuples. Handles Flux's multi-line ``data:``
-    frames (JSON pretty-printed with indent).
+    Yields ``(kind, payload)`` tuples. Buffers until the blank line that ends
+    an event, since the SSE spec lets one event span multiple ``data:`` lines
+    — as servers before 0.74.4 did, having pretty-printed their payloads
+    (#168). Current servers send one compact line per event; the buffering
+    handles both.
     """
     buffer: list[str] = []
     async for line in response.aiter_lines():
