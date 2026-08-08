@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from flux.task import task
 
-from flux.tasks.ai.tools.system_tools import resolve_path, truncate_output
+from flux.tasks.ai.tools.system_tools import is_contained, resolve_path, truncate_output
 
 if TYPE_CHECKING:
     from flux.tasks.ai.tools.system_tools import SystemToolsConfig
@@ -65,6 +65,10 @@ def build_directory_tools(config: SystemToolsConfig) -> list[task]:
             except OSError:
                 return
             for entry in entries:
+                # is_dir() follows symlinks, so an unchecked entry lets the
+                # walk descend out of the workspace entirely.
+                if not is_contained(config, entry):
+                    continue
                 if entry.is_dir():
                     dir_count += 1
                     lines.append(f"{prefix}{entry.name}/")

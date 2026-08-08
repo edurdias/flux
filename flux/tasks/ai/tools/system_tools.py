@@ -35,6 +35,20 @@ def resolve_path(config: SystemToolsConfig, path: str) -> Path:
     return resolved
 
 
+def is_contained(config: SystemToolsConfig, path: Path | str) -> bool:
+    """Whether ``path`` resolves inside the workspace.
+
+    Tools that walk the tree need this per entry, not just per root:
+    ``resolve_path`` validates the path it is handed, but a symlink *inside*
+    the workspace resolves outside it, so a walk reaches files the boundary is
+    meant to exclude.
+    """
+    try:
+        return Path(path).resolve().is_relative_to(config.workspace.resolve())
+    except OSError:
+        return False
+
+
 def truncate_output(text: str, max_chars: int) -> tuple[str, bool]:
     if len(text) <= max_chars:
         return text, False
