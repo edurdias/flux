@@ -89,6 +89,29 @@ class TestStorageRedaction:
         [completed] = _events(ctx, ExecutionEventType.TASK_COMPLETED, "flaky_mint")
         assert _stored(flaky_mint, completed) == REDACTED_SENSITIVE
 
+    def test_retry_output_of_sensitive_task_redacted(self, isolated_db):
+        attempts = {"n": 0}
+
+        @task_decorator.with_options(sensitive=True, retry_max_attempts=2, retry_delay=0)
+        async def retried_mint() -> str:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ValueError("transient mint failure")
+            return "sk-retry-secret"
+
+        @workflow
+        async def wf(ctx: ExecutionContext):
+            return len(await retried_mint())
+
+        ctx = wf.run()
+        assert ctx.has_succeeded
+        assert ctx.output == len("sk-retry-secret")
+        [retried] = _events(ctx, ExecutionEventType.TASK_RETRY_COMPLETED, "retried_mint")
+        assert retried_mint.output_storage.retrieve(retried.value["output"]) == REDACTED_SENSITIVE
+        [completed] = _events(ctx, ExecutionEventType.TASK_COMPLETED, "retried_mint")
+        assert _stored(retried_mint, completed) == REDACTED_SENSITIVE
+        assert "sk-retry-secret" not in str(ctx.to_dict())
+
 
 class TestReplaySemantics:
     def test_sensitive_task_reexecutes_on_replay(self, isolated_db):
