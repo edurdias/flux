@@ -175,6 +175,29 @@ class AdminRoutesMixin:
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
+        async def _gate_agent_code_upload(identity: FluxIdentity, name: str, value) -> None:
+            """Apply the agent routes' code-upload gate to the config mirror.
+
+            agent_chat loads its definition from `agent:<name>` in the config
+            store and execs tools_file, so writing code there is the same
+            escalation /admin/agents gates behind workflow:*:*:register.
+            """
+            from flux.agents.manager import AGENT_CONFIG_PREFIX
+            from flux.agents.types import payload_ships_code
+
+            if not name.startswith(AGENT_CONFIG_PREFIX) or not payload_ships_code(value):
+                return
+            if not auth_config.enabled or auth_service is None:
+                return
+            if not await auth_service.is_authorized(identity, "workflow:*:*:register"):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Agent definitions carrying tools_file/workflow_file/skills bundles "
+                        "require workflow:*:*:register"
+                    ),
+                )
+
         @api.post("/admin/configs")
         async def admin_create_or_update_config(
             config_req: ConfigRequest = Body(...),
@@ -182,6 +205,7 @@ class AdminRoutesMixin:
         ):
             from flux.config_manager import ConfigManager
 
+            await _gate_agent_code_upload(identity, config_req.name, config_req.value)
             try:
                 manager = ConfigManager.current()
                 manager.save(config_req.name, config_req.value)
@@ -189,6 +213,8 @@ class AdminRoutesMixin:
                     "status": "success",
                     "message": f"Config '{config_req.name}' saved successfully",
                 }
+            except HTTPException:
+                raise
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
@@ -206,6 +232,8 @@ class AdminRoutesMixin:
                     "status": "success",
                     "message": f"Config '{name}' deleted successfully",
                 }
+            except HTTPException:
+                raise
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 

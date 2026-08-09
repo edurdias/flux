@@ -93,6 +93,30 @@ class AgentDefinition(BaseModel):
         return bool(self.tools_file or self.workflow_file or self.has_skills_bundle())
 
 
+def payload_ships_code(value: Any) -> bool:
+    """``requires_code_upload_permission`` for a raw, unvalidated payload.
+
+    Agent definitions are mirrored into the config store as plain JSON, so the
+    same rule has to hold there without constructing an AgentDefinition.
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return False
+    if not isinstance(value, dict):
+        return False
+    if value.get("tools_file") or value.get("workflow_file"):
+        return True
+    skills = value.get("skills_dir")
+    if isinstance(skills, str):
+        try:
+            return isinstance(json.loads(skills), dict)
+        except (json.JSONDecodeError, ValueError):
+            return False
+    return isinstance(skills, dict)
+
+
 class AgentPauseOutput(BaseModel):
     type: str
 

@@ -7,6 +7,12 @@ from flux.config_manager import ConfigManager
 from flux.models import AgentModel, RepositoryFactory
 
 
+# Reserved to the agent routes: agent_chat execs tools_file from this key, so
+# the generic config endpoints refuse the prefix rather than let config:*:manage
+# sidestep the workflow:*:*:register gate.
+AGENT_CONFIG_PREFIX = "agent:"
+
+
 def _config_key(name: str) -> str:
     """Config key under which an agent definition is published.
 
@@ -14,7 +20,7 @@ def _config_key(name: str) -> str:
     via ``get_config(f"agent:{agent_name}")``. Keeping the key convention in
     a single helper means no caller has to know the string format.
     """
-    return f"agent:{name}"
+    return f"{AGENT_CONFIG_PREFIX}{name}"
 
 
 class AgentManager(ABC):
