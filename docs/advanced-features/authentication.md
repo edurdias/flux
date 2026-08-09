@@ -382,8 +382,8 @@ flux principals revoke-key <subject> --key-name <name>
 | `POST` | `/executions/{id}/authorize/{task}` | exec_token (internal) |
 | `GET` | `/schedules` | `schedule:*:read` |
 | `POST` | `/schedules` | `schedule:*:manage` + `principal:{sa}:impersonate` |
-| `PUT` | `/schedules/{name}` | `schedule:*:manage` (+ `principal:{sa}:impersonate` to rebind) |
-| `DELETE` | `/schedules/{name}` | `schedule:*:manage` |
+| `PUT` | `/schedules/{id_or_name}` | `schedule:*:manage` (+ `principal:{sa}:impersonate` to rebind) |
+| `DELETE` | `/schedules/{id_or_name}` | `schedule:*:manage` |
 | `GET` | `/admin/secrets` | `admin:secrets:manage` |
 | `PUT` | `/admin/secrets/{name}` | `admin:secrets:manage` |
 | `DELETE` | `/admin/secrets/{name}` | `admin:secrets:manage` |

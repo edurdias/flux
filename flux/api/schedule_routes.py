@@ -100,6 +100,28 @@ class ScheduleRoutesMixin:
 
             return None
 
+        def _resolve_service_account(subject: str):
+            """A service account, not merely a principal that exists.
+
+            run_as_service_account promises the workflow runs as a service
+            account; binding a user principal or a disabled one would be
+            honoured at trigger time and surprise the operator.
+            """
+            sa = None
+            if auth_service is not None and auth_service.principal_registry is not None:
+                sa = auth_service.principal_registry.find(subject, "flux")
+            if sa is None or getattr(sa, "type", None) != "service_account":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service account '{subject}' not found",
+                )
+            if not getattr(sa, "enabled", True):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service account '{subject}' is disabled",
+                )
+            return sa
+
         async def _require_impersonation(identity: FluxIdentity, subject: str) -> None:
             """Binding a schedule to a service account is impersonation: the
             workflow runs under that account's roles at trigger time, so
@@ -131,17 +153,7 @@ class ScheduleRoutesMixin:
                             status_code=400,
                             detail="run_as_service_account is required when auth is enabled",
                         )
-                    sa = None
-                    if auth_service.principal_registry is not None:
-                        sa = auth_service.principal_registry.find(
-                            request.run_as_service_account,
-                            "flux",
-                        )
-                    if sa is None:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Service account '{request.run_as_service_account}' not found",
-                        )
+                    _resolve_service_account(request.run_as_service_account)
                     await _require_impersonation(identity, request.run_as_service_account)
 
                 # Get workflow from catalog to ensure it exists
@@ -329,20 +341,6 @@ class ScheduleRoutesMixin:
             try:
                 logger.info(f"Updating schedule '{schedule_id}'")
 
-                if auth_config.enabled and request.run_as_service_account is not None:
-                    sa = None
-                    if auth_service.principal_registry is not None:
-                        sa = auth_service.principal_registry.find(
-                            request.run_as_service_account,
-                            "flux",
-                        )
-                    if sa is None:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Service account '{request.run_as_service_account}' not found",
-                        )
-                    await _require_impersonation(identity, request.run_as_service_account)
-
                 schedule_manager = create_schedule_manager()
 
                 # Resolve by ID or name
@@ -352,6 +350,18 @@ class ScheduleRoutesMixin:
                         status_code=404,
                         detail=f"Schedule '{schedule_id}' not found",
                     )
+
+                # Only an actual rebind is impersonation. A client sending a
+                # full representation re-sends the current account, and must
+                # not need the grant to edit a description.
+                requested_sa = request.run_as_service_account
+                if (
+                    auth_config.enabled
+                    and requested_sa is not None
+                    and requested_sa != existing_schedule.run_as_service_account
+                ):
+                    _resolve_service_account(requested_sa)
+                    await _require_impersonation(identity, requested_sa)
 
                 # Every update is subject to the same escalation guard as
                 # create: the caller must be authorized to run the schedule's
