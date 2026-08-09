@@ -186,7 +186,11 @@ def test_schedule_create_allows_caller_who_can_run_workflow(client):
     _seed_service_account(f"deploy-sa-{suffix}")
     _seed_role(
         f"sched_run_{suffix}",
-        ["schedule:*:manage", f"workflow:default:deploy_{suffix}:*"],
+        [
+            "schedule:*:manage",
+            f"workflow:default:deploy_{suffix}:*",
+            f"principal:deploy-sa-{suffix}:impersonate",
+        ],
     )
     identity = FluxIdentity(subject="release-manager", roles=frozenset({f"sched_run_{suffix}"}))
 
@@ -476,7 +480,12 @@ def test_schedule_update_sa_rebind_fails_closed_when_workflow_unregistered(clien
         run_as_service_account=f"sa-x-{suffix}",
     )
 
-    _seed_role(f"full_{suffix}", ["schedule:*:manage", "workflow:*:*:*"])
+    # Impersonation is granted so the request reaches the catalog check this
+    # test is about, rather than stopping at the earlier 403.
+    _seed_role(
+        f"full_{suffix}",
+        ["schedule:*:manage", "workflow:*:*:*", f"principal:sa-x-{suffix}:impersonate"],
+    )
     identity = FluxIdentity(subject="operator", roles=frozenset({f"full_{suffix}"}))
 
     with _auth_as(identity):
@@ -566,4 +575,96 @@ def test_executions_list_no_workflow_read_at_all_is_403(client):
     with _auth_as(identity):
         resp = client.get("/executions", headers=_headers())
 
+    assert resp.status_code == 403, resp.text
+
+
+def test_schedule_create_denies_binding_a_service_account_without_impersonate(client):
+    """schedule:*:manage plus the right to run the workflow is not enough: the
+    schedule runs under the SA's roles, so binding one is impersonation."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_workflow("default", f"batch_{suffix}")
+    _seed_service_account(f"privileged-sa-{suffix}")
+    _seed_role(
+        f"no_imp_{suffix}",
+        ["schedule:*:manage", f"workflow:default:batch_{suffix}:*"],
+    )
+    identity = FluxIdentity(subject="dev", roles=frozenset({f"no_imp_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(
+            "/schedules",
+            headers=_headers(),
+            json={
+                "workflow_name": f"batch_{suffix}",
+                "workflow_namespace": "default",
+                "name": f"nightly-imp-{suffix}",
+                "schedule_config": {"type": "interval", "interval_seconds": 3600},
+                "run_as_service_account": f"privileged-sa-{suffix}",
+            },
+        )
+    assert resp.status_code == 403, resp.text
+
+
+def test_impersonate_grant_is_per_subject(client):
+    """A grant for one service account must not authorize another."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_workflow("default", f"job_{suffix}")
+    _seed_service_account(f"allowed-sa-{suffix}")
+    _seed_service_account(f"other-sa-{suffix}")
+    _seed_role(
+        f"one_sa_{suffix}",
+        [
+            "schedule:*:manage",
+            f"workflow:default:job_{suffix}:*",
+            f"principal:allowed-sa-{suffix}:impersonate",
+        ],
+    )
+    identity = FluxIdentity(subject="dev", roles=frozenset({f"one_sa_{suffix}"}))
+
+    def _create(sa: str, name: str):
+        return client.post(
+            "/schedules",
+            headers=_headers(),
+            json={
+                "workflow_name": f"job_{suffix}",
+                "workflow_namespace": "default",
+                "name": name,
+                "schedule_config": {"type": "interval", "interval_seconds": 3600},
+                "run_as_service_account": sa,
+            },
+        )
+
+    with _auth_as(identity):
+        assert _create(f"allowed-sa-{suffix}", f"ok-{suffix}").status_code == 200
+        assert _create(f"other-sa-{suffix}", f"nope-{suffix}").status_code == 403
+
+
+def test_schedule_update_rebind_requires_impersonate(client):
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    wf_id = _seed_workflow("default", f"rebind_{suffix}")
+    _seed_service_account(f"target-sa-{suffix}")
+
+    schedule_model = create_schedule_manager().create_schedule(
+        workflow_id=wf_id,
+        workflow_namespace="default",
+        workflow_name=f"rebind_{suffix}",
+        name=f"rebind-sched-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+    )
+
+    _seed_role(
+        f"rebind_{suffix}",
+        ["schedule:*:manage", f"workflow:default:rebind_{suffix}:*"],
+    )
+    identity = FluxIdentity(subject="dev", roles=frozenset({f"rebind_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            f"/schedules/{schedule_model.id}",
+            headers=_headers(),
+            json={"run_as_service_account": f"target-sa-{suffix}"},
+        )
     assert resp.status_code == 403, resp.text
