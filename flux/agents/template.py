@@ -10,6 +10,7 @@ from flux.tasks.config_task import get_config
 from flux.tasks.pause import pause
 from flux.workflow import workflow
 
+from flux.agents.manager import AGENT_CONFIG_PREFIX
 from flux.agents.tools_resolver import resolve_builtin_tools
 from flux.agents.types import ChatResponseOutput
 
@@ -71,7 +72,7 @@ def _materialize_skills_bundle(tmp: Path, skills_data: dict[str, Any]) -> None:
 async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     agent_name = ctx.input["agent"]
 
-    config_raw = await get_config(f"agent:{agent_name}")
+    config_raw = await get_config(f"{AGENT_CONFIG_PREFIX}{agent_name}")
     agent_def = json.loads(config_raw) if isinstance(config_raw, str) else config_raw
 
     tools = resolve_builtin_tools(agent_def.get("tools", []))
@@ -125,7 +126,7 @@ async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
 
         sub_agents = []
         for sub_name in agent_def["agents"]:
-            sub_def_raw = await get_config(f"agent:{sub_name}")
+            sub_def_raw = await get_config(f"{AGENT_CONFIG_PREFIX}{sub_name}")
             sub_def = json.loads(sub_def_raw) if isinstance(sub_def_raw, str) else sub_def_raw
             sub_agents.append(
                 workflow_agent(
