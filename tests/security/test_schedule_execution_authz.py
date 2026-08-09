@@ -668,3 +668,57 @@ def test_schedule_update_rebind_requires_impersonate(client):
             json={"run_as_service_account": f"target-sa-{suffix}"},
         )
     assert resp.status_code == 403, resp.text
+
+
+def test_update_resending_the_same_service_account_is_not_a_rebind(client):
+    """A client sending a full representation re-sends the current account.
+    That is not impersonation and must not need the grant."""
+    from flux.domain.schedule import schedule_factory
+    from flux.schedule_manager import create_schedule_manager
+
+    suffix = uuid.uuid4().hex[:6]
+    wf_id = _seed_workflow("default", f"steady_{suffix}")
+    _seed_service_account(f"steady-sa-{suffix}")
+
+    schedule_model = create_schedule_manager().create_schedule(
+        workflow_id=wf_id,
+        workflow_namespace="default",
+        workflow_name=f"steady_{suffix}",
+        name=f"steady-sched-{suffix}",
+        schedule=schedule_factory({"type": "interval", "interval_seconds": 3600}),
+        run_as_service_account=f"steady-sa-{suffix}",
+    )
+
+    _seed_role(
+        f"steady_{suffix}",
+        ["schedule:*:manage", f"workflow:default:steady_{suffix}:*"],
+    )
+    identity = FluxIdentity(subject="dev", roles=frozenset({f"steady_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            f"/schedules/{schedule_model.id}",
+            headers=_headers(),
+            json={
+                "description": "same account, new description",
+                "run_as_service_account": f"steady-sa-{suffix}",
+            },
+        )
+    assert resp.status_code == 200, resp.text
+
+
+def test_update_of_missing_schedule_is_404_not_403(client):
+    """The schedule is resolved before impersonation is enforced, so a bad id
+    reports 404 rather than leaking a permission error for a row that is not
+    there."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_role(f"missing_{suffix}", ["schedule:*:manage"])
+    identity = FluxIdentity(subject="dev", roles=frozenset({f"missing_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.put(
+            "/schedules/00000000000000000000000000000000",
+            headers=_headers(),
+            json={"run_as_service_account": f"nobody-{suffix}"},
+        )
+    assert resp.status_code == 404, resp.text
