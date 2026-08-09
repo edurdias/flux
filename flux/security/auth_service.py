@@ -94,6 +94,32 @@ class _TTLCache:
         self._data.clear()
 
 
+# A running execution calls back for a narrow set of things: running or
+# registering workflows (call_workflow, register_dynamic_workflow). Secrets,
+# configs and approvals reach it through the worker, not this token, so the
+# admin, rbac, schedule, service, worker, config and secret families are
+# unreachable with an execution token however privileged the triggering
+# principal is.
+EXECUTION_TOKEN_RESOURCES = ("workflow", "execution")
+
+
+def scope_to_execution(permissions: frozenset[str]) -> frozenset[str]:
+    """Intersect a principal's permissions with what an execution needs.
+
+    Fail-closed: a resource family that is not listed is dropped, so a new
+    one is unreachable until it is added deliberately.
+    """
+    scoped: set[str] = set()
+    for perm in permissions:
+        head, _, rest = perm.partition(":")
+        if head == "*":
+            # A blanket grant becomes the allowed families, never everything.
+            scoped.update(f"{r}:{rest}" if rest else f"{r}:*" for r in EXECUTION_TOKEN_RESOURCES)
+        elif head in EXECUTION_TOKEN_RESOURCES:
+            scoped.add(perm)
+    return frozenset(scoped)
+
+
 class AuthService:
     def __init__(
         self,
@@ -164,6 +190,18 @@ class AuthService:
         return f"identity:{provider}:{identity.subject}:{','.join(sorted(identity.roles))}"
 
     async def resolve_permissions(self, identity: FluxIdentity) -> frozenset[str]:
+        resolved = await self._resolve_principal_permissions(identity)
+        # Scoped on the way out, never cached: the cache key is the principal,
+        # which an execution token shares with that principal's other
+        # credentials, so caching the narrowed set would starve them.
+        if (identity.metadata or {}).get("token_type") == "execution":
+            return scope_to_execution(resolved)
+        return resolved
+
+    async def _resolve_principal_permissions(
+        self,
+        identity: FluxIdentity,
+    ) -> frozenset[str]:
         cache_key = None
         if self._resolution_cache_ttl > 0:
             cache_key = self._permission_cache_key(identity)
