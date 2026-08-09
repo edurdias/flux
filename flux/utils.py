@@ -433,7 +433,7 @@ def parse_iso8601_duration(s: str) -> timedelta:
 
 
 class TTLCache:
-    """Tiny per-process TTL cache for auth resolution results.
+    """Tiny per-process TTL cache.
 
     Bounded: when full, expired entries are swept; if still full the oldest
     insertion is dropped. No background task — expiry is checked on read.
