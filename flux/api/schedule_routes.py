@@ -100,6 +100,20 @@ class ScheduleRoutesMixin:
 
             return None
 
+        async def _require_impersonation(identity: FluxIdentity, subject: str) -> None:
+            """Binding a schedule to a service account is impersonation: the
+            workflow runs under that account's roles at trigger time, so
+            schedule:*:manage alone must not choose which identity it runs as.
+            """
+            if not auth_config.enabled or auth_service is None:
+                return
+            required = f"principal:{subject}:impersonate"
+            if not await auth_service.is_authorized(identity, required):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Permission denied: requires '{required}'",
+                )
+
         @api.post("/schedules", response_model=ScheduleResponse)
         async def create_schedule(
             request: ScheduleRequest,
@@ -128,6 +142,7 @@ class ScheduleRoutesMixin:
                             status_code=400,
                             detail=f"Service account '{request.run_as_service_account}' not found",
                         )
+                    await _require_impersonation(identity, request.run_as_service_account)
 
                 # Get workflow from catalog to ensure it exists
                 from flux.catalogs import resolve_workflow_ref as _resolve_ref
@@ -326,6 +341,7 @@ class ScheduleRoutesMixin:
                             status_code=400,
                             detail=f"Service account '{request.run_as_service_account}' not found",
                         )
+                    await _require_impersonation(identity, request.run_as_service_account)
 
                 schedule_manager = create_schedule_manager()
 
