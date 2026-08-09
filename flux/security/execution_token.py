@@ -126,6 +126,9 @@ def _execution_is_terminal(execution_id: str) -> bool:
         _EXECUTION_STATE_CACHE.put(execution_id, False, _EXECUTION_STATE_CACHE_TTL)
         return False
     if state is None:
+        # Cached like every other answer: an unknown execution id would
+        # otherwise read the row on every callback, unbounded by the TTL.
+        _EXECUTION_STATE_CACHE.put(execution_id, False, _EXECUTION_STATE_CACHE_TTL)
         return False
     terminal = getattr(state, "value", state) in _TERMINAL_STATES
     _EXECUTION_STATE_CACHE.put(execution_id, terminal, _EXECUTION_STATE_CACHE_TTL)
