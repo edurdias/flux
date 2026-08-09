@@ -460,7 +460,7 @@ def test_worker_register_grant_yields_to_concurrent_cancel(client):
 
 
 class TestCheckpointOwnership:
-    """A worker may only checkpoint an execution another worker holds — but an
+    """A worker may not checkpoint an execution another worker holds, but an
     *unclaimed* one must fall through to claim-generation fencing, not 403.
     Eviction clears worker_name and bumps the generation so the old owner's
     next checkpoint is fenced with 409 stale-claim and abandons cleanly;
@@ -480,21 +480,31 @@ class TestCheckpointOwnership:
             "events": [],
         }
 
-    def _seed(self, worker: str | None) -> str:
+    def _seed(self, worker: str | None, generation: int = 0) -> str:
         from flux.models import ExecutionContextModel
         from flux.unit_of_work import UnitOfWork
 
         eid = f"exec-ckpt-{uuid.uuid4().hex[:6]}"
         _seed_execution(eid, "default", "release")
         with UnitOfWork() as uow:
-            uow.session.get(ExecutionContextModel, eid).worker_name = worker
+            model = uow.session.get(ExecutionContextModel, eid)
+            model.worker_name = worker
+            model.claim_generation = generation
             uow.commit()
         return eid
 
-    def test_released_execution_is_not_rejected_as_foreign(self, client):
-        eid = self._seed(None)
-        r = client.post(f"/workers/w1/checkpoint/{eid}", json=self._body(eid))
-        assert r.status_code != 403, r.text
+    def test_released_execution_reaches_claim_fencing(self, client):
+        """Eviction clears worker_name and bumps the generation, so the old
+        owner's checkpoint must be answered with the 409 stale-claim it knows
+        how to handle. A 403 here never reaches the fence."""
+        eid = self._seed(None, generation=5)
+        r = client.post(
+            f"/workers/w1/checkpoint/{eid}",
+            json=self._body(eid),
+            headers={"X-Flux-Claim-Generation": "1"},
+        )
+        assert r.status_code == 409, r.text
+        assert "stale-claim" in r.text
 
     def test_execution_held_by_another_worker_is_rejected(self, client):
         eid = self._seed("other-worker")
