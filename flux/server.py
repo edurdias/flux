@@ -362,7 +362,13 @@ class Server(
             # catalog failure must surface as a 500 rather than be reported
             # as "not found".
             raise HTTPException(status_code=404, detail="Execution not found") from None
-        if ctx.current_worker != name:
+        # Only a claim held by someone *else* is a cross-execution write. An
+        # unclaimed execution is the recovery path — eviction clears
+        # worker_name and bumps claim_generation so the old owner's next
+        # checkpoint is fenced with 409 stale-claim, which the worker handles
+        # by abandoning cleanly. Rejecting it here with 403 pre-empts that
+        # fence and strands the execution in CREATED.
+        if ctx.current_worker and ctx.current_worker != name:
             raise HTTPException(
                 status_code=403,
                 detail=f"Worker '{name}' does not hold the claim for execution '{execution_id}'",
