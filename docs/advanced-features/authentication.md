@@ -127,9 +127,28 @@ Other resources remain 3-segment (`resource:name:action`).
 | `workflow:billing:invoice:run` | Run `invoice` in `billing` |
 | `workflow:billing:*` | Any action on any workflow in `billing` |
 | `schedule:*:manage` | Create, update, delete any schedule |
+| `principal:payroll-sa:impersonate` | Bind a schedule to the `payroll-sa` service account |
+| `principal:*:impersonate` | Bind a schedule to any service account |
 | `admin:secrets:manage` | Create and delete secrets |
 | `admin:roles:manage` | Manage roles |
 | `admin:principals:manage` | Manage principals and API keys |
+
+### Running a schedule as a service account
+
+A schedule stores `run_as_service_account`, and at trigger time the workflow
+runs with **that account's** roles rather than the creator's. Choosing it is
+therefore impersonation, and needs `principal:{subject}:impersonate` in
+addition to `schedule:*:manage`.
+
+```bash
+flux roles update release-manager \
+  --add-permissions "principal:deploy-sa:impersonate"
+```
+
+Grant `principal:*:impersonate` to allow any service account. No built-in role
+carries it except `admin` (through its `*`), so an `operator` upgrading from
+before this was enforced must be granted it explicitly before it can create or
+rebind schedules.
 
 **Wildcard rules:**
 
@@ -362,8 +381,8 @@ flux principals revoke-key <subject> --key-name <name>
 | `POST` | `/executions/{id}/cancel` | `workflow:*:*:run` |
 | `POST` | `/executions/{id}/authorize/{task}` | exec_token (internal) |
 | `GET` | `/schedules` | `schedule:*:read` |
-| `POST` | `/schedules` | `schedule:*:manage` |
-| `PUT` | `/schedules/{name}` | `schedule:*:manage` |
+| `POST` | `/schedules` | `schedule:*:manage` + `principal:{sa}:impersonate` |
+| `PUT` | `/schedules/{name}` | `schedule:*:manage` (+ `principal:{sa}:impersonate` to rebind) |
 | `DELETE` | `/schedules/{name}` | `schedule:*:manage` |
 | `GET` | `/admin/secrets` | `admin:secrets:manage` |
 | `PUT` | `/admin/secrets/{name}` | `admin:secrets:manage` |
