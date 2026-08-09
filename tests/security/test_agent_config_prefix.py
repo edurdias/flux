@@ -1,25 +1,34 @@
-"""The ``agent:`` config prefix is reserved to the agent routes.
+"""The agent code-upload gate applies to the config mirror too.
 
-``POST/PUT /admin/agents`` gate code-carrying fields (``tools_file``,
-``workflow_file``, an inline skills bundle) behind ``workflow:*:*:register``,
-because ``agents/agent_chat`` ``exec``s ``tools_file`` on the worker. But the
-definition the template actually loads is the mirror in the *configs* store
-(``agent:<name>``), and the generic config endpoints write any key under the
-weaker ``config:*:manage``. Reserving the prefix at the HTTP boundary closes
-that door; ``AgentManager`` writes the mirror in-process and is unaffected.
+``POST/PUT /admin/agents`` require ``workflow:*:*:register`` for definitions
+carrying ``tools_file``/``workflow_file``/an inline skills bundle, because
+``agents/agent_chat`` execs ``tools_file`` on the worker. The definition the
+template loads is the ``agent:<name>`` mirror in the config store, so the same
+rule has to hold on ``POST /admin/configs`` — otherwise ``config:*:manage``
+sidesteps it. Definitions that ship no code stay writable there, which is a
+documented capability (``tests/e2e/test_config_and_agents.py``).
 """
 
 from __future__ import annotations
 
+import json
 import uuid
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from flux.security.identity import FluxIdentity
+
+BENIGN = {"model": "openai/gpt-4o", "system_prompt": "You are helpful.", "planning": False}
+# Inert string: the test asserts this value never gets stored, so nothing execs it.
+SHIPS_CODE = {**BENIGN, "tools_file": "import os; os.system('id')"}
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    db_path = tmp_path / "agent_config_prefix.db"
+    db_path = tmp_path / "agent_config_gate.db"
     monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{db_path}")
 
     from flux.config import Configuration
@@ -40,46 +49,127 @@ def client(tmp_path, monkeypatch):
     DatabaseRepository._engines.clear()
 
 
-# tools_file is an inert string here: the point of the test is that this value
-# never reaches a worker, so nothing ever exec's it. Its content only has to
-# look like what an attacker would plant.
-PAYLOAD = {
-    "name": "pwn",
-    "model": "openai/gpt-4o",
-    "system_prompt": "hi",
-    "tools_file": "import os; os.system('id')",
-}
+def _seed_role(name: str, permissions: list[str]) -> None:
+    from flux.models import RepositoryFactory
+    from flux.security.models import RoleModel
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        session.add(RoleModel(name=name, permissions=permissions))
+        session.commit()
 
 
-def test_config_route_refuses_the_agent_prefix(client):
-    resp = client.post("/admin/configs", json={"name": "agent:pwn", "value": PAYLOAD})
+class _AuthProxy:
+    def __init__(self, real, identity: FluxIdentity):
+        self._real = real
+        self._identity = identity
+
+    async def authenticate(self, _token):
+        return self._identity
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+@contextmanager
+def _auth_as(identity: FluxIdentity):
+    from flux.config import Configuration
+    from flux.security import dependencies
+
+    real_service = dependencies._get_auth_service()
+    assert real_service is not None
+    settings = Configuration.get().settings
+    was_enabled = settings.security.auth.enabled
+    was_api_keys = settings.security.auth.api_keys.enabled
+    settings.security.auth.enabled = True
+    settings.security.auth.api_keys.enabled = True
+    try:
+        with patch(
+            "flux.security.dependencies._get_auth_service",
+            return_value=_AuthProxy(real_service, identity),
+        ):
+            yield
+    finally:
+        settings.security.auth.enabled = was_enabled
+        settings.security.auth.api_keys.enabled = was_api_keys
+
+
+def _headers():
+    return {"Authorization": "Bearer fake-token"}
+
+
+def test_config_manager_may_not_upload_agent_code(client):
+    suffix = uuid.uuid4().hex[:6]
+    _seed_role(f"cfg_only_{suffix}", ["config:*:manage", "config:*:read"])
+    identity = FluxIdentity(subject="intruder", roles=frozenset({f"cfg_only_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(
+            "/admin/configs",
+            headers=_headers(),
+            json={"name": f"agent:pwn_{suffix}", "value": SHIPS_CODE},
+        )
     assert resp.status_code == 403, resp.text
 
-    # Nothing was written, so agent_chat cannot load it.
-    read_back = client.get("/admin/configs/agent:pwn")
+    read_back = client.get(f"/admin/configs/agent:pwn_{suffix}")
     assert read_back.status_code == 404, read_back.text
 
 
-def test_config_delete_refuses_the_agent_prefix(client):
-    resp = client.request("DELETE", "/admin/configs/agent:victim")
+def test_register_permission_allows_agent_code(client):
+    suffix = uuid.uuid4().hex[:6]
+    _seed_role(f"cfg_reg_{suffix}", ["config:*:manage", "workflow:*:*:register"])
+    identity = FluxIdentity(subject="developer", roles=frozenset({f"cfg_reg_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(
+            "/admin/configs",
+            headers=_headers(),
+            json={"name": f"agent:ok_{suffix}", "value": SHIPS_CODE},
+        )
+    assert resp.status_code == 200, resp.text
+
+
+def test_agent_config_without_code_stays_writable(client):
+    """Matches tests/e2e/test_config_and_agents.py::test_agent_config_storage —
+    storing a code-free agent definition as a config is supported."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_role(f"cfg_plain_{suffix}", ["config:*:manage"])
+    identity = FluxIdentity(subject="operator", roles=frozenset({f"cfg_plain_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(
+            "/admin/configs",
+            headers=_headers(),
+            json={"name": f"agent:plain_{suffix}", "value": BENIGN},
+        )
+        assert resp.status_code == 200, resp.text
+
+        removed = client.request(
+            "DELETE",
+            f"/admin/configs/agent:plain_{suffix}",
+            headers=_headers(),
+        )
+        assert removed.status_code == 200, removed.text
+
+
+def test_json_string_payloads_are_inspected(client):
+    """The CLI sends the value as a JSON string, so the gate must look inside
+    it rather than only at dicts."""
+    suffix = uuid.uuid4().hex[:6]
+    _seed_role(f"cfg_str_{suffix}", ["config:*:manage"])
+    identity = FluxIdentity(subject="intruder", roles=frozenset({f"cfg_str_{suffix}"}))
+
+    with _auth_as(identity):
+        resp = client.post(
+            "/admin/configs",
+            headers=_headers(),
+            json={"name": f"agent:str_{suffix}", "value": json.dumps(SHIPS_CODE)},
+        )
     assert resp.status_code == 403, resp.text
 
 
-def test_ordinary_config_names_still_work(client):
+def test_ordinary_config_names_are_unaffected(client):
     name = f"ordinary_{uuid.uuid4().hex[:6]}"
     saved = client.post("/admin/configs", json={"name": name, "value": {"k": "v"}})
     assert saved.status_code == 200, saved.text
-
-    deleted = client.request("DELETE", f"/admin/configs/{name}")
-    assert deleted.status_code == 200, deleted.text
-
-
-def test_agent_manager_still_publishes_the_mirror(client):
-    """The reservation is at the HTTP boundary only — the agent path that
-    legitimately owns the prefix writes it in-process and must keep working."""
-    from flux.agents.manager import _config_key
-    from flux.config_manager import ConfigManager
-
-    key = _config_key(f"legit_{uuid.uuid4().hex[:6]}")
-    ConfigManager.current().save(key, {"model": "ollama/llama3"})
-    assert ConfigManager.current().get(key) is not None
+    assert client.request("DELETE", f"/admin/configs/{name}").status_code == 200

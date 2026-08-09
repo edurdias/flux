@@ -175,15 +175,26 @@ class AdminRoutesMixin:
             except Exception as ex:
                 raise HTTPException(status_code=500, detail=str(ex))
 
-        def _reject_reserved_agent_key(name: str) -> None:
-            from flux.agents.manager import AGENT_CONFIG_PREFIX
+        async def _gate_agent_code_upload(identity: FluxIdentity, name: str, value) -> None:
+            """Apply the agent routes' code-upload gate to the config mirror.
 
-            if name.startswith(AGENT_CONFIG_PREFIX):
+            agent_chat loads its definition from `agent:<name>` in the config
+            store and execs tools_file, so writing code there is the same
+            escalation /admin/agents gates behind workflow:*:*:register.
+            """
+            from flux.agents.manager import AGENT_CONFIG_PREFIX
+            from flux.agents.types import payload_ships_code
+
+            if not name.startswith(AGENT_CONFIG_PREFIX) or not payload_ships_code(value):
+                return
+            if not auth_config.enabled or auth_service is None:
+                return
+            if not await auth_service.is_authorized(identity, "workflow:*:*:register"):
                 raise HTTPException(
                     status_code=403,
                     detail=(
-                        f"The '{AGENT_CONFIG_PREFIX}' config prefix is reserved; "
-                        "manage agent definitions through /admin/agents"
+                        "Agent definitions carrying tools_file/workflow_file/skills bundles "
+                        "require workflow:*:*:register"
                     ),
                 )
 
@@ -194,7 +205,7 @@ class AdminRoutesMixin:
         ):
             from flux.config_manager import ConfigManager
 
-            _reject_reserved_agent_key(config_req.name)
+            await _gate_agent_code_upload(identity, config_req.name, config_req.value)
             try:
                 manager = ConfigManager.current()
                 manager.save(config_req.name, config_req.value)
@@ -214,7 +225,6 @@ class AdminRoutesMixin:
         ):
             from flux.config_manager import ConfigManager
 
-            _reject_reserved_agent_key(name)
             try:
                 manager = ConfigManager.current()
                 manager.remove(name)
