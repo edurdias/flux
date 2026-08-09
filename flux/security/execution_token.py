@@ -116,8 +116,14 @@ def _execution_is_terminal(execution_id: str) -> bool:
             )
     except Exception as ex:
         # A datastore problem must not turn every running execution's
-        # callbacks into authentication failures.
-        logger.warning(f"Could not read execution state for '{execution_id}': {ex}")
+        # callbacks into authentication failures. Cache the permissive answer
+        # so an outage costs one read per TTL rather than one per request, and
+        # log the type only — driver messages carry connection details.
+        logger.warning(
+            f"Could not read execution state for '{execution_id}': {type(ex).__name__}",
+        )
+        logger.debug("Execution state read failed", exc_info=True)
+        _EXECUTION_STATE_CACHE.put(execution_id, False, _EXECUTION_STATE_CACHE_TTL)
         return False
     if state is None:
         return False
