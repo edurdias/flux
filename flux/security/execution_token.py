@@ -8,7 +8,7 @@ import jwt
 
 from flux.security.identity import FluxIdentity
 from flux.security.providers import AuthProvider
-from flux.utils import get_logger
+from flux.utils import TTLCache, get_logger
 
 logger = get_logger(__name__)
 
@@ -91,6 +91,41 @@ def mint_execution_token(
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
+# Terminal executions must stop authorizing callbacks: the token's TTL is a
+# ceiling (86400s by default), not a lifetime, and the work it was minted for
+# is over. Cached briefly so a chatty workflow does not read the row per call —
+# the trade is that a token keeps working for a few seconds past completion.
+_TERMINAL_STATES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
+_EXECUTION_STATE_CACHE = TTLCache()
+_EXECUTION_STATE_CACHE_TTL = 5.0
+
+
+def _execution_is_terminal(execution_id: str) -> bool:
+    cached = _EXECUTION_STATE_CACHE.get(execution_id)
+    if cached is not None:
+        return bool(cached)
+    try:
+        from flux.models import ExecutionContextModel, RepositoryFactory
+
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            state = (
+                session.query(ExecutionContextModel.state)
+                .filter(ExecutionContextModel.execution_id == execution_id)
+                .scalar()
+            )
+    except Exception as ex:
+        # A datastore problem must not turn every running execution's
+        # callbacks into authentication failures.
+        logger.warning(f"Could not read execution state for '{execution_id}': {ex}")
+        return False
+    if state is None:
+        return False
+    terminal = getattr(state, "value", state) in _TERMINAL_STATES
+    _EXECUTION_STATE_CACHE.put(execution_id, terminal, _EXECUTION_STATE_CACHE_TTL)
+    return terminal
+
+
 class ExecutionTokenProvider(AuthProvider):
     def __init__(self, registry=None):
         self._registry = registry
@@ -112,6 +147,10 @@ class ExecutionTokenProvider(AuthProvider):
             subject = payload["sub"]
             principal_issuer = payload["principal_issuer"]
             exec_id = payload["exec_id"]
+
+            if _execution_is_terminal(exec_id):
+                logger.debug(f"Execution token refused: execution '{exec_id}' is terminal")
+                return None
 
             if self._registry is not None:
                 principal = self._registry.find(subject, principal_issuer)

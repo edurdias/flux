@@ -360,3 +360,100 @@ class TestExecutionTokenSecret:
                 et._get_execution_token_secret()
         finally:
             Configuration.get().reset()
+
+
+class TestTerminalExecutionRejection:
+    """A token outlives the work it was minted for: the TTL default is 24h and
+    nothing invalidated it on completion. Terminal means the token stops."""
+
+    SECRET = "test-secret-for-unit-tests-only"
+
+    @pytest.fixture(autouse=True)
+    def patch_secret(self, monkeypatch):
+        monkeypatch.setenv("FLUX_EXECUTION_TOKEN_SECRET", self.SECRET)
+
+    @pytest.fixture
+    def db(self, tmp_path, monkeypatch):
+        from flux.config import Configuration
+        from flux.models import DatabaseRepository
+        from flux.security.execution_token import _EXECUTION_STATE_CACHE
+
+        monkeypatch.setenv("FLUX_DATABASE_URL", f"sqlite:///{tmp_path / 'tok.db'}")
+        Configuration._instance = None  # type: ignore[attr-defined]
+        Configuration._config = None  # type: ignore[attr-defined]
+        DatabaseRepository._engines.clear()
+        Configuration.get().override(database_url=f"sqlite:///{tmp_path / 'tok.db'}")
+        _EXECUTION_STATE_CACHE.clear()
+        yield
+        Configuration._instance = None  # type: ignore[attr-defined]
+        Configuration._config = None  # type: ignore[attr-defined]
+        DatabaseRepository._engines.clear()
+        _EXECUTION_STATE_CACHE.clear()
+
+    @pytest.fixture
+    def provider(self):
+        from unittest.mock import MagicMock
+
+        from flux.security.execution_token import ExecutionTokenProvider
+        from flux.security.principals import PrincipalModel, PrincipalRegistry
+
+        registry = MagicMock(spec=PrincipalRegistry)
+        principal = MagicMock(spec=PrincipalModel)
+        principal.id = "p1"
+        principal.enabled = True
+        registry.find.return_value = principal
+        registry.get_roles.return_value = ["operator"]
+        return ExecutionTokenProvider(registry=registry)
+
+    def _seed(self, execution_id: str, state) -> None:
+        from flux import ExecutionContext
+        from flux.context_managers import ContextManager
+        from flux.models import ExecutionContextModel
+        from flux.unit_of_work import UnitOfWork
+
+        ctx: ExecutionContext = ExecutionContext(
+            workflow_id="default/release",
+            workflow_namespace="default",
+            workflow_name="release",
+            input=None,
+            execution_id=execution_id,
+        )
+        ContextManager.create().save(ctx)
+        with UnitOfWork() as uow:
+            uow.session.get(ExecutionContextModel, execution_id).state = state
+            uow.commit()
+
+    def _token(self, execution_id: str) -> str:
+        return mint_execution_token(
+            subject="alice@acme.com",
+            principal_issuer="flux",
+            execution_id=execution_id,
+            on_behalf_of="alice@acme.com",
+            ttl_seconds=600,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("state", ["COMPLETED", "FAILED", "CANCELLED"])
+    async def test_terminal_execution_rejects_the_token(self, provider, db, state):
+        from flux.domain import ExecutionState
+
+        eid = f"exec-term-{state.lower()}"
+        self._seed(eid, ExecutionState(state))
+        assert await provider.authenticate(self._token(eid)) is None
+
+    @pytest.mark.asyncio
+    async def test_running_execution_still_authenticates(self, provider, db):
+        from flux.domain import ExecutionState
+
+        eid = "exec-running"
+        self._seed(eid, ExecutionState.RUNNING)
+        identity = await provider.authenticate(self._token(eid))
+        assert identity is not None
+        assert identity.metadata["exec_id"] == eid
+
+    @pytest.mark.asyncio
+    async def test_unknown_execution_is_not_rejected(self, provider, db):
+        """Deliberate: only a row that exists and is terminal stops the token.
+        Failing closed on a missing or unreadable row would turn a datastore
+        problem into an authentication outage for every running execution."""
+        assert await provider.authenticate(self._token("exec-never-existed")) is not None
