@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
-import time
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
 
@@ -16,7 +15,7 @@ from flux.security.providers import AuthProvider
 from flux.security.providers.oidc import OIDCProvider
 from flux.security.providers.api_key import APIKeyProvider
 from flux.security.execution_token import ExecutionTokenProvider
-from flux.utils import get_logger
+from flux.utils import TTLCache, get_logger
 
 logger = get_logger(__name__)
 
@@ -60,40 +59,6 @@ class AuthorizationResult:
         self.missing_permissions = missing_permissions or []
 
 
-class _TTLCache:
-    """Tiny per-process TTL cache for auth resolution results.
-
-    Bounded: when full, expired entries are swept; if still full the oldest
-    insertion is dropped. No background task — expiry is checked on read.
-    """
-
-    def __init__(self, max_size: int = 4096):
-        self._data: dict[str, tuple[float, object]] = {}
-        self._max_size = max_size
-
-    def get(self, key: str) -> object | None:
-        entry = self._data.get(key)
-        if entry is None:
-            return None
-        expires_at, value = entry
-        if time.monotonic() >= expires_at:
-            self._data.pop(key, None)
-            return None
-        return value
-
-    def put(self, key: str, value: object, ttl: float) -> None:
-        if len(self._data) >= self._max_size:
-            now = time.monotonic()
-            for stale in [k for k, (exp, _) in self._data.items() if exp <= now]:
-                self._data.pop(stale, None)
-            while len(self._data) >= self._max_size:
-                self._data.pop(next(iter(self._data)), None)
-        self._data[key] = (time.monotonic() + ttl, value)
-
-    def clear(self) -> None:
-        self._data.clear()
-
-
 # A running execution calls back for a narrow set of things: running or
 # registering workflows (call_workflow, register_dynamic_workflow). Secrets,
 # configs and approvals reach it through the worker, not this token, so the
@@ -134,8 +99,8 @@ class AuthService:
         # identity, principal → permissions). Local mutations invalidate
         # immediately; other replicas converge within the TTL.
         self._resolution_cache_ttl = getattr(config, "resolution_cache_ttl", 0) or 0
-        self._identity_cache = _TTLCache()
-        self._permission_cache = _TTLCache()
+        self._identity_cache = TTLCache()
+        self._permission_cache = TTLCache()
         self._providers: list[AuthProvider] = []
 
         self._providers.append(ExecutionTokenProvider(registry=registry))

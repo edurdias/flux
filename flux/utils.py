@@ -22,6 +22,8 @@ from types import GeneratorType
 from typing import Any
 from collections.abc import Callable
 
+from time import monotonic
+
 from flux.errors import ExecutionError
 
 
@@ -428,3 +430,37 @@ def parse_iso8601_duration(s: str) -> timedelta:
     if days == 0 and hours == 0 and minutes == 0 and seconds == 0:
         raise ValueError(f"Invalid ISO-8601 duration: {s}")
     return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+
+
+class TTLCache:
+    """Tiny per-process TTL cache for auth resolution results.
+
+    Bounded: when full, expired entries are swept; if still full the oldest
+    insertion is dropped. No background task — expiry is checked on read.
+    """
+
+    def __init__(self, max_size: int = 4096):
+        self._data: dict[str, tuple[float, object]] = {}
+        self._max_size = max_size
+
+    def get(self, key: str) -> object | None:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if monotonic() >= expires_at:
+            self._data.pop(key, None)
+            return None
+        return value
+
+    def put(self, key: str, value: object, ttl: float) -> None:
+        if len(self._data) >= self._max_size:
+            now = monotonic()
+            for stale in [k for k, (exp, _) in self._data.items() if exp <= now]:
+                self._data.pop(stale, None)
+            while len(self._data) >= self._max_size:
+                self._data.pop(next(iter(self._data)), None)
+        self._data[key] = (monotonic() + ttl, value)
+
+    def clear(self) -> None:
+        self._data.clear()
