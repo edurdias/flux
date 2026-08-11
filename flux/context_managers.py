@@ -1042,8 +1042,11 @@ class DatabaseContextManager(ContextManager):
                     w
                     for w in workers
                     if self._has_free_slot(w, loads)
-                    and self._worker_matches_workflow(w, workflow, model.input)
+                    # Name check before the matcher: a bound execution has at
+                    # most one candidate, so evaluating affinity/requests for
+                    # the rest of the fleet is work whose result is discarded.
                     and (not model.required_worker or w.name == model.required_worker)
+                    and self._worker_matches_workflow(w, workflow, model.input)
                 ]
                 if not eligible:
                     continue
@@ -1164,8 +1167,8 @@ class DatabaseContextManager(ContextManager):
                         w
                         for w in workers
                         if self._has_free_slot(w, loads)
-                        and self._worker_matches_workflow(w, workflow, model.input)
                         and (not model.required_worker or w.name == model.required_worker)
+                        and self._worker_matches_workflow(w, workflow, model.input)
                     ]
                     if not eligible:
                         continue
