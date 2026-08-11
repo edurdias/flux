@@ -1065,6 +1065,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gating-on-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gating on load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#built-in-worker-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1408,6 +1419,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gating-on-load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gating on load
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#built-in-worker-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1538,6 +1560,11 @@ factor you can measure. It builds on the two mechanisms you may already use:</p>
 <td>active executions on the worker</td>
 <td>live, computed at dispatch</td>
 </tr>
+<tr>
+<td><code>utilization()</code></td>
+<td>active executions ÷ the worker's advertised capacity</td>
+<td>live, computed at dispatch</td>
+</tr>
 </tbody>
 </table>
 <p>And four term types:</p>
@@ -1573,9 +1600,14 @@ soft preference under <code>prefer(...)</code>:</p>
 <li><code>prefer(service(input("model")), weight=2)</code> — prefer a worker with the
   granted service socket, fall back to the rest.</li>
 <li><code>when(input("latency_sensitive") == "true", least(load(), weight=10))</code> —
-  apply a term only when the request says it matters. The condition reads
-  execution input only, never worker attributes; unresolved leaves the term
-  inactive.</li>
+  apply a term only when the request says it matters. An <code>input(...)</code>
+  condition resolves once per execution (<code>==</code>/<code>!=</code> only); unresolved leaves
+  the term inactive.</li>
+<li><code>when(load() &lt; 5, sticky(weight=3))</code> — apply a term only to the workers a
+  condition holds for. <code>meta()</code>, <code>metric()</code>, <code>load()</code> and <code>utilization()</code>
+  conditions are evaluated <strong>per worker</strong>, so this reads as "keep the
+  stickiness while the preferred worker still has room". See
+  <a href="#gating-on-load">gating on load</a> below.</li>
 </ul>
 <p>Pair the stages for floor-plus-preference routing:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
@@ -1611,6 +1643,55 @@ code runs in the dispatcher. The flip side: the policy must be declared
 with literal values (or <code>input(...)</code>); a policy the parser cannot extract
 fails registration with a clear error rather than silently routing
 differently than written.</p>
+<h2 id="gating-on-load">Gating on load<a class="headerlink" href="#gating-on-load" title="Permanent link">&para;</a></h2>
+<p>Normalization is relative, which makes <code>least(load())</code> sharper than it
+looks: across two workers at loads 1 and 0, the gap normalizes to a full
+1.0 — the largest value the term can take. So pairing it with a plain
+<code>sticky(...)</code> leaves only two postures, and neither is "prefer this worker
+until it fills up":</p>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sticky(weight=3)</code></td>
+<td>deterministic — the preferred worker wins at any load</td>
+</tr>
+<tr>
+<td><code>sticky(weight=0.5)</code></td>
+<td>defeated by a <strong>single</strong> in-flight execution</td>
+</tr>
+</tbody>
+</table>
+<p>An absolute gate gives the middle posture, because a <code>when()</code> condition on
+worker state is evaluated per candidate:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">when</span><span class="p">(</span><span class="n">load</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">,</span> <span class="n">sticky</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">3</span><span class="p">)),</span>   <span class="c1"># stickiness, while there is room</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()),</span>                        <span class="c1"># otherwise spread</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">)</span>
+</code></pre></div>
+<p><code>load()</code> is a count, so a threshold tuned for a 4-slot worker means
+something different on a 32-slot one. In a mixed fleet use the ratio:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">when</span><span class="p">(</span><span class="n">utilization</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mf">0.8</span><span class="p">,</span> <span class="n">sticky</span><span class="p">(</span><span class="n">weight</span><span class="o">=</span><span class="mi">3</span><span class="p">)),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+</code></pre></div>
+<p><code>utilization()</code> is <code>load() ÷ max_concurrent_executions</code>. A worker that
+advertises no capacity has <strong>no</strong> utilization rather than zero, so it does
+not match <code>utilization() &lt; 0.8</code> — otherwise one uncapped worker would read
+as permanently idle and collect every preference in the fleet.</p>
+<p>Note that a worker at capacity is already filtered out as a hard constraint,
+so a threshold of <code>1.0</code> gates nothing new; the useful values sit below it.</p>
+<p>Both are counted by the server from its own execution table, which is what
+makes them safe as conditions: <code>label()</code> and <code>resource()</code> are asserted by
+the worker, so gating on them would let a worker dodge or attract work, and
+they remain rejected in <code>when()</code>.</p>
+<p>Score terms only. Gating a <code>require(...)</code> term on load is refused at
+registration: skipping a hard constraint makes a worker match <em>more</em>
+easily, so it would drop the requirement on exactly the busy workers it was
+meant to steer away from.</p>
 <h2 id="built-in-worker-metrics">Built-in worker metrics<a class="headerlink" href="#built-in-worker-metrics" title="Permanent link">&para;</a></h2>
 <p>Every worker publishes a standard metric set under the reserved <code>flux.</code>
 prefix on its heartbeat — no configuration needed
@@ -1658,11 +1739,11 @@ prefix on its heartbeat — no configuration needed
 </tbody>
 </table>
 <p>So these work with zero setup:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Steer latency-sensitive work away from degraded-but-not-unhealthy workers</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.loop_lag_p95_seconds&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Quarantine workers that accept work and fail it (full disk, sick GPU, ...)</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.crash_rate&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Steer latency-sensitive work away from degraded-but-not-unhealthy workers</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.loop_lag_p95_seconds&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Quarantine workers that accept work and fail it (full disk, sick GPU, ...)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.crash_rate&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
 </code></pre></div>
 <p>Aggregates are computed on the worker over fixed windows and published as
 single scalars — the server stores only the latest snapshot per worker,
@@ -1671,20 +1752,20 @@ never a time series. For history and trending, use the
 <h2 id="custom-metrics-providers">Custom metrics providers<a class="headerlink" href="#custom-metrics-providers" title="Permanent link">&para;</a></h2>
 <p>For anything the built-ins don't cover, point the worker at your own
 callable (sync or async) returning <code>dict[str, float]</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># myapp/routing.py — runs inside the worker process</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="k">return</span> <span class="p">{</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>        <span class="s2">&quot;gpu_queue_depth&quot;</span><span class="p">:</span> <span class="n">gpu_queue</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>        <span class="s2">&quot;shard_latency_ms&quot;</span><span class="p">:</span> <span class="k">await</span> <span class="n">probe_local_shard</span><span class="p">(),</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>        <span class="s2">&quot;scratch_free_gb&quot;</span><span class="p">:</span> <span class="n">psutil</span><span class="o">.</span><span class="n">disk_usage</span><span class="p">(</span><span class="s2">&quot;/scratch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">free</span> <span class="o">/</span> <span class="mf">1e9</span><span class="p">,</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># myapp/routing.py — runs inside the worker process</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="k">return</span> <span class="p">{</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        <span class="s2">&quot;gpu_queue_depth&quot;</span><span class="p">:</span> <span class="n">gpu_queue</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>        <span class="s2">&quot;shard_latency_ms&quot;</span><span class="p">:</span> <span class="k">await</span> <span class="n">probe_local_shard</span><span class="p">(),</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>        <span class="s2">&quot;scratch_free_gb&quot;</span><span class="p">:</span> <span class="n">psutil</span><span class="o">.</span><span class="n">disk_usage</span><span class="p">(</span><span class="s2">&quot;/scratch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">free</span> <span class="o">/</span> <span class="mf">1e9</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="p">}</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">metrics_provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;myapp.routing:collect&quot;</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">metrics_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">10.0</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">metrics_provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;myapp.routing:collect&quot;</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">metrics_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">10.0</span>
 </code></pre></div>
 <p>The worker refreshes the provider on that cadence (sync providers run in a
 thread; a failure keeps the previous snapshot) and merges the result with
