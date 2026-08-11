@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from typing import Any
 from collections.abc import AsyncIterator
@@ -1425,6 +1426,18 @@ class Server(
 
         _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+        # GET routes that change state, which the verb alone does not reveal.
+        # A new one must be added here or it is anonymously reachable.
+        _MUTATING_GETS = (
+            re.compile(r"^/workflows/[^/]+/[^/]+/cancel/[^/]+/?$"),
+            re.compile(r"^/workers/[^/]+/connect/?$"),
+        )
+
+        def _is_state_changing(method: str, path: str) -> bool:
+            if method in _MUTATING_METHODS:
+                return True
+            return method == "GET" and any(p.match(path) for p in _MUTATING_GETS)
+
         @api.middleware("http")
         async def _enforce_anonymous_policy(request: Request, call_next):
             # Secure default: when authentication is disabled, refuse anonymous
@@ -1435,7 +1448,7 @@ class Server(
             if (
                 not auth.enabled
                 and not auth.allow_anonymous
-                and request.method in _MUTATING_METHODS
+                and _is_state_changing(request.method, request.url.path)
             ):
                 return JSONResponse(
                     status_code=401,
