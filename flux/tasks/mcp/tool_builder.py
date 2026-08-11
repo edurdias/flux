@@ -5,7 +5,10 @@ import re
 from typing import Any
 
 from flux.task import task
-from flux.tasks.mcp.elicitation import ElicitationRequestOutput
+from flux.utils import get_logger
+from flux.tasks.mcp.elicitation import BROWSABLE_SCHEMES, ElicitationRequestOutput
+
+logger = get_logger(__name__)
 
 
 def _handle_elicitation_error(error: Exception, server_name: str) -> ElicitationRequestOutput:
@@ -15,9 +18,19 @@ def _handle_elicitation_error(error: Exception, server_name: str) -> Elicitation
         raise error
 
     elicitation = elicitations[0]
+    url = elicitation.get("url", "")
+    if url and not url.startswith(BROWSABLE_SCHEMES):
+        # Surface the original failure rather than a prompt whose only action
+        # is to hand a server-chosen URI to the operator's browser.
+        logger.warning(
+            f"MCP server '{server_name}' sent an elicitation with a "
+            f"non-browsable url scheme; refusing it",
+        )
+        raise error
+
     return ElicitationRequestOutput(
         elicitation_id=elicitation.get("elicitationId", ""),
-        url=elicitation.get("url", ""),
+        url=url,
         message=elicitation.get("message", ""),
         server_name=server_name,
     )
