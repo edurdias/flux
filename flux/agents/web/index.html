@@ -396,12 +396,30 @@
 
                     if (event.url) {
                         const linkRow = document.createElement('div');
-                        const a = document.createElement('a');
-                        a.href = event.url;
-                        a.target = '_blank';
-                        a.rel = 'noopener noreferrer';
-                        a.textContent = 'Open authorization page';
-                        linkRow.appendChild(a);
+                        // The url comes from a remote MCP server. Only http(s)
+                        // becomes a link; anything else is shown as text so a
+                        // javascript: payload cannot run in this origin.
+                        // Absolute http(s) only, matching the Python
+                        // validator. Parsing with a base would resolve a
+                        // relative "/path" to this origin and render it as a
+                        // link, re-opening a same-origin navigation surface.
+                        let browsable = false;
+                        try {
+                            const parsed = new URL(event.url);
+                            browsable = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+                        } catch (e) {
+                            browsable = false;
+                        }
+                        if (browsable) {
+                            const a = document.createElement('a');
+                            a.href = event.url;
+                            a.target = '_blank';
+                            a.rel = 'noopener noreferrer';
+                            a.textContent = event.url;
+                            linkRow.appendChild(a);
+                        } else {
+                            linkRow.textContent = `Refusing a non-browsable url: ${event.url}`;
+                        }
                         div.appendChild(linkRow);
                     }
 
