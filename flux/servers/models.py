@@ -121,3 +121,15 @@ class ExecutionContext(BaseModel):
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ExecutionContext:
         return cls(**data)
+
+
+async def redacted_response(ctx: domain.ExecutionContext, *, detailed: bool) -> Any:
+    """An execution's wire form with known secret values scrubbed.
+
+    Task outputs are persisted verbatim, so any exit returning this DTO can
+    carry a secret.
+    """
+    from flux.security.redaction import redact_response
+
+    dto = ExecutionContext.from_domain(ctx)
+    return await redact_response(dto if detailed else dto.summary())

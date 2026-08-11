@@ -25,7 +25,7 @@ from flux.domain.events import ExecutionEvent, ExecutionEventType
 from flux.errors import ExecutionContextNotFoundError, WorkflowNotFoundError
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
-from flux.servers.models import ExecutionContext as ExecutionContextDTO
+from flux.servers.models import redacted_response
 from flux.utils import get_logger
 from flux.api.schemas import (
     _has_any_workflow_read,
@@ -271,17 +271,12 @@ class ExecutionRoutesMixin:
                         },
                     )
 
-                dto = ExecutionContextDTO.from_domain(ctx)
-                result = dto.summary() if not detailed else dto
+                # execution:*:read is a much wider grant than secret-read;
+                # the stored event log is untouched.
+                result = await redacted_response(ctx, detailed=detailed)
 
                 logger.debug(f"Found execution {execution_id} in state: {ctx.state.value}")
-                # Presentation-boundary secret redaction (issue #147 phase 1):
-                # the detailed DTO carries every task's recorded inputs and
-                # outputs, and execution:*:read is a much wider grant than
-                # secret-read. The stored event log is untouched.
-                from flux.security.redaction import redact_response
-
-                return await redact_response(result)
+                return result
 
             except ExecutionContextNotFoundError:
                 raise HTTPException(

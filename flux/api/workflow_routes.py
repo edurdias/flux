@@ -30,6 +30,7 @@ from flux.errors import (
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
+from flux.servers.models import redacted_response
 from flux.utils import get_logger
 from flux.utils import to_json
 from flux.api.schemas import (
@@ -351,8 +352,7 @@ class WorkflowRoutesMixin:
                         },
                     )
 
-                dto = ExecutionContextDTO.from_domain(ctx)
-                response = dto.summary() if not detailed else dto
+                response = await redacted_response(ctx, detailed=detailed)
                 logger.debug(
                     f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
                 )
@@ -516,8 +516,7 @@ class WorkflowRoutesMixin:
                         },
                     )
 
-                dto = ExecutionContextDTO.from_domain(ctx)
-                response = dto.summary() if not detailed else dto
+                response = await redacted_response(ctx, detailed=detailed)
                 logger.debug(
                     f"Returning execution result for {ctx.execution_id} in state: {ctx.state.value}",
                 )
@@ -571,8 +570,7 @@ class WorkflowRoutesMixin:
                             f"workflow {namespace}/{workflow_name}."
                         ),
                     )
-                dto = ExecutionContextDTO.from_domain(context)
-                result = dto.summary() if not detailed else dto
+                result = await redacted_response(context, detailed=detailed)
                 logger.debug(f"Status for {execution_id}: {context.state.value}")
                 return result
             except ExecutionContextNotFoundError:
@@ -694,7 +692,7 @@ class WorkflowRoutesMixin:
                         self._execution_events.pop(ctx.execution_id, None)
 
                 dto = ExecutionContextDTO.from_domain(ctx)
-                result = dto.summary() if not detailed else dto
+                result = await redacted_response(ctx, detailed=detailed)
                 logger.info(
                     f"Workflow {namespace}/{workflow_name} execution {execution_id} is {dto.state}.",
                 )
