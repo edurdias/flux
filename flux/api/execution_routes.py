@@ -271,16 +271,12 @@ class ExecutionRoutesMixin:
                         },
                     )
 
+                # execution:*:read is a much wider grant than secret-read;
+                # the stored event log is untouched.
                 result = await redacted_response(ctx, detailed=detailed)
 
                 logger.debug(f"Found execution {execution_id} in state: {ctx.state.value}")
-                # Presentation-boundary secret redaction (issue #147 phase 1):
-                # the detailed DTO carries every task's recorded inputs and
-                # outputs, and execution:*:read is a much wider grant than
-                # secret-read. The stored event log is untouched.
-                from flux.security.redaction import redact_response
-
-                return await redact_response(result)
+                return result
 
             except ExecutionContextNotFoundError:
                 raise HTTPException(

@@ -123,12 +123,11 @@ class ExecutionContext(BaseModel):
         return cls(**data)
 
 
-async def redacted_response(ctx, *, detailed: bool):
+async def redacted_response(ctx: domain.ExecutionContext, *, detailed: bool) -> Any:
     """An execution's wire form with known secret values scrubbed.
 
-    Redaction is a property of every execution-read response, not of the one
-    handler that remembered to call it — task outputs are persisted verbatim,
-    so any exit returning this DTO can carry a secret.
+    Task outputs are persisted verbatim, so any exit returning this DTO can
+    carry a secret.
     """
     from flux.security.redaction import redact_response
 

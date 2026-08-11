@@ -28,8 +28,7 @@ def client(tmp_path, monkeypatch):
     Configuration._instance = None  # type: ignore[attr-defined]
     Configuration._config = None  # type: ignore[attr-defined]
     DatabaseRepository._engines.clear()
-    # Resetting Configuration discards what tests/conftest.py seeds, and this
-    # module is one of the few that actually encrypts a secret.
+    # The reset above discards what tests/conftest.py seeds.
     Configuration.get().override(
         database_url=f"sqlite:///{db_path}",
         workers={"bootstrap_token": "test-bootstrap-token"},
@@ -87,9 +86,8 @@ def leaked_execution(client):
         input=None,
         execution_id=eid,
     )
-    # Through the domain API: has_finished is derived from a WORKFLOW_COMPLETED
-    # event rather than the state column, and the SSE stream only ends once it
-    # is true — poking the row directly hangs the stream forever.
+    # has_finished comes from the WORKFLOW_COMPLETED event, not the state
+    # column; setting the column alone hangs the SSE stream forever.
     ctx.start(eid)
     ctx.complete(eid, {"token": SECRET_VALUE})
     ContextManager.create().save(ctx)
@@ -119,8 +117,11 @@ def test_stream_mode_is_redacted(client, leaked_execution):
         f"/executions/{eid}",
         params={"detailed": "true", "mode": "stream"},
     ) as r:
+        # An error response would also lack the secret.
+        assert r.status_code == 200
         body = "".join(chunk for chunk in r.iter_text())
     assert SECRET_VALUE not in body
+    assert eid in body, "the stream should have emitted the execution's frame"
 
 
 def test_workflow_status_is_redacted(client, leaked_execution):
