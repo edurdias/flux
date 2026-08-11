@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 
+from flux.runners.subprocess_runner import SANDBOX_ENV_VAR
 from flux.task import task
 
 DEFAULT_BLOCKLIST = [
@@ -22,6 +24,26 @@ class SystemToolsConfig:
     timeout: int
     blocklist: list[str]
     max_output_chars: int
+
+
+def in_sandbox() -> bool:
+    return os.environ.get(SANDBOX_ENV_VAR) == "1"
+
+
+def require_sandbox_for_shell(allow_unsandboxed: bool = False) -> None:
+    """Raise unless shell may be built here.
+
+    Both system_tools() and the YAML tool-group resolver build shell, so the
+    check lives where each can reach it.
+    """
+    if allow_unsandboxed or in_sandbox():
+        return
+    raise ValueError(
+        "The shell tool runs commands as the worker user unless the execution "
+        "is containerized. Pin the workflow to a container runner "
+        '(@workflow.with_options(runner="docker")), or set '
+        "allow_unsandboxed_shell to accept that.",
+    )
 
 
 def resolve_path(config: SystemToolsConfig, path: str) -> Path:
@@ -60,7 +82,19 @@ def system_tools(
     timeout: int = 30,
     blocklist: list[str] | None = None,
     max_output_chars: int = 100_000,
+    *,
+    include_shell: bool = True,
+    allow_unsandboxed_shell: bool = False,
 ) -> list[task]:
+    """Build the system tools for an agent.
+
+    ``shell`` requires a container runner unless ``allow_unsandboxed_shell``
+    says otherwise: outside one it runs as the worker user, with that user's
+    ssh keys, cloud credentials and flux.toml.
+    """
+    if include_shell:
+        require_sandbox_for_shell(allow_unsandboxed_shell)
+
     config = SystemToolsConfig(
         workspace=Path(workspace).resolve(),
         timeout=timeout,
@@ -74,7 +108,7 @@ def system_tools(
     from flux.tasks.ai.tools.directory import build_directory_tools
 
     return [
-        *build_shell_tools(config),
+        *(build_shell_tools(config) if include_shell else []),
         *build_file_tools(config),
         *build_search_tools(config),
         *build_directory_tools(config),

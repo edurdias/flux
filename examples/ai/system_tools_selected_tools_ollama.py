@@ -63,7 +63,7 @@ async def system_tools_selected_tools_ollama(ctx: ExecutionContext[dict[str, Any
 
     workspace = input_data.get("workspace", tempfile.mkdtemp(prefix="flux_agent_"))
 
-    all_tools = system_tools(workspace=workspace)
+    all_tools = system_tools(workspace=workspace, allow_unsandboxed_shell=True)
     read_only_tools = [
         t
         for t in all_tools

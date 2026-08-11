@@ -7,6 +7,14 @@ import pytest
 from flux.agents.tools_resolver import resolve_builtin_tools
 
 
+@pytest.fixture(autouse=True)
+def _sandboxed(monkeypatch):
+    """These resolve tool groups rather than run them; shell needs a container."""
+    from flux.tasks.ai.tools.system_tools import SANDBOX_ENV_VAR
+
+    monkeypatch.setenv(SANDBOX_ENV_VAR, "1")
+
+
 def test_resolve_system_tools():
     tools = resolve_builtin_tools([{"system_tools": {"workspace": "/tmp", "timeout": 30}}])
     assert len(tools) > 0

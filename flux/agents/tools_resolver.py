@@ -36,6 +36,11 @@ def _resolve_tool_group(name: str, config: dict) -> list[task]:
         max_output_chars=max_output_chars,
     )
 
+    if name in ("system_tools", "shell"):
+        from flux.tasks.ai.tools.system_tools import require_sandbox_for_shell
+
+        require_sandbox_for_shell(bool(config.get("allow_unsandboxed_shell", False)))
+
     if name == "system_tools":
         from flux.tasks.ai.tools.directory import build_directory_tools
         from flux.tasks.ai.tools.files import build_file_tools

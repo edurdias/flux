@@ -465,6 +465,17 @@ tools:
 
 Omitted fields use the defaults: `workspace="."`, `timeout=30`, `max_output_chars=100000`, and the built-in `DEFAULT_BLOCKLIST` from `flux.tasks.ai.tools.system_tools`. See [System Tools](system-tools.md) for the full behavior.
 
+Any group that includes **shell** (`system_tools` or `shell`) requires the execution to run on a container runner. `agent_chat` does not pin one — that would force a container on every agent, including those with no shell tool — so set it on the workers that run agents (`[flux.workers] default_runner = "docker"`), or opt out per group:
+
+```yaml
+tools:
+  - shell:
+      workspace: /home/user/project
+      allow_unsandboxed_shell: true
+```
+
+Without a container, shell commands run as the worker user — with that user's ssh keys, cloud credentials and `flux.toml`.
+
 ### Individual groups
 
 Select only the groups you need. Each takes the same config as `system_tools`:

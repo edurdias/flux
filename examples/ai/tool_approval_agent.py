@@ -50,7 +50,9 @@ async def tool_approval_demo(ctx: ExecutionContext[dict[str, Any]]):
     raw = ctx.input or {}
     task_description = raw.get("task", "List the files in the current directory")
 
-    tools = _gate_shell(system_tools("./workspace", timeout=10))
+    tools = _gate_shell(
+        system_tools("./workspace", timeout=10, allow_unsandboxed_shell=True),
+    )
 
     assistant = await agent(
         "You are a helpful assistant with access to system tools. "
