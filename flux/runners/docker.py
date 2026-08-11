@@ -51,6 +51,7 @@ import subprocess
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from flux.runners.options import tighten_options
 from flux.runners.subprocess_runner import _STREAM_LIMIT, SANDBOX_ENV_VAR, SubprocessRunner
 from flux.utils import get_logger
 
@@ -66,6 +67,8 @@ SUPPORTED_CONTAINER_CLIS = ("docker", "podman", "nerdctl")
 
 
 class DockerRunner(SubprocessRunner):
+    accepts_options = True
+
     name = "docker"
 
     def __init__(
@@ -144,29 +147,35 @@ class DockerRunner(SubprocessRunner):
         # worker while its previous --rm container is still being removed.
         return f"flux-exec-{execution_id[:24]}-{uuid4().hex[:6]}"
 
-    def _build_command(self, container_name: str) -> list[str]:
+    def _build_command(self, container_name: str, options: dict | None = None) -> list[str]:
         """Template method. Sections in order: fixed prefix, config-derived
         resource args, operator extra_args, then ``_locked_args()`` — LAST so
         docker's last-wins flag parsing structurally favors a hardened
         profile over anything an operator (or config-file attacker) adds."""
         command = [self._cli, "run", "-i", "--rm", "--name", container_name]
-        command += self._resource_args()
+        command += self._resource_args(options)
         command += self._extra_args
-        command += self._locked_args()
+        command += self._locked_args(options)
         command += [self._image, "python", "-m", "flux.runners.child"]
         return command
 
-    def _resource_args(self) -> list[str]:
+    def _resource_args(self, options: dict | None = None) -> list[str]:
+        profile = tighten_options(
+            {"network": self._network, "memory": self._memory, "cpus": self._cpus},
+            options or {},
+        )
         args: list[str] = []
-        if self._network:
-            args += ["--network", self._network]
-        if self._memory:
-            args += ["--memory", self._memory]
-        if self._cpus:
-            args += ["--cpus", str(self._cpus)]
+        if profile.get("network"):
+            args += ["--network", profile["network"]]
+        if profile.get("memory"):
+            args += ["--memory", str(profile["memory"])]
+        if profile.get("cpus"):
+            args += ["--cpus", str(profile["cpus"])]
+        if profile.get("read_only"):
+            args += ["--read-only"]
         return args
 
-    def _locked_args(self) -> list[str]:
+    def _locked_args(self, options: dict | None = None) -> list[str]:
         """Non-configurable flags, emitted after extra_args so they win."""
         # Tells the child it is containerized; the agent shell tool refuses to
         # build without it, so an operator must not be able to unset it.
@@ -175,7 +184,7 @@ class DockerRunner(SubprocessRunner):
     async def _spawn(self, request: WorkflowExecutionRequest):
         container_name = self._container_name(request.context.execution_id)
         proc = await asyncio.create_subprocess_exec(
-            *self._build_command(container_name),
+            *self._build_command(container_name, getattr(request, "runner_options", None)),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -515,9 +524,17 @@ class AirgappedDockerRunner(DockerRunner):
         """Granted service-socket names; advertised as worker labels."""
         return sorted(self._service_sockets)
 
-    def _locked_args(self) -> list[str]:
+    def _locked_args(self, options: dict | None = None) -> list[str]:
+        # The profile owns the limits, so they are emitted here rather than in
+        # _resource_args — which means a workflow's tightening request has to
+        # be merged in at this point too, or last-wins parsing would restore
+        # the profile value over the narrower one the workflow asked for.
+        profile = tighten_options(
+            {"memory": self._airgapped_memory, "cpus": self._airgapped_cpus},
+            options or {},
+        )
         args = [
-            *super()._locked_args(),
+            *super()._locked_args(options),
             "--network=none",
             "--read-only",
             "--tmpfs",
@@ -527,9 +544,9 @@ class AirgappedDockerRunner(DockerRunner):
             "--pids-limit",
             str(self._pids_limit),
             "--memory",
-            self._airgapped_memory,
+            str(profile["memory"]),
             "--cpus",
-            str(self._airgapped_cpus),
+            str(profile["cpus"]),
         ]
         # A crash must not hand the sandbox's memory to a host-side core
         # collector: with a piped kernel.core_pattern (apport,

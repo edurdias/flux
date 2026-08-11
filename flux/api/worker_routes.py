@@ -76,6 +76,9 @@ class WorkerRoutesMixin:
         required_runner = (workflow.metadata or {}).get("runner")
         if required_runner:
             payload["runner"] = required_runner
+        runner_options = (workflow.metadata or {}).get("runner_options")
+        if runner_options:
+            payload["runner_options"] = runner_options
         session = self._get_db_session()
         try:
             exec_row = session.get(ExecutionContextModel, ctx.execution_id)

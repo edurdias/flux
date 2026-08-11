@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from flux.errors import ExecutionTimedOut, WorkerProcessCrashed
 from flux.runners.base import Runner, RunnerHooks
+from flux.runners.options import tighten_options
 from flux.utils import get_logger
 
 if TYPE_CHECKING:
@@ -96,6 +97,16 @@ class SubprocessRunner(Runner):
             # timeout and the kill.
             proc.kill()
 
+    def _effective_timeout(self, request: WorkflowExecutionRequest) -> float:
+        """The configured ceiling, narrowed by the workflow's request."""
+        if not self.accepts_options:
+            return self._execution_timeout
+        merged = tighten_options(
+            {"timeout": self._execution_timeout},
+            getattr(request, "runner_options", None) or {},
+        )
+        return float(merged.get("timeout") or 0)
+
     def _reap(self, proc):
         """Called once the child is gone; subclasses release launch state."""
 
@@ -108,13 +119,14 @@ class SubprocessRunner(Runner):
         proc = await self._spawn(request)
         assert proc.stdin and proc.stdout and proc.stderr
 
+        timeout = self._effective_timeout(request)
         timed_out = False
         watchdog: asyncio.Task | None = None
-        if self._execution_timeout > 0:
+        if timeout > 0:
 
             async def _watchdog():
                 nonlocal timed_out
-                await asyncio.sleep(self._execution_timeout)
+                await asyncio.sleep(timeout)
                 if proc.returncode is not None:
                     # The child already exited on its own; whatever ended it
                     # (a result or a crash) owns the outcome. Claiming a
@@ -125,7 +137,7 @@ class SubprocessRunner(Runner):
                 timed_out = True
                 logger.warning(
                     f"Execution {execution_id} exceeded the runner execution "
-                    f"timeout ({self._execution_timeout:g}s); killing the child",
+                    f"timeout ({timeout:g}s); killing the child",
                 )
                 # Kill without the SIGTERM grace dance: a graceful shutdown
                 # could land a terminal CANCELLED checkpoint and mask the
@@ -213,7 +225,7 @@ class SubprocessRunner(Runner):
             if timed_out:
                 raise ExecutionTimedOut(
                     execution_id,
-                    timeout_seconds=self._execution_timeout,
+                    timeout_seconds=timeout,
                     last_context=last_ctx or request.context,
                 )
             raise WorkerProcessCrashed(
