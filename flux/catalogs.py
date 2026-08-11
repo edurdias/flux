@@ -745,7 +745,10 @@ class WorkflowCatalog(ABC):
             elif call_name(right) in ("meta", "metric"):
                 sel, const, op = _extract_ms_selector(right), left, _FLIPPED[op]
             else:
-                fail("one side of a when() condition must be input()/meta()/metric()")
+                fail(
+                    "one side of a when() condition must be input()/meta()/metric(); "
+                    "load()/utilization() gate score terms, so they belong in routing=score(...)",
+                )
             if not isinstance(const, ast.Constant):
                 fail("when() worker conditions compare against a literal")
             try:
@@ -853,6 +856,7 @@ class WorkflowCatalog(ABC):
             "meta": routing_dsl.meta,
             "resource": routing_dsl.resource,
             "load": routing_dsl.load,
+            "utilization": routing_dsl.utilization,
         }
 
         def extract_input_ref(ref_node: ast.AST) -> Any:
@@ -869,7 +873,7 @@ class WorkflowCatalog(ABC):
             if name is None:
                 fail(
                     f"expected label()/label_for()/metric()/meta()/meta_for()/"
-                    f"resource()/load(), got '{name}'",
+                    f"resource()/load()/utilization(), got '{name}'",
                 )
             assert isinstance(sel_node, ast.Call)
             if name in ("label_for", "meta_for"):
@@ -891,7 +895,7 @@ class WorkflowCatalog(ABC):
             if factory is None:
                 fail(
                     f"expected label()/label_for()/metric()/meta()/meta_for()/"
-                    f"resource()/load(), got '{name}'",
+                    f"resource()/load()/utilization(), got '{name}'",
                 )
             args = []
             for arg in sel_node.args:
@@ -943,11 +947,17 @@ class WorkflowCatalog(ABC):
             except ValueError as e:
                 raise SyntaxError(f"Invalid routing condition: {e}") from e
 
+        _WHEN_SELECTORS = ("meta", "metric", "load", "utilization")
+
         def _extract_ms_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
-            if name not in ("meta", "metric"):
-                fail("when() worker conditions use meta() or metric()")
+            if name not in _WHEN_SELECTORS:
+                fail("when() worker conditions use meta(), metric(), load() or utilization()")
             assert isinstance(sel_node, ast.Call)
+            if name in ("load", "utilization"):
+                if sel_node.args or sel_node.keywords:
+                    fail(f"{name}() takes no arguments")
+                return routing_dsl.load() if name == "load" else routing_dsl.utilization()
             if len(sel_node.args) != 1 or not isinstance(sel_node.args[0], ast.Constant):
                 fail(f"{name}() takes a literal key")
             factory = routing_dsl.meta if name == "meta" else routing_dsl.metric
@@ -957,10 +967,10 @@ class WorkflowCatalog(ABC):
                 raise SyntaxError(f"Invalid when() selector '{name}': {e}") from e
 
         def extract_when_condition(cond_node: ast.AST) -> Any:
-            """A when() condition: input(...) (==/!= only) or a meta()/metric()
-            comparison (any op), either side."""
+            """A when() condition: input(...) (==/!= only) or a
+            meta()/metric()/load()/utilization() comparison (any op), either side."""
             if not isinstance(cond_node, ast.Compare) or len(cond_node.ops) != 1:
-                fail("when() takes an input()/meta()/metric() comparison")
+                fail("when() takes an input()/meta()/metric()/load()/utilization() comparison")
             op = _AST_OPS.get(type(cond_node.ops[0]))
             if op is None:
                 fail(f"unsupported when() operator at line {cond_node.lineno}")
@@ -975,12 +985,15 @@ class WorkflowCatalog(ABC):
                 if not isinstance(const, ast.Constant):
                     fail("when() input conditions compare against a literal")
                 return routing_dsl.InputCondition(ref, op, const.value)
-            if call_name(left) in ("meta", "metric"):
+            if call_name(left) in _WHEN_SELECTORS:
                 sel, const = _extract_ms_selector(left), right
-            elif call_name(right) in ("meta", "metric"):
+            elif call_name(right) in _WHEN_SELECTORS:
                 sel, const, op = _extract_ms_selector(right), left, _FLIPPED[op]
             else:
-                fail("one side of a when() condition must be input()/meta()/metric()")
+                fail(
+                    "one side of a when() condition must be "
+                    "input()/meta()/metric()/load()/utilization()",
+                )
             if not isinstance(const, ast.Constant):
                 fail("when() worker conditions compare against a literal")
             try:

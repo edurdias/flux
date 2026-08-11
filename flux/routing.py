@@ -155,6 +155,13 @@ class Condition:
         self.value = value
 
 
+# The only selectors a when() condition may gate on. Both resolve from the
+# server's own execution count rather than a worker-supplied value — utilization
+# also divides by the worker's advertised capacity, but _has_free_slot already
+# trusts that number as a hard admission gate, so it grants no new leverage.
+_SERVER_EVALUATED_SELECTORS = ("load", "utilization")
+
+
 class Selector:
     """A worker attribute usable in routing terms.
 
@@ -168,8 +175,8 @@ class Selector:
     spec: str | dict[str, Any]
 
     def __init__(self, kind: str, key: str | None = None):
-        if kind == "load":
-            self.spec = "load"
+        if kind in _SERVER_EVALUATED_SELECTORS:
+            self.spec = kind
             return
         if not key or not isinstance(key, str):
             raise ValueError(f"{kind}() requires a non-empty string key")
@@ -230,6 +237,17 @@ def resource(field: str) -> Selector:
 def load() -> Selector:
     """Active executions on the worker (built-in)."""
     return Selector("load")
+
+
+def utilization() -> Selector:
+    """Active executions as a fraction of the worker's advertised capacity.
+
+    ``load()`` is an absolute count, so a threshold tuned for a 4-slot worker
+    means something else on a 32-slot one. This is the portable form for a
+    mixed fleet. Resolves to ``None`` — matching nothing, rather than reading
+    as idle — on a worker that advertises no ``max_concurrent_executions``.
+    """
+    return Selector("utilization")
 
 
 # Resolved dynamic label keys must look like ordinary label keys: alphanumeric
@@ -562,35 +580,52 @@ def when(condition: Any, term: Condition | dict) -> dict:
     """Apply ``term`` only when ``condition`` holds.
 
     The condition may be ``input(...)`` (requester intent, per-execution,
-    ``==``/``!=`` only) or a ``meta(...)``/``metric(...)`` comparison (dynamic
-    worker state, per-worker, any operator). ``label()``/``resource()``/
-    ``load()`` are not valid conditions — label is static capability (gating a
-    hard constraint on a worker-set label invites a self-dodge), and
-    resource/load are not conditionable state here.
+    ``==``/``!=`` only), a ``meta(...)``/``metric(...)`` comparison (dynamic
+    worker state, per-worker, any operator), or — in the score stage only —
+    ``load()``/``utilization()``.
+
+    ``label()`` and ``resource()`` are not valid conditions: their values are
+    worker-asserted with no server-side counterpart, so gating on them invites
+    a self-dodge. ``load()`` is counted by the server from its own execution
+    table; ``utilization()`` divides that count by the worker's advertised
+    capacity, which dispatch already trusts as a hard admission gate.
 
     Valid in both stages: wrapping a require match term it gates a
     ``require(...)`` term; wrapping a ``prefer()``/``least()``/``most()``/
     ``sticky()`` term it gates a ``score(...)`` term.
     """
+    is_score_term = isinstance(term, dict) and term.get("kind") in _SCORE_TERM_KINDS
     if isinstance(condition, InputCondition):
         cond_spec = {"input": condition.ref.path, "op": condition.op, "value": condition.value}
     elif isinstance(condition, Condition):
         spec = condition.selector.spec
-        if not (isinstance(spec, str) and (spec.startswith("meta:") or spec.startswith("metric:"))):
+        server_computed = spec in _SERVER_EVALUATED_SELECTORS
+        if not (
+            isinstance(spec, str)
+            and (spec.startswith("meta:") or spec.startswith("metric:") or server_computed)
+        ):
             raise ValueError(
-                "when() worker conditions use meta() or metric() (dynamic worker state); "
-                "label()/resource()/load() are not valid when() conditions",
+                "when() worker conditions use meta(), metric(), load() or utilization(); "
+                "label()/resource() are not valid when() conditions",
+            )
+        if server_computed and not is_score_term:
+            # Skipping a require term makes a worker match MORE easily, so a
+            # load-gated hard constraint would drop its requirement on exactly
+            # the busy workers it was meant to steer away from.
+            raise ValueError(
+                f"{spec}() gates score terms only — prefer()/least()/most()/sticky(); "
+                "it cannot gate a require() term",
             )
         if isinstance(condition.value, dict) and "$input" in condition.value:
             raise ValueError("when() conditions compare against a constant, not input(...)")
         cond_spec = {"selector": spec, "op": condition.op, "value": condition.value}
     else:
         raise ValueError(
-            "when() condition must be input(...), meta(...), or metric(...) compared "
-            f"against a constant, got: {type(condition).__name__}",
+            "when() condition must be input(...), meta(...), metric(...), load() or "
+            f"utilization() compared against a constant, got: {type(condition).__name__}",
         )
-    if isinstance(term, dict) and term.get("kind") in _SCORE_TERM_KINDS:
-        then = dict(term)
+    if is_score_term:
+        then = dict(term)  # type: ignore[arg-type]
     else:
         then = _compile_match(term, "when()")
     return {"kind": "when", "if": cond_spec, "then": then}
@@ -697,9 +732,24 @@ def _resolve_input_path(input_value: Any, path: str) -> Any:
     return current
 
 
+def _worker_utilization(worker: WorkerInfo, loads: dict[str, int]) -> float | None:
+    """Active executions over advertised capacity, or None when unlimited.
+
+    None rather than 0.0 on purpose: a worker that advertises no capacity is
+    unknown, not idle, and reading it as idle would make one legacy worker
+    look permanently free and collect every preference in the fleet.
+    """
+    cap = getattr(worker, "max_concurrent_executions", None)
+    if not cap:
+        return None
+    return loads.get(worker.name, 0) / cap
+
+
 def _selector_value(worker: WorkerInfo, selector: str, loads: dict[str, int]) -> Any:
     if selector == "load":
         return loads.get(worker.name, 0)
+    if selector == "utilization":
+        return _worker_utilization(worker, loads)
     kind, _, key = selector.partition(":")
     if kind == "label":
         return (worker.labels or {}).get(key)
@@ -802,6 +852,7 @@ def pick_worker(
                         worker_metadata=getattr(w, "metadata", None) or {},
                         worker_metrics=getattr(w, "metrics", None) or {},
                         loads=loads,
+                        worker=w,
                         has_worker=True,
                     )
                     if isinstance(a, str):
@@ -1030,6 +1081,7 @@ def _when_condition_active(
     worker_metadata: dict[str, Any] | None = None,
     worker_metrics: dict[str, Any] | None = None,
     loads: dict[str, int] | None = None,
+    worker: WorkerInfo | None = None,
     has_worker: bool = False,
 ) -> bool | str | None:
     """Whether a when-term's condition holds. Returns True/False, a string for a
@@ -1056,10 +1108,22 @@ def _when_condition_active(
         selector, op = cond.get("selector"), cond.get("op")
         if (
             not isinstance(selector, str)
-            or not (selector.startswith("meta:") or selector.startswith("metric:"))
+            or not (
+                selector.startswith("meta:")
+                or selector.startswith("metric:")
+                or selector in _SERVER_EVALUATED_SELECTORS
+            )
             or op not in _OPS
         ):
             return f"malformed affinity when-condition: {cond!r}"
+        if selector in _SERVER_EVALUATED_SELECTORS:
+            # when() confines these to the score stage, which always passes a
+            # worker. Reaching here without one means hand-written metadata put
+            # the condition in a require() expression — diagnose it so the
+            # execution fails loudly instead of matching nobody and parking.
+            if worker is None:
+                return f"{selector}() gates score terms only: {cond!r}"
+            return _compare(_selector_value(worker, selector, loads or {}), op, cond.get("value"))
         if not has_worker:
             return None  # fleet-dependent; not evaluable in diagnostic context
         kind, _, key = selector.partition(":")

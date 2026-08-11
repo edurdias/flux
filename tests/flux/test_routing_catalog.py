@@ -244,3 +244,40 @@ async def routed(ctx):
             },
         },
     ]
+
+
+def test_load_and_utilization_when_conditions_extracted():
+    source = b"""
+from flux import workflow
+from flux.routing import score, sticky, least, when, load, utilization
+
+
+@workflow.with_options(
+    routing=score(
+        when(load() < 5, sticky(weight=3)),
+        when(utilization() < 0.8, sticky(weight=2)),
+        least(utilization()),
+    ),
+)
+async def routed(ctx):
+    return 1
+"""
+    routing = (_parse(source)[0].metadata or {})["routing"]
+
+    assert routing["terms"][0]["if"] == {"selector": "load", "op": "<", "value": 5}
+    assert routing["terms"][1]["if"] == {"selector": "utilization", "op": "<", "value": 0.8}
+    assert routing["terms"][2] == {"kind": "least", "selector": "utilization", "weight": 1.0}
+
+
+def test_load_gated_require_term_fails_registration():
+    source = b"""
+from flux import workflow
+from flux.routing import require, when, load, label
+
+
+@workflow.with_options(affinity=require(when(load() < 5, label("gpu") == "true")))
+async def routed(ctx):
+    return 1
+"""
+    with pytest.raises(SyntaxError, match="input\\(\\)/meta\\(\\)/metric\\(\\)"):
+        _parse(source)

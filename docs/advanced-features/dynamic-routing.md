@@ -44,6 +44,7 @@ A policy is a weighted combination of terms over **selectors**:
 | `meta("key")` | server-side worker metadata (`flux worker metadata set` — admin-written, worker-unspoofable; see [Worker Affinity](worker-affinity.md#server-side-worker-metadata)) | live, re-read at dispatch |
 | `resource("field")` | `cpu_total`, `cpu_available`, `memory_total`, `memory_available`, `disk_total`, `disk_free` | registration-time snapshot (prefer `metric("flux.cpu_percent")` etc. for live values) |
 | `load()` | active executions on the worker | live, computed at dispatch |
+| `utilization()` | active executions ÷ the worker's advertised capacity | live, computed at dispatch |
 
 And four term types:
 
@@ -80,9 +81,14 @@ soft preference under `prefer(...)`:
 - `prefer(service(input("model")), weight=2)` — prefer a worker with the
   granted service socket, fall back to the rest.
 - `when(input("latency_sensitive") == "true", least(load(), weight=10))` —
-  apply a term only when the request says it matters. The condition reads
-  execution input only, never worker attributes; unresolved leaves the term
-  inactive.
+  apply a term only when the request says it matters. An `input(...)`
+  condition resolves once per execution (`==`/`!=` only); unresolved leaves
+  the term inactive.
+- `when(load() < 5, sticky(weight=3))` — apply a term only to the workers a
+  condition holds for. `meta()`, `metric()`, `load()` and `utilization()`
+  conditions are evaluated **per worker**, so this reads as "keep the
+  stickiness while the preferred worker still has room". See
+  [gating on load](#gating-on-load) below.
 
 Pair the stages for floor-plus-preference routing:
 
@@ -123,6 +129,54 @@ code runs in the dispatcher. The flip side: the policy must be declared
 with literal values (or `input(...)`); a policy the parser cannot extract
 fails registration with a clear error rather than silently routing
 differently than written.
+
+## Gating on load
+
+Normalization is relative, which makes `least(load())` sharper than it
+looks: across two workers at loads 1 and 0, the gap normalizes to a full
+1.0 — the largest value the term can take. So pairing it with a plain
+`sticky(...)` leaves only two postures, and neither is "prefer this worker
+until it fills up":
+
+| Policy | Behaviour |
+|---|---|
+| `sticky(weight=3)` | deterministic — the preferred worker wins at any load |
+| `sticky(weight=0.5)` | defeated by a **single** in-flight execution |
+
+An absolute gate gives the middle posture, because a `when()` condition on
+worker state is evaluated per candidate:
+
+```python
+routing=score(
+    when(load() < 5, sticky(weight=3)),   # stickiness, while there is room
+    least(load()),                        # otherwise spread
+)
+```
+
+`load()` is a count, so a threshold tuned for a 4-slot worker means
+something different on a 32-slot one. In a mixed fleet use the ratio:
+
+```python
+routing=score(when(utilization() < 0.8, sticky(weight=3)), least(load()))
+```
+
+`utilization()` is `load() ÷ max_concurrent_executions`. A worker that
+advertises no capacity has **no** utilization rather than zero, so it does
+not match `utilization() < 0.8` — otherwise one uncapped worker would read
+as permanently idle and collect every preference in the fleet.
+
+Note that a worker at capacity is already filtered out as a hard constraint,
+so a threshold of `1.0` gates nothing new; the useful values sit below it.
+
+Both are counted by the server from its own execution table, which is what
+makes them safe as conditions: `label()` and `resource()` are asserted by
+the worker, so gating on them would let a worker dodge or attract work, and
+they remain rejected in `when()`.
+
+Score terms only. Gating a `require(...)` term on load is refused at
+registration: skipping a hard constraint makes a worker match *more*
+easily, so it would drop the requirement on exactly the busy workers it was
+meant to steer away from.
 
 ## Built-in worker metrics
 
