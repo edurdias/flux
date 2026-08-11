@@ -12,13 +12,13 @@
           {
             "type": "command",
             "if": "Bash(git commit*)",
-            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|^\\s*🤖|^\\s*generated with \\[[^\\]]*\\]\\(https?://\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in commits and PR descriptions (see CONTRIBUTING.md and AGENTS.md): no Co-Authored-By trailers, no generated-with footers, no tool bylines. Remove it, then retry.\"}}))'",
+            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|^\\s*claude-session:|^\\s*🤖|^\\s*_?generated (with|by) \\[[^\\]]*\\]\\(https?://|^\\s*<?https?://claude\\.ai/code/session\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in commits and PR descriptions (see CONTRIBUTING.md and AGENTS.md): no Co-Authored-By trailers, no generated-with/by footers, no tool bylines, and no session or tool URLs (a session link leaks an account identifier). Remove it, then retry.\"}}))'",
             "statusMessage": "Checking commit for attribution"
           },
           {
             "type": "command",
             "if": "Bash(gh pr *)",
-            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|^\\s*🤖|^\\s*generated with \\[[^\\]]*\\]\\(https?://\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in commits and PR descriptions (see CONTRIBUTING.md and AGENTS.md): no Co-Authored-By trailers, no generated-with footers, no tool bylines. Remove it, then retry.\"}}))'",
+            "command": "python3 -c 'import json,sys,re\ntry:\n    c=json.load(sys.stdin).get(\"tool_input\",{}).get(\"command\",\"\")\nexcept Exception:\n    sys.exit(0)\nif re.search(r\"(?mi)^\\s*co-authored-by:|^\\s*claude-session:|^\\s*🤖|^\\s*_?generated (with|by) \\[[^\\]]*\\]\\(https?://|^\\s*<?https?://claude\\.ai/code/session\",c):\n    print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"This repo forbids AI attribution in commits and PR descriptions (see CONTRIBUTING.md and AGENTS.md): no Co-Authored-By trailers, no generated-with/by footers, no tool bylines, and no session or tool URLs (a session link leaks an account identifier). Remove it, then retry.\"}}))'",
             "statusMessage": "Checking PR body for attribution"
           }
         ]
