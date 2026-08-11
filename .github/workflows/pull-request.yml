@@ -101,9 +101,13 @@ jobs:
       if: steps.cached-lint-deps.outputs.cache-hit != 'true'
       run: poetry install --no-interaction --extras observability
 
+    # Not --no-root: the project itself must be in the venv, not merely
+    # importable from the repo root. Tests that spawn a child process with a
+    # different cwd (and the subprocess runner itself) import flux the same
+    # way any installed package would.
     - name: Ensure dependencies are available
       if: steps.cached-lint-deps.outputs.cache-hit == 'true'
-      run: poetry install --no-interaction --no-root --extras observability
+      run: poetry install --no-interaction --extras observability
 
     - name: Linting and code quality
       run: |
@@ -145,9 +149,13 @@ jobs:
       if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
       run: poetry install --no-interaction --extras observability
 
+    # Not --no-root: the project itself must be in the venv, not merely
+    # importable from the repo root. Tests that spawn a child process with a
+    # different cwd (and the subprocess runner itself) import flux the same
+    # way any installed package would.
     - name: Ensure dependencies are available
       if: steps.cached-poetry-dependencies.outputs.cache-hit == 'true'
-      run: poetry install --no-interaction --no-root --extras observability
+      run: poetry install --no-interaction --extras observability
 
     - name: Run unit tests
       run: |
@@ -310,9 +318,13 @@ jobs:
       if: steps.cached-e2e-deps.outputs.cache-hit != 'true'
       run: poetry install --no-interaction
 
+    # Not --no-root: the project itself must be in the venv, not merely
+    # importable from the repo root. Tests that spawn a child process with a
+    # different cwd (and the subprocess runner itself) import flux the same
+    # way any installed package would.
     - name: Ensure dependencies are available
       if: steps.cached-e2e-deps.outputs.cache-hit == 'true'
-      run: poetry install --no-interaction --no-root
+      run: poetry install --no-interaction
 
     - name: Run E2E tests
       run: |
