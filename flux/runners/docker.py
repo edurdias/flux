@@ -155,7 +155,7 @@ class DockerRunner(SubprocessRunner):
         command = [self._cli, "run", "-i", "--rm", "--name", container_name]
         command += self._resource_args(options)
         command += self._extra_args
-        command += self._locked_args()
+        command += self._locked_args(options)
         command += [self._image, "python", "-m", "flux.runners.child"]
         return command
 
@@ -171,9 +171,11 @@ class DockerRunner(SubprocessRunner):
             args += ["--memory", str(profile["memory"])]
         if profile.get("cpus"):
             args += ["--cpus", str(profile["cpus"])]
+        if profile.get("read_only"):
+            args += ["--read-only"]
         return args
 
-    def _locked_args(self) -> list[str]:
+    def _locked_args(self, options: dict | None = None) -> list[str]:
         """Non-configurable flags, emitted after extra_args so they win."""
         # Tells the child it is containerized; the agent shell tool refuses to
         # build without it, so an operator must not be able to unset it.
@@ -522,9 +524,17 @@ class AirgappedDockerRunner(DockerRunner):
         """Granted service-socket names; advertised as worker labels."""
         return sorted(self._service_sockets)
 
-    def _locked_args(self) -> list[str]:
+    def _locked_args(self, options: dict | None = None) -> list[str]:
+        # The profile owns the limits, so they are emitted here rather than in
+        # _resource_args — which means a workflow's tightening request has to
+        # be merged in at this point too, or last-wins parsing would restore
+        # the profile value over the narrower one the workflow asked for.
+        profile = tighten_options(
+            {"memory": self._airgapped_memory, "cpus": self._airgapped_cpus},
+            options or {},
+        )
         args = [
-            *super()._locked_args(),
+            *super()._locked_args(options),
             "--network=none",
             "--read-only",
             "--tmpfs",
@@ -534,9 +544,9 @@ class AirgappedDockerRunner(DockerRunner):
             "--pids-limit",
             str(self._pids_limit),
             "--memory",
-            self._airgapped_memory,
+            str(profile["memory"]),
             "--cpus",
-            str(self._airgapped_cpus),
+            str(profile["cpus"]),
         ]
         # A crash must not hand the sandbox's memory to a host-side core
         # collector: with a piped kernel.core_pattern (apport,

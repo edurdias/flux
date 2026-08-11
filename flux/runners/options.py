@@ -21,6 +21,8 @@ _MEMORY_UNITS = {"": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
 
 def parse_memory(value: str | int) -> int:
     """Bytes from a docker-style size (``512m``, ``1g``, or a bare number)."""
+    if isinstance(value, bool):
+        raise ValueError(f"invalid memory value: {value!r}")
     if isinstance(value, int):
         return value
     match = _MEMORY_RE.match(str(value).strip())
@@ -45,7 +47,12 @@ def validate_runner_options(options: dict[str, Any] | None) -> dict[str, Any]:
             if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
                 raise ValueError(f"runner option '{key}' must be a positive number, got {value!r}")
         elif key == "memory":
-            parse_memory(value)
+            # A zero or negative size passes the grammar but is not a limit
+            # docker can apply; reject it here so it fails at registration.
+            if parse_memory(value) <= 0:
+                raise ValueError(
+                    f"runner option 'memory' must be a positive size, got {value!r}",
+                )
         elif key == "network":
             # Only dropping the network narrows; naming one could widen.
             if value != "none":
@@ -66,10 +73,13 @@ def tighten_options(configured: dict[str, Any], requested: dict[str, Any]) -> di
     merged = dict(configured)
     for key, value in (requested or {}).items():
         current = configured.get(key)
+        # A falsy configured value means "unset" for every knob here (0 cpus,
+        # 0 timeout and "" memory all mean unlimited), so the request applies
+        # whole rather than being min()'d against a bound that isn't one.
         if key in ("cpus", "timeout"):
-            merged[key] = value if current in (None, 0) else min(current, value)
+            merged[key] = value if not current else min(current, value)
         elif key == "memory":
-            merged[key] = value if current in (None, "") else min(current, value, key=parse_memory)
+            merged[key] = value if not current else min(current, value, key=parse_memory)
         elif key == "network":
             # Config having already dropped it wins; otherwise 'none' narrows.
             merged[key] = "none" if "none" in (current, value) else current

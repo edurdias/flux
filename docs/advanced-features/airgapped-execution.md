@@ -123,12 +123,19 @@ takes the stricter of the configured value and the requested one, so
 with the workflow, so their values are author-controlled — that guarantee is
 what makes accepting them safe.
 
-Unknown keys and loosening values (`network: "host"`, `read_only: False`) fail
-at **registration**, so a typo is an error rather than a setting that silently
-does nothing.
+Unknown keys, loosening values (`network: "host"`, `read_only: False`), and
+non-positive numbers fail at **registration**, so a typo is an error rather
+than a setting that silently does nothing.
+
+Only container runners accept them (`docker`, `docker-airgapped`). The
+`subprocess` runner ignores a request entirely and keeps its configured
+`execution_timeout`.
 
 On this runner the locked profile is still emitted last, so nothing here can
-reopen a surface the profile closed.
+reopen a surface the profile closed — `--network=none`, `--cap-drop=ALL`,
+`--read-only` and the rest hold regardless of what was asked for. The
+profile's `cpus`/`memory` limits are the one part that merges: a narrower
+request replaces them, a wider one does not.
 
 ## Service sockets — warm runtimes for sealed executions
 
