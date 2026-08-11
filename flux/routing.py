@@ -155,10 +155,11 @@ class Condition:
         self.value = value
 
 
-# Keyless selectors the server computes itself. Everything else in the DSL
-# reads a value the worker advertised, which is why only these are allowed to
-# gate a when() condition — a worker cannot move them to dodge or attract work.
-_SERVER_COMPUTED_SELECTORS = ("load", "utilization")
+# The only selectors a when() condition may gate on. Both resolve from the
+# server's own execution count rather than a worker-supplied value — utilization
+# also divides by the worker's advertised capacity, but _has_free_slot already
+# trusts that number as a hard admission gate, so it grants no new leverage.
+_SERVER_EVALUATED_SELECTORS = ("load", "utilization")
 
 
 class Selector:
@@ -174,7 +175,7 @@ class Selector:
     spec: str | dict[str, Any]
 
     def __init__(self, kind: str, key: str | None = None):
-        if kind in _SERVER_COMPUTED_SELECTORS:
+        if kind in _SERVER_EVALUATED_SELECTORS:
             self.spec = kind
             return
         if not key or not isinstance(key, str):
@@ -585,8 +586,9 @@ def when(condition: Any, term: Condition | dict) -> dict:
 
     ``label()`` and ``resource()`` are not valid conditions: their values are
     worker-asserted with no server-side counterpart, so gating on them invites
-    a self-dodge. ``load()`` and ``utilization()`` are counted by the server
-    from its own execution table, which is what makes them safe here.
+    a self-dodge. ``load()`` is counted by the server from its own execution
+    table; ``utilization()`` divides that count by the worker's advertised
+    capacity, which dispatch already trusts as a hard admission gate.
 
     Valid in both stages: wrapping a require match term it gates a
     ``require(...)`` term; wrapping a ``prefer()``/``least()``/``most()``/
@@ -597,7 +599,7 @@ def when(condition: Any, term: Condition | dict) -> dict:
         cond_spec = {"input": condition.ref.path, "op": condition.op, "value": condition.value}
     elif isinstance(condition, Condition):
         spec = condition.selector.spec
-        server_computed = spec in _SERVER_COMPUTED_SELECTORS
+        server_computed = spec in _SERVER_EVALUATED_SELECTORS
         if not (
             isinstance(spec, str)
             and (spec.startswith("meta:") or spec.startswith("metric:") or server_computed)
@@ -1109,12 +1111,12 @@ def _when_condition_active(
             or not (
                 selector.startswith("meta:")
                 or selector.startswith("metric:")
-                or selector in _SERVER_COMPUTED_SELECTORS
+                or selector in _SERVER_EVALUATED_SELECTORS
             )
             or op not in _OPS
         ):
             return f"malformed affinity when-condition: {cond!r}"
-        if selector in _SERVER_COMPUTED_SELECTORS:
+        if selector in _SERVER_EVALUATED_SELECTORS:
             # when() confines these to the score stage, which always passes a
             # worker. Reaching here without one means hand-written metadata put
             # the condition in a require() expression — diagnose it so the
