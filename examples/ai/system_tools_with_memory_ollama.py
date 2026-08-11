@@ -50,7 +50,7 @@ async def system_tools_with_memory_ollama(ctx: ExecutionContext[dict[str, Any]])
         return {"error": "Missing required parameter 'instruction'"}
 
     workspace = input_data.get("workspace", tempfile.mkdtemp(prefix="flux_agent_"))
-    tools = system_tools(workspace=workspace, timeout=60)
+    tools = system_tools(workspace=workspace, timeout=60, allow_unsandboxed_shell=True)
 
     ltm = long_term_memory(
         provider=sqlite(f"{workspace}/.agent_memory.db"),

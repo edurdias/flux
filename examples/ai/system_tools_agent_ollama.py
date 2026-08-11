@@ -50,7 +50,7 @@ async def system_tools_agent_ollama(ctx: ExecutionContext[dict[str, Any]]):
 
     workspace = input_data.get("workspace", tempfile.mkdtemp(prefix="flux_agent_"))
 
-    tools = system_tools(workspace=workspace, timeout=60)
+    tools = system_tools(workspace=workspace, timeout=60, allow_unsandboxed_shell=True)
 
     assistant = await agent(
         "You are an autonomous coding assistant. Use your tools to accomplish "

@@ -48,7 +48,7 @@ async def system_tools_with_planning_ollama(ctx: ExecutionContext[dict[str, Any]
         return {"error": "Missing required parameter 'instruction'"}
 
     workspace = input_data.get("workspace", tempfile.mkdtemp(prefix="flux_agent_"))
-    tools = system_tools(workspace=workspace, timeout=60)
+    tools = system_tools(workspace=workspace, timeout=60, allow_unsandboxed_shell=True)
 
     assistant = await agent(
         "You are an autonomous coding assistant. For complex tasks, create a plan "

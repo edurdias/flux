@@ -81,7 +81,11 @@ async def dreaming_agent(ctx: ExecutionContext[dict[str, Any]]):
         scope="default",
     )
 
-    tools = system_tools(workspace=str(workspace), timeout=30)
+    tools = system_tools(
+        workspace=str(workspace),
+        timeout=30,
+        allow_unsandboxed_shell=True,
+    )
 
     assistant = await agent(
         "You are a helpful coding assistant. Use your tools to accomplish tasks. "

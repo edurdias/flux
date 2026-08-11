@@ -5,7 +5,17 @@ from pathlib import Path
 import pytest
 
 from flux.tasks.ai.tools import system_tools
-from flux.tasks.ai.tools.system_tools import DEFAULT_BLOCKLIST, SystemToolsConfig
+from flux.tasks.ai.tools.system_tools import (
+    DEFAULT_BLOCKLIST,
+    SANDBOX_ENV_VAR,
+    SystemToolsConfig,
+)
+
+
+@pytest.fixture(autouse=True)
+def _sandboxed(monkeypatch):
+    """These build tools rather than run them; shell requires a container."""
+    monkeypatch.setenv(SANDBOX_ENV_VAR, "1")
 
 
 def test_system_tools_returns_list_of_tasks(tmp_path):
