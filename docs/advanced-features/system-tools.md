@@ -9,7 +9,7 @@ system. They are provided as a standalone module — import and pass them via `t
 from flux import workflow, ExecutionContext
 from flux.tasks.ai import agent, system_tools
 
-@workflow
+@workflow.with_options(runner="docker")     # shell requires a container
 async def autonomous_agent(ctx: ExecutionContext):
     tools = system_tools(workspace="/path/to/project")
 
@@ -31,6 +31,8 @@ tools = system_tools(
     timeout=30,                     # Shell timeout in seconds (default: 30).
     blocklist=None,                 # Shell blocklist patterns (None = defaults).
     max_output_chars=100_000,       # Truncate responses to LLM (default: 100K).
+    include_shell=True,             # False builds only file/search/directory tools.
+    allow_unsandboxed_shell=False,  # True builds shell without a container.
 )
 ```
 
@@ -139,7 +141,7 @@ async def query_database(sql: str) -> str:
     """Run a SQL query against the database."""
     # ...
 
-tools = system_tools(workspace="/path/to/project")
+tools = system_tools(workspace="/path/to/project", allow_unsandboxed_shell=True)
 assistant = await agent(
     "You are an assistant with access to the codebase and a database.",
     model="openai/gpt-4o",
@@ -150,7 +152,7 @@ assistant = await agent(
 To select specific tools:
 
 ```python
-tools = system_tools(workspace="/path/to/project")
+tools = system_tools(workspace="/path/to/project", allow_unsandboxed_shell=True)
 shell_only = [t for t in tools if t.func.__name__ == "shell"]
 file_tools = [t for t in tools if t.func.__name__ in ("read_file", "write_file", "edit_file")]
 ```

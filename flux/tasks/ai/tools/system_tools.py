@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from flux.runners.subprocess_runner import SANDBOX_ENV_VAR as SANDBOX_ENV_VAR
+from flux.runners.subprocess_runner import SANDBOX_ENV_VAR
 from flux.task import task
 
 DEFAULT_BLOCKLIST = [
