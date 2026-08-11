@@ -82,11 +82,14 @@ class TestSandboxMarker:
         assert SANDBOX_ENV_VAR not in child_environment()
 
 
-def test_agent_template_pins_a_container_runner():
-    """agent_chat is the path an operator gets shell through by default."""
+def test_agent_template_does_not_force_a_runner():
+    """Pinning the template would force a container on every agent, including
+    those with no shell tool. The gate fires only when shell is built; the
+    runner is the operator's choice (worker default_runner, or their own
+    workflow)."""
     from flux.agents.template import agent_chat
 
-    assert agent_chat.runner == "docker"
+    assert agent_chat.runner is None
 
 
 def test_workspace_still_resolves(tmp_path, monkeypatch):

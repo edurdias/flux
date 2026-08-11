@@ -101,6 +101,17 @@ async def my_agent(ctx: ExecutionContext):
     tools = system_tools(workspace="./workspace")
 ```
 
+For an agent driven through the built-in `agents/agent_chat` template, the
+runner is the worker's choice rather than the workflow's — set it on the
+workers that run agents:
+
+```toml
+[flux.workers]
+runners = ["subprocess", "docker"]
+default_runner = "docker"
+docker_image = "my-registry/flux:1.2.3"
+```
+
 The container runners set `FLUX_RUNNER_SANDBOXED=1` in the child; the tool reads
 it. For local development, opt out explicitly:
 

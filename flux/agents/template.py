@@ -68,7 +68,7 @@ def _materialize_skills_bundle(tmp: Path, skills_data: dict[str, Any]) -> None:
             full_path.write_text(content)
 
 
-@workflow.with_options(namespace="agents", runner="docker")
+@workflow.with_options(namespace="agents")
 async def agent_chat(ctx: ExecutionContext[dict[str, Any]]):
     agent_name = ctx.input["agent"]
 
