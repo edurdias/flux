@@ -1436,7 +1436,7 @@ class Server(
         def _is_state_changing(method: str, path: str) -> bool:
             if method in _MUTATING_METHODS:
                 return True
-            return method == "GET" and any(p.match(path) for p in _MUTATING_GETS)
+            return method in ("GET", "HEAD") and any(p.match(path) for p in _MUTATING_GETS)
 
         @api.middleware("http")
         async def _enforce_anonymous_policy(request: Request, call_next):

@@ -121,3 +121,24 @@ def test_allow_anonymous_permits_the_mutating_get(client):
         assert r.status_code != 401, r.text
     finally:
         settings.security.auth.allow_anonymous = original
+
+
+def test_anonymous_head_cancel_does_not_reach_the_handler(client):
+    """FastAPI's APIRoute does not add HEAD to a GET route (bare Starlette
+    Route does), so this is 405 today. Asserted anyway: if HEAD ever becomes
+    routable, it must not be a way around the guard."""
+    suffix = uuid.uuid4().hex[:6]
+    name = f"headcancel_{suffix}"
+    eid = _seed("default", name)
+
+    r = client.head(f"/workflows/default/{name}/cancel/{eid}")
+    assert r.status_code in (401, 405), r.status_code
+
+    from flux.context_managers import ContextManager
+
+    assert ContextManager.create().get(eid).state.value != "CANCELLING"
+
+
+def test_anonymous_head_worker_connect_does_not_reach_the_handler(client):
+    r = client.head("/workers/some-worker/connect")
+    assert r.status_code in (401, 405), r.status_code
