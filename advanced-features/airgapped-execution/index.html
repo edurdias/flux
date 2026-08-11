@@ -1093,6 +1093,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-workflow-narrowing-runner_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-workflow narrowing: runner_options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#service-sockets-warm-runtimes-for-sealed-executions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1408,6 +1419,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#per-workflow-narrowing-runner_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-workflow narrowing: runner_options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#service-sockets-warm-runtimes-for-sealed-executions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1607,15 +1629,60 @@ privileges, host namespaces, and writable mounts cannot be enabled on this
 runner. Operators who need them switch to the plain <code>docker</code> runner —
 changing the runner <em>name</em>, and therefore the guarantee that dispatch and
 the dynamic-workflows server rely on.</p>
+<h2 id="per-workflow-narrowing-runner_options">Per-workflow narrowing: <code>runner_options</code><a class="headerlink" href="#per-workflow-narrowing-runner_options" title="Permanent link">&para;</a></h2>
+<p>A workflow can ask for a container narrower than the worker's configuration,
+never wider:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker&quot;</span><span class="p">,</span> <span class="n">runner_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;cpus&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;memory&quot;</span><span class="p">:</span> <span class="s2">&quot;256m&quot;</span><span class="p">})</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">small_job</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">):</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="o">...</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cpus</code>, <code>memory</code>, <code>timeout</code></td>
+<td>applied only if lower than the worker's configured value</td>
+</tr>
+<tr>
+<td><code>network</code></td>
+<td>only <code>"none"</code> — dropping the network, never naming one</td>
+</tr>
+<tr>
+<td><code>read_only</code></td>
+<td>only <code>True</code></td>
+</tr>
+</tbody>
+</table>
+<p>Widening is not rejected at dispatch, it simply does not happen: the runner
+takes the stricter of the configured value and the requested one, so
+<code>{"cpus": 64}</code> on a worker configured for 1 CPU still yields 1. Options travel
+with the workflow, so their values are author-controlled — that guarantee is
+what makes accepting them safe.</p>
+<p>Unknown keys, loosening values (<code>network: "host"</code>, <code>read_only: False</code>), and
+non-positive numbers fail at <strong>registration</strong>, so a typo is an error rather
+than a setting that silently does nothing.</p>
+<p>Only container runners accept them (<code>docker</code>, <code>docker-airgapped</code>). The
+<code>subprocess</code> runner ignores a request entirely and keeps its configured
+<code>execution_timeout</code>.</p>
+<p>On this runner the locked profile is still emitted last, so nothing here can
+reopen a surface the profile closed — <code>--network=none</code>, <code>--cap-drop=ALL</code>,
+<code>--read-only</code> and the rest hold regardless of what was asked for. The
+profile's <code>cpus</code>/<code>memory</code> limits are the one part that merges: a narrower
+request replaces them, a wider one does not.</p>
 <h2 id="service-sockets-warm-runtimes-for-sealed-executions">Service sockets — warm runtimes for sealed executions<a class="headerlink" href="#service-sockets-warm-runtimes-for-sealed-executions" title="Permanent link">&para;</a></h2>
 <p>A runtime whose startup is expensive (state loaded into memory over
 minutes) cannot live inside a single-use container. <code>airgapped_service_sockets</code>
 lets it live <em>outside</em> as a long-lived, operator-managed sidecar on the
 worker host, reached over a Unix domain socket — no network stack
 anywhere, point-to-point by construction:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">airgapped_service_sockets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">inference</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;/run/flux-services/inference&quot;</span><span class="w"> </span><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">airgapped_service_sockets</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">inference</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;/run/flux-services/inference&quot;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 <p>Each value is a host directory containing the service's socket at
 <code>&lt;dir&gt;/service.sock</code>; it is bind-mounted into containers at
@@ -1631,20 +1698,20 @@ later); a down sidecar surfaces to workflows as a normal connect error.</p>
 (the <code>flux.</code> label prefix is reserved — user labels can't spoof grants),
 so workflows target service-bearing workers with the existing affinity
 mechanism. In workflow code:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">service_client</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nd">@task</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">service_client</span><span class="p">(</span><span class="s2">&quot;inference&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>   <span class="c1"># httpx over UDS</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/v1/completions&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">})</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>        <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;flux.service.inference&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
-<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">)</span>
-<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sealed_generate</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">generate</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">flux.tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">service_client</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nd">@task</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">service_client</span><span class="p">(</span><span class="s2">&quot;inference&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>   <span class="c1"># httpx over UDS</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        <span class="n">response</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/v1/completions&quot;</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;prompt&quot;</span><span class="p">:</span> <span class="n">prompt</span><span class="p">})</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>        <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>    <span class="n">runner</span><span class="o">=</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>    <span class="n">affinity</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;flux.service.inference&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="p">)</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sealed_generate</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>    <span class="k">return</span> <span class="k">await</span> <span class="n">generate</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
 </code></pre></div>
 <p>Streaming is native HTTP over the socket (SSE/chunked responses work
 as-is; tee tokens into <code>progress()</code> for live visibility), and because
@@ -1664,15 +1731,15 @@ transforms — raise the limits and grant what they need (image recipe,
 sizing guidance, and cache environment variables for the read-only rootfs
 are documented in DOCKER.md under "Sizing the airgapped runner for heavy
 workloads"):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">airgapped_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-registry/flux-compute:0.60.0&quot;</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">airgapped_gpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;all&quot;</span><span class="w">                        </span><span class="c1"># GPU-accelerated compute</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">airgapped_mounts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;/srv/datasets:/data&quot;</span><span class="p">]</span><span class="w">    </span><span class="c1"># reference data, read-only</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">airgapped_shm_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span><span class="w">                     </span><span class="c1"># large inter-process buffers</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">airgapped_memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;32g&quot;</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">airgapped_tmp_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">airgapped_execution_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">runners</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;docker-airgapped&quot;</span><span class="p">]</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">airgapped_image</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;my-registry/flux-compute:0.60.0&quot;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">airgapped_gpus</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;all&quot;</span><span class="w">                        </span><span class="c1"># GPU-accelerated compute</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">airgapped_mounts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;/srv/datasets:/data&quot;</span><span class="p">]</span><span class="w">    </span><span class="c1"># reference data, read-only</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">airgapped_shm_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span><span class="w">                     </span><span class="c1"># large inter-process buffers</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">airgapped_memory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;32g&quot;</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">airgapped_tmp_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;8g&quot;</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="n">airgapped_execution_timeout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">3600</span>
 </code></pre></div>
 <p><code>--network=none</code> keeps the container's own loopback, so a workflow can
 spawn helper processes and talk to them on <code>127.0.0.1</code> <em>inside</em> the
