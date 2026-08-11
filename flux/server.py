@@ -23,7 +23,7 @@ from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
-from flux.servers.models import ExecutionContext as ExecutionContextDTO
+from flux.servers.models import redacted_response
 from flux.utils import to_wire_json
 from flux.schedule_manager import create_schedule_manager
 from flux.security.auth_service import AuthService
@@ -565,10 +565,9 @@ class Server(
             # Emit the current state immediately so a consumer attaching after
             # the execution already finished still receives the terminal
             # frame — the loop below exits at once when ctx.has_finished.
-            dto = ExecutionContextDTO.from_domain(ctx)
             yield {
                 "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                "data": to_wire_json(dto if detailed else dto.summary()),
+                "data": to_wire_json(await redacted_response(ctx, detailed=detailed)),
             }
         try:
             while not ctx.has_finished:
@@ -619,10 +618,11 @@ class Server(
                             and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                         ):
                             ctx = new_ctx
-                            dto = ExecutionContextDTO.from_domain(ctx)
                             yield {
                                 "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                                "data": to_wire_json(dto if detailed else dto.summary()),
+                                "data": to_wire_json(
+                                    await redacted_response(ctx, detailed=detailed),
+                                ),
                             }
                 else:
                     try:
@@ -637,10 +637,9 @@ class Server(
                         and (not ctx.events or new_ctx.events[-1].id != ctx.events[-1].id)
                     ):
                         ctx = new_ctx
-                        dto = ExecutionContextDTO.from_domain(ctx)
                         yield {
                             "event": f"{ctx.workflow_name}.execution.{ctx.state.value.lower()}",
-                            "data": to_wire_json(dto if detailed else dto.summary()),
+                            "data": to_wire_json(await redacted_response(ctx, detailed=detailed)),
                         }
         finally:
             for t in active_tasks:
