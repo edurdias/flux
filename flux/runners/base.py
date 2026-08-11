@@ -35,6 +35,10 @@ class RunnerHooks:
 
 
 class Runner(ABC):
+    # Only container runners can act on an option; the subprocess child has no
+    # profile to narrow.
+    accepts_options: bool = False
+
     """Executes one claimed workflow and returns its final context.
 
     Contract:

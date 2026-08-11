@@ -100,6 +100,36 @@ runner. Operators who need them switch to the plain `docker` runner —
 changing the runner *name*, and therefore the guarantee that dispatch and
 the dynamic-workflows server rely on.
 
+## Per-workflow narrowing: `runner_options`
+
+A workflow can ask for a container narrower than the worker's configuration,
+never wider:
+
+```python
+@workflow.with_options(runner="docker", runner_options={"cpus": 0.5, "memory": "256m"})
+async def small_job(ctx: ExecutionContext):
+    ...
+```
+
+| Option | Effect |
+|---|---|
+| `cpus`, `memory`, `timeout` | applied only if lower than the worker's configured value |
+| `network` | only `"none"` — dropping the network, never naming one |
+| `read_only` | only `True` |
+
+Widening is not rejected at dispatch, it simply does not happen: the runner
+takes the stricter of the configured value and the requested one, so
+`{"cpus": 64}` on a worker configured for 1 CPU still yields 1. Options travel
+with the workflow, so their values are author-controlled — that guarantee is
+what makes accepting them safe.
+
+Unknown keys and loosening values (`network: "host"`, `read_only: False`) fail
+at **registration**, so a typo is an error rather than a setting that silently
+does nothing.
+
+On this runner the locked profile is still emitted last, so nothing here can
+reopen a surface the profile closed.
+
 ## Service sockets — warm runtimes for sealed executions
 
 A runtime whose startup is expensive (state loaded into memory over
