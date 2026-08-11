@@ -93,3 +93,66 @@ def test_boundary_length_hint_is_kept(client):
 def test_absent_header_leaves_no_hint(client):
     execution_id = _run_with_header(client, None)
     assert _preferred_worker(execution_id) is None
+
+
+class TestRequireWorkerHeader:
+    """X-Flux-Require-Worker (issue #187) is the binding counterpart, and
+    takes the opposite validation policy: the hint drops a bad value, the
+    constraint must reject it. Dropping would dispatch the execution anywhere,
+    which the caller cannot distinguish from the binding being honoured.
+    """
+
+    def _run(self, client, value=None, preferred=None):
+        headers = {}
+        if value is not None:
+            headers["X-Flux-Require-Worker"] = value
+        if preferred is not None:
+            headers["X-Flux-Preferred-Worker"] = preferred
+        return client.post(
+            "/workflows/default/sticky_probe/run/async",
+            json=None,
+            headers=headers,
+        )
+
+    def _required_worker(self, execution_id):
+        from flux.models import ExecutionContextModel, RepositoryFactory
+
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            return session.get(ExecutionContextModel, execution_id).required_worker
+
+    def test_valid_binding_is_persisted(self, client):
+        resp = self._run(client, "worker-1")
+        assert resp.status_code == 200, resp.text
+        assert self._required_worker(resp.json()["execution_id"]) == "worker-1"
+
+    def test_binding_is_trimmed(self, client):
+        resp = self._run(client, "  worker-1  ")
+        assert self._required_worker(resp.json()["execution_id"]) == "worker-1"
+
+    @pytest.mark.parametrize("bad", ["   ", "w" * 257])
+    def test_invalid_binding_is_rejected_not_dropped(self, client, bad):
+        resp = self._run(client, bad)
+        assert resp.status_code == 400
+        assert "X-Flux-Require-Worker" in resp.text
+
+    def test_boundary_length_is_accepted(self, client):
+        resp = self._run(client, "w" * 256)
+        assert resp.status_code == 200
+        assert self._required_worker(resp.json()["execution_id"]) == "w" * 256
+
+    def test_both_headers_is_rejected(self, client):
+        resp = self._run(client, "worker-1", preferred="worker-2")
+        assert resp.status_code == 400
+        assert "mutually exclusive" in resp.text
+
+    def test_both_headers_rejected_even_when_the_hint_is_invalid(self, client):
+        """Checked on the raw headers: sanitizing the hint to None first would
+        hide that the caller sent two contradictory directives."""
+        resp = self._run(client, "worker-1", preferred="   ")
+        assert resp.status_code == 400
+        assert "mutually exclusive" in resp.text
+
+    def test_absent_header_leaves_no_binding(self, client):
+        resp = self._run(client)
+        assert self._required_worker(resp.json()["execution_id"]) is None

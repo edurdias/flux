@@ -262,3 +262,52 @@ prefer that worker when eligible — keeping mesh hops on warm module caches.
 A workflow **with** a policy takes full ownership of the score stage;
 include `sticky(weight=...)` to blend the hint into your ranking, or omit
 it to override the hint entirely.
+
+## Binding an execution to one worker
+
+The hint above is advisory: dispatch silently places the execution elsewhere
+when the named worker is busy or gone. That is wrong whenever the execution
+is a check *on* a worker — verification, an A/B against one instance,
+reproducing a fault on a suspect node — because falling back is
+indistinguishable from success at the client.
+
+`X-Flux-Require-Worker` is the binding counterpart:
+
+```bash
+curl -X POST localhost:8000/workflows/default/verify/run/async \
+     -H "X-Flux-Require-Worker: worker-7"
+```
+
+| | `X-Flux-Preferred-Worker` | `X-Flux-Require-Worker` |
+|---|---|---|
+| Unavailable worker | falls back | parks, never falls back |
+| Invalid value | dropped | rejected (400) |
+| Permission | none beyond run | `worker:{name}:target` |
+
+It is a **header, not a policy term**, on purpose: `affinity=` is declared in
+workflow source and fixed at registration, but "run *this* execution on
+worker-7" is decided per call. A `require()` term that applied only when a
+header happened to be present would not be a hard constraint at all.
+
+Sending both headers is a 400 — one is advisory and one binding, so honouring
+either silently would be an ambiguity the caller cannot see.
+
+**It parks rather than falling back.** If the named worker is unknown,
+offline, or fails the workflow's own `affinity`/`requests`, the execution
+stays unclaimed. That is the existing no-match path, so it is bounded by the
+park TTL (`park_ttl`) and then failed terminally with a `ParkTimeoutError`
+naming the worker it was bound to. The failure is visible; a silent
+reassignment would not be.
+
+Because the binding is a filter on the execution row rather than a score, it
+holds in **both** dispatch modes — unlike the advisory hint, which is
+event-mode only — and it is re-applied when a paused execution resumes.
+
+The workflow's own constraints still apply on top: the named worker must also
+satisfy `affinity=`/`requests`. A `routing=score(...)` policy then ranks a
+single survivor, so `sticky()` alongside a binding header is redundant rather
+than contradictory.
+
+The directive never reaches the worker. It arrives as a header, lives on the
+execution row, and is absent from the context serialized to the worker — so a
+workflow that checks a worker cannot tip it off, which is the point.

@@ -525,3 +525,99 @@ def test_batch_pairs_require_floor_with_dynamic_prefer(clean_env):
 
     assignments = cm.next_executions_batch([warm, cold, other], limit=10)
     assert [(c.execution_id, w) for c, w in assignments] == [(ctx.execution_id, "warm")]
+
+
+class TestRequiredWorkerBinding:
+    """X-Flux-Require-Worker (issue #187): the execution runs on the named
+    worker or nowhere. Falling back is the failure the binding exists to
+    prevent — from outside it is indistinguishable from having been honoured.
+    """
+
+    def _bind(self, execution_id, worker_name):
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            session.get(ExecutionContextModel, execution_id).required_worker = worker_name
+            session.commit()
+
+    def test_batch_dispatches_only_to_the_bound_worker(self, clean_env):
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        w2 = _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        assignments = cm.next_executions_batch([w1, w2], limit=10)
+
+        assert [name for _, name in assignments] == ["w2"]
+
+    def test_batch_parks_rather_than_falling_back(self, clean_env):
+        """The bound worker is absent from the fleet: nothing is dispatched
+        and the row stays CREATED for the park-TTL sweep to fail loudly."""
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "absent-worker")
+
+        assert cm.next_executions_batch([w1], limit=10) == []
+        assert _states(cm)[ctx.execution_id][0] == ExecutionState.CREATED
+
+    def test_poll_mode_honours_the_binding_on_an_unconstrained_workflow(self, clean_env):
+        """The regression this guards: poll mode's unconstrained branch selects
+        on the *workflow* having no affinity/requests/metadata and takes the
+        first row, so without a row-level filter a bound execution would go to
+        whichever worker polled first."""
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        w2 = _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        assert cm.next_execution(w1) is None
+        claimed = cm.next_execution(w2)
+        assert claimed is not None and claimed.execution_id == ctx.execution_id
+
+    def test_unbound_executions_are_unaffected(self, clean_env):
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+
+        assert [name for _, name in cm.next_executions_batch([w1], limit=10)] == ["w1"]
+        assert _states(cm)[ctx.execution_id][0] == ExecutionState.SCHEDULED
+
+    def test_resume_batch_honours_the_binding(self, clean_env):
+        """A binding honoured only on first dispatch is a hole: a paused
+        execution must not resume somewhere else."""
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        w2 = _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name=None)
+
+        assignments = cm.next_resumes_batch([w1, w2], limit=10)
+
+        assert [name for _, name in assignments] == ["w2"]
+
+    def test_park_diagnostic_names_the_bound_worker(self, clean_env):
+        from datetime import datetime, timedelta, timezone
+
+        cm, registry = clean_env
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "absent-worker")
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            model = session.get(ExecutionContextModel, ctx.execution_id)
+            model.park_deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
+            session.commit()
+
+        assert cm.fail_expired_parked() == [ctx.execution_id]
+
+        loaded = cm.get(ctx.execution_id)
+        assert loaded.has_failed
+        assert "absent-worker" in str(loaded.output)

@@ -405,6 +405,16 @@ flux principals revoke-key <subject> --key-name <name>
 | `POST` | `/workers/{name}/checkpoint/{id}` | `worker:*:*` |
 | `POST` | `/workers/{name}/progress/{id}` | `worker:*:*` |
 
+Binding an execution to a named worker with the `X-Flux-Require-Worker`
+header additionally requires `worker:{name}:target` on top of the workflow's
+run permission — it concentrates load on one node and compels that node to
+run the code, which running the workflow alone does not authorize. The grant
+is per worker, so `worker:build-7:target` does not permit binding to another.
+`worker:*:*` (held by the `worker` role, and by `admin` via `*`) satisfies it
+for any worker. The advisory `X-Flux-Preferred-Worker` needs no grant: it
+cannot force placement. See
+[Dynamic Routing](dynamic-routing.md#binding-an-execution-to-one-worker).
+
 ### Worker bootstrap token
 
 `POST /workers/register` is gated by a long-lived shared secret rather than the auth-service permission system. Resolution order on the server:
