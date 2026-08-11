@@ -613,3 +613,141 @@ class TestWhenWorkerState:
         winner = pick_worker([busy, idle], policy, loads={})
 
         assert winner.name == "idle"
+
+
+class TestWhenServerComputedLoad:
+    """when() gating on load()/utilization(): the server counts both from its
+    own execution table, so a worker cannot move them to dodge or attract work
+    — which is what separates them from the worker-asserted label()/resource().
+    """
+
+    def _capped(self, name: str, cap: int | None) -> WorkerInfo:
+        return WorkerInfo(name=name, max_concurrent_executions=cap)
+
+    def test_load_gate_keeps_stickiness_until_the_worker_is_busy(self):
+        """The motivating case (#204): plain sticky() is either deterministic
+        (weight > 1 wins at any load) or defeated by a single execution
+        (weight < 1, because least() normalizes to a full 1.0 gap over two
+        workers). An absolute gate gives the middle posture."""
+        from flux.routing import when
+
+        a, b = _worker("a"), _worker("b")
+        policy = score(when(load() < 5, sticky(weight=3)), least(load()))
+
+        # One execution in flight: 'a' keeps its bonus.
+        assert pick_worker([a, b], policy, loads={"a": 1, "b": 0}, preferred="a") is a
+        # Past the gate: the bonus is gone and least(load()) decides.
+        assert pick_worker([a, b], policy, loads={"a": 6, "b": 0}, preferred="a") is b
+
+    def test_bare_sticky_cannot_express_that(self):
+        """Documents why the gate is needed rather than a weight tweak."""
+        a, b = _worker("a"), _worker("b")
+        loads = {"a": 6, "b": 0}
+
+        # Deterministic: wins even at load 6.
+        assert (
+            pick_worker([a, b], score(sticky(weight=3), least(load())), loads=loads, preferred="a")
+            is a
+        )
+        # Defeated by a single execution: 'a' at load 1 already loses.
+        assert (
+            pick_worker(
+                [a, b],
+                score(sticky(weight=0.5), least(load())),
+                loads={"a": 1, "b": 0},
+                preferred="a",
+            )
+            is b
+        )
+
+    def test_reversed_comparison(self):
+        from flux.routing import when
+
+        a, b = _worker("a"), _worker("b")
+        policy = score(when(5 > load(), sticky(weight=3)), least(load()))
+        assert pick_worker([a, b], policy, loads={"a": 1, "b": 0}, preferred="a") is a
+        assert pick_worker([a, b], policy, loads={"a": 6, "b": 0}, preferred="a") is b
+
+    def test_utilization_is_load_over_advertised_capacity(self):
+        """Same load, different capacity, opposite verdicts — which is the
+        whole point: an absolute count cannot tell these two apart."""
+        from flux.routing import utilization, when
+
+        other = self._capped("other", 32)
+        loads = {"preferred": 3, "other": 0}
+        policy = score(when(utilization() < 0.5, sticky(weight=3)), least(load()))
+
+        # 3 of 32 slots: still roomy, so the bonus holds and beats least(load).
+        roomy = self._capped("preferred", 32)
+        assert pick_worker([roomy, other], policy, loads=loads, preferred="preferred") is roomy
+
+        # The same 3 executions on a 4-slot worker: over the gate, bonus gone.
+        cramped = self._capped("preferred", 4)
+        assert pick_worker([cramped, other], policy, loads=loads, preferred="preferred") is other
+
+    def test_least_utilization_ranks_a_mixed_fleet_by_headroom(self):
+        from flux.routing import utilization
+
+        small = self._capped("small", 4)
+        big = self._capped("big", 32)
+        loads = {"small": 3, "big": 8}
+
+        # By count 'small' looks emptier; by headroom 'big' plainly is.
+        assert pick_worker([small, big], score(least(load())), loads=loads) is small
+        assert pick_worker([small, big], score(least(utilization())), loads=loads) is big
+
+    def test_unlimited_capacity_is_unknown_not_idle(self):
+        """A worker advertising no capacity must not read as 0% utilized, or
+        one legacy worker collects every preference in the fleet."""
+        from flux.routing import utilization, when
+
+        legacy = self._capped("legacy", None)
+        known = self._capped("known", 8)
+        policy = score(when(utilization() < 0.9, sticky(weight=3)), least(load()))
+
+        # 'legacy' carries the heavier load, so it wins only if it wrongly
+        # reads as 0% utilized and collects the bonus.
+        loads = {"legacy": 5, "known": 4}
+        assert pick_worker([legacy, known], policy, loads=loads, preferred="legacy") is known
+
+    def test_gating_a_require_term_is_rejected(self):
+        """Skipping a require term makes a worker match MORE easily, so a
+        load-gated hard constraint would drop its requirement on exactly the
+        busy workers it was meant to steer away from."""
+        from flux.routing import utilization, when
+
+        with pytest.raises(ValueError, match="score terms only"):
+            when(load() < 5, label("gpu") == "true")
+        with pytest.raises(ValueError, match="score terms only"):
+            when(utilization() < 0.5, label("gpu") == "true")
+
+    def test_worker_asserted_selectors_are_still_rejected(self):
+        from flux.routing import when
+
+        with pytest.raises(ValueError, match="not valid when"):
+            when(label("region") == "eu", sticky(weight=2))
+        with pytest.raises(ValueError, match="not valid when"):
+            when(resource("memory_available") > 1000, sticky(weight=2))
+
+    def test_condition_still_compares_against_a_constant(self):
+        from flux.routing import when
+
+        with pytest.raises(ValueError, match="constant"):
+            when(load() < input_ref("max"), sticky(weight=2))
+
+    def test_hand_written_require_metadata_fails_loudly(self):
+        """when() refuses to build one, so this shape only reaches the server
+        as hand-written metadata. It must diagnose as a terminal error rather
+        than match no worker and park the execution forever."""
+        from flux.routing import require_diagnostic, require_matches
+
+        terms = [
+            {
+                "kind": "when",
+                "if": {"selector": "load", "op": "<", "value": 5},
+                "then": {"kind": "match", "selector": "label:gpu", "op": "==", "value": "true"},
+            },
+        ]
+
+        assert require_diagnostic(terms, None) is not None
+        assert require_matches(terms, {"gpu": "true"}, None, loads={"w": 0}) is False
