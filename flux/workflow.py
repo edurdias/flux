@@ -31,6 +31,7 @@ class workflow:
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
+        runner_options: dict | None = None,
         routing: dict | None = None,
     ) -> Callable[[F], workflow]:
         """
@@ -46,6 +47,7 @@ class workflow:
             schedule (Schedule | None, optional): The schedule configuration for automatic workflow execution. Defaults to None.
             durability (str, optional): "durable" (default) persists every task-level checkpoint; "transient" keeps only the outer lifecycle.
             runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
+            runner_options (dict | None, optional): Per-workflow narrowing of the runner's profile (cpus, memory, timeout, network, read_only). Options may only tighten what the worker configured; a wider value has no effect.
             routing (dict | None, optional): Scoring policy built with ``flux.routing.score(...)`` that ranks eligible workers at dispatch (event mode only). Hard constraints (requests/affinity/runner) still filter first. Defaults to None (least-loaded).
 
         Returns:
@@ -64,6 +66,7 @@ class workflow:
                 schedule=schedule,
                 durability=durability,
                 runner=runner,
+                runner_options=runner_options,
                 routing=routing,
             )
 
@@ -81,6 +84,7 @@ class workflow:
         schedule: Schedule | None = None,
         durability: str = "durable",
         runner: str | None = None,
+        runner_options: dict | None = None,
         routing: dict | None = None,
     ):
         if durability not in ("durable", "transient"):
@@ -93,6 +97,11 @@ class workflow:
                 "scheduled runs have no caller holding the connection, so their "
                 "results would be silently discarded.",
             )
+        if runner_options is not None:
+            from flux.runners.options import validate_runner_options
+
+            validate_runner_options(runner_options)
+
         if runner is not None:
             from flux.runners import KNOWN_RUNNERS
 

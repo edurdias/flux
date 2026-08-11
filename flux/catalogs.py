@@ -350,6 +350,7 @@ class WorkflowCatalog(ABC):
                     workflow_durability = None
                     workflow_runner = None
                     workflow_routing = None
+                    workflow_runner_options = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -394,6 +395,10 @@ class WorkflowCatalog(ABC):
                                     workflow_runner = kw.value.value
                                 elif kw.arg == "routing":
                                     workflow_routing = self._extract_routing(kw.value)
+                                elif kw.arg == "runner_options":
+                                    workflow_runner_options = self._extract_runner_options(
+                                        kw.value,
+                                    )
 
                             if not workflow_name:
                                 workflow_name = node.name
@@ -414,6 +419,9 @@ class WorkflowCatalog(ABC):
                         if workflow_routing is not None:
                             wf_metadata = dict(wf_metadata or {})
                             wf_metadata["routing"] = workflow_routing
+                        if workflow_runner_options:
+                            wf_metadata = dict(wf_metadata or {})
+                            wf_metadata["runner_options"] = workflow_runner_options
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
@@ -795,6 +803,20 @@ class WorkflowCatalog(ABC):
             return routing_dsl.require(*terms)
         except ValueError as e:
             raise SyntaxError(f"Invalid affinity expression: {e}") from e
+
+    def _extract_runner_options(self, node: ast.AST) -> dict | None:
+        """Read a literal runner_options dict, refusing anything that is not a
+        known tightening knob — an unparseable or invalid value fails
+        registration rather than being silently dropped at dispatch."""
+        from flux.runners.options import validate_runner_options
+
+        try:
+            options = ast.literal_eval(node)
+        except (ValueError, SyntaxError) as e:
+            raise ValueError(
+                f"runner_options must be a literal dict: {e}",
+            ) from e
+        return validate_runner_options(options) or None
 
     def _extract_routing(self, node: ast.AST) -> dict | None:
         """Extract a ``routing=score(...)`` policy into its JSON spec.

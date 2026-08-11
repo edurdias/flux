@@ -47,6 +47,8 @@ class WorkflowExecutionRequest(BaseModel):
     # Runner the workflow requires (from the dispatch payload); None means
     # the worker's configured default_runner.
     runner: str | None = None
+    # Per-workflow narrowing of that runner's profile; may only tighten.
+    runner_options: dict | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -74,6 +76,7 @@ class WorkflowExecutionRequest(BaseModel):
             context=ctx,
             exec_token=exec_token,
             runner=data.get("runner"),
+            runner_options=data.get("runner_options"),
         )
 
 
