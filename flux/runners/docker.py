@@ -51,7 +51,7 @@ import subprocess
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from flux.runners.subprocess_runner import _STREAM_LIMIT, SubprocessRunner
+from flux.runners.subprocess_runner import _STREAM_LIMIT, SANDBOX_ENV_VAR, SubprocessRunner
 from flux.utils import get_logger
 
 if TYPE_CHECKING:
@@ -167,8 +167,10 @@ class DockerRunner(SubprocessRunner):
         return args
 
     def _locked_args(self) -> list[str]:
-        """Non-configurable flags a hardened subclass emits; none here."""
-        return []
+        """Non-configurable flags, emitted after extra_args so they win."""
+        # Tells the child it is containerized; the agent shell tool refuses to
+        # build without it, so an operator must not be able to unset it.
+        return ["--env", f"{SANDBOX_ENV_VAR}=1"]
 
     async def _spawn(self, request: WorkflowExecutionRequest):
         container_name = self._container_name(request.context.execution_id)
@@ -515,6 +517,7 @@ class AirgappedDockerRunner(DockerRunner):
 
     def _locked_args(self) -> list[str]:
         args = [
+            *super()._locked_args(),
             "--network=none",
             "--read-only",
             "--tmpfs",

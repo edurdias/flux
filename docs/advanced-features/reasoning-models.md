@@ -13,7 +13,7 @@ from flux.tasks.ai.memory import working_memory
 assistant = await agent(
     "You are a helpful assistant.",
     model="ollama/qwen3",
-    tools=system_tools(workspace="/path/to/project"),
+    tools=system_tools(workspace="/path/to/project", allow_unsandboxed_shell=True),
     working_memory=working_memory(),
     reasoning_effort="high",  # "low", "medium", "high"
 )

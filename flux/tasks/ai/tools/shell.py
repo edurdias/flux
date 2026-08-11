@@ -19,7 +19,7 @@ logger = logging.getLogger("flux.tools.shell")
 def build_shell_tools(config: SystemToolsConfig) -> list:
     compiled_blocklist = [re.compile(p) for p in config.blocklist]
 
-    @task.with_options(timeout=config.timeout)
+    @task.with_options(timeout=config.timeout, risk="exec")
     async def shell(command: str, stream: bool = False) -> dict:
         """Execute a shell command in the workspace directory."""
         security_error = run_security_checks(command)

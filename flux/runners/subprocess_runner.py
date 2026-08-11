@@ -41,6 +41,10 @@ _SENSITIVE_ENV_VARS = frozenset(
 )
 _SENSITIVE_ENV_PREFIXES = ("FLUX_SECURITY__",)  # encryption key, token secrets, auth config
 
+# Set by the container runners so a child can tell it is isolated from the
+# worker host. The agent shell tool refuses to build without it.
+SANDBOX_ENV_VAR = "FLUX_RUNNER_SANDBOXED"
+
 
 def child_environment() -> dict[str, str]:
     """The worker's environment minus credentials workflow code must not hold."""
