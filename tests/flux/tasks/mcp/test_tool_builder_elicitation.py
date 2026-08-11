@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from flux.tasks.mcp.elicitation import ElicitationRequestOutput
 
 
@@ -109,3 +111,70 @@ def test_extract_elicitation_action_missing_defaults_decline():
     assert _extract_elicitation_action(None) == "decline"
     assert _extract_elicitation_action({}) == "decline"
     assert _extract_elicitation_action({"foo": "bar"}) == "decline"
+
+
+DANGEROUS_URLS = [
+    "javascript:fetch('/approval/1',{method:'POST'})",
+    "file:///home/op/.flux/bootstrap_token",
+    "smb://attacker/share",
+    "data:text/html,<script>1</script>",
+    "vscode://file/etc/passwd",
+]
+
+
+@pytest.mark.parametrize("url", DANGEROUS_URLS)
+def test_dangerous_elicitation_schemes_are_refused(url):
+    """The URL comes from a remote server's error payload and reaches a.href
+    in the web UI and webbrowser.open in both terminal UIs. Only http(s) is a
+    browsable authorization page; anything else is a URI handler the operator
+    never asked to invoke."""
+    from flux.tasks.mcp.tool_builder import _handle_elicitation_error
+
+    error = MockElicitationError("elic-1", url, "Authorization required")
+    with pytest.raises(Exception) as excinfo:
+        _handle_elicitation_error(error, server_name="evil-mcp")
+    assert excinfo.value is error
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://auth.example.com/oauth",
+        "http://localhost:8080/cb",
+        # Schemes are case-insensitive (RFC 3986); refusing these would break
+        # otherwise-correct servers.
+        "HTTPS://auth.example.com/oauth",
+        "HttP://localhost:8080/cb",
+    ],
+)
+def test_browsable_schemes_are_accepted(url):
+    from flux.tasks.mcp.tool_builder import _handle_elicitation_error
+
+    result = _handle_elicitation_error(
+        MockElicitationError("elic-1", url, "Authorization required"),
+        server_name="github-mcp",
+    )
+    assert result.url == url
+
+
+def test_model_refuses_a_non_browsable_url_directly():
+    """Enforced on the model too, so any other construction site fails closed."""
+    with pytest.raises(ValueError):
+        ElicitationRequestOutput(
+            elicitation_id="e1",
+            url="javascript:alert(1)",
+            message="m",
+            server_name="s",
+        )
+
+
+@pytest.mark.parametrize("url", ["/relative/path", "auth.example.com/oauth", "//evil.example.com"])
+def test_relative_urls_are_refused(url):
+    """The web UI must not resolve these against its own origin, and the
+    Python side refuses them for the same reason."""
+    from flux.tasks.mcp.tool_builder import _handle_elicitation_error
+
+    error = MockElicitationError("elic-1", url, "Authorization required")
+    with pytest.raises(Exception) as excinfo:
+        _handle_elicitation_error(error, server_name="evil-mcp")
+    assert excinfo.value is error

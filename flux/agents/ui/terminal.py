@@ -5,6 +5,8 @@ import shutil
 import sys
 import webbrowser
 
+from flux.tasks.mcp.elicitation import is_browsable
+
 from flux.agents.types import SessionEndOutput
 from flux.agents.ui import UI
 
@@ -122,6 +124,14 @@ class TerminalUI(UI):
         )
 
         if answer.strip().lower() in ("", "y", "yes"):
+            if not is_browsable(url):
+                print(f"  {self._c(_DIM, 'Refusing a non-browsable url: ')}{url[:80]}")
+                return {
+                    "elicitation_response": {
+                        "elicitation_id": elicitation_id,
+                        "action": "decline",
+                    },
+                }
             webbrowser.open(url)
             print(f"  {self._c(_DIM, 'Opening browser... waiting for authorization.')}")
             return {
