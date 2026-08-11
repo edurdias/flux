@@ -621,3 +621,56 @@ class TestRequiredWorkerBinding:
         loaded = cm.get(ctx.execution_id)
         assert loaded.has_failed
         assert "absent-worker" in str(loaded.output)
+
+    def test_claim_refuses_a_worker_the_execution_is_not_bound_to(self, clean_env):
+        """The dispatch queries filter on the binding, but /workers/{name}/claim
+        is reachable by any registered worker and its fallback accepts a CREATED
+        row — the state a bound execution waits in. Without this check the
+        binding is advisory: a worker claims what it was not given."""
+        from flux.errors import ExecutionError
+
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        with pytest.raises(ExecutionError, match="bound to 'w2'"):
+            cm.claim(ctx.execution_id, w1)
+
+        assert _states(cm)[ctx.execution_id][0] == ExecutionState.CREATED
+
+    def test_claim_allows_the_bound_worker(self, clean_env):
+        cm, registry = clean_env
+        w2 = _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        claimed = cm.claim(ctx.execution_id, w2)
+
+        assert claimed.state == ExecutionState.CLAIMED
+
+    def test_load_gate_does_not_block_a_binding(self, clean_env):
+        """Poll mode is the default. The least-loaded gate spreads work, but
+        bound work cannot be spread — without a bypass the execution parks
+        while its worker is online and has capacity, purely because a peer
+        happens to be emptier."""
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        w2 = _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+
+        # Make w2 the busier worker so the load gate would reject it.
+        for _ in range(3):
+            busy = _create_execution(cm, wf_id, name="plain")
+            _force_state(busy.execution_id, ExecutionState.RUNNING, worker_name="w2")
+
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        claimed = cm.next_execution(w2)
+
+        assert claimed is not None and claimed.execution_id == ctx.execution_id
+        assert cm.next_execution(w1) is None

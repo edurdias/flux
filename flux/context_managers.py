@@ -711,15 +711,21 @@ class DatabaseContextManager(ContextManager):
         return resumed
 
     @staticmethod
-    def _required_worker_clause(worker: WorkerInfo):
-        """SQL filter honouring a bound execution (X-Flux-Require-Worker).
+    def _has_bound_work(session: Session, worker: WorkerInfo) -> bool:
+        return session.query(
+            session.query(ExecutionContextModel)
+            .filter(
+                ExecutionContextModel.state == ExecutionState.CREATED,
+                ExecutionContextModel.required_worker == worker.name,
+            )
+            .exists(),
+        ).scalar()
 
-        Applied in the query rather than the per-row matcher because the
-        unconstrained branch below never runs one: it selects on the workflow
-        having no requests/affinity/metadata and takes the first row, so a
-        bound execution of an unconstrained workflow would otherwise be handed
-        to whichever worker polled first.
-        """
+    @staticmethod
+    def _required_worker_clause(worker: WorkerInfo):
+        """SQL rather than the per-row matcher: the unconstrained branch below
+        never runs one, so a bound execution of an unconstrained workflow would
+        go to whichever worker polled first."""
         return or_(
             ExecutionContextModel.required_worker.is_(None),
             ExecutionContextModel.required_worker == worker.name,
@@ -777,7 +783,13 @@ class DatabaseContextManager(ContextManager):
 
     def next_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
-            if not self._is_least_loaded_worker(worker, session):
+            # The load gate spreads work; bound work cannot be spread, so
+            # letting it gate a binding parks an execution whose worker is
+            # online and free just because a peer is emptier.
+            if not self._is_least_loaded_worker(worker, session) and not self._has_bound_work(
+                session,
+                worker,
+            ):
                 return None
 
             self._refresh_worker_metadata(session, [worker])
@@ -1042,9 +1054,8 @@ class DatabaseContextManager(ContextManager):
                     w
                     for w in workers
                     if self._has_free_slot(w, loads)
-                    # Name check before the matcher: a bound execution has at
-                    # most one candidate, so evaluating affinity/requests for
-                    # the rest of the fleet is work whose result is discarded.
+                    # Before the matcher: a bound execution has one candidate,
+                    # so matching the rest of the fleet is discarded work.
                     and (not model.required_worker or w.name == model.required_worker)
                     and self._worker_matches_workflow(w, workflow, model.input)
                 ]
@@ -1210,6 +1221,16 @@ class DatabaseContextManager(ContextManager):
                     message=(
                         f"Cannot claim execution {execution_id}: scheduled to "
                         f"'{model.worker_name}', not '{worker.name}'"
+                    ),
+                )
+            # The dispatch queries filter on the binding, but any registered
+            # worker can POST here and the fallback above accepts a CREATED
+            # row — exactly where a bound execution waits.
+            if model.required_worker and model.required_worker != worker.name:
+                raise ExecutionError(
+                    message=(
+                        f"Cannot claim execution {execution_id}: bound to "
+                        f"'{model.required_worker}', not '{worker.name}'"
                     ),
                 )
             ctx = model.to_plain()

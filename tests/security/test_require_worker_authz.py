@@ -102,6 +102,29 @@ def _auth_as(identity: FluxIdentity):
         settings.security.auth.api_keys.enabled = original_api_keys
 
 
+def _register_worker(name: str) -> None:
+    from flux.worker_registry import (
+        WorkerRegistry,
+        WorkerResourcesInfo,
+        WorkerRuntimeInfo,
+    )
+
+    WorkerRegistry.create().register(
+        name=name,
+        runtime=WorkerRuntimeInfo(os_name="Linux", os_version="6.0", python_version="3.12.0"),
+        packages=[],
+        resources=WorkerResourcesInfo(
+            cpu_total=1,
+            cpu_available=1,
+            memory_total=1_000_000,
+            memory_available=1_000_000,
+            disk_total=1_000_000,
+            disk_free=1_000_000,
+            gpus=[],
+        ),
+    )
+
+
 def _run(client, headers_extra):
     return client.post(
         "/workflows/default/bind_probe/run/async",
@@ -131,6 +154,7 @@ def test_run_permission_alone_cannot_bind(client):
 
 def test_worker_scoped_grant_allows_binding(client):
     identity = _identity_with([*RUN_PERMS, "worker:w1:target"])
+    _register_worker("w1")
 
     with _auth_as(identity):
         resp = _run(client, {"X-Flux-Require-Worker": "w1"})
@@ -153,6 +177,7 @@ def test_worker_wildcard_satisfies_the_binding(client):
     """The built-in worker role holds worker:*:*, whose terminal wildcard
     covers the narrower target permission."""
     identity = _identity_with([*RUN_PERMS, "worker:*:*"])
+    _register_worker("anything")
 
     with _auth_as(identity):
         resp = _run(client, {"X-Flux-Require-Worker": "anything"})
@@ -169,3 +194,13 @@ def test_advisory_hint_stays_ungated(client):
         resp = _run(client, {"X-Flux-Preferred-Worker": "w1"})
 
     assert resp.status_code == 200, resp.text
+
+
+def test_authorization_precedes_existence(client):
+    """An unauthorized caller must not learn which worker names exist."""
+    identity = _identity_with(RUN_PERMS)
+
+    with _auth_as(identity):
+        resp = _run(client, {"X-Flux-Require-Worker": "never-registered"})
+
+    assert resp.status_code == 403

@@ -237,18 +237,6 @@ class WorkflowRoutesMixin:
                             },
                         )
 
-                # Checked on the raw headers: one is advisory and one binding,
-                # so silently honouring either is an ambiguity the caller
-                # cannot see. Rejecting is the only unsurprising answer.
-                if preferred_worker is not None and required_worker is not None:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            "X-Flux-Preferred-Worker and X-Flux-Require-Worker are "
-                            "mutually exclusive (advisory vs binding)"
-                        ),
-                    )
-
                 # The sticky-routing hint is caller-supplied header input:
                 # bound and sanitize before it reaches the database. Invalid
                 # values are dropped, not rejected — it is only a hint.
@@ -280,6 +268,27 @@ class WorkflowRoutesMixin:
                                 status_code=403,
                                 detail=f"Permission denied: requires '{needed}'",
                             )
+                    # Registered, not necessarily online: binding to a worker
+                    # that is currently down is legitimate (it parks until the
+                    # worker returns), but a name no worker ever had can only
+                    # park forever, and park_ttl defaults to no bound.
+                    from flux.worker_registry import WorkerRegistry
+
+                    try:
+                        WorkerRegistry.create().get(required_worker)
+                    except WorkerNotFoundError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"X-Flux-Require-Worker names an unknown worker "
+                                f"'{required_worker}'; it has never registered"
+                            ),
+                        )
+                    # A binding leaves one eligible worker, so the hint has
+                    # nothing to order. Dropped rather than rejected because
+                    # FluxClient.for_current_execution() injects it as a
+                    # client-level default.
+                    preferred_worker = None
 
                 # Per-run park-TTL override (issue #157): bounds how long this
                 # execution may wait unclaimed. None defers to the server

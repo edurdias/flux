@@ -42,6 +42,30 @@ def client(tmp_path):
     DatabaseRepository._engines.clear()
 
 
+def _register_worker(name: str) -> None:
+    """A binding is rejected for a name no worker ever registered."""
+    from flux.worker_registry import (
+        WorkerRegistry,
+        WorkerResourcesInfo,
+        WorkerRuntimeInfo,
+    )
+
+    WorkerRegistry.create().register(
+        name=name,
+        runtime=WorkerRuntimeInfo(os_name="Linux", os_version="6.0", python_version="3.12.0"),
+        packages=[],
+        resources=WorkerResourcesInfo(
+            cpu_total=1,
+            cpu_available=1,
+            memory_total=1_000_000,
+            memory_available=1_000_000,
+            disk_total=1_000_000,
+            disk_free=1_000_000,
+            gpus=[],
+        ),
+    )
+
+
 def _run_with_header(client, header_value: str | None) -> str:
     headers = {}
     if header_value is not None:
@@ -102,9 +126,11 @@ class TestRequireWorkerHeader:
     which the caller cannot distinguish from the binding being honoured.
     """
 
-    def _run(self, client, value=None, preferred=None):
+    def _run(self, client, value=None, preferred=None, register=True):
         headers = {}
         if value is not None:
+            if register and value.strip():
+                _register_worker(value.strip())
             headers["X-Flux-Require-Worker"] = value
         if preferred is not None:
             headers["X-Flux-Preferred-Worker"] = preferred
@@ -141,18 +167,34 @@ class TestRequireWorkerHeader:
         assert resp.status_code == 200
         assert self._required_worker(resp.json()["execution_id"]) == "w" * 256
 
-    def test_both_headers_is_rejected(self, client):
+    def test_binding_supersedes_the_hint(self, client):
+        """Not a 400: FluxClient.for_current_execution() injects the hint as a
+        client-level default, so an in-workflow caller adding a binding would
+        be rejected for a header it never set. The binding leaves one eligible
+        worker anyway, so the hint has nothing left to order."""
         resp = self._run(client, "worker-1", preferred="worker-2")
-        assert resp.status_code == 400
-        assert "mutually exclusive" in resp.text
 
-    def test_both_headers_rejected_even_when_the_hint_is_invalid(self, client):
-        """Checked on the raw headers: sanitizing the hint to None first would
-        hide that the caller sent two contradictory directives."""
-        resp = self._run(client, "worker-1", preferred="   ")
-        assert resp.status_code == 400
-        assert "mutually exclusive" in resp.text
+        assert resp.status_code == 200, resp.text
+        execution_id = resp.json()["execution_id"]
+        assert self._required_worker(execution_id) == "worker-1"
+        assert _preferred_worker(execution_id) is None
 
     def test_absent_header_leaves_no_binding(self, client):
         resp = self._run(client)
         assert self._required_worker(resp.json()["execution_id"]) is None
+
+    def test_unknown_worker_is_rejected(self, client):
+        """A name no worker ever had can only park forever, and park_ttl
+        defaults to no bound — so it fails at submission instead."""
+        resp = self._run(client, "never-registered", register=False)
+
+        assert resp.status_code == 400
+        assert "unknown worker" in resp.text
+
+    def test_registered_but_offline_worker_is_accepted(self, client):
+        """Binding to a worker that is currently down is legitimate: it parks
+        until that worker returns. Only an unknown name is refused."""
+        _register_worker("offline-1")
+        resp = self._run(client, "offline-1", register=False)
+
+        assert resp.status_code == 200, resp.text

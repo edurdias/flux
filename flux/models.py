@@ -637,11 +637,9 @@ class ExecutionContextModel(Base):
     # connected, healthy, has capacity, and matches — module cache locality
     # for mesh hops. A hint, never a constraint.
     preferred_worker = Column(String, nullable=True)
-    # Binding counterpart (X-Flux-Require-Worker): dispatch may place this
-    # execution on this worker or nowhere. Never falls back — an execution
-    # that checks a worker cannot silently run somewhere else, since the
-    # caller could not tell that from success. Unsatisfiable means it parks
-    # and the park-TTL sweep fails it with a reason.
+    # Binding counterpart (X-Flux-Require-Worker): this worker or nowhere.
+    # Never falls back — from outside, a fallback is indistinguishable from
+    # the binding having been honoured. Unsatisfiable parks.
     required_worker = Column(String, nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
