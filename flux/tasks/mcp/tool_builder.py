@@ -6,7 +6,7 @@ from typing import Any
 
 from flux.task import task
 from flux.utils import get_logger
-from flux.tasks.mcp.elicitation import BROWSABLE_SCHEMES, ElicitationRequestOutput
+from flux.tasks.mcp.elicitation import ElicitationRequestOutput, is_browsable
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ def _handle_elicitation_error(error: Exception, server_name: str) -> Elicitation
 
     elicitation = elicitations[0]
     url = elicitation.get("url", "")
-    if url and not url.startswith(BROWSABLE_SCHEMES):
+    if url and not is_browsable(url):
         # Surface the original failure rather than a prompt whose only action
         # is to hand a server-chosen URI to the operator's browser.
         logger.warning(

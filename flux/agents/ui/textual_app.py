@@ -6,7 +6,7 @@ import asyncio
 import time
 import webbrowser
 
-from flux.tasks.mcp.elicitation import BROWSABLE_SCHEMES
+from flux.tasks.mcp.elicitation import is_browsable
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -276,9 +276,7 @@ class AgentApp(App):
 
         if self._elicitation_future is not None and not self._elicitation_future.done():
             if event.key in ("y", "Y"):
-                if self._elicitation_url and self._elicitation_url.startswith(
-                    BROWSABLE_SCHEMES,
-                ):
+                if self._elicitation_url and is_browsable(self._elicitation_url):
                     webbrowser.open(self._elicitation_url)
                 self._elicitation_future.set_result("accept")
                 self._elicitation_future = None

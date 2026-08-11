@@ -136,7 +136,17 @@ def test_dangerous_elicitation_schemes_are_refused(url):
     assert excinfo.value is error
 
 
-@pytest.mark.parametrize("url", ["https://auth.example.com/oauth", "http://localhost:8080/cb"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://auth.example.com/oauth",
+        "http://localhost:8080/cb",
+        # Schemes are case-insensitive (RFC 3986); refusing these would break
+        # otherwise-correct servers.
+        "HTTPS://auth.example.com/oauth",
+        "HttP://localhost:8080/cb",
+    ],
+)
 def test_browsable_schemes_are_accepted(url):
     from flux.tasks.mcp.tool_builder import _handle_elicitation_error
 
@@ -156,3 +166,15 @@ def test_model_refuses_a_non_browsable_url_directly():
             message="m",
             server_name="s",
         )
+
+
+@pytest.mark.parametrize("url", ["/relative/path", "auth.example.com/oauth", "//evil.example.com"])
+def test_relative_urls_are_refused(url):
+    """The web UI must not resolve these against its own origin, and the
+    Python side refuses them for the same reason."""
+    from flux.tasks.mcp.tool_builder import _handle_elicitation_error
+
+    error = MockElicitationError("elic-1", url, "Authorization required")
+    with pytest.raises(Exception) as excinfo:
+        _handle_elicitation_error(error, server_name="evil-mcp")
+    assert excinfo.value is error

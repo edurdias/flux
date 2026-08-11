@@ -10,6 +10,15 @@ from pydantic import BaseModel, field_validator
 BROWSABLE_SCHEMES = ("http://", "https://")
 
 
+def is_browsable(url: str) -> bool:
+    """Whether ``url`` is an absolute http(s) address.
+
+    Schemes are case-insensitive (RFC 3986), so ``HTTPS://`` is valid and must
+    not be refused.
+    """
+    return url.lower().startswith(BROWSABLE_SCHEMES)
+
+
 class ElicitationRequestOutput(BaseModel):
     type: Literal["elicitation"] = "elicitation"
     mode: Literal["url"] = "url"
@@ -21,7 +30,7 @@ class ElicitationRequestOutput(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_browsable(cls, v: str) -> str:
-        if v and not v.startswith(BROWSABLE_SCHEMES):
+        if v and not is_browsable(v):
             raise ValueError(f"elicitation url must be http(s), got: {v[:32]!r}")
         return v
 
