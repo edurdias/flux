@@ -60,7 +60,12 @@ async def _call_in_process(workflow: workflow_cls, args: tuple):
     )
 
 
-@task.with_options(name="call_workflow_{workflow}")
+# routing_input never enters the task id: that id is the source_id of a
+# recorded event, and anything holding execution:*:read — the `worker` role
+# included — could read the parent execution and brute-force a small cohort
+# space offline, recovering values this channel exists to hide (#211). The
+# occurrence counter already disambiguates repeated calls.
+@task.with_options(name="call_workflow_{workflow}", digest_exclude=("routing_input",))
 async def call(
     workflow: workflow_cls | str,
     *args,

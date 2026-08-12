@@ -326,3 +326,48 @@ class TestAuthoringGuards:
 
         with pytest.raises(ValueError, match="constant"):
             when(meta("region") == input_ref("r"), prefer(label("x") == "1"))
+
+
+class TestDigestExclusion:
+    """The task id is also the cache key and the approval call_id, so excluding
+    a kwarg from it collapses calls that differ only in that kwarg. That is
+    wanted for call(routing_input=...) and wrong for anything else — hence a
+    declared option rather than a name matched in the shared machinery."""
+
+    def test_call_excludes_routing_input(self):
+        from flux.tasks.call import call
+
+        assert call.digest_exclude == ("routing_input",)
+
+        kwargs = {"workflow": "w", "routing_input": {"cohort": "canary"}}
+        assert call._digest_kwargs(kwargs) == {"workflow": "w"}
+
+        # and therefore the same id as a call carrying no routing values
+        assert call._compute_task_id(
+            "c",
+            {},
+            (),
+            call._digest_kwargs(kwargs),
+        ) == call._compute_task_id("c", {}, (), {"workflow": "w"})
+
+    def test_an_unrelated_task_keeps_the_kwarg_in_its_identity(self):
+        """Otherwise a cached task taking a kwarg of that name would return the
+        first call's output for every later value."""
+        from flux.task import task
+
+        @task
+        async def scorer(model, routing_input=None):
+            return model
+
+        assert scorer.digest_exclude == ()
+        kwargs = {"model": "m", "routing_input": "a"}
+        assert scorer._digest_kwargs(kwargs) == kwargs, "nothing is stripped"
+
+        a = scorer._compute_task_id("s", {}, (), scorer._digest_kwargs(kwargs))
+        b = scorer._compute_task_id(
+            "s",
+            {},
+            (),
+            scorer._digest_kwargs({"model": "m", "routing_input": "b"}),
+        )
+        assert a != b, "cache keys must stay distinct for an unrelated task"
