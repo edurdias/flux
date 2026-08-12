@@ -135,11 +135,15 @@ class TestValidation:
             validate_routing_input({"a": {"b.c": 1}})
 
     def test_repeated_header_is_rejected_by_rule(self):
-        """Starlette joins duplicates into invalid JSON, which would reject it
-        by accident. Resting the rule on that coincidence is the silent-drop
-        risk this validation exists to remove."""
-        with pytest.raises(RoutingInputError, match="more than once"):
+        """By rule, not by the coincidence that joined duplicates happen to be
+        invalid JSON. The route reads the header with getlist() so the repeat
+        is visible here rather than collapsed before it arrives."""
+        with pytest.raises(RoutingInputError, match="sent once"):
             parse_routing_input_header(["{}", "{}"])
+
+    def test_single_element_list_is_the_normal_case(self):
+        """getlist() always yields a list, so one header arrives as one item."""
+        assert parse_routing_input_header(['{"cohort":"canary"}']) == CANARY
 
     def test_oversized_is_rejected(self):
         with pytest.raises(RoutingInputError, match="exceeds"):
@@ -193,3 +197,96 @@ class TestNotVisibleToTheWorker:
 
         assert restored.input == {"real": "payload"}
         assert not hasattr(restored, "routing_input")
+
+
+class TestRunEndpointIngress:
+    """Exercised through the real route, not the validator.
+
+    The unit tests above passed while the ingress was broken: the header was
+    typed `str`, so FastAPI read it with `get()` and silently kept only the
+    first of repeated headers. Validating the parser proves nothing about the
+    path that feeds it.
+    """
+
+    SOURCE = b"""
+from flux import workflow, ExecutionContext
+
+
+@workflow
+async def probe(ctx: ExecutionContext):
+    return "ok"
+"""
+
+    @pytest.fixture
+    def client(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS", "true")
+        from flux.config import Configuration
+        from flux.models import DatabaseRepository
+
+        Configuration.get().override(database_url=f"sqlite:///{tmp_path / 'ri.db'}")
+        DatabaseRepository._engines.clear()
+        from fastapi.testclient import TestClient
+
+        from flux.server import Server
+
+        client = TestClient(Server("127.0.0.1", 0)._create_api())
+        assert (
+            client.post(
+                "/workflows",
+                files={"file": ("f.py", self.SOURCE, "text/x-python")},
+            ).status_code
+            == 200
+        )
+        yield client
+        DatabaseRepository._engines.clear()
+
+    def _run(self, client, headers=None):
+        return client.post(
+            "/workflows/default/probe/run/async",
+            json={"real": "payload"},
+            headers=headers,
+        )
+
+    def _stored(self, execution_id):
+        from flux.models import ExecutionContextModel, RepositoryFactory
+
+        with RepositoryFactory.create_repository().session() as session:
+            row = session.get(ExecutionContextModel, execution_id)
+            return row.routing_input, row.input
+
+    def test_values_are_stored_off_the_payload(self, client):
+        resp = self._run(client, {"X-Flux-Routing-Input": '{"cohort":"canary"}'})
+
+        assert resp.status_code == 200
+        routing, payload = self._stored(resp.json()["execution_id"])
+        assert routing == {"cohort": "canary"}
+        assert payload == {"real": "payload"}, "input must be untouched"
+
+    def test_repeated_header_is_rejected(self, client):
+        """Two contradictory directives used to return 200 with one silently
+        applied — the exact silent-drop this feature refuses."""
+        resp = client.post(
+            "/workflows/default/probe/run/async",
+            json={"real": "payload"},
+            headers=[
+                ("X-Flux-Routing-Input", '{"cohort":"canary"}'),
+                ("X-Flux-Routing-Input", '{"cohort":"control"}'),
+            ],
+        )
+
+        assert resp.status_code == 400
+        assert "sent once" in str(resp.json()["detail"])
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["{oops", '"scalar"', '{"a.b":1}', '{"a":{"b.c":1}}'],
+    )
+    def test_invalid_values_are_rejected_not_dropped(self, client, raw):
+        assert self._run(client, {"X-Flux-Routing-Input": raw}).status_code == 400
+
+    def test_absent_header_leaves_no_routing_values(self, client):
+        resp = self._run(client)
+
+        assert resp.status_code == 200
+        routing, _ = self._stored(resp.json()["execution_id"])
+        assert routing is None

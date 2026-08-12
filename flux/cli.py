@@ -461,6 +461,11 @@ def run_workflow(
                 result = response.json()
                 click.echo(to_json(result))
 
+    except click.ClickException:
+        # Click exceptions carry their own non-zero exit code. Flattening them
+        # into a printed message below would report success for a rejected
+        # routing directive — the silent-drop this feature refuses.
+        raise
     except httpx.HTTPStatusError as ex:
         if ex.response.status_code == 404:
             click.echo(f"Workflow '{workflow_name}' not found.", err=True)
@@ -1882,6 +1887,8 @@ def create_schedule(
             click.echo(f"Schedule ID: {result['id']}")
             click.echo(f"Next run: {result.get('next_run_at', 'Not scheduled')}")
 
+    except click.ClickException:
+        raise
     except Exception as ex:
         click.echo(f"Error creating schedule: {str(ex)}", err=True)
 

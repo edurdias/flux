@@ -203,7 +203,9 @@ class WorkflowRoutesMixin:
             park_ttl: int | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             required_worker: str | None = Header(None, alias="X-Flux-Require-Worker"),
-            routing_input: str | None = Header(None, alias="X-Flux-Routing-Input"),
+            # list[str] so FastAPI uses getlist(): as `str` it would silently
+            # keep only the first of repeated headers (#211).
+            routing_input: list[str] | None = Header(None, alias="X-Flux-Routing-Input"),
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:

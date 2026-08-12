@@ -29,15 +29,23 @@ class RoutingInputError(ValueError):
 
 
 def parse_routing_input_header(raw: str | list[str] | None) -> dict[str, Any] | None:
-    """Parse and validate the ``X-Flux-Routing-Input`` header value."""
+    """Parse and validate the ``X-Flux-Routing-Input`` header value.
+
+    The route declares this header as ``list[str]`` so FastAPI reads it with
+    ``getlist()``. Declared as ``str`` it would use ``get()``, which returns
+    only the first of repeated headers — silently discarding the rest, which
+    is the failure this module exists to refuse.
+    """
     if raw is None:
         return None
     if isinstance(raw, list):
-        # Starlette joins duplicates with ", ", which happens to produce
-        # invalid JSON. Rejecting by rule rather than by that coincidence.
-        raise RoutingInputError(
-            "X-Flux-Routing-Input must be sent once; received it more than once",
-        )
+        if not raw:
+            return None
+        if len(raw) > 1:
+            raise RoutingInputError(
+                f"X-Flux-Routing-Input must be sent once; received it {len(raw)} times",
+            )
+        raw = raw[0]
     if len(raw.encode("utf-8")) > MAX_ROUTING_INPUT_BYTES:
         raise RoutingInputError(
             f"X-Flux-Routing-Input exceeds {MAX_ROUTING_INPUT_BYTES} bytes",
