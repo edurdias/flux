@@ -259,7 +259,14 @@ class task:
         task_args = get_func_args(self._func, args)
         full_name = self.name.format(**task_args)
 
-        task_id = self._compute_task_id(full_name, task_args, args, kwargs)
+        # routing_input is excluded from the digest: the id becomes the
+        # source_id of a recorded event, and anything holding execution:*:read
+        # — which the `worker` built-in role does — could read the parent
+        # execution and brute-force a small cohort space offline, recovering
+        # values the routing channel exists to hide (#211). The occurrence
+        # counter below already disambiguates repeated calls.
+        digest_kwargs = {k: v for k, v in kwargs.items() if k != "routing_input"}
+        task_id = self._compute_task_id(full_name, task_args, args, digest_kwargs)
 
         ctx = await ExecutionContext.get()
 
