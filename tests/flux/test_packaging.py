@@ -8,6 +8,7 @@ error and no test failure to notice — hence this one.
 
 from __future__ import annotations
 
+from importlib import resources
 from pathlib import Path
 
 import flux
@@ -22,10 +23,10 @@ def test_py_typed_marker_is_present():
     )
 
 
-def test_marker_sits_beside_the_package_init():
-    """It has to live inside the package directory, not the repo root — a
-    marker anywhere else is invisible to PEP 561 resolution."""
-    package_dir = Path(flux.__file__).parent
+def test_marker_resolves_as_package_data():
+    """Checked through importlib.resources rather than the filesystem: that is
+    how an installed wheel exposes the file, so this fails if the marker stops
+    being packaged even while it still sits in the source tree."""
+    marker = resources.files("flux") / "py.typed"
 
-    assert (package_dir / "__init__.py").is_file()
-    assert (package_dir / "py.typed").parent == package_dir
+    assert marker.is_file()
