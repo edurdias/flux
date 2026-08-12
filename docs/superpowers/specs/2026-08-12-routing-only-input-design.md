@@ -50,8 +50,8 @@ were never in the payload.
 
 ## Storage and data flow
 
-Two nullable `Base64Type()` columns, matching how `wf_metadata` and
-`worker_metadata` store structured data:
+Two nullable `SignedPickleType()` columns, matching `executions.input` and
+`schedules.input_data`:
 
 - `executions.routing_input` — per-execution values
 - `schedules.routing_input` — a fixed set stamped onto every run the schedule
@@ -61,28 +61,66 @@ One Alembic revision adds both. No backfill: NULL means "no routing values",
 which is how every existing execution behaves. Values are never cleared, the
 same treatment as `preferred_worker`.
 
+`SignedPickleType` rather than the `Base64Type` used by `wf_metadata` and
+`worker_metadata`: those are server-derived or admin-validated, whereas routing
+values are **caller-supplied execution data deserialized inside the dispatch
+loop**. `Base64Type` is unauthenticated `dill`, and `dill` executes arbitrary
+code on load — which is exactly why `executions.input` and
+`schedules.input_data` are signed. Routing values sit on the same footing and
+get the same protection.
+
 ```
 caller ──header/field/kwarg──▶ routing_input column ──▶ dispatch matching
                                        │
                                        └──✗ never joins `input`
 ```
 
-Three surfaces must stay clear of the column, each a real exposure route:
+Four surfaces must stay clear of the values, each a real exposure route:
 
 | Surface | Why it matters |
 |---|---|
 | `ExecutionContext.from_json` / `to_dict` | what the worker receives and replays |
 | `ExecutionContext.summary()` | what `GET /executions/{id}` returns |
 | the SSE dispatch frame | what travels to the worker at claim time |
+| **dispatch diagnostics written to `output`** | see below |
 
-`preferred_worker` and `required_worker` are absent from all three already, so
-this follows an existing path rather than inventing one.
+`preferred_worker` and `required_worker` are absent from the first three
+already, so those follow an existing path rather than inventing one. The fourth
+is new and specific to this feature.
+
+### The diagnostics leak
+
+`_Problem` messages in `flux/routing.py` embed the offending key and resolved
+value verbatim — for example `"input '{path}' resolves to an invalid service
+name: '{fragment}'"` and `"...invalid {kind} key: '{key}'"`.
+`_fail_undispatchable` writes that message into `model.output`, and `output` is
+returned by `summary()`. So an *invalid* routing value would be readable
+through the execution API.
+
+That is not a hypothetical for the threat model, because the **`worker`
+built-in role holds `execution:*:read`** alongside `worker:*:*`. The worker can
+therefore call the execution read API itself. "Not visible to the worker" means
+more than "not in the frame we send it".
+
+Diagnostics sourced from routing values must therefore name the key only, never
+the value, and must not distinguish "routing value absent" from "routing value
+present but unmatched" in text the worker can read.
 
 ## Expression surface
 
 `routing("cohort")` mirrors `input("cohort")`: a per-execution value reference,
-not a worker attribute. It compiles to `{"$routing": path}` beside the existing
-`{"$input": path}`.
+not a worker attribute.
+
+Note that `input(...)` has **three** different compiled encodings, not one, and
+a routing reference needs a twin for each. Missing one does not fail loudly —
+it resolves against `input` instead, silently reading the wrong source for the
+value the feature exists to hide:
+
+| Encoding | Produced by |
+|---|---|
+| `{"$input": path}` | comparison values in `require`/`prefer` |
+| `{"input": path, "op":…, "value":…}` | `when(input(...) == const, …)` |
+| `{"kind":…, "prefix":…, "input": path}` | `label_for(...)` / `meta_for(...)` / `service(...)` |
 
 ```python
 @workflow.with_options(
@@ -105,12 +143,39 @@ discriminate, `optional(...)` forgives an absent value, and a non-optional
 
 ### Plumbing
 
-Hard matching funnels through one entry, `worker_matches(worker, requests,
-affinity, runner, input_value)`, which gains a `routing_value` parameter.
-Behind it, the five `$input` resolution sites in `flux/routing.py` gain
-`$routing` siblings reading from that value. The catalog's AST extractor gains
-`routing(...)` alongside `input(...)`, so an unparseable reference fails at
-registration rather than at dispatch.
+There are **two** dispatch-side entries, not one, and missing the second is
+worse than missing the first:
+
+- `worker_matches(worker, requests, affinity, runner, input_value)` — the
+  matcher, which gains a `routing_value` parameter.
+- `require_diagnostic(workflow.affinity, model.input)`, called directly by
+  `_affinity_diagnostic` and bypassing `worker_matches` entirely. It decides
+  whether an affinity expression can *never* match, and
+  `_fail_undispatchable` turns a positive answer into a terminal
+  `AffinityResolutionError`. If it is not also given the routing value, a
+  non-optional `require(label("cohort") == routing("cohort"))` resolves
+  unresolved, diagnoses as permanently unsatisfiable, and **every
+  routing-matched execution is failed at dispatch instead of routed**. This is
+  the single most important line of this section.
+
+Behind those, the resolution helpers `_resolve_require_input`,
+`_resolve_input_path`, `_resolve_require_term`, `_resolve_selector_key` and
+`_when_condition_active` each need the routing value threaded through, covering
+all three encodings above. Counting occurrences of the literal `$input` in
+`flux/routing.py` undercounts this — one of them is the emission site, and the
+`when()` and dynamic-key encodings do not contain the string at all.
+
+`Condition.__init__` and `DynamicLabel.__init__` both `isinstance(..., InputRef)`
+to decide what a comparison value or dynamic key may be. A routing reference
+that is not an `InputRef` subclass raises `"value must be a constant or
+input(...)"` from the spec's own examples, so those checks widen to accept
+either.
+
+The catalog has **two independent AST parsers** — one for `affinity`, one for
+`routing` — with roughly ten `call_name(...) == "input"` checks between them.
+Each needs a `routing` twin, so an unparseable reference fails at registration
+rather than at dispatch. (#208 touched only the routing-stage parser, which is
+why the two are easy to conflate.)
 
 ### What stays public
 
@@ -144,9 +209,12 @@ oversized value, or a bad key is a 400 from HTTP paths and a `ValueError` from
   paths, so the limit is the same wherever the values enter). A header is not a
   payload channel and servers cap header bytes anyway; an explicit limit makes
   the failure ours and legible rather than a proxy's opaque 431.
-- **Keys may not contain `.`** — path resolution splits on dots to descend
-  nested objects, so a top-level dotted key would be silently unreachable.
-  Nested objects remain allowed; only the ambiguous spelling is refused.
+- **No key at any depth may contain `.`** — path resolution splits the whole
+  path on dots and descends one level per part, so `{"a": {"b.c": 1}}` is
+  exactly as unreachable as `{"a.b": 1}`: `routing("a.b.c")` looks for
+  `a → b → c`. The validator recurses; a rule written only for top-level keys
+  would re-admit the silent unreachability it exists to prevent. Nested objects
+  remain allowed — only the ambiguous spelling is refused, at every level.
 
 An absent header means no routing values, and expressions resolve as
 unresolved — existing behaviour, so an execution submitted without it routes
@@ -162,7 +230,19 @@ worker the declared affinity does not already allow, or target a node the
 caller could not reach through `input`. It is the same power the caller has
 today, moved to a channel the target cannot read.
 
-### `call()`
+### `call()` and the in-process fast path
+
+`call()` has a fast path that never creates an execution row: a `mode="sync"`
+call to a transient workflow with `runner in (None, "inprocess")` and
+`transient_fast_path` enabled runs `_call_in_process(...)` in the caller's
+process, with no server round-trip and therefore no dispatch matching. A
+`routing_input=` on that path would be silently discarded — precisely the
+failure the validation rule above forbids.
+
+`routing_input` therefore **forces the dispatched path**: supplying it disables
+the fast path for that call. Rejecting instead would be defensible, but it
+would make the flag's behaviour depend on a performance optimisation the caller
+did not choose and may not know about.
 
 A parent can set routing values on a child it spawns and cannot read them back
 afterwards. That is consistent — the parent knows what it set — but it means a
@@ -173,13 +253,19 @@ rather than left to be discovered.
 ## CLI
 
 ```bash
-flux workflow run audit_probe --routing-input cohort=canary --routing-input region=eu
-flux schedule create nightly-canary ... --routing-input cohort=canary
+flux workflow run audit_probe '{"batch": 41}' -r cohort=canary -r region=eu
+flux schedule create audit_probe nightly-canary --cron "0 2 * * *" -r cohort=canary
 ```
+
+Both commands take positional arguments the examples must respect:
+`workflow run WORKFLOW_NAME INPUT` and `schedule create WORKFLOW_NAME
+SCHEDULE_NAME`.
 
 Repeatable `key=value`, mirroring `--label` on `flux start worker`. Named
 `--routing-input` (short `-r`) to match the column, schedule field, and `call()`
-kwarg, leaving `routing()` as the name of the selector that reads it.
+kwarg, leaving `routing()` as the name of the selector that reads it. `-r` is
+unused on both commands today (`workflow run` uses `-m/-v/-d`, `schedule
+create` uses `-c/-tz/-d/-i/-f`).
 
 - **Values arrive as strings**, as with `--label`. Harmless in practice: they
   are matched against label values, which are strings too. A caller needing an
@@ -192,6 +278,23 @@ kwarg, leaving `routing()` as the name of the selector that reads it.
 
 Malformed pairs (no `=`, empty key, duplicate key) fail before the request goes
 out.
+
+## Operator visibility
+
+There is deliberately **no API read path** for routing values, at any privilege
+level. Adding an admin-scoped read would put the values back on the surface
+this design exists to keep them off, and the permission boundary protecting it
+would then be the guarantee — the same fragility as stripping at delivery.
+
+That leaves a real gap: an operator asking "why is this worker getting all the
+traffic?" cannot see which executions carried routing values. Closing it
+without reopening the leak, the server logs at ingress the execution id and the
+**key names** set — never the values. Keys are already public (they appear in
+the workflow source); the per-execution values and their presence are not, and
+the log is not reachable through the execution API the worker can call.
+
+Anything beyond that is a database read, which is the same answer as for
+`preferred_worker` today.
 
 ## Testing
 
@@ -209,9 +312,15 @@ unresolved input; values arrive correctly from all three ingress paths and the
 CLI; every rejection case returns 400 rather than dropping.
 
 One test specifically for the threat model: two executions of the same workflow,
-one with routing values and one without, produce byte-identical worker-visible
-context. That is the actual claim — indistinguishability — rather than a proxy
-for it.
+one with routing values and one without, are indistinguishable **as the worker
+principal sees them** — identical in-process context *and* identical responses
+from the execution read API called with `worker:*:*` + `execution:*:read`,
+which is what the `worker` built-in role actually holds. Comparing only the
+in-process context would test a proxy for the claim rather than the claim.
+
+The invalid-value case gets its own test, since it is the one path that writes
+a routing-derived string into `output`: an unmatchable routing value must
+produce a diagnostic naming the key and not the value.
 
 Migration `HEAD` updated in both `test_migrations.py` and
 `test_migrations_postgresql.py`, since a stale value in the second surfaces
