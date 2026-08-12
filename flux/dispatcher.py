@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -54,6 +55,10 @@ class Dispatcher:
         self._server = server
         settings = Configuration.get().settings
         self._batch_size = settings.dispatch.batch_size
+        # Bounds one cycle's scan when the queue holds many unmatchable
+        # rows: they are re-examined next cycle anyway, since a worker
+        # that joins meanwhile may match them.
+        self._max_scan_per_cycle = self._batch_size * 20
         self._fallback_interval = settings.dispatch.fallback_interval
         self._is_postgresql = settings.database_type == "postgresql"
         self._database_url = settings.database_url
@@ -214,16 +219,31 @@ class Dispatcher:
             return
         manager = ContextManager.create()
 
-        # New executions: keep claiming while full batches come back.
+        # New executions: keep claiming while full batches come back. The loop
+        # ends on a short *selection*, not on a short assignment: a full batch
+        # that placed nothing means unmatchable rows at the head of the queue,
+        # and treating that as "drained" stalls every execution behind them
+        # (#213). Those rows are excluded from the next pass so the scan
+        # advances instead of re-reading the same head.
+        unplaceable: set[str] = set()
+        scanned = 0
         while True:
+            unmatched: set[str] = set()
             assignments = await asyncio.to_thread(
-                manager.next_executions_batch,
-                workers,
-                self._batch_size,
+                partial(
+                    manager.next_executions_batch,
+                    workers,
+                    self._batch_size,
+                    exclude_ids=tuple(unplaceable),
+                    unmatched=unmatched,
+                ),
             )
             for ctx, worker_name in assignments:
                 await self._deliver(manager, ctx, worker_name, "execution_scheduled")
-            if len(assignments) < self._batch_size:
+            unplaceable |= unmatched
+            selected = len(assignments) + len(unmatched)
+            scanned += selected
+            if selected < self._batch_size or scanned >= self._max_scan_per_cycle:
                 break
             workers = self._connected_workers()
             if not workers:
