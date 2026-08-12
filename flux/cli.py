@@ -1892,7 +1892,7 @@ def create_schedule(
     except click.ClickException:
         raise
     except Exception as ex:
-        click.echo(f"Error creating schedule: {str(ex)}", err=True)
+        raise click.ClickException(f"Error creating schedule: {str(ex)}")
 
 
 @schedule.command("list")

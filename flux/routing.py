@@ -947,7 +947,7 @@ def pick_worker(
             # against the execution input. Unresolved input or an invalid
             # resolved key means the term cannot discriminate — everyone
             # scores 0 for it — while a malformed spec degrades the policy.
-            selector_kind, key, problem = _resolve_selector_key(
+            selector_kind, key, problem, _key_from_routing = _resolve_selector_key(
                 selector,
                 input_value,
                 routing_value,
@@ -1067,24 +1067,33 @@ def _resolve_selector_key(
     selector: Any,
     input_value: Any,
     routing_value: Any = None,
-) -> tuple[str, str, _Problem | None]:
+) -> tuple[str, str, _Problem | None, bool]:
     """Resolve a label/meta selector (static ``"label:key"`` or dynamic
     ``{"kind": "label"|"meta", "prefix", "input"}``) to its kind and key.
 
-    Returns ``(kind, key, None)`` or ``(kind, "", problem)``."""
+    Returns ``(kind, key, problem_or_None, key_came_from_routing)``. The last
+    element matters because a key resolved from routing input carries the
+    routing *value* inside it, so any message naming that key must be blinded
+    even when the term's comparison value is a plain ``input(...)``.
+    """
     if isinstance(selector, str) and selector.startswith("label:"):
-        return "label", selector[len("label:") :], None
+        return "label", selector[len("label:") :], None, False
     if isinstance(selector, str) and selector.startswith("meta:"):
         # Callers usually branch on static meta selectors before reaching
         # here; handled anyway so the resolver's contract holds for every
         # selector shape it documents.
-        return "meta", selector[len("meta:") :], None
+        return "meta", selector[len("meta:") :], None, False
     if isinstance(selector, dict) and selector.get("kind") in ("label", "meta"):
         kind = selector["kind"]
         prefix = selector.get("prefix")
         path, from_routing = _ref_path(selector, _BARE_REF_KEYS)
         if not isinstance(prefix, str) or not prefix or not path:
-            return kind, "", _Problem("malformed", f"malformed {kind} selector: {selector!r}")
+            return (
+                kind,
+                "",
+                _Problem("malformed", f"malformed {kind} selector: {selector!r}"),
+                False,
+            )
         resolved = _resolve_require_input(
             _ref_source(from_routing, input_value, routing_value),
             path,
@@ -1098,6 +1107,7 @@ def _resolve_selector_key(
                     "unresolved",
                     f"{kind} key requires input '{path}', which is not present",
                 ),
+                from_routing,
             )
         if resolved is None or isinstance(resolved, (dict, list)):
             return (
@@ -1108,6 +1118,7 @@ def _resolve_selector_key(
                     "invalid",
                     f"{kind} key input '{path}' must be a scalar",
                 ),
+                from_routing,
             )
         fragment = _label_value_str(resolved)
         if kind == "label" and prefix == SERVICE_LABEL_PREFIX:
@@ -1122,6 +1133,7 @@ def _resolve_selector_key(
                         "invalid",
                         f"input '{path}' resolves to an invalid service name: '{fragment}'",
                     ),
+                    from_routing,
                 )
         key = prefix + fragment
         # Metadata keys are held to the admin-API bound (validate_worker_metadata)
@@ -1136,9 +1148,10 @@ def _resolve_selector_key(
                     "invalid",
                     f"input '{path}' resolves to an invalid {kind} key: '{key}'",
                 ),
+                from_routing,
             )
-        return kind, key, None
-    return "label", "", _Problem("malformed", f"malformed label selector: {selector!r}")
+        return kind, key, None, from_routing
+    return "label", "", _Problem("malformed", f"malformed label selector: {selector!r}"), False
 
 
 def _resolve_require_term(
@@ -1154,7 +1167,11 @@ def _resolve_require_term(
     if isinstance(selector, str) and selector.startswith("meta:"):
         kind, key = "meta", selector[len("meta:") :]
     else:
-        kind, key, problem = _resolve_selector_key(selector, input_value, routing_value)
+        kind, key, problem, key_from_routing = _resolve_selector_key(
+            selector,
+            input_value,
+            routing_value,
+        )
         if problem is not None:
             if problem.category == "malformed":
                 return problem
@@ -1174,8 +1191,11 @@ def _resolve_require_term(
             path,
         )
         if value is _UNRESOLVED:
+            # key_from_routing too: a key resolved from routing input contains
+            # the routing value, so naming it leaks even when the comparison
+            # value is a plain input(...).
             return _routing_blind(
-                from_routing,
+                from_routing or key_from_routing,
                 "unresolved",
                 f"affinity term on {kind} '{key}' requires input '{path}', which is not present",
             )

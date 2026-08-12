@@ -115,6 +115,26 @@ class TestDiagnosticsAreBlind:
         assert "my/bad key" not in message
         assert "dataset" not in message
 
+    def test_routing_key_is_blinded_even_when_the_value_ref_is_plain_input(self):
+        """The blind flag tracked the *value* reference, but the message names
+        the resolved *key* — which for a routing-derived dynamic selector is
+        the routing value itself. A plain input() on the right-hand side
+        therefore routed around the blinding."""
+        terms = [
+            {
+                "kind": "match",
+                "selector": {"kind": "label", "prefix": "cohort.", "routing_input": "c"},
+                "op": "==",
+                "value": {"$input": "missing"},
+            },
+        ]
+
+        message = str(require_diagnostic(terms, {}, {"c": "canary-secret"}))
+
+        assert "canary-secret" not in message
+        assert "cohort." not in message
+        assert "routing constraint unsatisfied" in message
+
     def test_input_diagnostics_keep_their_detail(self):
         terms = require(label("cohort") == input_ref("normal_field"))
 
@@ -371,3 +391,112 @@ class TestDigestExclusion:
             scorer._digest_kwargs({"model": "m", "routing_input": "b"}),
         )
         assert a != b, "cache keys must stay distinct for an unrelated task"
+
+
+class TestScheduleIngress:
+    """The clear semantics are the most intricate logic in the feature and had
+    no coverage: validate_routing_input normalises {} to None, which the update
+    path would otherwise read as "not supplied"."""
+
+    @pytest.fixture
+    def client(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS", "true")
+        from flux.config import Configuration
+        from flux.models import DatabaseRepository
+
+        Configuration.get().override(database_url=f"sqlite:///{tmp_path / 'sched.db'}")
+        DatabaseRepository._engines.clear()
+        from fastapi.testclient import TestClient
+
+        from flux.server import Server
+
+        client = TestClient(Server("127.0.0.1", 0)._create_api())
+        source = b"""
+from flux import workflow, ExecutionContext
+
+
+@workflow
+async def probe(ctx: ExecutionContext):
+    return "ok"
+"""
+        assert (
+            client.post(
+                "/workflows",
+                files={"file": ("f.py", source, "text/x-python")},
+            ).status_code
+            == 200
+        )
+        yield client
+        DatabaseRepository._engines.clear()
+
+    def _create(self, client, name, routing_input=None):
+        body = {
+            "workflow_name": "probe",
+            "workflow_namespace": "default",
+            "name": name,
+            "schedule_config": {"type": "interval", "interval_seconds": 3600},
+        }
+        if routing_input is not None:
+            body["routing_input"] = routing_input
+        return client.post("/schedules", json=body)
+
+    def _stored(self, name):
+        from flux.models import RepositoryFactory, ScheduleModel
+
+        with RepositoryFactory.create_repository().session() as session:
+            return session.query(ScheduleModel).filter(ScheduleModel.name == name).first()
+
+    def test_created_with_routing_values(self, client):
+        assert self._create(client, "canary", {"cohort": "canary"}).status_code == 200
+
+        assert self._stored("canary").routing_input == {"cohort": "canary"}
+
+    def test_response_omits_them(self, client):
+        """Consistent with input_data, which ScheduleResponse also omits."""
+        resp = self._create(client, "quiet", {"cohort": "canary"})
+
+        assert "routing_input" not in resp.json()
+
+    def test_invalid_values_are_rejected(self, client):
+        assert self._create(client, "bad", {"a.b": 1}).status_code == 400
+
+    def test_empty_object_clears_them(self, client):
+        """Without this an operator could set routing values on a schedule and
+        never remove them — every future fire keeps routing to the cohort."""
+        self._create(client, "clearme", {"cohort": "canary"})
+        schedule_id = self._stored("clearme").id
+
+        resp = client.put(f"/schedules/{schedule_id}", json={"routing_input": {}})
+
+        assert resp.status_code == 200
+        assert not self._stored("clearme").routing_input
+
+    def test_omitting_the_field_leaves_them_untouched(self, client):
+        """Absent must mean "unchanged", or every unrelated edit would wipe
+        the routing values."""
+        self._create(client, "keepme", {"cohort": "canary"})
+        schedule_id = self._stored("keepme").id
+
+        resp = client.put(f"/schedules/{schedule_id}", json={"description": "edited"})
+
+        assert resp.status_code == 200
+        assert self._stored("keepme").routing_input == {"cohort": "canary"}
+
+
+class TestCallIngress:
+    """call() validates eagerly and refuses the fast path, which is the
+    security-relevant branch: that path never reaches dispatch, so a routing
+    value there would be silently discarded."""
+
+    def test_invalid_values_raise_before_any_dispatch(self):
+        import asyncio
+
+        from flux.tasks.call import call
+
+        with pytest.raises(RoutingInputError):
+            asyncio.run(call._func("some_workflow", routing_input={"a.b": 1}))
+
+    def test_call_declares_the_digest_exclusion(self):
+        from flux.tasks.call import call
+
+        assert "routing_input" in call.digest_exclude

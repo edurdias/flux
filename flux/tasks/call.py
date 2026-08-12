@@ -115,6 +115,10 @@ async def call(
             # Routing values are matched by the dispatcher, which the fast
             # path skips entirely. Taking it would discard them silently —
             # the failure this feature refuses everywhere else (#211).
+            # Consequence worth knowing: a transient sync child can tell the
+            # two paths apart (a dispatched one has a real execution_id and
+            # token), so routing a probe this way hides the values but not the
+            # fact of routing. Documented in dynamic-routing.md.
             and not routing_input
         ):
             return await _call_in_process(workflow, args)

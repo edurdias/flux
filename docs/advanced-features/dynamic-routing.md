@@ -230,7 +230,23 @@ Consequences worth knowing:
   key *names* in a server log line at ingress, never the values.
 - **Diagnostics say nothing.** A routing constraint that cannot be satisfied
   fails with `routing constraint unsatisfied` and no key or value, because that
-  message is written to the execution's output, which the worker can read.
+  message is written to the execution's output and to the server log.
+
+  Worth being precise about who could read it: a *bare worker principal*
+  cannot, since `GET /executions/{id}` also requires
+  `workflow:{ns}:{name}:read`, which the built-in `worker` role does not hold.
+  The reachable vector is the **workflow's own execution token**, which
+  inherits the submitting principal's permissions — and that principal
+  normally does hold workflow read. Deployments that grant workers broader
+  roles widen it further. The blinding is defence in depth against both.
+
+- **A `call()` child can tell it was dispatched.** Passing `routing_input` to
+  `call()` forces the dispatched path, because the in-process fast path never
+  reaches the dispatcher and would discard the values silently. A transient
+  sync child can distinguish the two (dispatched executions have a real
+  `execution_id` and token), so for a canary probe the *fact* of routing is
+  observable even though the values are not. Use a non-transient target, or
+  set `[flux.workers] transient_fast_path = false`, when that matters.
 - **Rejected, never dropped.** Malformed JSON, a non-object payload, a value
   over 4KB, a repeated header, or a key containing `.` at any depth is a 400.
   A silently discarded routing directive would route the execution somewhere
