@@ -1076,6 +1076,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#routing-on-values-the-worker-cannot-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routing on values the worker cannot see
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#built-in-worker-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1441,6 +1452,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#routing-on-values-the-worker-cannot-see" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Routing on values the worker cannot see
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#built-in-worker-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1587,6 +1609,11 @@ factor you can measure. It builds on the two mechanisms you may already use:</p>
 <td>active executions ÷ the worker's advertised capacity</td>
 <td>live, computed at dispatch</td>
 </tr>
+<tr>
+<td><code>routing_input("key")</code></td>
+<td>per-execution values the worker never receives (see <a href="#routing-on-values-the-worker-cannot-see">below</a>)</td>
+<td>set at submission</td>
+</tr>
 </tbody>
 </table>
 <p>And four term types:</p>
@@ -1714,6 +1741,77 @@ they remain rejected in <code>when()</code>.</p>
 registration: skipping a hard constraint makes a worker match <em>more</em>
 easily, so it would drop the requirement on exactly the busy workers it was
 meant to steer away from.</p>
+<h2 id="routing-on-values-the-worker-cannot-see">Routing on values the worker cannot see<a class="headerlink" href="#routing-on-values-the-worker-cannot-see" title="Permanent link">&para;</a></h2>
+<p>Affinity and scoring normally match against execution input — and that input is
+delivered to the worker, because it is how a workflow receives its arguments.
+So a field used <em>purely</em> for routing is observable by the worker it routes to.</p>
+<p>That matters when the routing decision is <strong>about</strong> the worker: audit sampling,
+A/B assignment, canary probes. There, "does my input contain the cohort field?"
+tells a workflow it is being watched before its body runs — and it is the
+<em>presence</em> of the key that gives it away, not the value, so obfuscating the
+value does not help.</p>
+<p><code>routing_input(...)</code> reads from a separate channel that is matched at dispatch
+and never delivered:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">optional</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">routing_input</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">))),</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="p">)</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">audit_probe</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="o">...</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>localhost:8000/workflows/default/audit_probe/run/async<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">     </span>-H<span class="w"> </span><span class="s1">&#39;X-Flux-Routing-Input: {&quot;cohort&quot;:&quot;canary&quot;}&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">     </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;real&quot;:&quot;payload&quot;}&#39;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>flux<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>audit_probe<span class="w"> </span><span class="s1">&#39;{&quot;real&quot;:&quot;payload&quot;}&#39;</span><span class="w"> </span>-r<span class="w"> </span><span class="nv">cohort</span><span class="o">=</span>canary
+</code></pre></div>
+<p>It works wherever <code>input(...)</code> does — <code>require</code>, <code>prefer</code>, <code>when</code>, and dynamic
+keys such as <code>label_for("cache.", routing_input("dataset"))</code> — and is set from
+the run header, a schedule's <code>routing_input</code> field, <code>call(routing_input=...)</code>,
+or the CLI flag above.</p>
+<p><strong>What is hidden, precisely.</strong> The key name is not secret: it is written in the
+workflow source, and that source travels to the worker. What the worker cannot
+learn is the value <strong>or whether this execution had one at all</strong> — which is the
+classifier that mattered. A worker can read <code>routing_input("cohort")</code> in its own
+affinity and still not know whether it was selected by it.</p>
+<p>Consequences worth knowing:</p>
+<ul>
+<li><strong>Values are never delivered or read back.</strong> They are absent from the context
+  the worker receives, from <code>GET /executions/{id}</code>, and from both SSE frames.
+  There is no API read path at any privilege level — an admin-scoped read would
+  put them back on the surface this exists to keep them off. Operators get the
+  key <em>names</em> in a server log line at ingress, never the values.</li>
+<li><strong>Diagnostics say nothing.</strong> A routing constraint that cannot be satisfied
+  fails with <code>routing constraint unsatisfied</code> and no key or value, because that
+  message is written to the execution's output and to the server log.</li>
+</ul>
+<p>Worth being precise about who could read it: a <em>bare worker principal</em>
+  cannot, since <code>GET /executions/{id}</code> also requires
+  <code>workflow:{ns}:{name}:read</code>, which the built-in <code>worker</code> role does not hold.
+  The reachable vector is the <strong>workflow's own execution token</strong>, which
+  inherits the submitting principal's permissions — and that principal
+  normally does hold workflow read. Deployments that grant workers broader
+  roles widen it further. The blinding is defence in depth against both.</p>
+<ul>
+<li><strong>A <code>call()</code> child can tell it was dispatched.</strong> Passing <code>routing_input</code> to
+  <code>call()</code> forces the dispatched path, because the in-process fast path never
+  reaches the dispatcher and would discard the values silently. A transient
+  sync child can distinguish the two (dispatched executions have a real
+  <code>execution_id</code> and token), so for a canary probe the <em>fact</em> of routing is
+  observable even though the values are not. Use a non-transient target, or
+  set <code>[flux.workers] transient_fast_path = false</code>, when that matters.</li>
+<li><strong>Rejected, never dropped.</strong> Malformed JSON, a non-object payload, a value
+  over 4KB, a repeated header, or a key containing <code>.</code> at any depth is a 400.
+  A silently discarded routing directive would route the execution somewhere
+  the caller did not intend, and that is invisible from outside.</li>
+<li><strong>No extra permission.</strong> Routing values are exactly as powerful as <code>input</code> —
+  <code>require(label("host") == routing_input("host"))</code> grants the same pinning
+  that <code>input("host")</code> does today — so they need no grant beyond running the
+  workflow. Use <code>X-Flux-Require-Worker</code> when you want binding placement; that
+  one <em>does</em> require <code>worker:{name}:target</code>.</li>
+<li><strong>CLI values are strings</strong>, as with <code>--label</code>, and <code>key=value</code> cannot express
+  nesting. Numbers coerce on comparison; booleans do not, so a boolean needs
+  the API.</li>
+</ul>
 <h2 id="built-in-worker-metrics">Built-in worker metrics<a class="headerlink" href="#built-in-worker-metrics" title="Permanent link">&para;</a></h2>
 <p>Every worker publishes a standard metric set under the reserved <code>flux.</code>
 prefix on its heartbeat — no configuration needed
@@ -1761,11 +1859,11 @@ prefix on its heartbeat — no configuration needed
 </tbody>
 </table>
 <p>So these work with zero setup:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Steer latency-sensitive work away from degraded-but-not-unhealthy workers</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.loop_lag_p95_seconds&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Quarantine workers that accept work and fail it (full disk, sick GPU, ...)</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.crash_rate&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Steer latency-sensitive work away from degraded-but-not-unhealthy workers</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">least</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.loop_lag_p95_seconds&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Quarantine workers that accept work and fail it (full disk, sick GPU, ...)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">metric</span><span class="p">(</span><span class="s2">&quot;flux.crash_rate&quot;</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.1</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">),</span> <span class="n">least</span><span class="p">(</span><span class="n">load</span><span class="p">()))</span>
 </code></pre></div>
 <p>Aggregates are computed on the worker over fixed windows and published as
 single scalars — the server stores only the latest snapshot per worker,
@@ -1774,20 +1872,20 @@ never a time series. For history and trending, use the
 <h2 id="custom-metrics-providers">Custom metrics providers<a class="headerlink" href="#custom-metrics-providers" title="Permanent link">&para;</a></h2>
 <p>For anything the built-ins don't cover, point the worker at your own
 callable (sync or async) returning <code>dict[str, float]</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># myapp/routing.py — runs inside the worker process</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="k">return</span> <span class="p">{</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>        <span class="s2">&quot;gpu_queue_depth&quot;</span><span class="p">:</span> <span class="n">gpu_queue</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>        <span class="s2">&quot;shard_latency_ms&quot;</span><span class="p">:</span> <span class="k">await</span> <span class="n">probe_local_shard</span><span class="p">(),</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>        <span class="s2">&quot;scratch_free_gb&quot;</span><span class="p">:</span> <span class="n">psutil</span><span class="o">.</span><span class="n">disk_usage</span><span class="p">(</span><span class="s2">&quot;/scratch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">free</span> <span class="o">/</span> <span class="mf">1e9</span><span class="p">,</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># myapp/routing.py — runs inside the worker process</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">psutil</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">collect</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="k">return</span> <span class="p">{</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>        <span class="s2">&quot;gpu_queue_depth&quot;</span><span class="p">:</span> <span class="n">gpu_queue</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>        <span class="s2">&quot;shard_latency_ms&quot;</span><span class="p">:</span> <span class="k">await</span> <span class="n">probe_local_shard</span><span class="p">(),</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>        <span class="s2">&quot;scratch_free_gb&quot;</span><span class="p">:</span> <span class="n">psutil</span><span class="o">.</span><span class="n">disk_usage</span><span class="p">(</span><span class="s2">&quot;/scratch&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">free</span> <span class="o">/</span> <span class="mf">1e9</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="p">}</span>
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[flux.workers]</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">metrics_provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;myapp.routing:collect&quot;</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">metrics_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">10.0</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[flux.workers]</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">metrics_provider</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;myapp.routing:collect&quot;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">metrics_interval</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">10.0</span>
 </code></pre></div>
 <p>The worker refreshes the provider on that cadence (sync providers run in a
 thread; a failure keeps the previous snapshot) and merges the result with
@@ -1821,8 +1919,8 @@ is a check <em>on</em> a worker — verification, an A/B against one instance,
 reproducing a fault on a suspect node — because falling back is
 indistinguishable from success at the client.</p>
 <p><code>X-Flux-Require-Worker</code> is the binding counterpart:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>localhost:8000/workflows/default/verify/run/async<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">     </span>-H<span class="w"> </span><span class="s2">&quot;X-Flux-Require-Worker: worker-7&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>localhost:8000/workflows/default/verify/run/async<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">     </span>-H<span class="w"> </span><span class="s2">&quot;X-Flux-Require-Worker: worker-7&quot;</span>
 </code></pre></div>
 <table>
 <thead>
