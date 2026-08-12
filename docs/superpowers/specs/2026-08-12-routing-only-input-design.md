@@ -113,7 +113,7 @@ over the complement set, which is the very thing being hidden.
 
 ## Expression surface
 
-`routing("cohort")` mirrors `input("cohort")`: a per-execution value reference,
+`routing_input("cohort")` mirrors `input("cohort")`: a per-execution value reference,
 not a worker attribute.
 
 Note that `input(...)` has **three** different compiled encodings, not one, and
@@ -129,8 +129,8 @@ value the feature exists to hide:
 
 ```python
 @workflow.with_options(
-    affinity=require(optional(label("cohort") == routing("cohort"))),
-    routing=score(prefer(label("cohort") == routing("cohort"), weight=10)),
+    affinity=require(optional(label("cohort") == routing_input("cohort"))),
+    routing=score(prefer(label("cohort") == routing_input("cohort"), weight=10)),
 )
 async def audit_probe(ctx: ExecutionContext[dict]):
     ...
@@ -138,7 +138,7 @@ async def audit_probe(ctx: ExecutionContext[dict]):
 
 Valid wherever `input(...)` is valid: `require` terms, `prefer(...)`,
 `when(...)` (with the same `==`/`!=` restriction `input()` has there), and
-dynamic keys via `label_for("cache.", routing("dataset"))`. Rejected in
+dynamic keys via `label_for("cache.", routing_input("dataset"))`. Rejected in
 `least()`/`most()`, which take worker selectors — `input()` is rejected there
 too, so the rule is unchanged rather than special-cased.
 
@@ -158,12 +158,12 @@ worse than missing either:
   whether an affinity expression can *never* match, and
   `_fail_undispatchable` turns a positive answer into a terminal
   `AffinityResolutionError`. If it is not also given the routing value, a
-  non-optional `require(label("cohort") == routing("cohort"))` resolves
+  non-optional `require(label("cohort") == routing_input("cohort"))` resolves
   unresolved, diagnoses as permanently unsatisfiable, and **every
   routing-matched execution is failed at dispatch instead of routed**. This is
   the single most important line of this section.
 - `pick_worker(...)`, the score stage, called with `input_value=model.input`.
-  The example above puts `routing()` inside `score(prefer(...))`, so it needs
+  The example above puts `routing_input()` inside `score(prefer(...))`, so it needs
   the routing value too.
 
 Behind those, the resolution helpers `_resolve_require_input`,
@@ -191,7 +191,7 @@ The *key name* is not secret — it is written in the workflow source, and that
 source travels to the worker. What is hidden is the per-execution value **and
 whether this execution had one at all**. That is the property #211 asks for:
 the classifier it describes is presence, and presence moves out of reach. A
-worker can read `routing("cohort")` in its own affinity and still not know
+worker can read `routing_input("cohort")` in its own affinity and still not know
 whether it was selected by it.
 
 ## Ingress
@@ -234,7 +234,7 @@ oversized value, or a bad key is a 400 from HTTP paths and a `ValueError` from
   dot.
 - **No key at any depth may contain `.`** — path resolution splits the whole
   path on dots and descends one level per part, so `{"a": {"b.c": 1}}` is
-  exactly as unreachable as `{"a.b": 1}`: `routing("a.b.c")` looks for
+  exactly as unreachable as `{"a.b": 1}`: `routing_input("a.b.c")` looks for
   `a → b → c`. The validator recurses; a rule written only for top-level keys
   would re-admit the silent unreachability it exists to prevent. Nested objects
   remain allowed — only the ambiguous spelling is refused, at every level.
@@ -258,7 +258,7 @@ to run the code — a capability beyond running the workflow, hence
 
 Stated precisely, because the loose version is wrong: routing values **can**
 steer placement. A workflow author who writes
-`require(label("host") == routing("host"))` hands callers node-level pinning
+`require(label("host") == routing_input("host"))` hands callers node-level pinning
 with no `worker:{name}:target` grant. The argument is not that routing values
 are inert; it is that they are **exactly as powerful as `input`, no more** —
 `require(label("host") == input("host"))` grants the identical thing today. The
@@ -317,7 +317,8 @@ SCHEDULE_NAME`.
 
 Repeatable `key=value`, mirroring `--label` on `flux start worker`. Named
 `--routing-input` (short `-r`) to match the column, schedule field, and `call()`
-kwarg, leaving `routing()` as the name of the selector that reads it. `-r` is
+kwarg — the selector that reads it is `routing_input(...)`, so one word means
+one thing throughout. `-r` is
 unused on both commands today (`workflow run` uses `-m/-v/-d`, `schedule
 create` uses `-c/-tz/-d/-i/-f`).
 
@@ -327,7 +328,7 @@ create` uses `-c/-tz/-d/-i/-f`).
   `None` for bool, so a CLI `"true"` is compared as `"true"` against `"True"`
   and never matches. A caller needing a boolean goes through the API.
 - **Nesting is not expressible from the CLI.** The header accepts nested
-  objects and `routing("a.b")` descends them, but `key=value` is flat and dots
+  objects and `routing_input("a.b")` descends them, but `key=value` is flat and dots
   are refused in keys. The CLI covers flat keys; nested structures are an
   API/SDK affair. Better an explicit limit than a dotted-key spelling that
   conflicts with path resolution.
@@ -391,20 +392,27 @@ only in CI's postgres job.
 ## Documentation
 
 A section in `docs/advanced-features/dynamic-routing.md` beside the binding-header
-material, and `routing()` added to the selector table.
+material, and `routing_input()` added to the selector table.
 
-## Open decision: the selector's name
+## Naming
 
-`routing("cohort")` reads as a sibling of `@workflow.with_options(routing=score(...))`,
-which means something else entirely, and it would land at `flux.routing.routing`.
-Every other artifact here is named `routing_input` — column, header, schedule
-field, kwarg, CLI flag — so `routing_input("cohort")` would be consistent and
-unambiguous at the cost of being longer in expressions.
+The selector is `routing_input(...)`, not `routing(...)`.
 
-Flagged rather than changed, because `routing()` is what was agreed while
-designing. If a top-level `flux` export is ever wanted, note that
-`flux/__init__.py` already resolves a submodule-vs-attribute collision for
-`flux.task`/`flux.workflow`, and `flux.routing` is a submodule too.
+`routing(...)` collides with `@workflow.with_options(routing=score(...))`,
+which means something else entirely — a scoring policy, not a per-execution
+value — and it would land at `flux.routing.routing`. Naming it
+`routing_input` matches every other artifact in the design: the column, the
+header, the schedule field, the `call()` kwarg, and the CLI flag. One word,
+one meaning, everywhere.
+
+The cost is a longer name inside expressions, which is the right trade for a
+term that appears in workflow source and gets read far more often than it is
+typed.
+
+If a top-level `flux` export is ever wanted, note that `flux/__init__.py`
+already resolves a submodule-vs-attribute collision for `flux.task` and
+`flux.workflow`, and `flux.routing` is a submodule too — so exporting a
+`routing_input` name from it needs the same care.
 
 ## Out of scope
 
