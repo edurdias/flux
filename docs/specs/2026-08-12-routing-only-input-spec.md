@@ -200,7 +200,7 @@ Three adapters, one validator behind them, so the rules cannot drift:
 
 | Path | Channel |
 |---|---|
-| run endpoint | `X-Flux-Routing-Input:` header, a JSON object |
+| run endpoint | `X-Flux-Routing-Input` header, a JSON object |
 | schedules | `routing_input` field on create/update |
 | `call()` | `routing_input=` kwarg on the child |
 
