@@ -188,3 +188,6 @@ Pipfile
 
 # Worktrees
 .worktrees/
+
+# pytest basetemp for the perf suite (CI archives its logs on failure)
+perf-tmp/

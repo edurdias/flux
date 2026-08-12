@@ -267,13 +267,17 @@ jobs:
     # (T0-T7) run in the short 'ci' profile: correctness gates hard-fail,
     # performance gates are soft (recorded in the artifact, never red on a
     # shared runner). Full-length runs: the on-demand 'perf' workflow.
+    # KEEP_LOGS + a fixed basetemp so the server/worker logs survive teardown
+    # at a path the upload step can name. Every failure here has been CI-only
+    # (issue #189), so a run that leaves nothing behind cannot be diagnosed.
     - name: Run perf suite (PostgreSQL, ci profile)
       env:
         FLUX_PERF: "1"
         FLUX_PERF_PROFILE: ci
         FLUX_PERF_DATABASE_URL: postgresql://flux_perf_user:flux_perf_password@localhost:5432/flux_perf
+        FLUX_PERF_KEEP_LOGS: "1"
       run: |
-        poetry run pytest tests/perf -m perf -v
+        poetry run pytest tests/perf -m perf -v --basetemp=perf-tmp
 
     - name: Archive perf results
       if: always()
@@ -284,6 +288,16 @@ jobs:
           tests/perf/results/
           tests/perf/RESULTS.md
         retention-days: 14
+
+    # Only on failure: a green run's logs are noise, and they are large.
+    - name: Archive perf logs
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: perf-logs
+        path: perf-tmp/**/logs/
+        retention-days: 14
+        if-no-files-found: warn
 
   e2e:
     needs: [version-check]
