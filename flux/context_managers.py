@@ -70,6 +70,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        required_worker: str | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
@@ -81,6 +82,7 @@ class ContextManager(ABC):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        required_worker: str | None = None,
         park_ttl: int | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
@@ -349,9 +351,16 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        required_worker: str | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:
-        self.save_checked(ctx, uow=uow, preferred_worker=preferred_worker, park_ttl=park_ttl)
+        self.save_checked(
+            ctx,
+            uow=uow,
+            preferred_worker=preferred_worker,
+            required_worker=required_worker,
+            park_ttl=park_ttl,
+        )
         return ctx
 
     def save_checked(
@@ -360,6 +369,7 @@ class DatabaseContextManager(ContextManager):
         *,
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
+        required_worker: str | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         if uow is not None:
@@ -368,6 +378,7 @@ class DatabaseContextManager(ContextManager):
                 uow.session,
                 manage_transaction=False,
                 preferred_worker=preferred_worker,
+                required_worker=required_worker,
                 park_ttl=park_ttl,
             )
         with self.session() as session:
@@ -376,6 +387,7 @@ class DatabaseContextManager(ContextManager):
                 session,
                 manage_transaction=True,
                 preferred_worker=preferred_worker,
+                required_worker=required_worker,
                 park_ttl=park_ttl,
             )
 
@@ -386,6 +398,7 @@ class DatabaseContextManager(ContextManager):
         *,
         manage_transaction: bool,
         preferred_worker: str | None = None,
+        required_worker: str | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         try:
@@ -406,6 +419,8 @@ class DatabaseContextManager(ContextManager):
                     # pick a fresh row up immediately, so a hint written in a
                     # follow-up UPDATE could be missed.
                     new_model.preferred_worker = preferred_worker
+                if required_worker:
+                    new_model.required_worker = required_worker
                 # Park TTL (issue #157): per-run override wins; otherwise the
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in
@@ -554,6 +569,10 @@ class DatabaseContextManager(ContextManager):
             )
             for model, workflow in query:
                 constraints: list[str] = []
+                if model.required_worker:
+                    # Named first: it is the likeliest single cause, and the
+                    # caller who set the header cannot see it any other way.
+                    constraints.append(f"bound to worker '{model.required_worker}'")
                 if workflow.affinity:
                     constraints.append(f"affinity={workflow.affinity!r}")
                 if workflow.requests:
@@ -691,6 +710,27 @@ class DatabaseContextManager(ContextManager):
                 )
         return resumed
 
+    @staticmethod
+    def _has_bound_work(session: Session, worker: WorkerInfo) -> bool:
+        return session.query(
+            session.query(ExecutionContextModel)
+            .filter(
+                ExecutionContextModel.state == ExecutionState.CREATED,
+                ExecutionContextModel.required_worker == worker.name,
+            )
+            .exists(),
+        ).scalar()
+
+    @staticmethod
+    def _required_worker_clause(worker: WorkerInfo):
+        """SQL rather than the per-row matcher: the unconstrained branch below
+        never runs one, so a bound execution of an unconstrained workflow would
+        go to whichever worker polled first."""
+        return or_(
+            ExecutionContextModel.required_worker.is_(None),
+            ExecutionContextModel.required_worker == worker.name,
+        )
+
     def _next_matching_execution(
         self,
         worker: WorkerInfo,
@@ -702,6 +742,7 @@ class DatabaseContextManager(ContextManager):
             session.query(ExecutionContextModel, WorkflowModel)
             .join(WorkflowModel)
             .filter(ExecutionContextModel.state == state)
+            .filter(self._required_worker_clause(worker))
             .with_for_update(skip_locked=True)
         )
 
@@ -742,7 +783,13 @@ class DatabaseContextManager(ContextManager):
 
     def next_execution(self, worker: WorkerInfo) -> ExecutionContext | None:
         with self.session() as session:
-            if not self._is_least_loaded_worker(worker, session):
+            # The load gate spreads work; bound work cannot be spread, so
+            # letting it gate a binding parks an execution whose worker is
+            # online and free just because a peer is emptier.
+            if not self._is_least_loaded_worker(worker, session) and not self._has_bound_work(
+                session,
+                worker,
+            ):
                 return None
 
             self._refresh_worker_metadata(session, [worker])
@@ -849,6 +896,7 @@ class DatabaseContextManager(ContextManager):
                     .filter(
                         ExecutionContextModel.state == ExecutionState.RESUMING,
                         ExecutionContextModel.worker_name.is_(None),
+                        self._required_worker_clause(worker),
                     )
                     .with_for_update(skip_locked=True)
                 )
@@ -1006,6 +1054,9 @@ class DatabaseContextManager(ContextManager):
                     w
                     for w in workers
                     if self._has_free_slot(w, loads)
+                    # Before the matcher: a bound execution has one candidate,
+                    # so matching the rest of the fleet is discarded work.
+                    and (not model.required_worker or w.name == model.required_worker)
                     and self._worker_matches_workflow(w, workflow, model.input)
                 ]
                 if not eligible:
@@ -1127,6 +1178,7 @@ class DatabaseContextManager(ContextManager):
                         w
                         for w in workers
                         if self._has_free_slot(w, loads)
+                        and (not model.required_worker or w.name == model.required_worker)
                         and self._worker_matches_workflow(w, workflow, model.input)
                     ]
                     if not eligible:
@@ -1169,6 +1221,16 @@ class DatabaseContextManager(ContextManager):
                     message=(
                         f"Cannot claim execution {execution_id}: scheduled to "
                         f"'{model.worker_name}', not '{worker.name}'"
+                    ),
+                )
+            # The dispatch queries filter on the binding, but any registered
+            # worker can POST here and the fallback above accepts a CREATED
+            # row — exactly where a bound execution waits.
+            if model.required_worker and model.required_worker != worker.name:
+                raise ExecutionError(
+                    message=(
+                        f"Cannot claim execution {execution_id}: bound to "
+                        f"'{model.required_worker}', not '{worker.name}'"
                     ),
                 )
             ctx = model.to_plain()

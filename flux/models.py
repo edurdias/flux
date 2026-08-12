@@ -637,6 +637,10 @@ class ExecutionContextModel(Base):
     # connected, healthy, has capacity, and matches — module cache locality
     # for mesh hops. A hint, never a constraint.
     preferred_worker = Column(String, nullable=True)
+    # Binding counterpart (X-Flux-Require-Worker): this worker or nowhere.
+    # Never falls back — from outside, a fallback is indistinguishable from
+    # the binding having been honoured. Unsatisfiable parks.
+    required_worker = Column(String, nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
     # Set when the execution was dispatched by a schedule; lets schedule

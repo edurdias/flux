@@ -262,3 +262,69 @@ prefer that worker when eligible — keeping mesh hops on warm module caches.
 A workflow **with** a policy takes full ownership of the score stage;
 include `sticky(weight=...)` to blend the hint into your ranking, or omit
 it to override the hint entirely.
+
+## Binding an execution to one worker
+
+The hint above is advisory: dispatch silently places the execution elsewhere
+when the named worker is busy or gone. That is wrong whenever the execution
+is a check *on* a worker — verification, an A/B against one instance,
+reproducing a fault on a suspect node — because falling back is
+indistinguishable from success at the client.
+
+`X-Flux-Require-Worker` is the binding counterpart:
+
+```bash
+curl -X POST localhost:8000/workflows/default/verify/run/async \
+     -H "X-Flux-Require-Worker: worker-7"
+```
+
+| | `X-Flux-Preferred-Worker` | `X-Flux-Require-Worker` |
+|---|---|---|
+| Busy or offline worker | falls back | parks, never falls back |
+| Invalid value | dropped | rejected (400) |
+| Unknown worker name | dropped | rejected (400) |
+| Permission | none beyond run | `worker:{name}:target` |
+
+It is a **header, not a policy term**, on purpose: `affinity=` is declared in
+workflow source and fixed at registration, but "run *this* execution on
+worker-7" is decided per call. A `require()` term that applied only when a
+header happened to be present would not be a hard constraint at all.
+
+If both headers are sent the binding wins and the hint is ignored — a binding
+leaves one eligible worker, so the hint has nothing left to order. (It is not
+an error because `FluxClient.for_current_execution()` attaches the hint
+automatically inside a running workflow, so rejecting would break the very
+case this feature exists for.)
+
+The name must belong to a worker that has registered at least once; an
+unknown name is a 400 rather than an execution that can only park. Binding to
+a **registered but currently offline** worker is fine and parks until it
+returns.
+
+**It parks rather than falling back.** If the named worker is offline or
+fails the workflow's own `affinity`/`requests`, the execution stays
+unclaimed. Whether that park ever ends is governed by `park_ttl`, which
+**defaults to `0` — park indefinitely**. Set a non-zero `[flux.workers]
+park_ttl` (or pass `?park_ttl=` per run) if you want a bound execution to
+fail terminally with a `ParkTimeoutError` naming the worker instead of
+waiting forever.
+
+Because the binding is a filter on the execution row rather than a score, it
+holds in **both** dispatch modes — unlike the advisory hint, which is
+event-mode only — and it is re-applied when a paused execution resumes. It is
+enforced on the claim endpoint too, so a worker cannot take a bound execution
+by claiming it directly.
+
+One gap to know about: if a bound execution is paused and its worker is then
+evicted, it waits in `RESUMING` for that worker to come back, and the
+park-TTL sweep does not cover that state (it sweeps unclaimed executions
+only). Such a row waits indefinitely rather than failing.
+
+The workflow's own constraints still apply on top: the named worker must also
+satisfy `affinity=`/`requests`. A `routing=score(...)` policy then ranks a
+single survivor, so `sticky()` alongside a binding header is redundant rather
+than contradictory.
+
+The directive never reaches the worker. It arrives as a header, lives on the
+execution row, and is absent from the context serialized to the worker — so a
+workflow that checks a worker cannot tip it off, which is the point.

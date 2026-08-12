@@ -201,6 +201,7 @@ class WorkflowRoutesMixin:
             version: int | None = None,
             park_ttl: int | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
+            required_worker: str | None = Header(None, alias="X-Flux-Require-Worker"),
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:
@@ -244,6 +245,51 @@ class WorkflowRoutesMixin:
                     if not preferred_worker or len(preferred_worker) > 256:
                         preferred_worker = None
 
+                # The binding header takes the opposite policy (issue #187):
+                # dropping a malformed value would dispatch the execution
+                # anywhere, which is indistinguishable from having honoured it.
+                if required_worker is not None:
+                    required_worker = required_worker.strip()
+                    if not required_worker or len(required_worker) > 256:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                "X-Flux-Require-Worker must be a non-empty worker name "
+                                "of at most 256 characters"
+                            ),
+                        )
+                    # Pinning work to a named node concentrates load there and
+                    # compels that node to run the code, so it needs a
+                    # worker-scoped grant on top of the run permission.
+                    if auth_service is not None and auth_config.enabled:
+                        needed = f"worker:{required_worker}:target"
+                        if not await auth_service.is_authorized(identity, needed):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Permission denied: requires '{needed}'",
+                            )
+                    # Registered, not necessarily online: binding to a worker
+                    # that is currently down is legitimate (it parks until the
+                    # worker returns), but a name no worker ever had can only
+                    # park forever, and park_ttl defaults to no bound.
+                    from flux.worker_registry import WorkerRegistry
+
+                    try:
+                        WorkerRegistry.create().get(required_worker)
+                    except WorkerNotFoundError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"X-Flux-Require-Worker names an unknown worker "
+                                f"'{required_worker}'; it has never registered"
+                            ),
+                        )
+                    # A binding leaves one eligible worker, so the hint has
+                    # nothing to order. Dropped rather than rejected because
+                    # FluxClient.for_current_execution() injects it as a
+                    # client-level default.
+                    preferred_worker = None
+
                 # Per-run park-TTL override (issue #157): bounds how long this
                 # execution may wait unclaimed. None defers to the server
                 # default; 0 explicitly parks forever (batch callers).
@@ -259,6 +305,7 @@ class WorkflowRoutesMixin:
                     input,
                     version,
                     preferred_worker=preferred_worker,
+                    required_worker=required_worker,
                     park_ttl=park_ttl,
                 )
                 manager = ContextManager.create()

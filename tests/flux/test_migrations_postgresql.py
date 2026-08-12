@@ -30,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0021_join_token_subject"
+HEAD = "0022_execution_required_worker"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 
