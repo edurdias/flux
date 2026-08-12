@@ -1071,6 +1071,12 @@ class DatabaseContextManager(ContextManager):
         to the least-loaded eligible worker. The load aggregate runs once per
         batch — not once per worker per poll tick as in ``next_execution``.
         Unmatched rows keep state CREATED and their locks release at commit.
+
+        ``exclude_ids`` skips rows the caller already knows no worker can take;
+        ``unmatched`` collects the ids of rows found unplaceable here. Together
+        they let the caller advance past a head of unmatchable work instead of
+        re-selecting it every call (#213). Saturation is deliberately not
+        reported as unmatchable — those rows are placeable once a slot frees.
         """
         if not workers or limit <= 0:
             return []
@@ -1094,13 +1100,18 @@ class DatabaseContextManager(ContextManager):
                 if diagnostic:
                     self._fail_undispatchable(model, session, diagnostic)
                     continue
+                with_capacity = [w for w in workers if self._has_free_slot(w, loads)]
+                if not with_capacity:
+                    # Saturated, not unmatchable: these rows become placeable
+                    # as soon as a slot frees, so they must not be excluded
+                    # from the next pass, and scanning on would place nothing.
+                    break
                 eligible = [
                     w
-                    for w in workers
-                    if self._has_free_slot(w, loads)
-                    # Before the matcher: a bound execution has one candidate,
-                    # so matching the rest of the fleet is discarded work.
-                    and (not model.required_worker or w.name == model.required_worker)
+                    for w in with_capacity
+                    # Binding before the matcher: a bound execution has one
+                    # candidate, so matching the fleet is discarded work.
+                    if (not model.required_worker or w.name == model.required_worker)
                     and self._worker_matches_workflow(w, workflow, model.input)
                 ]
                 if not eligible:

@@ -966,3 +966,27 @@ class TestDispatchCycleDoesNotStall:
             await d._dispatch_cycle()
 
         assert n["calls"] == 3, f"expected max_scan/batch_size passes, got {n['calls']}"
+
+    def test_saturation_is_not_reported_as_unmatchable(self, clean_env):
+        """A full fleet leaves rows placeable as soon as a slot frees, so they
+        must not be excluded from the next pass — otherwise a busy cluster
+        scans and excludes its whole queue every cycle for nothing."""
+        cm, registry = clean_env
+        registry.register(
+            name="full",
+            runtime=_make_runtime(),
+            packages=[],
+            resources=_make_resources(),
+            max_concurrent_executions=1,
+        )
+        w = registry.get("full")
+        wf_id = _create_workflow("plain")
+        busy = _create_execution(cm, wf_id, name="plain")
+        _force_state(busy.execution_id, ExecutionState.RUNNING, worker_name="full")
+        _create_execution(cm, wf_id, name="plain")
+
+        unmatched: set[str] = set()
+        assignments = cm.next_executions_batch([w], limit=10, unmatched=unmatched)
+
+        assert assignments == []
+        assert unmatched == set(), "saturated rows were treated as unplaceable"
