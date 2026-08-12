@@ -833,3 +833,160 @@ class TestBoundResumeBackstop:
         assert (state, worker_name) == (ExecutionState.RESUMING, None)
         assert deadline > datetime.now(timezone.utc).replace(tzinfo=None)
         assert cm.fail_expired_parked() == []
+
+
+class TestHeadOfLineBlocking:
+    """Unmatchable rows at the head of the queue must not starve the work
+    behind them (issue #213). The LIMIT is applied before eligibility and
+    there is no ORDER BY, so without exclusion each call re-selects the same
+    unplaceable head forever."""
+
+    def test_unmatched_rows_are_reported(self, clean_env):
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1", labels={"gpu": "false"})
+        gpu_wf = _create_workflow("gpu_only", affinity={"gpu": "true"})
+        blocked = _create_execution(cm, gpu_wf, name="gpu_only")
+
+        unmatched: set[str] = set()
+        assignments = cm.next_executions_batch([w1], limit=10, unmatched=unmatched)
+
+        assert assignments == []
+        assert unmatched == {blocked.execution_id}
+
+    def test_excluding_them_reaches_the_work_behind(self, clean_env):
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1", labels={"gpu": "false"})
+        gpu_wf = _create_workflow("gpu_only", affinity={"gpu": "true"})
+        plain_wf = _create_workflow("plain")
+
+        # Two unmatchable rows queued ahead of a matchable one, with a limit
+        # that the blockers alone fill.
+        blockers = [_create_execution(cm, gpu_wf, name="gpu_only") for _ in range(2)]
+        runnable = _create_execution(cm, plain_wf, name="plain")
+
+        first = cm.next_executions_batch([w1], limit=2)
+        assert first == [], "the blockers fill the batch and place nothing"
+
+        unmatched: set[str] = set()
+        second = cm.next_executions_batch(
+            [w1],
+            limit=2,
+            exclude_ids=tuple(b.execution_id for b in blockers),
+            unmatched=unmatched,
+        )
+
+        assert [ctx.execution_id for ctx, _ in second] == [runnable.execution_id]
+
+    def test_exclusion_does_not_affect_an_unblocked_queue(self, clean_env):
+        cm, registry = clean_env
+        w1 = _register_worker(registry, "w1")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+
+        unmatched: set[str] = set()
+        assignments = cm.next_executions_batch([w1], limit=10, unmatched=unmatched)
+
+        assert [c.execution_id for c, _ in assignments] == [ctx.execution_id]
+        assert unmatched == set()
+
+
+class TestDispatchCycleDoesNotStall:
+    """The dispatcher ended its claim loop on a short *assignment*, so a full
+    batch that placed nothing read as "queue drained" and every execution
+    behind the blockers waited for the next cycle — indefinitely, if the
+    blockers stayed unmatchable (issue #213)."""
+
+    def _dispatcher(self, batch_size=2, max_scan=100):
+        from unittest.mock import MagicMock
+
+        from flux.dispatcher import Dispatcher
+
+        d = Dispatcher.__new__(Dispatcher)
+        d._batch_size = batch_size
+        d._max_scan_per_cycle = max_scan
+        worker = MagicMock()
+        worker.name = "w1"  # set after construction: name is a MagicMock kwarg
+        server = MagicMock()
+        server._worker_info = {"w1": worker}
+        server._worker_queues = {"w1": MagicMock()}
+        server._worker_unhealthy = set()
+        server._worker_paused = set()
+        d._server = server
+        return d
+
+    async def test_full_batch_that_places_nothing_keeps_scanning(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        d = self._dispatcher(batch_size=2)
+        delivered = []
+        d._deliver = AsyncMock(side_effect=lambda m, ctx, w, kind: delivered.append(ctx))
+
+        manager = MagicMock()
+        manager.next_resumes_batch.return_value = []
+        manager.next_cancellations_batch.return_value = []
+        calls = []
+
+        def _batch(workers, limit, *, exclude_ids=(), unmatched=None):
+            calls.append(set(exclude_ids))
+            if not exclude_ids:
+                # A full batch of unmatchable rows: selected 2, placed 0.
+                unmatched.update({"blocked-a", "blocked-b"})
+                return []
+            return [("ctx-behind", "w1")]
+
+        manager.next_executions_batch.side_effect = _batch
+
+        with patch("flux.dispatcher.ContextManager.create", return_value=manager):
+            await d._dispatch_cycle()
+
+        assert len(calls) >= 2, "loop stopped after the blocked batch"
+        assert calls[1] == {"blocked-a", "blocked-b"}
+        assert delivered == ["ctx-behind"], "work behind the blockers never dispatched"
+
+    async def test_scan_is_bounded(self):
+        """An endless supply of unmatchable rows must not spin the cycle: they
+        are re-examined next cycle anyway, when a matching worker may exist."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        d = self._dispatcher(batch_size=2, max_scan=6)
+        d._deliver = AsyncMock()
+        manager = MagicMock()
+        manager.next_resumes_batch.return_value = []
+        manager.next_cancellations_batch.return_value = []
+        n = {"calls": 0}
+
+        def _batch(workers, limit, *, exclude_ids=(), unmatched=None):
+            n["calls"] += 1
+            unmatched.update({f"blocked-{n['calls']}-a", f"blocked-{n['calls']}-b"})
+            return []
+
+        manager.next_executions_batch.side_effect = _batch
+
+        with patch("flux.dispatcher.ContextManager.create", return_value=manager):
+            await d._dispatch_cycle()
+
+        assert n["calls"] == 3, f"expected max_scan/batch_size passes, got {n['calls']}"
+
+    def test_saturation_is_not_reported_as_unmatchable(self, clean_env):
+        """A full fleet leaves rows placeable as soon as a slot frees, so they
+        must not be excluded from the next pass — otherwise a busy cluster
+        scans and excludes its whole queue every cycle for nothing."""
+        cm, registry = clean_env
+        registry.register(
+            name="full",
+            runtime=_make_runtime(),
+            packages=[],
+            resources=_make_resources(),
+            max_concurrent_executions=1,
+        )
+        w = registry.get("full")
+        wf_id = _create_workflow("plain")
+        busy = _create_execution(cm, wf_id, name="plain")
+        _force_state(busy.execution_id, ExecutionState.RUNNING, worker_name="full")
+        _create_execution(cm, wf_id, name="plain")
+
+        unmatched: set[str] = set()
+        assignments = cm.next_executions_batch([w], limit=10, unmatched=unmatched)
+
+        assert assignments == []
+        assert unmatched == set(), "saturated rows were treated as unplaceable"

@@ -156,6 +156,9 @@ class ContextManager(ABC):
         self,
         workers: list[WorkerInfo],
         limit: int,
+        *,
+        exclude_ids: Sequence[str] | None = None,
+        unmatched: set[str] | None = None,
     ) -> list[tuple[ExecutionContext, str]]:  # pragma: no cover
         """Claim up to ``limit`` pending executions and assign them across workers.
 
@@ -1056,6 +1059,9 @@ class DatabaseContextManager(ContextManager):
         self,
         workers: list[WorkerInfo],
         limit: int,
+        *,
+        exclude_ids: Sequence[str] | None = None,
+        unmatched: set[str] | None = None,
     ) -> list[tuple[ExecutionContext, str]]:
         """Claim up to ``limit`` pending executions and assign them across workers.
 
@@ -1065,6 +1071,12 @@ class DatabaseContextManager(ContextManager):
         to the least-loaded eligible worker. The load aggregate runs once per
         batch — not once per worker per poll tick as in ``next_execution``.
         Unmatched rows keep state CREATED and their locks release at commit.
+
+        ``exclude_ids`` skips rows the caller already knows no worker can take;
+        ``unmatched`` collects the ids of rows found unplaceable here. Together
+        they let the caller advance past a head of unmatchable work instead of
+        re-selecting it every call (#213). Saturation is deliberately not
+        reported as unmatchable — those rows are placeable once a slot frees.
         """
         if not workers or limit <= 0:
             return []
@@ -1076,24 +1088,35 @@ class DatabaseContextManager(ContextManager):
                 session.query(ExecutionContextModel, WorkflowModel)
                 .join(WorkflowModel)
                 .filter(ExecutionContextModel.state == ExecutionState.CREATED)
-                .with_for_update(skip_locked=True, of=ExecutionContextModel)
-                .limit(limit)
             )
+            if exclude_ids:
+                # Rows the caller already found unplaceable. Without this the
+                # LIMIT re-selects the same head every call, so matchable work
+                # queued behind an unmatchable row is never reached (#213).
+                query = query.filter(ExecutionContextModel.execution_id.notin_(exclude_ids))
+            query = query.with_for_update(skip_locked=True, of=ExecutionContextModel).limit(limit)
             for model, workflow in query:
                 diagnostic = self._affinity_diagnostic(workflow, model)
                 if diagnostic:
                     self._fail_undispatchable(model, session, diagnostic)
                     continue
+                with_capacity = [w for w in workers if self._has_free_slot(w, loads)]
+                if not with_capacity:
+                    # Saturated, not unmatchable: these rows become placeable
+                    # as soon as a slot frees, so they must not be excluded
+                    # from the next pass, and scanning on would place nothing.
+                    break
                 eligible = [
                     w
-                    for w in workers
-                    if self._has_free_slot(w, loads)
-                    # Before the matcher: a bound execution has one candidate,
-                    # so matching the rest of the fleet is discarded work.
-                    and (not model.required_worker or w.name == model.required_worker)
+                    for w in with_capacity
+                    # Binding before the matcher: a bound execution has one
+                    # candidate, so matching the fleet is discarded work.
+                    if (not model.required_worker or w.name == model.required_worker)
                     and self._worker_matches_workflow(w, workflow, model.input)
                 ]
                 if not eligible:
+                    if unmatched is not None:
+                        unmatched.add(model.execution_id)
                     continue
                 preferred = getattr(model, "preferred_worker", None)
                 worker = None
