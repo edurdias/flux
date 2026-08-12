@@ -467,12 +467,14 @@ def run_workflow(
         # routing directive — the silent-drop this feature refuses.
         raise
     except httpx.HTTPStatusError as ex:
+        # Server-side rejection is the same hazard as client-side: a scripted
+        # `flux workflow run ... && next-step` must not proceed because the
+        # error was merely printed.
         if ex.response.status_code == 404:
-            click.echo(f"Workflow '{workflow_name}' not found.", err=True)
-        else:
-            click.echo(f"Error running workflow: {str(ex)}", err=True)
+            raise click.ClickException(f"Workflow '{workflow_name}' not found.")
+        raise click.ClickException(f"Error running workflow: {str(ex)}")
     except Exception as ex:
-        click.echo(f"Error running workflow: {str(ex)}", err=True)
+        raise click.ClickException(f"Error running workflow: {str(ex)}")
 
 
 @workflow.command("resume")

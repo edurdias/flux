@@ -322,6 +322,17 @@ class WorkflowRoutesMixin:
                     routing_input=parsed_routing_input,
                     park_ttl=park_ttl,
                 )
+
+                if parsed_routing_input:
+                    # Key names only. They are already public (they appear in
+                    # the workflow source); the values and their presence are
+                    # not, and this log is not reachable through the execution
+                    # API a worker can call. It is the only operator-visible
+                    # trace of a routing directive, by design.
+                    logger.info(
+                        f"Execution {ctx.execution_id} carries routing input "
+                        f"keys: {sorted(parsed_routing_input)}",
+                    )
                 manager = ContextManager.create()
 
                 # Record agent-session linkage for "agents" namespace runs so

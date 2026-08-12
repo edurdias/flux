@@ -102,6 +102,19 @@ class TestDiagnosticsAreBlind:
         assert message == "routing constraint unsatisfied"
         assert "secret_cohort" not in message
 
+    def test_dynamic_key_diagnostic_leaks_neither(self):
+        """The dynamic-key path had an unblinded diagnostic that named the
+        routing key *and* its resolved value. It reaches executions.output,
+        which the worker role can read."""
+        from flux.routing import label_for
+
+        terms = require(label_for("cache.", routing_input("dataset")) == "true")
+
+        message = str(require_diagnostic(terms, None, {"dataset": "my/bad key"}))
+
+        assert "my/bad key" not in message
+        assert "dataset" not in message
+
     def test_input_diagnostics_keep_their_detail(self):
         terms = require(label("cohort") == input_ref("normal_field"))
 
@@ -144,6 +157,12 @@ class TestValidation:
     def test_single_element_list_is_the_normal_case(self):
         """getlist() always yields a list, so one header arrives as one item."""
         assert parse_routing_input_header(['{"cohort":"canary"}']) == CANARY
+
+    def test_null_body_is_rejected_not_treated_as_absent(self):
+        """Sending the header at all is a directive. `null` collapsing to the
+        same None as an absent header would return 200 for a dropped one."""
+        with pytest.raises(RoutingInputError, match="null"):
+            parse_routing_input_header("null")
 
     def test_oversized_is_rejected(self):
         with pytest.raises(RoutingInputError, match="exceeds"):
@@ -290,3 +309,20 @@ async def probe(ctx: ExecutionContext):
         assert resp.status_code == 200
         routing, _ = self._stored(resp.json()["execution_id"])
         assert routing is None
+
+
+class TestAuthoringGuards:
+    """Rejections that must fire for routing_input() exactly as they do for
+    input(), or an expression compiles into a term that can never match."""
+
+    def test_worker_condition_against_a_routing_ref_is_rejected(self):
+        from flux.routing import meta
+
+        with pytest.raises(ValueError, match="constant"):
+            when(meta("region") == routing_input("r"), prefer(label("x") == "1"))
+
+    def test_same_rejection_as_the_input_spelling(self):
+        from flux.routing import meta
+
+        with pytest.raises(ValueError, match="constant"):
+            when(meta("region") == input_ref("r"), prefer(label("x") == "1"))

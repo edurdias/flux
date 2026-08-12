@@ -653,8 +653,12 @@ def when(condition: Any, term: Condition | dict) -> dict:
                 f"{spec}() gates score terms only — prefer()/least()/most()/sticky(); "
                 "it cannot gate a require() term",
             )
-        if isinstance(condition.value, dict) and "$input" in condition.value:
-            raise ValueError("when() conditions compare against a constant, not input(...)")
+        if isinstance(condition.value, dict) and any(
+            k in condition.value for k in _WRAPPED_REF_KEYS
+        ):
+            raise ValueError(
+                "when() conditions compare against a constant, not input(...)/routing_input(...)",
+            )
         cond_spec = {"selector": spec, "op": condition.op, "value": condition.value}
     else:
         raise ValueError(
@@ -890,7 +894,7 @@ def pick_worker(
             if not isinstance(then, dict):
                 logger.warning(f"Malformed routing term ignored: {term!r}")
                 return None
-            if isinstance(cond, dict) and "input" in cond:
+            if isinstance(cond, dict) and any(k in cond for k in _BARE_REF_KEYS):
                 # Input-gated score term: inactive conditions skip it; a
                 # malformed condition degrades the whole policy like any
                 # other malformed term.
@@ -1127,7 +1131,8 @@ def _resolve_selector_key(
             return (
                 kind,
                 "",
-                _Problem(
+                _routing_blind(
+                    from_routing,
                     "invalid",
                     f"input '{path}' resolves to an invalid {kind} key: '{key}'",
                 ),

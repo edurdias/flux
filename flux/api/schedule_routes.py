@@ -199,6 +199,8 @@ class ScheduleRoutesMixin:
 
                 try:
                     checked_routing_input = validate_routing_input(request.routing_input)
+                    if request.routing_input == {}:
+                        checked_routing_input = {}  # explicit clear
                 except RoutingInputError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 
@@ -417,6 +419,8 @@ class ScheduleRoutesMixin:
 
                 try:
                     checked_routing_input = validate_routing_input(request.routing_input)
+                    if request.routing_input == {}:
+                        checked_routing_input = {}  # explicit clear
                 except RoutingInputError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 

@@ -294,7 +294,10 @@ class DatabaseScheduleManager(ScheduleManager):
                     schedule_model.input_data = input_data
 
                 if routing_input is not None:
-                    schedule_model.routing_input = routing_input
+                    # {} clears: validate_routing_input normalises an empty
+                    # object to None, so without this an operator could set
+                    # routing values on a schedule and never remove them.
+                    schedule_model.routing_input = routing_input or None
 
                 if run_as_service_account is not None:
                     schedule_model.run_as_service_account = run_as_service_account

@@ -54,6 +54,12 @@ def parse_routing_input_header(raw: str | list[str] | None) -> dict[str, Any] | 
         parsed = json.loads(raw)
     except json.JSONDecodeError as e:
         raise RoutingInputError(f"X-Flux-Routing-Input is not valid JSON: {e}") from e
+    if parsed is None:
+        # Sending the header at all is a directive. `null` reaching
+        # validate_routing_input would return None, which is also "absent" —
+        # so the caller would get a 200 for a routing directive that was
+        # dropped, the failure this module exists to refuse.
+        raise RoutingInputError("X-Flux-Routing-Input must be a JSON object, got null")
     return validate_routing_input(parsed)
 
 
@@ -70,11 +76,12 @@ def validate_routing_input(value: Any) -> dict[str, Any] | None:
     encoded = json.dumps(value, default=str)
     if len(encoded.encode("utf-8")) > MAX_ROUTING_INPUT_BYTES:
         raise RoutingInputError(f"routing input exceeds {MAX_ROUTING_INPUT_BYTES} bytes")
-    _check_mapping(value, depth=1, seen_keys=[0])
+    _check_mapping(value, depth=1)
     return dict(value)
 
 
-def _check_mapping(mapping: dict, depth: int, seen_keys: list[int]) -> None:
+def _check_mapping(mapping: dict, depth: int, counted: int = 0) -> int:
+    """Returns the running key count so the bound spans the whole structure."""
     if depth > MAX_ROUTING_INPUT_DEPTH:
         raise RoutingInputError(
             f"routing input nests deeper than {MAX_ROUTING_INPUT_DEPTH} levels",
@@ -90,16 +97,17 @@ def _check_mapping(mapping: dict, depth: int, seen_keys: list[int]) -> None:
                 f"routing input key '{key}' contains '.', which path resolution "
                 "reserves for descending nested objects",
             )
-        seen_keys[0] += 1
-        if seen_keys[0] > MAX_ROUTING_INPUT_KEYS:
+        counted += 1
+        if counted > MAX_ROUTING_INPUT_KEYS:
             raise RoutingInputError(f"routing input has more than {MAX_ROUTING_INPUT_KEYS} keys")
         if isinstance(item, dict):
-            _check_mapping(item, depth + 1, seen_keys)
+            counted = _check_mapping(item, depth + 1, counted)
         elif item is not None and not isinstance(item, _SCALARS):
             raise RoutingInputError(
                 f"routing input value for '{key}' must be a scalar or object, "
                 f"got {type(item).__name__}",
             )
+    return counted
 
 
 def parse_cli_pairs(pairs: tuple[str, ...] | list[str] | None) -> dict[str, str] | None:
