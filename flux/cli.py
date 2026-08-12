@@ -394,6 +394,13 @@ def list_workflow_versions(
     help="Show detailed execution information",
 )
 @click.option(
+    "--routing-input",
+    "-r",
+    multiple=True,
+    help="Routing-only value in key=value format (repeatable). Matched by "
+    "dispatch, never delivered to the worker.",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -405,6 +412,7 @@ def run_workflow(
     mode: str,
     version: int | None,
     detailed: bool,
+    routing_input: tuple[str, ...],
     server_url: str | None,
 ):
     """Run the specified workflow."""
@@ -420,11 +428,20 @@ def run_workflow(
         if version is not None:
             params["version"] = version
 
+        from flux.routing_input import RoutingInputError, parse_cli_pairs
+
+        try:
+            routing_values = parse_cli_pairs(routing_input)
+        except RoutingInputError as e:
+            raise click.ClickException(str(e))
+        headers = {"X-Flux-Routing-Input": json.dumps(routing_values)} if routing_values else None
+
         with get_http_client(timeout=60.0) as client:
             response = client.post(
                 f"{base_url}/workflows/{namespace}/{name}/run/{mode}",
                 json=parsed_input,
                 params=params,
+                headers=headers,
             )
             response.raise_for_status()
 
@@ -1745,6 +1762,13 @@ def schedule():
     help="Input data for scheduled workflow executions (JSON format)",
 )
 @click.option(
+    "--routing-input",
+    "-r",
+    multiple=True,
+    help="Routing-only value in key=value format (repeatable). Matched by "
+    "dispatch, never delivered to the worker.",
+)
+@click.option(
     "--run-as",
     default=None,
     help="Service account to run the schedule as (required when auth is enabled)",
@@ -1780,6 +1804,7 @@ def create_schedule(
     timezone: str,
     description: str | None,
     input: str | None,
+    routing_input: tuple[str, ...],
     run_as: str | None,
     overlap: str,
     format: str,
@@ -1791,6 +1816,13 @@ def create_schedule(
         from flux.utils import parse_value
 
         namespace, wf_name = resolve_workflow_ref(workflow_name)
+
+        from flux.routing_input import RoutingInputError, parse_cli_pairs
+
+        try:
+            routing_values = parse_cli_pairs(routing_input)
+        except RoutingInputError as e:
+            raise click.ClickException(str(e))
 
         # Validate schedule parameters
         if not cron and not interval_hours and not interval_minutes:
@@ -1830,6 +1862,7 @@ def create_schedule(
             "schedule_config": schedule_config,
             "description": description,
             "input_data": input_data,
+            "routing_input": routing_values,
             "run_as_service_account": run_as,
         }
 
