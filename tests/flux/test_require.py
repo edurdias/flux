@@ -591,13 +591,26 @@ class TestMetaFor:
     def test_selector_key_resolver_handles_every_documented_shape(self):
         from flux.routing import _resolve_selector_key
 
-        assert _resolve_selector_key("label:gpu", None) == ("label", "gpu", None)
-        assert _resolve_selector_key("meta:zone", None) == ("meta", "zone", None)
-        kind, key, problem = _resolve_selector_key(
+        # The fourth element reports whether the resolved key came from routing
+        # input, so a diagnostic naming that key can be blinded (#211).
+        assert _resolve_selector_key("label:gpu", None) == ("label", "gpu", None, False)
+        assert _resolve_selector_key("meta:zone", None) == ("meta", "zone", None, False)
+        kind, key, problem, from_routing = _resolve_selector_key(
             {"kind": "meta", "prefix": "approved.", "input": "artefact"},
             {"artefact": "model-a"},
         )
-        assert (kind, key, problem) == ("meta", "approved.model-a", None)
+        assert (kind, key, problem, from_routing) == ("meta", "approved.model-a", None, False)
+
+    def test_selector_key_reports_a_routing_derived_key(self):
+        from flux.routing import _resolve_selector_key
+
+        _, key, problem, from_routing = _resolve_selector_key(
+            {"kind": "label", "prefix": "cohort.", "routing_input": "c"},
+            None,
+            {"c": "canary"},
+        )
+
+        assert (key, problem, from_routing) == ("cohort.canary", None, True)
 
 
 class TestRequireWhenWorkerState:
