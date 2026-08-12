@@ -1,0 +1,1999 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Distributed workflow orchestration engine to build stateful and fault-tolerant workflows">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Routing-only execution input - Flux Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#routing-only-execution-input" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Flux Documentation" class="md-header__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flux Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Routing-only execution input
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Light Mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light Mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Dark Mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark Mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Flux Documentation" class="md-nav__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Flux Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Introduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../introduction/use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/basic_concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/workflow-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/execution-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../core-concepts/replay-determinism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay & Determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/task-patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/workflow-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/worker-affinity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Affinity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/dynamic-routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/airgapped-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Airgapped Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/task-progress/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Progress Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/agent-harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/mcp-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/ai-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced-features/database-migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Problem">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-already-solved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is already solved
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-stripping-at-delivery-does-not-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why stripping at delivery does not work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Approach
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storage-and-data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage and data flow
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Storage and data flow">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-diagnostics-leak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The diagnostics leak
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expression-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expression surface
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Expression surface">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#plumbing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plumbing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-stays-public" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What stays public
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ingress" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ingress
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Ingress">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#schedule-read-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule read-back
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-new-permission" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No new permission
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-and-the-in-process-fast-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        call() and the in-process fast path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operator-visibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operator visibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Naming
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="routing-only-execution-input">Routing-only execution input<a class="headerlink" href="#routing-only-execution-input" title="Permanent link">&para;</a></h1>
+<p>Design for <a href="https://github.com/edurdias/flux/issues/211">#211</a>: values the
+scheduler can match on that the target worker cannot observe.</p>
+<h2 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h2>
+<p>Affinity and scoring expressions match against execution input, and that input
+is delivered to the worker — it is how a workflow receives its arguments. So
+any field used purely for routing is observable by the worker it routes to.</p>
+<p>That is harmless until the routing decision is <em>about</em> the worker. For audit
+sampling, A/B assignment, or canary probes, "does my input contain the cohort
+field?" classifies "am I being watched" before the workflow body runs. The
+mechanism meant to make those executions indistinguishable is defeated by the
+transport rather than by anything the workflow does.</p>
+<p>The presence of the key is the classifier, not its value, so obfuscating the
+value does not help, and always sending the field forces a hard pin on
+executions that should route freely.</p>
+<h3 id="what-is-already-solved">What is already solved<a class="headerlink" href="#what-is-already-solved" title="Permanent link">&para;</a></h3>
+<p>Pinning to a <em>named worker</em> is closed: <code>X-Flux-Require-Worker</code> (#210) travels
+as a header, lives on its own column, and never reaches the worker. This design
+generalises that treatment to arbitrary matching values — cohorts, tiers,
+capability flags — where the routing attribute is not worker identity.</p>
+<h3 id="why-stripping-at-delivery-does-not-work">Why stripping at delivery does not work<a class="headerlink" href="#why-stripping-at-delivery-does-not-work" title="Permanent link">&para;</a></h3>
+<p>The rejected shape is a reserved <code>_routing</code> namespace removed from what the
+worker receives. It leaves the values in the persisted <code>input</code>, and a running
+workflow can read them straight back:</p>
+<ul>
+<li><code>scope_to_execution</code> filters an execution token by resource <em>family</em>, keeping
+  <code>execution:*</code> rather than narrowing to the row;</li>
+<li><code>GET /executions/{id}</code> requires <code>execution:*:read</code>, held by both the
+  <code>operator</code> and <code>viewer</code> built-ins;</li>
+<li><code>ExecutionContext.summary()</code> returns <code>"input"</code>.</li>
+</ul>
+<p>Response redaction does not help: it scrubs secret-store values by identity,
+and a routing field is not a secret. A subtractive guarantee holds only if
+every exposure path strips correctly, and one already does not.</p>
+<h2 id="approach">Approach<a class="headerlink" href="#approach" title="Permanent link">&para;</a></h2>
+<p>Store routing values in their own column, never merged into <code>input</code>. Additive
+rather than subtractive: no path has to remember to strip them, because they
+were never in the payload.</p>
+<h2 id="storage-and-data-flow">Storage and data flow<a class="headerlink" href="#storage-and-data-flow" title="Permanent link">&para;</a></h2>
+<p>Two nullable <code>SignedPickleType()</code> columns, matching <code>executions.input</code> and
+<code>schedules.input_data</code>:</p>
+<ul>
+<li><code>executions.routing_input</code> — per-execution values</li>
+<li><code>schedules.routing_input</code> — a fixed set stamped onto every run the schedule
+  fires</li>
+</ul>
+<p>One Alembic revision adds both. No backfill: NULL means "no routing values",
+which is how every existing execution behaves. Values are never cleared, the
+same treatment as <code>preferred_worker</code>.</p>
+<p><code>SignedPickleType</code> rather than the <code>Base64Type</code> used by <code>wf_metadata</code> and
+<code>worker_metadata</code>: those are server-derived or admin-validated, whereas routing
+values are <strong>caller-supplied execution data deserialized inside the dispatch
+loop</strong>. <code>Base64Type</code> is unauthenticated <code>dill</code>, and <code>dill</code> executes arbitrary
+code on load — which is exactly why <code>executions.input</code> and
+<code>schedules.input_data</code> are signed. Routing values sit on the same footing and
+get the same protection.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>caller ──header/field/kwarg──▶ routing_input column ──▶ dispatch matching
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>                                       │
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>                                       └──✗ never joins `input`
+</code></pre></div>
+<p>Four surfaces must stay clear of the values, each a real exposure route:</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Why it matters</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ExecutionContextModel.to_plain</code> / <code>from_plain</code></td>
+<td>the real chokepoint — <code>from_json</code>/<code>to_dict</code> are downstream of it</td>
+</tr>
+<tr>
+<td><code>ExecutionContext.summary()</code> and <code>FluxEncoder</code></td>
+<td>the detailed execution read</td>
+</tr>
+<tr>
+<td><code>ContextManager.get_summary</code></td>
+<td>a <em>separate</em> column projection serving the non-detailed read</td>
+</tr>
+<tr>
+<td><code>ExecutionSummaryResponse</code></td>
+<td>the response model</td>
+</tr>
+<tr>
+<td>both SSE frames</td>
+<td><code>execution_scheduled</code> <strong>and</strong> <code>execution_resumed</code></td>
+</tr>
+<tr>
+<td><strong>dispatch diagnostics written to <code>output</code></strong></td>
+<td>see below</td>
+</tr>
+</tbody>
+</table>
+<p><code>preferred_worker</code> and <code>required_worker</code> are absent from the first three
+already, so those follow an existing path rather than inventing one. The fourth
+is new and specific to this feature.</p>
+<h3 id="the-diagnostics-leak">The diagnostics leak<a class="headerlink" href="#the-diagnostics-leak" title="Permanent link">&para;</a></h3>
+<p><code>_Problem</code> messages in <code>flux/routing.py</code> embed the offending key and resolved
+value verbatim — for example <code>"input '{path}' resolves to an invalid service
+name: '{fragment}'"</code> and <code>"...invalid {kind} key: '{key}'"</code>.
+<code>_fail_undispatchable</code> writes that message into <code>model.output</code>, and <code>output</code> is
+returned by <code>summary()</code>. So an <em>invalid</em> routing value would be readable
+through the execution API.</p>
+<p>That is not a hypothetical for the threat model, because the <strong><code>worker</code>
+built-in role holds <code>execution:*:read</code></strong> alongside <code>worker:*:*</code>. The worker can
+therefore call the execution read API itself. "Not visible to the worker" means
+more than "not in the frame we send it".</p>
+<p>Wording discipline decays, so this is structural rather than editorial: a
+<code>_Problem</code> arising from a routing reference collapses to a fixed string —
+<code>"routing constraint unsatisfied"</code> — carrying neither the resolved value nor
+which routing key was involved. The unresolved-term message needs the same
+treatment; <code>"requires input 'x', which is not present"</code> is a presence oracle
+over the complement set, which is the very thing being hidden.</p>
+<h2 id="expression-surface">Expression surface<a class="headerlink" href="#expression-surface" title="Permanent link">&para;</a></h2>
+<p><code>routing_input("cohort")</code> mirrors <code>input("cohort")</code>: a per-execution value reference,
+not a worker attribute.</p>
+<p>Note that <code>input(...)</code> has <strong>three</strong> different compiled encodings, not one, and
+a routing reference needs a twin for each. Missing one does not fail loudly —
+it resolves against <code>input</code> instead, silently reading the wrong source for the
+value the feature exists to hide:</p>
+<table>
+<thead>
+<tr>
+<th>Encoding</th>
+<th>Produced by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{"$input": path}</code></td>
+<td>comparison values in <code>require</code>/<code>prefer</code></td>
+</tr>
+<tr>
+<td><code>{"input": path, "op":…, "value":…}</code></td>
+<td><code>when(input(...) == const, …)</code></td>
+</tr>
+<tr>
+<td><code>{"kind":…, "prefix":…, "input": path}</code></td>
+<td><code>label_for(...)</code> / <code>meta_for(...)</code> / <code>service(...)</code></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">affinity</span><span class="o">=</span><span class="n">require</span><span class="p">(</span><span class="n">optional</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">routing_input</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">))),</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">routing</span><span class="o">=</span><span class="n">score</span><span class="p">(</span><span class="n">prefer</span><span class="p">(</span><span class="n">label</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="n">routing_input</span><span class="p">(</span><span class="s2">&quot;cohort&quot;</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="mi">10</span><span class="p">)),</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">audit_probe</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="o">...</span>
+</code></pre></div>
+<p>Valid wherever <code>input(...)</code> is valid: <code>require</code> terms, <code>prefer(...)</code>,
+<code>when(...)</code> (with the same <code>==</code>/<code>!=</code> restriction <code>input()</code> has there), and
+dynamic keys via <code>label_for("cache.", routing_input("dataset"))</code>. Rejected in
+<code>least()</code>/<code>most()</code>, which take worker selectors — <code>input()</code> is rejected there
+too, so the rule is unchanged rather than special-cased.</p>
+<p>Unresolved values behave exactly like unresolved input: the term cannot
+discriminate, <code>optional(...)</code> forgives an absent value, and a non-optional
+<code>require</code> term that resolves to nothing fails the match.</p>
+<h3 id="plumbing">Plumbing<a class="headerlink" href="#plumbing" title="Permanent link">&para;</a></h3>
+<p>There are <strong>three</strong> dispatch-side entries, not one, and missing the second is
+worse than missing either:</p>
+<ul>
+<li><code>worker_matches(worker, requests, affinity, runner, input_value)</code> — the
+  matcher, which gains a <code>routing_value</code> parameter.</li>
+<li><code>require_diagnostic(workflow.affinity, model.input)</code>, called directly by
+  <code>_affinity_diagnostic</code> and bypassing <code>worker_matches</code> entirely. It decides
+  whether an affinity expression can <em>never</em> match, and
+  <code>_fail_undispatchable</code> turns a positive answer into a terminal
+  <code>AffinityResolutionError</code>. If it is not also given the routing value, a
+  non-optional <code>require(label("cohort") == routing_input("cohort"))</code> resolves
+  unresolved, diagnoses as permanently unsatisfiable, and <strong>every
+  routing-matched execution is failed at dispatch instead of routed</strong>. This is
+  the single most important line of this section.</li>
+<li><code>pick_worker(...)</code>, the score stage, called with <code>input_value=model.input</code>.
+  The example above puts <code>routing_input()</code> inside <code>score(prefer(...))</code>, so it needs
+  the routing value too.</li>
+</ul>
+<p>Behind those, the resolution helpers <code>_resolve_require_input</code>,
+<code>_resolve_input_path</code>, <code>_resolve_require_term</code>, <code>_resolve_selector_key</code> and
+<code>_when_condition_active</code> each need the routing value threaded through, covering
+all three encodings above. Counting occurrences of the literal <code>$input</code> in
+<code>flux/routing.py</code> undercounts this — one of them is the emission site, and the
+<code>when()</code> and dynamic-key encodings do not contain the string at all.</p>
+<p><code>Condition.__init__</code> and <code>DynamicLabel.__init__</code> both <code>isinstance(..., InputRef)</code>
+to decide what a comparison value or dynamic key may be. A routing reference
+that is not an <code>InputRef</code> subclass raises <code>"value must be a constant or
+input(...)"</code> from the spec's own examples, so those checks widen to accept
+either.</p>
+<p>The catalog has <strong>two independent AST parsers</strong> — one for <code>affinity</code>, one for
+<code>routing</code> — with roughly ten <code>call_name(...) == "input"</code> checks between them.
+Each needs a <code>routing</code> twin, so an unparseable reference fails at registration
+rather than at dispatch. (#208 touched only the routing-stage parser, which is
+why the two are easy to conflate.)</p>
+<h3 id="what-stays-public">What stays public<a class="headerlink" href="#what-stays-public" title="Permanent link">&para;</a></h3>
+<p>The <em>key name</em> is not secret — it is written in the workflow source, and that
+source travels to the worker. What is hidden is the per-execution value <strong>and
+whether this execution had one at all</strong>. That is the property #211 asks for:
+the classifier it describes is presence, and presence moves out of reach. A
+worker can read <code>routing_input("cohort")</code> in its own affinity and still not know
+whether it was selected by it.</p>
+<h2 id="ingress">Ingress<a class="headerlink" href="#ingress" title="Permanent link">&para;</a></h2>
+<p>Three adapters, one validator behind them, so the rules cannot drift:</p>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Channel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>run endpoint</td>
+<td><code>X-Flux-Routing-Input</code> header, a JSON object</td>
+</tr>
+<tr>
+<td>schedules</td>
+<td><code>routing_input</code> field on create/update</td>
+</tr>
+<tr>
+<td><code>call()</code></td>
+<td><code>routing_input=</code> kwarg on the child</td>
+</tr>
+</tbody>
+</table>
+<p>There is a <strong>fourth</strong> <code>_create_execution</code> caller: service invocation
+(<code>api/service_routes.py</code>), which <code>service_mcp.py</code> proxies onto. It is
+deliberately excluded — a workflow service is a stable public endpoint whose
+callers are the workflow's consumers, not its operators, and the sampling and
+canary cases this design serves are operator-initiated. Excluded means the
+header is <em>ignored</em> there rather than rejected, since service callers never set
+it; if that turns out to be wrong it is an additive change.</p>
+<h3 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h3>
+<p>Rejected, never dropped — a silently discarded routing directive does not
+fail, it routes the execution somewhere the caller did not intend, and the
+caller cannot tell that from success. Malformed JSON, a non-object payload, an
+oversized value, or a bad key is a 400 from HTTP paths and a <code>ValueError</code> from
+<code>call()</code>.</p>
+<ul>
+<li><strong>Size bound: 4KB</strong> of serialized JSON, measured on the raw header value
+  before parsing (and on the equivalent payload for the schedule and <code>call()</code>
+  paths, so the limit is the same wherever the values enter). A header is not a
+  payload channel and servers cap header bytes anyway; an explicit limit makes
+  the failure ours and legible rather than a proxy's opaque 431.</li>
+<li><strong>A repeated <code>X-Flux-Routing-Input</code> header is a 400 by rule</strong>, not by
+  accident. Starlette joins duplicates with <code>", "</code>, which happens to produce
+  invalid JSON today — resting the rejection on that coincidence is exactly
+  the silent-drop risk this section exists to remove.</li>
+<li><strong>Nesting depth and key count are bounded</strong> as well as byte size: 4KB of
+  JSON permits deeply nested objects, and path resolution walks one level per
+  dot.</li>
+<li><strong>No key at any depth may contain <code>.</code></strong> — path resolution splits the whole
+  path on dots and descends one level per part, so <code>{"a": {"b.c": 1}}</code> is
+  exactly as unreachable as <code>{"a.b": 1}</code>: <code>routing_input("a.b.c")</code> looks for
+  <code>a → b → c</code>. The validator recurses; a rule written only for top-level keys
+  would re-admit the silent unreachability it exists to prevent. Nested objects
+  remain allowed — only the ambiguous spelling is refused, at every level.</li>
+</ul>
+<p>An absent header means no routing values, and expressions resolve as
+unresolved — existing behaviour, so an execution submitted without it routes
+exactly as it does today.</p>
+<h3 id="schedule-read-back">Schedule read-back<a class="headerlink" href="#schedule-read-back" title="Permanent link">&para;</a></h3>
+<p><code>ScheduleResponse</code> already omits <code>input_data</code>, so omitting <code>routing_input</code> is
+the consistent choice and is what this design does. Worth noting alongside:
+<code>schedule</code> is not in <code>EXECUTION_TOKEN_RESOURCES</code>, so an execution token cannot
+reach the schedule API at all, whatever it returns.</p>
+<h3 id="no-new-permission">No new permission<a class="headerlink" href="#no-new-permission" title="Permanent link">&para;</a></h3>
+<p>Deliberate contrast with <code>X-Flux-Require-Worker</code>, which <em>compels</em> a named node
+to run the code — a capability beyond running the workflow, hence
+<code>worker:{name}:target</code>.</p>
+<p>Stated precisely, because the loose version is wrong: routing values <strong>can</strong>
+steer placement. A workflow author who writes
+<code>require(label("host") == routing_input("host"))</code> hands callers node-level pinning
+with no <code>worker:{name}:target</code> grant. The argument is not that routing values
+are inert; it is that they are <strong>exactly as powerful as <code>input</code>, no more</strong> —
+<code>require(label("host") == input("host"))</code> grants the identical thing today. The
+load-bearing step is that the published <code>input_schema</code> is discovery metadata
+the run endpoint never enforces, so <code>input</code> is already unconstrained and
+<code>routing_input</code> is no less so.</p>
+<p>This inherits an existing gap rather than opening a new one, which is why it
+needs no new permission. Pretending the gap does not exist would be the
+mistake.</p>
+<h3 id="call-and-the-in-process-fast-path"><code>call()</code> and the in-process fast path<a class="headerlink" href="#call-and-the-in-process-fast-path" title="Permanent link">&para;</a></h3>
+<p><code>call()</code> has a fast path that never creates an execution row: a <code>mode="sync"</code>
+call to a transient workflow with <code>runner in (None, "inprocess")</code> and
+<code>transient_fast_path</code> enabled runs <code>_call_in_process(...)</code> in the caller's
+process, with no server round-trip and therefore no dispatch matching. A
+<code>routing_input=</code> on that path would be silently discarded — precisely the
+failure the validation rule above forbids.</p>
+<p><code>routing_input</code> therefore <strong>forces the dispatched path</strong>: supplying it disables
+the fast path for that call. Rejecting instead would be defensible, but it
+would make the flag's behaviour depend on a performance optimisation the caller
+did not choose and may not know about.</p>
+<p><strong><code>routing_input</code> must be excluded from the task-id digest.</strong> <code>_compute_task_id</code>
+SHA256s <code>[full_name, task_args, args, kwargs]</code> and the result becomes the
+<code>source_id</code> of the recorded <code>TASK_STARTED</code> event. A worker holding
+<code>execution:*:read</code> can fetch the <em>parent</em> execution, take that digest, and
+offline-test candidates over what is usually a very small cohort space —
+recovering both presence and value for the child. The occurrence counter
+already disambiguates repeated calls, so dropping it from the digest costs
+nothing.</p>
+<p><strong><code>FluxClient</code> needs a per-request header hook.</strong> <code>run_workflow</code> takes no
+headers today, and <code>for_current_execution</code> sets <code>X-Flux-Preferred-Worker</code> as a
+<em>client-level</em> default — so per-call routing values need new plumbing rather
+than reuse.</p>
+<p>A parent can set routing values on a child it spawns and cannot read them back
+afterwards. That is consistent — the parent knows what it set — but it means a
+workflow can influence its children's placement through a channel invisible to
+those children. That is correct for canary orchestration and is stated here
+rather than left to be discovered.</p>
+<h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>flux<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>audit_probe<span class="w"> </span><span class="s1">&#39;{&quot;batch&quot;: 41}&#39;</span><span class="w"> </span>-r<span class="w"> </span><span class="nv">cohort</span><span class="o">=</span>canary<span class="w"> </span>-r<span class="w"> </span><span class="nv">region</span><span class="o">=</span>eu
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>flux<span class="w"> </span>schedule<span class="w"> </span>create<span class="w"> </span>audit_probe<span class="w"> </span>nightly-canary<span class="w"> </span>--cron<span class="w"> </span><span class="s2">&quot;0 2 * * *&quot;</span><span class="w"> </span>-r<span class="w"> </span><span class="nv">cohort</span><span class="o">=</span>canary
+</code></pre></div>
+<p>Both commands take positional arguments the examples must respect:
+<code>workflow run WORKFLOW_NAME INPUT</code> and <code>schedule create WORKFLOW_NAME
+SCHEDULE_NAME</code>.</p>
+<p>Repeatable <code>key=value</code>, mirroring <code>--label</code> on <code>flux start worker</code>. Named
+<code>--routing-input</code> (short <code>-r</code>) to match the column, schedule field, and <code>call()</code>
+kwarg — the selector that reads it is <code>routing_input(...)</code>, so one word means
+one thing throughout. <code>-r</code> is
+unused on both commands today (<code>workflow run</code> uses <code>-m/-v/-d</code>, <code>schedule
+create</code> uses <code>-c/-tz/-d/-i/-f</code>).</p>
+<ul>
+<li><strong>Values arrive as strings</strong>, as with <code>--label</code>. Mostly harmless: <code>_compare</code>
+  numeric-coerces when both sides parse as floats, so <code>"8"</code> does match a
+  <code>meta()</code> value of <code>8</code>. <strong>Booleans are the real gap</strong> — <code>_as_float</code> returns
+  <code>None</code> for bool, so a CLI <code>"true"</code> is compared as <code>"true"</code> against <code>"True"</code>
+  and never matches. A caller needing a boolean goes through the API.</li>
+<li><strong>Nesting is not expressible from the CLI.</strong> The header accepts nested
+  objects and <code>routing_input("a.b")</code> descends them, but <code>key=value</code> is flat and dots
+  are refused in keys. The CLI covers flat keys; nested structures are an
+  API/SDK affair. Better an explicit limit than a dotted-key spelling that
+  conflicts with path resolution.</li>
+</ul>
+<p>Malformed pairs (no <code>=</code>, empty key, duplicate key) fail before the request goes
+out.</p>
+<h2 id="operator-visibility">Operator visibility<a class="headerlink" href="#operator-visibility" title="Permanent link">&para;</a></h2>
+<p>There is deliberately <strong>no API read path</strong> for routing values, at any privilege
+level. Adding an admin-scoped read would put the values back on the surface
+this design exists to keep them off, and the permission boundary protecting it
+would then be the guarantee — the same fragility as stripping at delivery.</p>
+<p>That leaves a real gap: an operator asking "why is this worker getting all the
+traffic?" cannot see which executions carried routing values. Closing it
+without reopening the leak, the server logs at ingress the execution id and the
+<strong>key names</strong> set — never the values. Keys are already public (they appear in
+the workflow source); the per-execution values and their presence are not, and
+the log is not reachable through the execution API the worker can call.</p>
+<p>Anything beyond that is a database read, which is the same answer as for
+<code>preferred_worker</code> today.</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>The guarantee needs tests that fail when it breaks, because nothing else
+notices. One assertion per surface in the table above, mirroring it one-to-one
+so the checklist is auditable at review time, and each verified by temporarily
+adding the field rather than assumed:</p>
+<ul>
+<li>absent from <code>to_plain</code>/<code>from_plain</code> (and therefore <code>from_json</code>/<code>to_dict</code>)</li>
+<li>absent from <code>summary()</code> and the <code>FluxEncoder</code> output</li>
+<li>absent from <code>get_summary</code>'s projection and <code>ExecutionSummaryResponse</code></li>
+<li>absent from <strong>both</strong> SSE frames — <code>execution_scheduled</code> and
+  <code>execution_resumed</code>, which reach the builder by different paths</li>
+<li>absent from the failure <code>output</code> written by <code>_fail_undispatchable</code></li>
+<li>absent from the parent's event log for a <code>call()</code> child, including the
+  <code>source_id</code> digest</li>
+</ul>
+<p>Behavioural coverage: matching resolves from <code>routing_input</code> in <code>require</code>,
+<code>prefer</code>, <code>when</code>, and a dynamic key; unresolved routing values behave like
+unresolved input; values arrive correctly from all three ingress paths and the
+CLI; every rejection case returns 400 rather than dropping.</p>
+<p>One test specifically for the threat model: two executions of the same workflow,
+one with routing values and one without, are indistinguishable <strong>as the worker
+principal sees them</strong> — identical in-process context <em>and</em> identical responses
+from the execution read API called with <code>worker:*:*</code> + <code>execution:*:read</code>,
+which is what the <code>worker</code> built-in role actually holds. Comparing only the
+in-process context would test a proxy for the claim rather than the claim.</p>
+<p>The invalid-value case gets its own test, since it is the one path that writes
+a routing-derived string into <code>output</code>: an unmatchable routing value must
+produce a diagnostic naming the key and not the value.</p>
+<p>Migration <code>HEAD</code> updated in both <code>test_migrations.py</code> and
+<code>test_migrations_postgresql.py</code>, since a stale value in the second surfaces
+only in CI's postgres job.</p>
+<h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
+<p>A section in <code>docs/advanced-features/dynamic-routing.md</code> beside the binding-header
+material, and <code>routing_input()</code> added to the selector table.</p>
+<h2 id="naming">Naming<a class="headerlink" href="#naming" title="Permanent link">&para;</a></h2>
+<p>The selector is <code>routing_input(...)</code>, not <code>routing(...)</code>.</p>
+<p><code>routing(...)</code> collides with <code>@workflow.with_options(routing=score(...))</code>,
+which means something else entirely — a scoring policy, not a per-execution
+value — and it would land at <code>flux.routing.routing</code>. Naming it
+<code>routing_input</code> matches every other artifact in the design: the column, the
+header, the schedule field, the <code>call()</code> kwarg, and the CLI flag. One word,
+one meaning, everywhere.</p>
+<p>The cost is a longer name inside expressions, which is the right trade for a
+term that appears in workflow source and gets read far more often than it is
+typed.</p>
+<p>If a top-level <code>flux</code> export is ever wanted, note that <code>flux/__init__.py</code>
+already resolves a submodule-vs-attribute collision for <code>flux.task</code> and
+<code>flux.workflow</code>, and <code>flux.routing</code> is a submodule too — so exporting a
+<code>routing_input</code> name from it needs the same care.</p>
+<h2 id="out-of-scope">Out of scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Per-key encryption at rest.</strong> The column is unreadable through the API;
+  encrypting it would imply a confidentiality guarantee against database access
+  that nothing else here makes.</li>
+<li><strong>Wildcard or glob matching</strong> on routing values beyond what <code>input()</code> does.</li>
+<li><strong>Clearing values at dispatch.</strong> Resume re-matches (<code>next_resumes_batch</code>
+  calls <code>_worker_matches_workflow</code> for unassigned rows), so clearing at first
+  dispatch would silently change where a paused execution lands.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/edurdias/flux" target="_blank" rel="noopener" title="Flux on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.tabs.link", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
