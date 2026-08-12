@@ -315,10 +315,11 @@ event-mode only — and it is re-applied when a paused execution resumes. It is
 enforced on the claim endpoint too, so a worker cannot take a bound execution
 by claiming it directly.
 
-One gap to know about: if a bound execution is paused and its worker is then
-evicted, it waits in `RESUMING` for that worker to come back, and the
-park-TTL sweep does not cover that state (it sweeps unclaimed executions
-only). Such a row waits indefinitely rather than failing.
+If a bound execution is released back to `RESUMING` — its worker evicted, or
+reaped after crashing mid-resume — it waits on that worker with no fallback,
+so the park TTL covers that case too. The clock restarts at the moment it
+becomes unassigned rather than running from submission, since a long-running
+execution that pauses hours in would otherwise be failed immediately.
 
 The workflow's own constraints still apply on top: the named worker must also
 satisfy `affinity=`/`requests`. A `routing=score(...)` policy then ranks a
