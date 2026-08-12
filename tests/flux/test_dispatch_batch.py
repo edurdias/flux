@@ -702,7 +702,7 @@ class TestBoundResumeBackstop:
             model.park_deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
             session.commit()
 
-    def test_release_worker_starts_the_clock_for_a_bound_execution(self, clean_env, monkeypatch):
+    def test_release_worker_starts_the_clock_for_a_bound_execution(self, clean_env):
         cm, registry = clean_env
         _register_worker(registry, "w2")
         wf_id = _create_workflow("plain")
@@ -804,3 +804,32 @@ class TestBoundResumeBackstop:
         state, worker_name, deadline = self._row(ctx.execution_id)
         assert (state, worker_name) == (ExecutionState.RESUMING, None)
         assert deadline is not None
+
+    def test_wake_restarts_the_clock_for_a_released_bound_execution(self, clean_env):
+        from datetime import datetime, timedelta, timezone
+
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+
+        # Paused, released by eviction, and long past the original deadline.
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            model = session.get(ExecutionContextModel, ctx.execution_id)
+            model.state = ExecutionState.PAUSED
+            model.worker_name = None
+            model.park_deadline = datetime.now(timezone.utc) - timedelta(hours=3)
+            session.commit()
+
+        loaded = cm.get(ctx.execution_id)
+        loaded.start_resuming()
+        with patch("flux.config.Configuration.get") as cfg:
+            cfg.return_value.settings.workers.park_ttl = 60
+            cm.save(loaded)
+
+        state, worker_name, deadline = self._row(ctx.execution_id)
+        assert (state, worker_name) == (ExecutionState.RESUMING, None)
+        assert deadline > datetime.now(timezone.utc).replace(tzinfo=None)
+        assert cm.fail_expired_parked() == []

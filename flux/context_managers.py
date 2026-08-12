@@ -429,6 +429,17 @@ class DatabaseContextManager(ContextManager):
                     model.state = ctx.state
                     model.output = ctx.output
                     self._sync_wake_columns(model, ctx)
+                    if (
+                        ctx.state == ExecutionState.RESUMING
+                        and model.required_worker
+                        and model.worker_name is None
+                    ):
+                        # Entering the stuck state (issue #212). Restarting
+                        # here rather than only in release_worker covers a row
+                        # released while PAUSED, whose submission-time deadline
+                        # would otherwise be long expired by the time it wakes
+                        # and would fail it on arrival.
+                        self._stamp_park_deadline(model)
                     session.add_all(self._get_additional_events(ctx, session))
             else:
                 accepted = True
