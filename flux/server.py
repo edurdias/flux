@@ -487,6 +487,7 @@ class Server(
         version: int | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
@@ -505,6 +506,7 @@ class Server(
             ),
             preferred_worker=preferred_worker or None,
             required_worker=required_worker or None,
+            routing_input=routing_input or None,
             park_ttl=park_ttl,
         )
 

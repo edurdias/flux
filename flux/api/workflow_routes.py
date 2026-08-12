@@ -27,6 +27,7 @@ from flux.errors import (
     WorkerNotFoundError,
     WorkflowNotFoundError,
 )
+from flux.routing_input import RoutingInputError, parse_routing_input_header
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -202,6 +203,7 @@ class WorkflowRoutesMixin:
             park_ttl: int | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             required_worker: str | None = Header(None, alias="X-Flux-Require-Worker"),
+            routing_input: str | None = Header(None, alias="X-Flux-Routing-Input"),
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:
@@ -299,6 +301,15 @@ class WorkflowRoutesMixin:
                         detail="park_ttl must be >= 0 (0 disables the bound)",
                     )
 
+                # Routing-only values (issue #211): matched at dispatch, never
+                # delivered. Rejected rather than dropped — a discarded routing
+                # directive routes the execution somewhere the caller did not
+                # intend, and that is invisible from outside.
+                try:
+                    parsed_routing_input = parse_routing_input_header(routing_input)
+                except RoutingInputError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 ctx = self._create_execution(
                     namespace,
                     workflow_name,
@@ -306,6 +317,7 @@ class WorkflowRoutesMixin:
                     version,
                     preferred_worker=preferred_worker,
                     required_worker=required_worker,
+                    routing_input=parsed_routing_input,
                     park_ttl=park_ttl,
                 )
                 manager = ContextManager.create()

@@ -72,6 +72,7 @@ class ContextManager(ABC):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
@@ -84,6 +85,7 @@ class ContextManager(ABC):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
@@ -356,6 +358,7 @@ class DatabaseContextManager(ContextManager):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:
         self.save_checked(
@@ -363,6 +366,7 @@ class DatabaseContextManager(ContextManager):
             uow=uow,
             preferred_worker=preferred_worker,
             required_worker=required_worker,
+            routing_input=routing_input,
             park_ttl=park_ttl,
         )
         return ctx
@@ -374,6 +378,7 @@ class DatabaseContextManager(ContextManager):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         if uow is not None:
@@ -383,6 +388,7 @@ class DatabaseContextManager(ContextManager):
                 manage_transaction=False,
                 preferred_worker=preferred_worker,
                 required_worker=required_worker,
+                routing_input=routing_input,
                 park_ttl=park_ttl,
             )
         with self.session() as session:
@@ -392,6 +398,7 @@ class DatabaseContextManager(ContextManager):
                 manage_transaction=True,
                 preferred_worker=preferred_worker,
                 required_worker=required_worker,
+                routing_input=routing_input,
                 park_ttl=park_ttl,
             )
 
@@ -422,6 +429,7 @@ class DatabaseContextManager(ContextManager):
         manage_transaction: bool,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         try:
@@ -455,6 +463,8 @@ class DatabaseContextManager(ContextManager):
                     new_model.preferred_worker = preferred_worker
                 if required_worker:
                     new_model.required_worker = required_worker
+                if routing_input:
+                    new_model.routing_input = routing_input
                 # Park TTL (issue #157): per-run override wins; otherwise the
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in
