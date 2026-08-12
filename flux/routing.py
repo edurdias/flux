@@ -1047,6 +1047,18 @@ class _Problem(NamedTuple):
     message: str
 
 
+def _routing_blind(from_routing: bool, category: str, message: str) -> _Problem:
+    """Problems from a routing reference say nothing about it.
+
+    ``_fail_undispatchable`` writes these into ``executions.output``, which the
+    execution read API returns to anything holding ``execution:*:read`` — the
+    ``worker`` built-in role included. Naming the value would hand the worker
+    the thing routing input exists to keep from it, and naming the key alone
+    still distinguishes "absent" from "present but unmatched" (#211).
+    """
+    return _Problem(category, "routing constraint unsatisfied" if from_routing else message)
+
+
 def _resolve_selector_key(
     selector: Any,
     input_value: Any,
@@ -1077,13 +1089,22 @@ def _resolve_selector_key(
             return (
                 kind,
                 "",
-                _Problem(
+                _routing_blind(
+                    from_routing,
                     "unresolved",
                     f"{kind} key requires input '{path}', which is not present",
                 ),
             )
         if resolved is None or isinstance(resolved, (dict, list)):
-            return kind, "", _Problem("invalid", f"{kind} key input '{path}' must be a scalar")
+            return (
+                kind,
+                "",
+                _routing_blind(
+                    from_routing,
+                    "invalid",
+                    f"{kind} key input '{path}' must be a scalar",
+                ),
+            )
         fragment = _label_value_str(resolved)
         if kind == "label" and prefix == SERVICE_LABEL_PREFIX:
             if not is_valid_service_name(fragment):
@@ -1092,7 +1113,8 @@ def _resolve_selector_key(
                 return (
                     kind,
                     "",
-                    _Problem(
+                    _routing_blind(
+                        from_routing,
                         "invalid",
                         f"input '{path}' resolves to an invalid service name: '{fragment}'",
                     ),
@@ -1147,7 +1169,8 @@ def _resolve_require_term(
             path,
         )
         if value is _UNRESOLVED:
-            return _Problem(
+            return _routing_blind(
+                from_routing,
                 "unresolved",
                 f"affinity term on {kind} '{key}' requires input '{path}', which is not present",
             )

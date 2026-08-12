@@ -45,6 +45,7 @@ A policy is a weighted combination of terms over **selectors**:
 | `resource("field")` | `cpu_total`, `cpu_available`, `memory_total`, `memory_available`, `disk_total`, `disk_free` | registration-time snapshot (prefer `metric("flux.cpu_percent")` etc. for live values) |
 | `load()` | active executions on the worker | live, computed at dispatch |
 | `utilization()` | active executions ÷ the worker's advertised capacity | live, computed at dispatch |
+| `routing_input("key")` | per-execution values the worker never receives (see [below](#routing-on-values-the-worker-cannot-see)) | set at submission |
 
 And four term types:
 
@@ -177,6 +178,71 @@ Score terms only. Gating a `require(...)` term on load is refused at
 registration: skipping a hard constraint makes a worker match *more*
 easily, so it would drop the requirement on exactly the busy workers it was
 meant to steer away from.
+
+## Routing on values the worker cannot see
+
+Affinity and scoring normally match against execution input — and that input is
+delivered to the worker, because it is how a workflow receives its arguments.
+So a field used *purely* for routing is observable by the worker it routes to.
+
+That matters when the routing decision is **about** the worker: audit sampling,
+A/B assignment, canary probes. There, "does my input contain the cohort field?"
+tells a workflow it is being watched before its body runs — and it is the
+*presence* of the key that gives it away, not the value, so obfuscating the
+value does not help.
+
+`routing_input(...)` reads from a separate channel that is matched at dispatch
+and never delivered:
+
+```python
+@workflow.with_options(
+    affinity=require(optional(label("cohort") == routing_input("cohort"))),
+)
+async def audit_probe(ctx: ExecutionContext[dict]):
+    ...
+```
+
+```bash
+curl -X POST localhost:8000/workflows/default/audit_probe/run/async \
+     -H 'X-Flux-Routing-Input: {"cohort":"canary"}' \
+     -d '{"real":"payload"}'
+
+flux workflow run audit_probe '{"real":"payload"}' -r cohort=canary
+```
+
+It works wherever `input(...)` does — `require`, `prefer`, `when`, and dynamic
+keys such as `label_for("cache.", routing_input("dataset"))` — and is set from
+the run header, a schedule's `routing_input` field, `call(routing_input=...)`,
+or the CLI flag above.
+
+**What is hidden, precisely.** The key name is not secret: it is written in the
+workflow source, and that source travels to the worker. What the worker cannot
+learn is the value **or whether this execution had one at all** — which is the
+classifier that mattered. A worker can read `routing_input("cohort")` in its own
+affinity and still not know whether it was selected by it.
+
+Consequences worth knowing:
+
+- **Values are never delivered or read back.** They are absent from the context
+  the worker receives, from `GET /executions/{id}`, and from both SSE frames.
+  There is no API read path at any privilege level — an admin-scoped read would
+  put them back on the surface this exists to keep them off. Operators get the
+  key *names* in a server log line at ingress, never the values.
+- **Diagnostics say nothing.** A routing constraint that cannot be satisfied
+  fails with `routing constraint unsatisfied` and no key or value, because that
+  message is written to the execution's output, which the worker can read.
+- **Rejected, never dropped.** Malformed JSON, a non-object payload, a value
+  over 4KB, a repeated header, or a key containing `.` at any depth is a 400.
+  A silently discarded routing directive would route the execution somewhere
+  the caller did not intend, and that is invisible from outside.
+- **No extra permission.** Routing values are exactly as powerful as `input` —
+  `require(label("host") == routing_input("host"))` grants the same pinning
+  that `input("host")` does today — so they need no grant beyond running the
+  workflow. Use `X-Flux-Require-Worker` when you want binding placement; that
+  one *does* require `worker:{name}:target`.
+- **CLI values are strings**, as with `--label`, and `key=value` cannot express
+  nesting. Numbers coerce on comparison; booleans do not, so a boolean needs
+  the API.
 
 ## Built-in worker metrics
 
