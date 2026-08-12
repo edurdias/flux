@@ -348,3 +348,82 @@ class TestBodySizeLimit:
         client = make_client(server_max_body_size=0)
         resp = client.post("/workflows", content=b"z" * 4096)
         assert resp.status_code != 413
+
+
+class TestJoinTokenRevocation:
+    """Minting had no inverse (issue #197): a token left live by a failed
+    bring-up stayed claimable until its TTL, invisible and unretirable."""
+
+    def test_outstanding_lists_live_tokens_without_the_secret(self, make_client):
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a", created_by="test")
+
+        rows = join_tokens.outstanding()
+
+        assert [r["subject"] for r in rows] == ["worker-a"]
+        assert token not in str(rows), "the plaintext must never be recoverable"
+        assert "token_hash" not in rows[0], "the hash is credential-equivalent"
+
+    def test_revoked_token_cannot_register(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+
+        assert join_tokens.revoke(join_tokens.outstanding()[0]["id"]) is True
+
+        assert _register(client, "worker-a", token).status_code == 403
+
+    def test_revoking_by_subject_retires_every_token_for_that_worker(self, make_client):
+        """The shape that pairs with a ban: the caller knows the worker name
+        and does not track token ids."""
+        make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        join_tokens.mint(3600, subject="worker-a")
+        join_tokens.mint(3600, subject="worker-b")
+
+        assert join_tokens.revoke_for_subject("worker-a") == 2
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == ["worker-b"]
+
+    def test_revoking_by_subject_leaves_unbound_tokens_alone(self, make_client):
+        """An unbound token carries no subject, so retiring it under one
+        worker's name would take out a credential meant for another."""
+        make_client()
+        join_tokens.mint(3600)  # unbound
+        join_tokens.mint(3600, subject="worker-a")
+
+        assert join_tokens.revoke_for_subject("worker-a") == 1
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == [None]
+
+    def test_revoking_a_spent_token_reports_nothing_to_do(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+        token_id = join_tokens.outstanding()[0]["id"]
+        assert _register(client, "worker-a", token).status_code == 200
+
+        assert join_tokens.revoke(token_id) is False
+        assert join_tokens.revoke("no-such-id") is False
+
+    def test_a_banned_worker_does_not_burn_the_token(self, make_client):
+        """claim() consumes the token in a committed UPDATE, so checking the
+        ban afterwards let a banned holder spend a credential the operator
+        would have to mint again. The ban check runs first."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+        token, _ = join_tokens.mint(3600, subject="worker-banned")
+
+        assert _register(client, "worker-banned", token).status_code == 403
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == ["worker-banned"], (
+            "the token must survive a refused registration"
+        )

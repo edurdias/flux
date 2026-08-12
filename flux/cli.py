@@ -1592,6 +1592,67 @@ def server_join_token(ttl_seconds: int | None, subject: str | None):
     click.echo(f"expires: {expires_at.replace(tzinfo=_tz.utc).isoformat()}", err=True)
 
 
+@server_group.command("join-tokens")
+@click.option("--format", "format", default="table", help="Output format (table or json).")
+def server_join_tokens(format: str):
+    """List outstanding join tokens (minted, unused, unrevoked, unexpired).
+
+    Shows the id, which `flux server revoke-join-token` takes. The token
+    itself is never shown: the plaintext is unrecoverable by design and the
+    stored hash is credential-equivalent. Runs against the server's database —
+    execute on the server host.
+    """
+    from flux.security import join_tokens
+    from flux.utils import to_json
+
+    rows = join_tokens.outstanding()
+    if format == "json":
+        click.echo(to_json(rows))
+        return
+    if not rows:
+        click.echo("No outstanding join tokens.")
+        return
+    click.echo(f"{'ID':34} {'SUBJECT':24} {'EXPIRES':26} CREATED BY")
+    for row in rows:
+        subject = row["subject"] or "(unbound)"
+        click.echo(
+            f"{row['id']:34} {subject:24} {row['expires_at'].isoformat():26} "
+            f"{row['created_by'] or '-'}",
+        )
+
+
+@server_group.command("revoke-join-token")
+@click.option("--id", "token_id", default=None, help="Revoke one token by id.")
+@click.option(
+    "--subject",
+    default=None,
+    help="Revoke every live token bound to this worker name.",
+)
+def server_revoke_join_token(token_id: str | None, subject: str | None):
+    """Retire live join tokens before their TTL.
+
+    Pairs with `flux principals ban`: banning stops a principal, and this
+    retires any credential already minted for it. Unbound tokens are never
+    touched by --subject — they carry no subject, so retiring them under one
+    worker's name would take out credentials meant for others.
+    """
+    from flux.security import join_tokens
+
+    if bool(token_id) == bool(subject):
+        raise click.ClickException("Pass exactly one of --id or --subject.")
+    if token_id:
+        if not join_tokens.revoke(token_id):
+            raise click.ClickException(f"No live join token with id '{token_id}'.")
+        click.echo(f"Revoked join token {token_id}.")
+        return
+    assert subject is not None  # guarded above; narrows for the type checker
+    name = subject.strip()
+    if not name:
+        raise click.ClickException("--subject must not be blank")
+    revoked = join_tokens.revoke_for_subject(name)
+    click.echo(f"Revoked {revoked} join token(s) for subject '{name}'.")
+
+
 @server_group.command("bootstrap-token")
 @click.option(
     "--rotate",

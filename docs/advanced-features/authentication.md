@@ -398,6 +398,9 @@ flux principals revoke-key <subject> --key-name <name>
 | `DELETE` | `/admin/principals/{id}` | `admin:principals:manage` |
 | `POST` | `/admin/principals/{id}/keys` | `admin:principals:manage` |
 | `DELETE` | `/admin/principals/{id}/keys/{name}` | `admin:principals:manage` |
+| `GET` | `/admin/workers/join-tokens` | `admin:workers:manage` |
+| `DELETE` | `/admin/workers/join-tokens/{id}` | `admin:workers:manage` |
+| `DELETE` | `/admin/workers/join-tokens?subject=` | `admin:workers:manage` |
 | `POST` | `/workers/register` | bootstrap_token (see below) |
 | `POST` | `/workers/{name}/pong` | `worker:*:*` |
 | `GET` | `/workers/{name}/connect` | `worker:*:*` |
@@ -414,6 +417,33 @@ is per worker, so `worker:build-7:target` does not permit binding to another.
 for any worker. The advisory `X-Flux-Preferred-Worker` needs no grant: it
 cannot force placement. See
 [Dynamic Routing](dynamic-routing.md#binding-an-execution-to-one-worker).
+
+### Revoking join tokens
+
+Minting is additive: each call produces another independently valid token, and
+before revocation existed a token left live by a failed bring-up stayed
+claimable until its TTL with no way to see or retire it (issue #197).
+
+```bash
+flux server join-tokens                          # what is outstanding
+flux server revoke-join-token --id <id>          # retire one
+flux server revoke-join-token --subject worker-7 # retire every token for a worker
+```
+
+Revoking by subject is the shape that pairs with `flux principals ban`: the
+caller already knows the worker name and does not track token ids. **Unbound
+tokens are never matched by `--subject`** — they carry no subject, so retiring
+them under one worker's name would take out credentials meant for others.
+
+Revocation is a soft delete: the row keeps who minted it and when, and the
+existing expiry sweep stays the only thing that removes rows. The listing never
+returns the token or its hash — the plaintext is unrecoverable by design, and
+the hash is credential-equivalent to an offline guesser.
+
+Note that banning a principal is already a complete control on its own: worker
+registration refuses a banned principal regardless of credential, so a token
+minted before the ban cannot register. Revocation is for the operational case —
+retiring credentials you no longer intend to use.
 
 ### Worker bootstrap token
 

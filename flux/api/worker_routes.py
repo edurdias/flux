@@ -105,6 +105,62 @@ class WorkerRoutesMixin:
         def _register_limited(fn):
             return limiter.limit(register_rate_limit)(fn) if register_rate_limit else fn
 
+        @api.get("/admin/workers/join-tokens")
+        async def list_join_tokens(
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Outstanding join tokens: minted, unused, unrevoked, unexpired.
+
+            Never returns the token or its hash — the plaintext is
+            unrecoverable by design, and the hash is credential-equivalent to
+            an offline guesser. The id is what revocation takes.
+            """
+            from flux.security import join_tokens
+
+            return await asyncio.to_thread(join_tokens.outstanding)
+
+        @api.delete("/admin/workers/join-tokens/{token_id}")
+        async def revoke_join_token(
+            token_id: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Retire one live token before its TTL.
+
+            404 when it is already used, already revoked, expired, or unknown —
+            all four mean "there is nothing here to retire", and distinguishing
+            them would tell an unauthorized caller which ids exist.
+            """
+            from flux.security import join_tokens
+
+            if not await asyncio.to_thread(join_tokens.revoke, token_id):
+                raise HTTPException(status_code=404, detail="No live join token with that id.")
+            logger.info(f"Join token {token_id} revoked by {identity.subject}")
+            return {"revoked": 1}
+
+        @api.delete("/admin/workers/join-tokens")
+        async def revoke_join_tokens_for_subject(
+            subject: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Retire every live token bound to one worker name.
+
+            The shape that pairs with a ban: the caller knows the worker name
+            and does not track token ids. Returns 200 with a count rather than
+            404 when none match — "nothing outstanding" is the desired end
+            state, so an operator scripting ban-then-revoke should not have to
+            special-case it.
+            """
+            from flux.security import join_tokens
+
+            try:
+                revoked = await asyncio.to_thread(join_tokens.revoke_for_subject, subject)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            logger.info(
+                f"{revoked} join token(s) for subject '{subject}' revoked by {identity.subject}",
+            )
+            return {"revoked": revoked}
+
         @api.post("/admin/workers/join-tokens")
         async def mint_join_token(
             body: dict | None = Body(None),
@@ -268,6 +324,31 @@ class WorkerRoutesMixin:
                 expected = self._bootstrap_token
                 workers_config = Configuration.get().settings.workers
 
+                # Quarantine before the claim, not after: claim() consumes the
+                # token in a committed UPDATE, so checking afterwards let a
+                # banned holder burn a credential the operator would have to
+                # mint again (#197). Quarantine wins over any valid credential
+                # either way — a banned principal must not resurrect itself by
+                # re-registering (the re-enable below is meant for
+                # reaper-disabled principals of workers that legitimately
+                # return).
+                if principal_registry is not None:
+                    banned_check = await asyncio.to_thread(
+                        principal_registry.find,
+                        subject=registration.name,
+                        external_issuer="flux",
+                    )
+                    if banned_check is not None and banned_check.banned:
+                        logger.warning(
+                            f"Refusing registration for banned worker principal: "
+                            f"{registration.name}",
+                        )
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Worker principal is banned; an administrator "
+                            "must unban and enable it before it can register.",
+                        )
+
                 # Two accepted credentials: the shared bootstrap token (unless
                 # the fleet has migrated off it) or a one-time join token,
                 # consumed atomically so it cannot be replayed.
@@ -291,27 +372,6 @@ class WorkerRoutesMixin:
                         status_code=403,
                         detail="Invalid bootstrap or join token.",
                     )
-
-                # Quarantine wins over any valid credential: a banned worker
-                # principal must not resurrect itself by re-registering (the
-                # re-enable below is meant for reaper-disabled principals of
-                # workers that legitimately return).
-                if principal_registry is not None:
-                    banned_check = await asyncio.to_thread(
-                        principal_registry.find,
-                        subject=registration.name,
-                        external_issuer="flux",
-                    )
-                    if banned_check is not None and banned_check.banned:
-                        logger.warning(
-                            f"Refusing registration for banned worker principal: "
-                            f"{registration.name}",
-                        )
-                        raise HTTPException(
-                            status_code=403,
-                            detail="Worker principal is banned; an administrator "
-                            "must unban and enable it before it can register.",
-                        )
 
                 registry = WorkerRegistry.create()
                 result = registry.register(

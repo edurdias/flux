@@ -30,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0023_routing_input"
+HEAD = "0024_join_token_revoked"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

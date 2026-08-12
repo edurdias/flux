@@ -43,6 +43,9 @@ class WorkerJoinTokenModel(Base):
     # The worker name this token authorizes. NULL means unbound: any name may
     # claim it, which is how tokens minted before binding existed behave.
     subject = Column(String, nullable=True)
+    # Retired before its TTL (issue #197). Soft delete: purge_expired stays the
+    # single reaper, and the row keeps who minted it and when.
+    revoked_at = Column(DateTime, nullable=True)
 
 
 def _hash(token: str) -> str:
@@ -88,6 +91,10 @@ def claim(token: str, worker_name: str) -> bool:
     or wrongly-addressed token returns False. Single UPDATE statement, so two
     racing registrations cannot both succeed.
 
+    A revoked token is as dead as a used one: the filter rides in the same
+    WHERE clause, so revocation takes effect on the next attempt with no
+    window between the operator's call and the token becoming unusable.
+
     A token minted with a ``subject`` only claims for that worker name. The
     check rides in the UPDATE's WHERE clause rather than a prior SELECT, so a
     mismatched name matches no row: the attempt neither succeeds nor consumes
@@ -103,6 +110,7 @@ def claim(token: str, worker_name: str) -> bool:
             .filter(
                 WorkerJoinTokenModel.token_hash == _hash(token),
                 WorkerJoinTokenModel.used_at.is_(None),
+                WorkerJoinTokenModel.revoked_at.is_(None),
                 WorkerJoinTokenModel.expires_at > now,
                 or_(
                     WorkerJoinTokenModel.subject.is_(None),
@@ -134,3 +142,71 @@ def purge_expired(*, older_than_seconds: int = 86400) -> int:
         )
         session.commit()
         return removed
+
+
+def outstanding() -> list[dict]:
+    """Live tokens: minted, unused, unrevoked, unexpired.
+
+    Never returns the token or its hash — the plaintext is unrecoverable by
+    design, and the hash is a credential-equivalent for an offline guesser.
+    """
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        rows = (
+            session.query(WorkerJoinTokenModel)
+            .filter(
+                WorkerJoinTokenModel.used_at.is_(None),
+                WorkerJoinTokenModel.revoked_at.is_(None),
+                WorkerJoinTokenModel.expires_at > _utcnow(),
+            )
+            .order_by(WorkerJoinTokenModel.created_at.desc())
+            .all()
+        )
+        return [
+            {
+                "id": row.id,
+                "subject": row.subject,
+                "created_at": row.created_at,
+                "expires_at": row.expires_at,
+                "created_by": row.created_by,
+            }
+            for row in rows
+        ]
+
+
+def revoke(token_id: str) -> bool:
+    """Retire one live token. Returns False if it was already spent or gone."""
+    return _revoke_where(WorkerJoinTokenModel.id == token_id) == 1
+
+
+def revoke_for_subject(subject: str) -> int:
+    """Retire every live token bound to ``subject``. Returns how many.
+
+    The useful shape when revoking alongside a ban: the caller knows the
+    worker name and does not track token ids. Unbound tokens are deliberately
+    untouched — they carry no subject, so "every token for this worker" cannot
+    include them without also retiring credentials meant for other workers.
+    """
+    if not subject:
+        raise ValueError("subject must be a non-empty string")
+    return _revoke_where(WorkerJoinTokenModel.subject == subject)
+
+
+def _revoke_where(condition) -> int:
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        now = _utcnow()
+        revoked = (
+            session.query(WorkerJoinTokenModel)
+            .filter(
+                condition,
+                # Only live rows: revoking a spent token would rewrite history,
+                # and the count is what the caller reports to an operator.
+                WorkerJoinTokenModel.used_at.is_(None),
+                WorkerJoinTokenModel.revoked_at.is_(None),
+                WorkerJoinTokenModel.expires_at > now,
+            )
+            .update({"revoked_at": now}, synchronize_session=False)
+        )
+        session.commit()
+        return revoked
