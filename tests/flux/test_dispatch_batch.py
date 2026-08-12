@@ -674,3 +674,133 @@ class TestRequiredWorkerBinding:
 
         assert claimed is not None and claimed.execution_id == ctx.execution_id
         assert cm.next_execution(w1) is None
+
+
+class TestBoundResumeBackstop:
+    """A bound execution released back to RESUMING waits on one worker that
+    may never return, and nothing else can take it. The park sweep covered
+    CREATED only, so that row had no bound at all (issue #212)."""
+
+    def _bind(self, execution_id, worker_name):
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            session.get(ExecutionContextModel, execution_id).required_worker = worker_name
+            session.commit()
+
+    def _row(self, execution_id):
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            model = session.get(ExecutionContextModel, execution_id)
+            return model.state, model.worker_name, model.park_deadline
+
+    def _expire(self, execution_id):
+        from datetime import datetime, timedelta, timezone
+
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            model = session.get(ExecutionContextModel, execution_id)
+            model.park_deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
+            session.commit()
+
+    def test_release_worker_starts_the_clock_for_a_bound_execution(self, clean_env, monkeypatch):
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name="w2")
+
+        with patch("flux.config.Configuration.get") as cfg:
+            cfg.return_value.settings.workers.park_ttl = 60
+            cm.release_worker(ctx.execution_id)
+
+        state, worker_name, deadline = self._row(ctx.execution_id)
+        assert state == ExecutionState.RESUMING
+        assert worker_name is None
+        assert deadline is not None
+
+    def test_clock_restarts_rather_than_reusing_the_submission_deadline(self, clean_env):
+        """A long-running execution that pauses hours after submission would
+        already be past its original deadline, and would be swept the instant
+        it entered RESUMING."""
+        from datetime import datetime, timedelta, timezone
+
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            model = session.get(ExecutionContextModel, ctx.execution_id)
+            model.state = ExecutionState.RESUMING
+            model.worker_name = "w2"
+            model.park_deadline = datetime.now(timezone.utc) - timedelta(hours=3)
+            session.commit()
+
+        with patch("flux.config.Configuration.get") as cfg:
+            cfg.return_value.settings.workers.park_ttl = 60
+            cm.release_worker(ctx.execution_id)
+
+        _, _, deadline = self._row(ctx.execution_id)
+        assert deadline > datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
+        assert cm.fail_expired_parked() == []
+
+    def test_expired_bound_resume_is_failed_with_a_diagnostic(self, clean_env):
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name=None)
+        self._expire(ctx.execution_id)
+
+        assert cm.fail_expired_parked() == [ctx.execution_id]
+
+        loaded = cm.get(ctx.execution_id)
+        assert loaded.has_failed
+        assert "w2" in str(loaded.output)
+        assert "resumed" in str(loaded.output)
+
+    def test_unbound_resuming_is_never_swept(self, clean_env):
+        """Any worker can take an unbound resume, so it is not stuck and must
+        keep the pre-existing behaviour of waiting."""
+        cm, registry = clean_env
+        _register_worker(registry, "w1")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name=None)
+        self._expire(ctx.execution_id)
+
+        assert cm.fail_expired_parked() == []
+
+    def test_assigned_bound_resume_is_never_swept(self, clean_env):
+        """Still assigned means still dispatchable to its worker; only the
+        released (unassigned) case is stuck."""
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        _force_state(ctx.execution_id, ExecutionState.RESUMING, worker_name="w2")
+        self._expire(ctx.execution_id)
+
+        assert cm.fail_expired_parked() == []
+
+    def test_unclaim_starts_the_clock_for_a_bound_execution(self, clean_env):
+        """The other route into bound-and-unassigned RESUMING: a worker that
+        crashed while resuming gets reaped through unclaim()."""
+        cm, registry = clean_env
+        _register_worker(registry, "w2")
+        wf_id = _create_workflow("plain")
+        ctx = _create_execution(cm, wf_id, name="plain")
+        self._bind(ctx.execution_id, "w2")
+        _force_state(ctx.execution_id, ExecutionState.RESUME_SCHEDULED, worker_name="w2")
+
+        with patch("flux.config.Configuration.get") as cfg:
+            cfg.return_value.settings.workers.park_ttl = 60
+            cm.unclaim(ctx.execution_id)
+
+        state, worker_name, deadline = self._row(ctx.execution_id)
+        assert (state, worker_name) == (ExecutionState.RESUMING, None)
+        assert deadline is not None

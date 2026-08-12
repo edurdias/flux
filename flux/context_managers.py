@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import and_
 from sqlalchemy import func
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -391,6 +392,25 @@ class DatabaseContextManager(ContextManager):
                 park_ttl=park_ttl,
             )
 
+    @staticmethod
+    def _stamp_park_deadline(model, park_ttl: int | None = None) -> None:
+        """Start the unclaimed clock. 0/unset means park indefinitely (NULL).
+
+        int() + fallback: a mocked/partial Configuration (common in tests)
+        must degrade to "no deadline", never break the caller.
+        """
+        ttl = park_ttl
+        if ttl is None:
+            try:
+                from flux.config import Configuration as _Configuration
+
+                ttl = int(_Configuration.get().settings.workers.park_ttl)
+            except Exception:
+                ttl = 0
+        model.park_deadline = (
+            datetime.now(timezone.utc) + timedelta(seconds=ttl) if ttl and ttl > 0 else None
+        )
+
     def _save_with_session(
         self,
         ctx: ExecutionContext,
@@ -425,20 +445,7 @@ class DatabaseContextManager(ContextManager):
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in
                 # tests) must degrade to "no deadline", never break a save.
-                effective_park_ttl = park_ttl
-                if effective_park_ttl is None:
-                    try:
-                        from flux.config import Configuration as _Configuration
-
-                        effective_park_ttl = int(
-                            _Configuration.get().settings.workers.park_ttl,
-                        )
-                    except Exception:
-                        effective_park_ttl = 0
-                if effective_park_ttl and effective_park_ttl > 0:
-                    new_model.park_deadline = datetime.now(timezone.utc) + timedelta(
-                        seconds=effective_park_ttl,
-                    )
+                self._stamp_park_deadline(new_model, park_ttl)
                 session.add(new_model)
             if manage_transaction:
                 session.commit()
@@ -561,7 +568,18 @@ class DatabaseContextManager(ContextManager):
                 session.query(ExecutionContextModel, WorkflowModel)
                 .join(WorkflowModel)
                 .filter(
-                    ExecutionContextModel.state == ExecutionState.CREATED,
+                    or_(
+                        ExecutionContextModel.state == ExecutionState.CREATED,
+                        # A bound execution released back to RESUMING waits on
+                        # one worker that may never return; nothing else can
+                        # take it, so it needs the same bound as an unclaimed
+                        # row (issue #212).
+                        and_(
+                            ExecutionContextModel.state == ExecutionState.RESUMING,
+                            ExecutionContextModel.required_worker.isnot(None),
+                            ExecutionContextModel.worker_name.is_(None),
+                        ),
+                    ),
                     ExecutionContextModel.park_deadline.isnot(None),
                     ExecutionContextModel.park_deadline < now,
                 )
@@ -578,11 +596,16 @@ class DatabaseContextManager(ContextManager):
                 if workflow.requests:
                     constraints.append("resource requests present")
                 detail = "; ".join(constraints) if constraints else "no declared constraints"
+                verb = (
+                    "resumed"
+                    if model.state == ExecutionState.RESUMING
+                    else "claimed this execution"
+                )
                 self._fail_undispatchable(
                     model,
                     session,
                     (
-                        f"No eligible worker claimed this execution before its "
+                        f"No eligible worker {verb} before its "
                         f"park deadline ({model.park_deadline}); {detail}. "
                         "A worker matching the execution's constraints never "
                         "became available within the park TTL."
@@ -1316,6 +1339,11 @@ class DatabaseContextManager(ContextManager):
             if model.state in resume_recovery:
                 model.state = ExecutionState.RESUMING
                 model.worker_name = None
+                if model.required_worker:
+                    # Now waiting on one worker with no fallback, so restart
+                    # the clock here rather than reusing the submission-time
+                    # deadline, which a long run would already be past.
+                    self._stamp_park_deadline(model)
                 # Fence the old owner: without the bump, a partitioned-but-
                 # alive worker's late checkpoint (same generation) is accepted
                 # and can drag the reset row back to RUNNING with no owner —
@@ -1349,6 +1377,8 @@ class DatabaseContextManager(ContextManager):
             if model.state not in releasable:
                 return model.to_plain()
             model.worker_name = None
+            if model.required_worker and model.state == ExecutionState.RESUMING:
+                self._stamp_park_deadline(model)
             session.commit()
             return model.to_plain()
 
