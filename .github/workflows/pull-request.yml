@@ -340,6 +340,21 @@ jobs:
       if: steps.cached-e2e-deps.outputs.cache-hit == 'true'
       run: poetry install --no-interaction
 
+    # KEEP_LOGS + a fixed basetemp so the server/worker logs survive teardown
+    # at a path the upload step can name. The cancellation flake (#189) has
+    # only ever reproduced in CI, so a failing run must leave evidence.
     - name: Run E2E tests
+      env:
+        FLUX_E2E_KEEP_LOGS: "1"
       run: |
-        poetry run pytest tests/e2e/ -m "not ollama and not network" -v
+        poetry run pytest tests/e2e/ -m "not ollama and not network" -v --basetemp=e2e-tmp
+
+    # Only on failure: a green run's logs are large and say nothing.
+    - name: Archive e2e logs
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: e2e-logs
+        path: e2e-tmp/**/logs/
+        retention-days: 14
+        if-no-files-found: warn
