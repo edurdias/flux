@@ -60,8 +60,18 @@ async def _call_in_process(workflow: workflow_cls, args: tuple):
     )
 
 
-@task.with_options(name="call_workflow_{workflow}")
-async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async"] = "sync"):
+# routing_input never enters the task id: that id is the source_id of a
+# recorded event, and anything holding execution:*:read — the `worker` role
+# included — could read the parent execution and brute-force a small cohort
+# space offline, recovering values this channel exists to hide (#211). The
+# occurrence counter already disambiguates repeated calls.
+@task.with_options(name="call_workflow_{workflow}", digest_exclude=("routing_input",))
+async def call(
+    workflow: workflow_cls | str,
+    *args,
+    mode: Literal["sync", "async"] = "sync",
+    routing_input: dict | None = None,
+):
     """Call a workflow — in-process when possible, otherwise via the HTTP API.
 
     Args:
@@ -86,7 +96,10 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
     from flux.catalogs import resolve_workflow_ref
     from flux.config import Configuration
 
+    from flux.routing_input import validate_routing_input
+
     settings = Configuration.get().settings
+    checked_routing_input = validate_routing_input(routing_input)
 
     if isinstance(workflow, workflow_cls):
         namespace = workflow.namespace
@@ -99,6 +112,14 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
             # may run inside the caller's process.
             and workflow.runner in (None, "inprocess")
             and settings.workers.transient_fast_path
+            # Routing values are matched by the dispatcher, which the fast
+            # path skips entirely. Taking it would discard them silently —
+            # the failure this feature refuses everywhere else (#211).
+            # Consequence worth knowing: a transient sync child can tell the
+            # two paths apart (a dispatched one has a real execution_id and
+            # token), so routing a probe this way hides the values but not the
+            # fact of routing. Documented in dynamic-routing.md.
+            and not routing_input
         ):
             return await _call_in_process(workflow, args)
     else:
@@ -123,10 +144,19 @@ async def call(workflow: workflow_cls | str, *args, mode: Literal["sync", "async
         # eligible. A hint only — the server's matching still decides.
         async with await FluxClient.for_current_execution() as client:
             if mode == "async":
-                data = await client.run_workflow(workflow_ref, payload)
+                data = await client.run_workflow(
+                    workflow_ref,
+                    payload,
+                    routing_input=checked_routing_input,
+                )
                 return data["execution_id"]
 
-            data = await client.run_workflow_sync(workflow_ref, payload, detailed=True)
+            data = await client.run_workflow_sync(
+                workflow_ref,
+                payload,
+                detailed=True,
+                routing_input=checked_routing_input,
+            )
 
             ctx: ExecutionContext = ExecutionContext(
                 workflow_id=data["workflow_id"],

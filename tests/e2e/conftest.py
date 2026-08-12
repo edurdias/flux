@@ -140,11 +140,12 @@ class FluxCLI:
         input: str = "null",
         mode: str = "sync",
         timeout: int = 60,
+        routing_input: dict[str, str] | None = None,
     ) -> dict:
-        return self._server_json(
-            ["workflow", "run", ref, input, "--mode", mode],
-            timeout=timeout,
-        )
+        args = ["workflow", "run", ref, input, "--mode", mode]
+        for key, value in (routing_input or {}).items():
+            args.extend(["--routing-input", f"{key}={value}"])
+        return self._server_json(args, timeout=timeout)
 
     def show(self, ref: str) -> dict:
         return self._server_json(["workflow", "show", ref, "--format", "json"])

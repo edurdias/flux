@@ -90,6 +90,7 @@ class ScheduleRequest(BaseModel):
     schedule_config: dict  # Schedule configuration (cron expression, interval, etc.)
     description: str | None = None
     input_data: Any | None = None
+    routing_input: dict | None = None
     run_as_service_account: str | None = None
 
 
@@ -124,6 +125,7 @@ class ScheduleUpdateRequest(BaseModel):
     schedule_config: dict | None = None
     description: str | None = None
     input_data: Any | None = None
+    routing_input: dict | None = None
     run_as_service_account: str | None = None
 
 

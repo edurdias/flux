@@ -46,6 +46,7 @@ class ScheduleManager(ABC):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
     ) -> ScheduleModel:
@@ -80,6 +81,7 @@ class ScheduleManager(ABC):
         schedule: Schedule | None = None,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
@@ -163,6 +165,7 @@ class DatabaseScheduleManager(ScheduleManager):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
     ) -> ScheduleModel:
@@ -192,6 +195,7 @@ class DatabaseScheduleManager(ScheduleManager):
                     schedule=schedule,
                     description=description,
                     input_data=input_data,
+                    routing_input=routing_input,
                     run_as_service_account=run_as_service_account,
                 )
 
@@ -266,6 +270,7 @@ class DatabaseScheduleManager(ScheduleManager):
         schedule: Schedule | None = None,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         run_as_service_account: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
@@ -287,6 +292,12 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 if input_data is not None:
                     schedule_model.input_data = input_data
+
+                if routing_input is not None:
+                    # {} clears: validate_routing_input normalises an empty
+                    # object to None, so without this an operator could set
+                    # routing values on a schedule and never remove them.
+                    schedule_model.routing_input = routing_input or None
 
                 if run_as_service_account is not None:
                     schedule_model.run_as_service_account = run_as_service_account

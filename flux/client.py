@@ -12,6 +12,20 @@ logger = get_logger(__name__)
 DEFAULT_TIMEOUT: float = 10.0
 
 
+def _routing_input_headers(routing_input: dict | None) -> dict[str, str] | None:
+    """Per-request routing values.
+
+    ``for_current_execution`` sets ``X-Flux-Preferred-Worker`` as a
+    client-level default, so routing values — which are per call, not per
+    client — need their own channel rather than reusing it.
+    """
+    if not routing_input:
+        return None
+    import json as _json
+
+    return {"X-Flux-Routing-Input": _json.dumps(routing_input)}
+
+
 class FluxClient:
     """Async HTTP client for the Flux REST API."""
 
@@ -112,11 +126,17 @@ class FluxClient:
         response.raise_for_status()
         return response.json()
 
-    async def run_workflow(self, workflow_ref: str, input_data: Any = None) -> dict[str, Any]:
+    async def run_workflow(
+        self,
+        workflow_ref: str,
+        input_data: Any = None,
+        routing_input: dict | None = None,
+    ) -> dict[str, Any]:
         namespace, name = resolve_workflow_ref(workflow_ref)
         response = await self._http_client.post(
             f"/workflows/{namespace}/{name}/run/async",
             json=input_data,
+            headers=_routing_input_headers(routing_input),
         )
         response.raise_for_status()
         return response.json()
@@ -126,6 +146,7 @@ class FluxClient:
         workflow_ref: str,
         input_data: Any = None,
         detailed: bool = False,
+        routing_input: dict | None = None,
     ) -> dict[str, Any]:
         namespace, name = resolve_workflow_ref(workflow_ref)
         # Only add params when asked: existing callers (and their tests) pin
@@ -133,6 +154,9 @@ class FluxClient:
         kwargs: dict[str, Any] = {"json": input_data}
         if detailed:
             kwargs["params"] = {"detailed": "true"}
+        headers = _routing_input_headers(routing_input)
+        if headers:
+            kwargs["headers"] = headers
         response = await self._http_client.post(
             f"/workflows/{namespace}/{name}/run/sync",
             **kwargs,

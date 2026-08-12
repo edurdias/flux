@@ -30,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0022_execution_required_worker"
+HEAD = "0023_routing_input"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

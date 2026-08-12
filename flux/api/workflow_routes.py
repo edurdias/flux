@@ -27,6 +27,7 @@ from flux.errors import (
     WorkerNotFoundError,
     WorkflowNotFoundError,
 )
+from flux.routing_input import RoutingInputError, parse_routing_input_header
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -202,6 +203,9 @@ class WorkflowRoutesMixin:
             park_ttl: int | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             required_worker: str | None = Header(None, alias="X-Flux-Require-Worker"),
+            # list[str] so FastAPI uses getlist(): as `str` it would silently
+            # keep only the first of repeated headers (#211).
+            routing_input: list[str] | None = Header(None, alias="X-Flux-Routing-Input"),
             identity: FluxIdentity = Depends(get_identity),
         ):
             try:
@@ -299,6 +303,15 @@ class WorkflowRoutesMixin:
                         detail="park_ttl must be >= 0 (0 disables the bound)",
                     )
 
+                # Routing-only values (issue #211): matched at dispatch, never
+                # delivered. Rejected rather than dropped — a discarded routing
+                # directive routes the execution somewhere the caller did not
+                # intend, and that is invisible from outside.
+                try:
+                    parsed_routing_input = parse_routing_input_header(routing_input)
+                except RoutingInputError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 ctx = self._create_execution(
                     namespace,
                     workflow_name,
@@ -306,8 +319,20 @@ class WorkflowRoutesMixin:
                     version,
                     preferred_worker=preferred_worker,
                     required_worker=required_worker,
+                    routing_input=parsed_routing_input,
                     park_ttl=park_ttl,
                 )
+
+                if parsed_routing_input:
+                    # Key names only. They are already public (they appear in
+                    # the workflow source); the values and their presence are
+                    # not, and this log is not reachable through the execution
+                    # API a worker can call. It is the only operator-visible
+                    # trace of a routing directive, by design.
+                    logger.info(
+                        f"Execution {ctx.execution_id} carries routing input "
+                        f"keys: {sorted(parsed_routing_input)}",
+                    )
                 manager = ContextManager.create()
 
                 # Record agent-session linkage for "agents" namespace runs so

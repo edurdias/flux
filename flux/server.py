@@ -487,6 +487,7 @@ class Server(
         version: int | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
@@ -505,6 +506,7 @@ class Server(
             ),
             preferred_worker=preferred_worker or None,
             required_worker=required_worker or None,
+            routing_input=routing_input or None,
             park_ttl=park_ttl,
         )
 
@@ -1210,7 +1212,17 @@ class Server(
                 _sched_ns,
                 schedule.workflow_name,
                 schedule.input_data,
+                routing_input=schedule.routing_input,
             )
+
+            if schedule.routing_input:
+                # Key names only, as at the run endpoint. Schedules are where
+                # routing values are set once and applied to every later fire,
+                # so this is the trace that matters most.
+                logger.info(
+                    f"Execution {ctx.execution_id} carries routing input keys "
+                    f"from schedule '{schedule.name}': {sorted(schedule.routing_input)}",
+                )
 
             # Link the execution to its schedule (so history can be scoped to
             # this schedule) and, when auth is on, attach its execution token.

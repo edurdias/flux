@@ -641,6 +641,10 @@ class ExecutionContextModel(Base):
     # Never falls back — from outside, a fallback is indistinguishable from
     # the binding having been honoured. Unsatisfiable parks.
     required_worker = Column(String, nullable=True)
+    # Values dispatch matches on that the worker never receives (issue #211).
+    # Signed like `input`: caller-supplied and deserialized in the dispatch
+    # loop, where dill would execute on load.
+    routing_input = Column(SignedPickleType(), nullable=True)
     scheduling_subject = Column(String, nullable=True)
     scheduling_principal_issuer = Column(String, nullable=True)
     # Set when the execution was dispatched by a schedule; lets schedule
@@ -925,6 +929,9 @@ class ScheduleModel(Base):
     # Optional input for scheduled executions
     input_data = Column(SignedPickleType(), nullable=True)
 
+    # Routing-only values stamped onto every execution this schedule fires.
+    routing_input = Column(SignedPickleType(), nullable=True)
+
     # Service account to run scheduled executions as (required when auth is enabled)
     run_as_service_account = Column(String, nullable=True)
 
@@ -961,6 +968,7 @@ class ScheduleModel(Base):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
@@ -974,6 +982,7 @@ class ScheduleModel(Base):
         self.schedule_type = schedule.type
         self.status = status
         self.input_data = input_data
+        self.routing_input = routing_input
         self.run_as_service_account = run_as_service_account
         # getattr: Schedule objects unpickled from pre-#142 rows have no
         # overlap attribute.

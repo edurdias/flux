@@ -4,7 +4,7 @@ from abc import ABC
 from abc import abstractmethod
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import and_
 from sqlalchemy import func
@@ -72,6 +72,7 @@ class ContextManager(ABC):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
@@ -84,6 +85,7 @@ class ContextManager(ABC):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
@@ -356,6 +358,7 @@ class DatabaseContextManager(ContextManager):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> ExecutionContext:
         self.save_checked(
@@ -363,6 +366,7 @@ class DatabaseContextManager(ContextManager):
             uow=uow,
             preferred_worker=preferred_worker,
             required_worker=required_worker,
+            routing_input=routing_input,
             park_ttl=park_ttl,
         )
         return ctx
@@ -374,6 +378,7 @@ class DatabaseContextManager(ContextManager):
         uow: UnitOfWork | None = None,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         if uow is not None:
@@ -383,6 +388,7 @@ class DatabaseContextManager(ContextManager):
                 manage_transaction=False,
                 preferred_worker=preferred_worker,
                 required_worker=required_worker,
+                routing_input=routing_input,
                 park_ttl=park_ttl,
             )
         with self.session() as session:
@@ -392,6 +398,7 @@ class DatabaseContextManager(ContextManager):
                 manage_transaction=True,
                 preferred_worker=preferred_worker,
                 required_worker=required_worker,
+                routing_input=routing_input,
                 park_ttl=park_ttl,
             )
 
@@ -422,6 +429,7 @@ class DatabaseContextManager(ContextManager):
         manage_transaction: bool,
         preferred_worker: str | None = None,
         required_worker: str | None = None,
+        routing_input: dict | None = None,
         park_ttl: int | None = None,
     ) -> bool:
         try:
@@ -455,6 +463,8 @@ class DatabaseContextManager(ContextManager):
                     new_model.preferred_worker = preferred_worker
                 if required_worker:
                     new_model.required_worker = required_worker
+                if routing_input:
+                    new_model.routing_input = routing_input
                 # Park TTL (issue #157): per-run override wins; otherwise the
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in
@@ -513,8 +523,11 @@ class DatabaseContextManager(ContextManager):
         self,
         worker: WorkerInfo,
         workflow: WorkflowModel,
-        input_value: Any = None,
+        model,
     ) -> bool:
+        """Takes the row rather than its input so a caller cannot pass one
+        value source and forget the other — a missed routing value resolves
+        against ``input`` and silently matches on the wrong thing (#211)."""
         from flux.domain.resource_request import worker_matches
 
         return worker_matches(
@@ -522,7 +535,8 @@ class DatabaseContextManager(ContextManager):
             workflow.requests,
             workflow.affinity,
             runner=(workflow.wf_metadata or {}).get("runner"),
-            input_value=input_value,
+            input_value=model.input,
+            routing_value=model.routing_input,
         )
 
     def _affinity_diagnostic(self, workflow: WorkflowModel, model) -> str | None:
@@ -538,7 +552,7 @@ class DatabaseContextManager(ContextManager):
             return None
         from flux.routing import require_diagnostic
 
-        return require_diagnostic(workflow.affinity, model.input)
+        return require_diagnostic(workflow.affinity, model.input, model.routing_input)
 
     def _fail_undispatchable(
         self,
@@ -813,7 +827,7 @@ class DatabaseContextManager(ContextManager):
                 # nothing ends up claimed on this poll tick.
                 session.info["affinity_failed"] = True
                 continue
-            if not self._worker_matches_workflow(worker, workflow, model.input):
+            if not self._worker_matches_workflow(worker, workflow, model):
                 continue
             return model, workflow
         return None, None
@@ -938,7 +952,7 @@ class DatabaseContextManager(ContextManager):
                     .with_for_update(skip_locked=True)
                 )
                 for model, workflow in fallback_query:
-                    if self._worker_matches_workflow(worker, workflow, model.input):
+                    if self._worker_matches_workflow(worker, workflow, model):
                         result = (model, workflow)
                         break
 
@@ -1112,7 +1126,7 @@ class DatabaseContextManager(ContextManager):
                     # Binding before the matcher: a bound execution has one
                     # candidate, so matching the fleet is discarded work.
                     if (not model.required_worker or w.name == model.required_worker)
-                    and self._worker_matches_workflow(w, workflow, model.input)
+                    and self._worker_matches_workflow(w, workflow, model)
                 ]
                 if not eligible:
                     if unmatched is not None:
@@ -1135,6 +1149,7 @@ class DatabaseContextManager(ContextManager):
                         policy,
                         loads=loads,
                         input_value=model.input,
+                        routing_value=model.routing_input,
                         preferred=preferred,
                     )
                 elif preferred:
@@ -1236,7 +1251,7 @@ class DatabaseContextManager(ContextManager):
                         for w in workers
                         if self._has_free_slot(w, loads)
                         and (not model.required_worker or w.name == model.required_worker)
-                        and self._worker_matches_workflow(w, workflow, model.input)
+                        and self._worker_matches_workflow(w, workflow, model)
                     ]
                     if not eligible:
                         continue

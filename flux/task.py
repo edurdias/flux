@@ -93,6 +93,7 @@ class _WithOptions:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        digest_exclude: tuple[str, ...] = (),
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
         risk: str | None = None,
@@ -114,6 +115,7 @@ class _WithOptions:
                 cache=cache,
                 metadata=metadata,
                 auth_exempt=auth_exempt,
+                digest_exclude=digest_exclude,
                 requires_approval=requires_approval,
                 approval_target=approval_target,
                 risk=risk,
@@ -142,6 +144,7 @@ class task:
         cache: bool = False,
         metadata: bool = False,
         auth_exempt: bool = False,
+        digest_exclude: tuple[str, ...] = (),
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] = False,
         approval_target: str | None = None,
         risk: str | None = None,
@@ -170,6 +173,11 @@ class task:
         self.cache = cache
         self.metadata = metadata
         self.auth_exempt = auth_exempt
+        # kwargs kept out of the identity digest. The digest is the task_id,
+        # which is also the cache key and the approval call_id, so excluding a
+        # kwarg here makes calls differing only in it identical — declared per
+        # task rather than by name in the shared machinery.
+        self.digest_exclude = digest_exclude
         self.requires_approval = requires_approval
         # Name of the argument whose value a target-scoped standing grant
         # binds to (issue #143). A task that declares nothing cannot mint
@@ -238,6 +246,18 @@ class task:
             detail = f"{type_name}: {detail}"
         return ExecutionError(message=detail)
 
+    def _digest_kwargs(self, kwargs: dict) -> dict:
+        """kwargs contributing to the task id, minus any the task excludes.
+
+        The id is also the cache key and the approval call_id, so an excluded
+        kwarg makes calls differing only in it identical — right for
+        call(routing_input=...), wrong for a task that merely happens to take
+        a kwarg of that name.
+        """
+        if not self.digest_exclude:
+            return kwargs
+        return {k: v for k, v in kwargs.items() if k not in self.digest_exclude}
+
     @staticmethod
     def _compute_task_id(full_name: str, task_args: dict, args: tuple, kwargs: dict) -> str:
         """Deterministic, cross-process-stable id for a task call.
@@ -259,7 +279,12 @@ class task:
         task_args = get_func_args(self._func, args)
         full_name = self.name.format(**task_args)
 
-        task_id = self._compute_task_id(full_name, task_args, args, kwargs)
+        task_id = self._compute_task_id(
+            full_name,
+            task_args,
+            args,
+            self._digest_kwargs(kwargs),
+        )
 
         ctx = await ExecutionContext.get()
 
@@ -602,6 +627,7 @@ class task:
         cache: bool | None = None,
         metadata: bool | None = None,
         auth_exempt: bool | None = None,
+        digest_exclude: tuple[str, ...] | None = None,
         requires_approval: bool | Callable[..., bool | Awaitable[bool]] | None = None,
         approval_target: str | None = None,
         risk: str | None = None,
@@ -629,6 +655,7 @@ class task:
             cache=cache if cache is not None else self.cache,
             metadata=metadata if metadata is not None else self.metadata,
             auth_exempt=auth_exempt if auth_exempt is not None else self.auth_exempt,
+            digest_exclude=(digest_exclude if digest_exclude is not None else self.digest_exclude),
             requires_approval=(
                 requires_approval if requires_approval is not None else self.requires_approval
             ),
