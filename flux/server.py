@@ -1212,6 +1212,7 @@ class Server(
                 _sched_ns,
                 schedule.workflow_name,
                 schedule.input_data,
+                routing_input=schedule.routing_input,
             )
 
             # Link the execution to its schedule (so history can be scoped to

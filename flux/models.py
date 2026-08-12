@@ -968,6 +968,7 @@ class ScheduleModel(Base):
         schedule: Schedule,
         description: str | None = None,
         input_data: Any = None,
+        routing_input: dict | None = None,
         status: ScheduleStatus = ScheduleStatus.ACTIVE,
         run_as_service_account: str | None = None,
         workflow_namespace: str = "default",
@@ -981,6 +982,7 @@ class ScheduleModel(Base):
         self.schedule_type = schedule.type
         self.status = status
         self.input_data = input_data
+        self.routing_input = routing_input
         self.run_as_service_account = run_as_service_account
         # getattr: Schedule objects unpickled from pre-#142 rows have no
         # overlap attribute.

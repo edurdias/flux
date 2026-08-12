@@ -19,6 +19,7 @@ from flux.errors import WorkflowNotFoundError
 from flux.schedule_manager import create_schedule_manager
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
+from flux.routing_input import RoutingInputError, validate_routing_input
 from flux.utils import get_logger
 from flux.api.schemas import (
     ScheduleRequest,
@@ -196,6 +197,11 @@ class ScheduleRoutesMixin:
                 # Create schedule from configuration
                 schedule = schedule_factory(request.schedule_config)
 
+                try:
+                    checked_routing_input = validate_routing_input(request.routing_input)
+                except RoutingInputError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 # Create schedule via manager
                 schedule_manager = create_schedule_manager()
                 schedule_model = schedule_manager.create_schedule(
@@ -206,6 +212,7 @@ class ScheduleRoutesMixin:
                     schedule=schedule,
                     description=request.description,
                     input_data=request.input_data,
+                    routing_input=checked_routing_input,
                     run_as_service_account=request.run_as_service_account,
                 )
 
@@ -408,6 +415,11 @@ class ScheduleRoutesMixin:
                             },
                         )
 
+                try:
+                    checked_routing_input = validate_routing_input(request.routing_input)
+                except RoutingInputError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 # Build update parameters
                 schedule_param = None
                 if request.schedule_config is not None:
@@ -419,6 +431,7 @@ class ScheduleRoutesMixin:
                     schedule=schedule_param,
                     description=request.description,
                     input_data=request.input_data,
+                    routing_input=checked_routing_input,
                     run_as_service_account=request.run_as_service_account,
                 )
 
