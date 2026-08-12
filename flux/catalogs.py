@@ -165,6 +165,12 @@ def _enrich_workflow_metadata(source: bytes, workflow_infos: list) -> None:
 
 logger = get_logger(__name__)
 
+# Both spellings of a per-execution value reference. routing_input() resolves
+# from the routing-only column instead of `input`, and both AST parsers below
+# (affinity and routing) must accept either — a spelling one parser rejects
+# fails registration in only one of the two decorator arguments (#211).
+_VALUE_REF_CALLS = ("input", "routing_input")
+
 
 def resolve_workflow_ref(ref: str | None) -> tuple[str, str]:
     """Parse a user-provided workflow reference into ``(namespace, name)``.
@@ -615,12 +621,14 @@ class WorkflowCatalog(ABC):
 
         def extract_input_ref(ref_node: ast.AST) -> Any:
             assert isinstance(ref_node, ast.Call)
+            name = call_name(ref_node) or "input"
+            factory = routing_dsl.routing_input if name == "routing_input" else routing_dsl.input
             if len(ref_node.args) == 1 and isinstance(ref_node.args[0], ast.Constant):
                 try:
-                    return routing_dsl.input(ref_node.args[0].value)
+                    return factory(ref_node.args[0].value)
                 except (TypeError, ValueError) as e:
-                    raise SyntaxError(f"Invalid input() reference: {e}") from e
-            fail("input() takes a single literal path")
+                    raise SyntaxError(f"Invalid {name}() reference: {e}") from e
+            fail(f"{name}() takes a single literal path")
 
         def extract_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
@@ -638,7 +646,7 @@ class WorkflowCatalog(ABC):
                 if (
                     len(sel_node.args) == 2
                     and isinstance(sel_node.args[0], ast.Constant)
-                    and call_name(sel_node.args[1]) == "input"
+                    and call_name(sel_node.args[1]) in _VALUE_REF_CALLS
                 ):
                     try:
                         return dyn(
@@ -653,7 +661,7 @@ class WorkflowCatalog(ABC):
         def extract_value(value_node: ast.AST) -> Any:
             if isinstance(value_node, ast.Constant):
                 return value_node.value
-            if call_name(value_node) == "input":
+            if call_name(value_node) in _VALUE_REF_CALLS:
                 return extract_input_ref(value_node)
             fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
 
@@ -730,10 +738,10 @@ class WorkflowCatalog(ABC):
             if op is None:
                 fail(f"unsupported when() operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) == "input" or call_name(right) == "input":
+            if call_name(left) in _VALUE_REF_CALLS or call_name(right) in _VALUE_REF_CALLS:
                 if op not in ("==", "!="):
                     fail("when() input conditions support only == and !=")
-                if call_name(left) == "input":
+                if call_name(left) in _VALUE_REF_CALLS:
                     ref, const = extract_input_ref(left), right
                 else:
                     ref, const = extract_input_ref(right), left
@@ -763,7 +771,7 @@ class WorkflowCatalog(ABC):
             arg = svc_node.args[0]
             if isinstance(arg, ast.Constant):
                 value: Any = arg.value
-            elif call_name(arg) == "input":
+            elif call_name(arg) in _VALUE_REF_CALLS:
                 value = extract_input_ref(arg)
             else:
                 fail("service() takes a literal name or input(...)")
@@ -861,12 +869,14 @@ class WorkflowCatalog(ABC):
 
         def extract_input_ref(ref_node: ast.AST) -> Any:
             assert isinstance(ref_node, ast.Call)
+            name = call_name(ref_node) or "input"
+            factory = routing_dsl.routing_input if name == "routing_input" else routing_dsl.input
             if len(ref_node.args) == 1 and isinstance(ref_node.args[0], ast.Constant):
                 try:
-                    return routing_dsl.input(ref_node.args[0].value)
+                    return factory(ref_node.args[0].value)
                 except (TypeError, ValueError) as e:
-                    raise SyntaxError(f"Invalid input() reference: {e}") from e
-            fail("input() takes a single literal path")
+                    raise SyntaxError(f"Invalid {name}() reference: {e}") from e
+            fail(f"{name}() takes a single literal path")
 
         def extract_selector(sel_node: ast.AST) -> Any:
             name = call_name(sel_node)
@@ -881,7 +891,7 @@ class WorkflowCatalog(ABC):
                 if (
                     len(sel_node.args) == 2
                     and isinstance(sel_node.args[0], ast.Constant)
-                    and call_name(sel_node.args[1]) == "input"
+                    and call_name(sel_node.args[1]) in _VALUE_REF_CALLS
                 ):
                     try:
                         return dyn(
@@ -910,7 +920,7 @@ class WorkflowCatalog(ABC):
         def extract_value(value_node: ast.AST) -> Any:
             if isinstance(value_node, ast.Constant):
                 return value_node.value
-            if call_name(value_node) == "input":
+            if call_name(value_node) in _VALUE_REF_CALLS:
                 return extract_input_ref(value_node)
             fail(f"unsupported value expression at line {getattr(value_node, 'lineno', '?')}")
 
@@ -975,10 +985,10 @@ class WorkflowCatalog(ABC):
             if op is None:
                 fail(f"unsupported when() operator at line {cond_node.lineno}")
             left, right = cond_node.left, cond_node.comparators[0]
-            if call_name(left) == "input" or call_name(right) == "input":
+            if call_name(left) in _VALUE_REF_CALLS or call_name(right) in _VALUE_REF_CALLS:
                 if op not in ("==", "!="):
                     fail("when() input conditions support only == and !=")
-                if call_name(left) == "input":
+                if call_name(left) in _VALUE_REF_CALLS:
                     ref, const = extract_input_ref(left), right
                 else:
                     ref, const = extract_input_ref(right), left
@@ -1008,7 +1018,7 @@ class WorkflowCatalog(ABC):
             arg = svc_node.args[0]
             if isinstance(arg, ast.Constant):
                 value: Any = arg.value
-            elif call_name(arg) == "input":
+            elif call_name(arg) in _VALUE_REF_CALLS:
                 value = extract_input_ref(arg)
             else:
                 fail("service() takes a literal name or input(...)")
