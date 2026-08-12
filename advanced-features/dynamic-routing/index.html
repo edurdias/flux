@@ -1880,10 +1880,11 @@ holds in <strong>both</strong> dispatch modes — unlike the advisory hint, whic
 event-mode only — and it is re-applied when a paused execution resumes. It is
 enforced on the claim endpoint too, so a worker cannot take a bound execution
 by claiming it directly.</p>
-<p>One gap to know about: if a bound execution is paused and its worker is then
-evicted, it waits in <code>RESUMING</code> for that worker to come back, and the
-park-TTL sweep does not cover that state (it sweeps unclaimed executions
-only). Such a row waits indefinitely rather than failing.</p>
+<p>If a bound execution is released back to <code>RESUMING</code> — its worker evicted, or
+reaped after crashing mid-resume — it waits on that worker with no fallback,
+so the park TTL covers that case too. The clock restarts at the moment it
+becomes unassigned rather than running from submission, since a long-running
+execution that pauses hours in would otherwise be failed immediately.</p>
 <p>The workflow's own constraints still apply on top: the named worker must also
 satisfy <code>affinity=</code>/<code>requests</code>. A <code>routing=score(...)</code> policy then ranks a
 single survivor, so <code>sticky()</code> alongside a binding header is redundant rather
