@@ -1119,6 +1119,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#binding-an-execution-to-one-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding an execution to one worker
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1473,6 +1484,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#binding-an-execution-to-one-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Binding an execution to one worker
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1792,6 +1814,83 @@ prefer that worker when eligible — keeping mesh hops on warm module caches.
 A workflow <strong>with</strong> a policy takes full ownership of the score stage;
 include <code>sticky(weight=...)</code> to blend the hint into your ranking, or omit
 it to override the hint entirely.</p>
+<h2 id="binding-an-execution-to-one-worker">Binding an execution to one worker<a class="headerlink" href="#binding-an-execution-to-one-worker" title="Permanent link">&para;</a></h2>
+<p>The hint above is advisory: dispatch silently places the execution elsewhere
+when the named worker is busy or gone. That is wrong whenever the execution
+is a check <em>on</em> a worker — verification, an A/B against one instance,
+reproducing a fault on a suspect node — because falling back is
+indistinguishable from success at the client.</p>
+<p><code>X-Flux-Require-Worker</code> is the binding counterpart:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>localhost:8000/workflows/default/verify/run/async<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">     </span>-H<span class="w"> </span><span class="s2">&quot;X-Flux-Require-Worker: worker-7&quot;</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>X-Flux-Preferred-Worker</code></th>
+<th><code>X-Flux-Require-Worker</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Busy or offline worker</td>
+<td>falls back</td>
+<td>parks, never falls back</td>
+</tr>
+<tr>
+<td>Invalid value</td>
+<td>dropped</td>
+<td>rejected (400)</td>
+</tr>
+<tr>
+<td>Unknown worker name</td>
+<td>dropped</td>
+<td>rejected (400)</td>
+</tr>
+<tr>
+<td>Permission</td>
+<td>none beyond run</td>
+<td><code>worker:{name}:target</code></td>
+</tr>
+</tbody>
+</table>
+<p>It is a <strong>header, not a policy term</strong>, on purpose: <code>affinity=</code> is declared in
+workflow source and fixed at registration, but "run <em>this</em> execution on
+worker-7" is decided per call. A <code>require()</code> term that applied only when a
+header happened to be present would not be a hard constraint at all.</p>
+<p>If both headers are sent the binding wins and the hint is ignored — a binding
+leaves one eligible worker, so the hint has nothing left to order. (It is not
+an error because <code>FluxClient.for_current_execution()</code> attaches the hint
+automatically inside a running workflow, so rejecting would break the very
+case this feature exists for.)</p>
+<p>The name must belong to a worker that has registered at least once; an
+unknown name is a 400 rather than an execution that can only park. Binding to
+a <strong>registered but currently offline</strong> worker is fine and parks until it
+returns.</p>
+<p><strong>It parks rather than falling back.</strong> If the named worker is offline or
+fails the workflow's own <code>affinity</code>/<code>requests</code>, the execution stays
+unclaimed. Whether that park ever ends is governed by <code>park_ttl</code>, which
+<strong>defaults to <code>0</code> — park indefinitely</strong>. Set a non-zero <code>[flux.workers]
+park_ttl</code> (or pass <code>?park_ttl=</code> per run) if you want a bound execution to
+fail terminally with a <code>ParkTimeoutError</code> naming the worker instead of
+waiting forever.</p>
+<p>Because the binding is a filter on the execution row rather than a score, it
+holds in <strong>both</strong> dispatch modes — unlike the advisory hint, which is
+event-mode only — and it is re-applied when a paused execution resumes. It is
+enforced on the claim endpoint too, so a worker cannot take a bound execution
+by claiming it directly.</p>
+<p>One gap to know about: if a bound execution is paused and its worker is then
+evicted, it waits in <code>RESUMING</code> for that worker to come back, and the
+park-TTL sweep does not cover that state (it sweeps unclaimed executions
+only). Such a row waits indefinitely rather than failing.</p>
+<p>The workflow's own constraints still apply on top: the named worker must also
+satisfy <code>affinity=</code>/<code>requests</code>. A <code>routing=score(...)</code> policy then ranks a
+single survivor, so <code>sticky()</code> alongside a binding header is redundant rather
+than contradictory.</p>
+<p>The directive never reaches the worker. It arrives as a header, lives on the
+execution row, and is absent from the context serialized to the worker — so a
+workflow that checks a worker cannot tip it off, which is the point.</p>
 
 
 

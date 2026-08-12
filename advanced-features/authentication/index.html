@@ -2182,6 +2182,15 @@ rebind schedules.</p>
 </tr>
 </tbody>
 </table>
+<p>Binding an execution to a named worker with the <code>X-Flux-Require-Worker</code>
+header additionally requires <code>worker:{name}:target</code> on top of the workflow's
+run permission — it concentrates load on one node and compels that node to
+run the code, which running the workflow alone does not authorize. The grant
+is per worker, so <code>worker:build-7:target</code> does not permit binding to another.
+<code>worker:*:*</code> (held by the <code>worker</code> role, and by <code>admin</code> via <code>*</code>) satisfies it
+for any worker. The advisory <code>X-Flux-Preferred-Worker</code> needs no grant: it
+cannot force placement. See
+<a href="../dynamic-routing/#binding-an-execution-to-one-worker">Dynamic Routing</a>.</p>
 <h3 id="worker-bootstrap-token">Worker bootstrap token<a class="headerlink" href="#worker-bootstrap-token" title="Permanent link">&para;</a></h3>
 <p><code>POST /workers/register</code> is gated by a long-lived shared secret rather than the auth-service permission system. Resolution order on the server:</p>
 <ol>
