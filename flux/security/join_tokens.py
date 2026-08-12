@@ -84,6 +84,36 @@ def mint(
     return token, expires_at
 
 
+def is_claimable(token: str, worker_name: str) -> bool:
+    """Whether ``claim`` would succeed, without consuming the token.
+
+    Registration needs to know a credential is valid *before* deciding whether
+    the principal is banned — checking the ban first would tell an
+    unauthenticated caller which worker names are quarantined, and consuming
+    first would let a banned holder burn the operator's token (#197). Same
+    predicate as ``claim``; the claim itself stays the atomic step, so a race
+    between two registrations is still resolved there.
+    """
+    if not token:
+        return False
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        return (
+            session.query(WorkerJoinTokenModel)
+            .filter(
+                WorkerJoinTokenModel.token_hash == _hash(token),
+                WorkerJoinTokenModel.used_at.is_(None),
+                WorkerJoinTokenModel.revoked_at.is_(None),
+                WorkerJoinTokenModel.expires_at > _utcnow(),
+                or_(
+                    WorkerJoinTokenModel.subject.is_(None),
+                    WorkerJoinTokenModel.subject == worker_name,
+                ),
+            )
+            .first()
+        ) is not None
+
+
 def claim(token: str, worker_name: str) -> bool:
     """Atomically consume a live join token for a registering worker.
 

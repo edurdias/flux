@@ -427,3 +427,48 @@ class TestJoinTokenRevocation:
         assert [r["subject"] for r in join_tokens.outstanding()] == ["worker-banned"], (
             "the token must survive a refused registration"
         )
+
+    def test_an_invalid_token_does_not_reveal_ban_state(self, make_client):
+        """Credential validity is established before the ban check, so an
+        unauthenticated caller cannot tell a quarantined worker name from any
+        other by comparing the two rejections."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+
+        banned = _register(client, "worker-banned", "not-a-real-token")
+        unknown = _register(client, "worker-unknown", "not-a-real-token")
+
+        assert banned.status_code == unknown.status_code == 403
+        assert banned.json()["detail"] == unknown.json()["detail"]
+
+    def test_a_valid_token_for_a_banned_worker_is_still_refused(self, make_client):
+        """Ordering must not weaken the quarantine: a live credential does not
+        buy a banned principal a registration."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+        token, _ = join_tokens.mint(3600, subject="worker-banned")
+
+        resp = _register(client, "worker-banned", token)
+
+        assert resp.status_code == 403
+        assert "banned" in resp.json()["detail"]

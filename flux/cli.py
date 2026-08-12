@@ -1593,7 +1593,14 @@ def server_join_token(ttl_seconds: int | None, subject: str | None):
 
 
 @server_group.command("join-tokens")
-@click.option("--format", "format", default="table", help="Output format (table or json).")
+@click.option(
+    "--format",
+    "-f",
+    "format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format.",
+)
 def server_join_tokens(format: str):
     """List outstanding join tokens (minted, unused, unrevoked, unexpired).
 
