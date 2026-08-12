@@ -92,13 +92,22 @@ class InputRef:
     ``when(input("tier") == "dedicated", ...)``.
     """
 
+    # The compiled spec has three encodings for a value reference, and each
+    # reads one of these keys. Subclassing for routing_input() rather than
+    # branching keeps every isinstance(..., InputRef) check working and makes
+    # a missed encoding a KeyError at authoring rather than a silent read of
+    # the wrong source (#211).
+    spec_key = "input"
+    wrapper_key = "$input"
+    factory_name = "input"
+
     def __init__(self, path: str):
         if not path or not isinstance(path, str):
-            raise ValueError("input() requires a non-empty string path")
+            raise ValueError(f"{self.factory_name}() requires a non-empty string path")
         self.path = path
 
     def to_spec(self) -> dict[str, str]:
-        return {"$input": self.path}
+        return {self.wrapper_key: self.path}
 
     def __eq__(self, other: Any) -> InputCondition:  # type: ignore[override]
         return InputCondition(self, "==", other)
@@ -134,6 +143,30 @@ class InputCondition:
 
 def input(path: str) -> InputRef:  # noqa: A001 - deliberate DSL name
     return InputRef(path)
+
+
+class RoutingInputRef(InputRef):
+    """A value resolved from the execution's routing input at dispatch time.
+
+    Identical to :class:`InputRef` in every way except where the value comes
+    from: routing input is stored on its own column and never delivered to the
+    worker, so an expression can discriminate on a value the target cannot
+    observe (issue #211).
+    """
+
+    spec_key = "routing_input"
+    wrapper_key = "$routing_input"
+    factory_name = "routing_input"
+
+
+def routing_input(path: str) -> RoutingInputRef:
+    """Reference a routing-only value: matched by dispatch, never delivered.
+
+    Named for the column, header, schedule field, ``call()`` kwarg and CLI flag
+    that set it — ``routing(...)`` would collide with the scoring policy that
+    ``@workflow.with_options(routing=...)`` takes.
+    """
+    return RoutingInputRef(path)
 
 
 class Condition:
@@ -301,7 +334,7 @@ class DynamicLabel(Selector):
         # produce a valid key from an invalid namespace.
         if not _LABEL_KEY_RE.match(prefix.rstrip("._-") or ""):
             raise ValueError(f"label_for() prefix is not a valid label key prefix: '{prefix}'")
-        self.spec = {"kind": "label", "prefix": prefix, "input": ref.path}
+        self.spec = {"kind": "label", "prefix": prefix, ref.spec_key: ref.path}
 
 
 class DynamicMeta(Selector):
@@ -336,7 +369,7 @@ class DynamicMeta(Selector):
                 f"meta_for() prefix exceeds the metadata key bound "
                 f"({MAX_METADATA_KEY_LENGTH} chars): '{prefix}'",
             )
-        self.spec = {"kind": "meta", "prefix": prefix, "input": ref.path}
+        self.spec = {"kind": "meta", "prefix": prefix, ref.spec_key: ref.path}
 
 
 def _validate_weight(weight: Any) -> float:
@@ -596,7 +629,11 @@ def when(condition: Any, term: Condition | dict) -> dict:
     """
     is_score_term = isinstance(term, dict) and term.get("kind") in _SCORE_TERM_KINDS
     if isinstance(condition, InputCondition):
-        cond_spec = {"input": condition.ref.path, "op": condition.op, "value": condition.value}
+        cond_spec = {
+            condition.ref.spec_key: condition.ref.path,
+            "op": condition.op,
+            "value": condition.value,
+        }
     elif isinstance(condition, Condition):
         spec = condition.selector.spec
         server_computed = spec in _SERVER_EVALUATED_SELECTORS
@@ -723,6 +760,28 @@ def validate_worker_metrics(payload: Any, max_keys: int = MAX_METRICS) -> dict[s
 # ---------------------------------------------------------------------------
 
 
+_WRAPPED_REF_KEYS = ("$input", "$routing_input")
+_BARE_REF_KEYS = ("input", "routing_input")
+
+
+def _ref_path(spec: dict, keys: tuple[str, ...]) -> tuple[str | None, bool]:
+    """``(path, from_routing_input)`` for a value reference in ``spec``.
+
+    Every reader goes through here so adding an encoding cannot leave one
+    resolving against ``input`` — which would silently read the wrong source
+    for a value that exists to be unreadable (#211).
+    """
+    for key in keys:
+        if key in spec:
+            path = spec[key]
+            return (path if isinstance(path, str) and path else None), key.endswith("routing_input")
+    return None, False
+
+
+def _ref_source(from_routing: bool, input_value: Any, routing_value: Any) -> Any:
+    return routing_value if from_routing else input_value
+
+
 def _resolve_input_path(input_value: Any, path: str) -> Any:
     current = input_value
     for part in path.split("."):
@@ -802,6 +861,7 @@ def pick_worker(
     *,
     loads: dict[str, int],
     input_value: Any = None,
+    routing_value: Any = None,
     preferred: str | None = None,
 ) -> WorkerInfo | None:
     """Rank eligible workers by the policy and return the winner.
@@ -834,7 +894,7 @@ def pick_worker(
                 # Input-gated score term: inactive conditions skip it; a
                 # malformed condition degrades the whole policy like any
                 # other malformed term.
-                active = _when_condition_active(term, input_value)
+                active = _when_condition_active(term, input_value, routing_value)
                 if isinstance(active, str):
                     logger.warning(f"Malformed routing term ignored: {term!r}")
                     return None
@@ -848,6 +908,7 @@ def pick_worker(
                     a = _when_condition_active(
                         term,
                         input_value,
+                        routing_value,
                         worker_labels=w.labels or {},
                         worker_metadata=getattr(w, "metadata", None) or {},
                         worker_metrics=getattr(w, "metrics", None) or {},
@@ -882,7 +943,11 @@ def pick_worker(
             # against the execution input. Unresolved input or an invalid
             # resolved key means the term cannot discriminate — everyone
             # scores 0 for it — while a malformed spec degrades the policy.
-            selector_kind, key, problem = _resolve_selector_key(selector, input_value)
+            selector_kind, key, problem = _resolve_selector_key(
+                selector,
+                input_value,
+                routing_value,
+            )
             if problem is not None:
                 if problem.category == "malformed":
                     logger.warning(f"Malformed routing term ignored: {term!r}")
@@ -899,8 +964,13 @@ def pick_worker(
                 logger.warning(f"Malformed routing term ignored: {term!r}")
                 return None
             right = term.get("value")
-            if isinstance(right, dict) and "$input" in right:
-                right = _resolve_input_path(input_value, right["$input"])
+            if isinstance(right, dict):
+                ref_path, from_routing = _ref_path(right, _WRAPPED_REF_KEYS)
+                if ref_path:
+                    right = _resolve_input_path(
+                        _ref_source(from_routing, input_value, routing_value),
+                        ref_path,
+                    )
             for w in applies_to:
                 if _compare(_selector_value(w, selector, loads), op, right):
                     totals[w.name] += weight
@@ -977,7 +1047,11 @@ class _Problem(NamedTuple):
     message: str
 
 
-def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, str, _Problem | None]:
+def _resolve_selector_key(
+    selector: Any,
+    input_value: Any,
+    routing_value: Any = None,
+) -> tuple[str, str, _Problem | None]:
     """Resolve a label/meta selector (static ``"label:key"`` or dynamic
     ``{"kind": "label"|"meta", "prefix", "input"}``) to its kind and key.
 
@@ -991,10 +1065,14 @@ def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, str, _P
         return "meta", selector[len("meta:") :], None
     if isinstance(selector, dict) and selector.get("kind") in ("label", "meta"):
         kind = selector["kind"]
-        prefix, path = selector.get("prefix"), selector.get("input")
-        if not isinstance(prefix, str) or not prefix or not isinstance(path, str) or not path:
+        prefix = selector.get("prefix")
+        path, from_routing = _ref_path(selector, _BARE_REF_KEYS)
+        if not isinstance(prefix, str) or not prefix or not path:
             return kind, "", _Problem("malformed", f"malformed {kind} selector: {selector!r}")
-        resolved = _resolve_require_input(input_value, path)
+        resolved = _resolve_require_input(
+            _ref_source(from_routing, input_value, routing_value),
+            path,
+        )
         if resolved is _UNRESOLVED:
             return (
                 kind,
@@ -1036,7 +1114,11 @@ def _resolve_selector_key(selector: Any, input_value: Any) -> tuple[str, str, _P
     return "label", "", _Problem("malformed", f"malformed label selector: {selector!r}")
 
 
-def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] | _Problem:
+def _resolve_require_term(
+    term: dict,
+    input_value: Any,
+    routing_value: Any = None,
+) -> tuple[str, str, Any] | _Problem:
     """Resolve a match term's selector kind, key, and comparison value against
     the execution input. Returns ``(kind, key, value)`` — kind is ``"label"``
     or ``"meta"`` — or a :class:`_Problem`. Meta values stay raw (numeric
@@ -1045,7 +1127,7 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] 
     if isinstance(selector, str) and selector.startswith("meta:"):
         kind, key = "meta", selector[len("meta:") :]
     else:
-        kind, key, problem = _resolve_selector_key(selector, input_value)
+        kind, key, problem = _resolve_selector_key(selector, input_value, routing_value)
         if problem is not None:
             if problem.category == "malformed":
                 return problem
@@ -1057,10 +1139,13 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] 
 
     value = term.get("value")
     if isinstance(value, dict):
-        path = value.get("$input")
-        if not isinstance(path, str) or not path:
+        path, from_routing = _ref_path(value, _WRAPPED_REF_KEYS)
+        if not path:
             return _Problem("malformed", f"malformed affinity value: {value!r}")
-        value = _resolve_require_input(input_value, path)
+        value = _resolve_require_input(
+            _ref_source(from_routing, input_value, routing_value),
+            path,
+        )
         if value is _UNRESOLVED:
             return _Problem(
                 "unresolved",
@@ -1076,6 +1161,7 @@ def _resolve_require_term(term: dict, input_value: Any) -> tuple[str, str, Any] 
 def _when_condition_active(
     term: dict,
     input_value: Any,
+    routing_value: Any = None,
     *,
     worker_labels: dict[str, Any] | None = None,
     worker_metadata: dict[str, Any] | None = None,
@@ -1095,11 +1181,15 @@ def _when_condition_active(
     cond = term.get("if")
     if not isinstance(cond, dict):
         return f"malformed affinity when-condition: {cond!r}"
-    if "input" in cond:
-        path, op = cond.get("input"), cond.get("op")
-        if not isinstance(path, str) or not path or op not in _REQUIRE_OPS:
+    if any(k in cond for k in _BARE_REF_KEYS):
+        path, from_routing = _ref_path(cond, _BARE_REF_KEYS)
+        op = cond.get("op")
+        if not path or op not in _REQUIRE_OPS:
             return f"malformed affinity when-condition: {cond!r}"
-        resolved = _resolve_require_input(input_value, path)
+        resolved = _resolve_require_input(
+            _ref_source(from_routing, input_value, routing_value),
+            path,
+        )
         if resolved is _UNRESOLVED:
             return False
         expected = cond.get("value")
@@ -1134,7 +1224,7 @@ def _when_condition_active(
     return f"malformed affinity when-condition: {cond!r}"
 
 
-def require_diagnostic(terms: Any, input_value: Any) -> str | None:
+def require_diagnostic(terms: Any, input_value: Any, routing_value: Any = None) -> str | None:
     """Execution-level reason this affinity expression can never match, or None.
 
     Unresolved input on a non-optional term, an invalid resolved label key,
@@ -1151,7 +1241,7 @@ def require_diagnostic(terms: Any, input_value: Any) -> str | None:
         if not isinstance(term, dict):
             return f"malformed affinity term: {term!r}"
         if term.get("kind") == "when":
-            active = _when_condition_active(term, input_value)
+            active = _when_condition_active(term, input_value, routing_value)
             if isinstance(active, str):
                 return active
             if active is None or not active:
@@ -1161,7 +1251,7 @@ def require_diagnostic(terms: Any, input_value: Any) -> str | None:
                 return f"malformed affinity when-term body: {term!r}"
         elif term.get("kind") != "match":
             return f"malformed affinity term: {term!r}"
-        resolved = _resolve_require_term(term, input_value)
+        resolved = _resolve_require_term(term, input_value, routing_value)
         if isinstance(resolved, _Problem):
             # optional(...) forgives absent input — nothing else: an invalid
             # resolved key or a malformed spec diagnoses regardless.
@@ -1177,6 +1267,7 @@ def require_matches(
     input_value: Any,
     worker_metadata: dict[str, Any] | None = None,
     *,
+    routing_value: Any = None,
     worker_metrics: dict[str, Any] | None = None,
     loads: dict[str, int] | None = None,
 ) -> bool:
@@ -1200,6 +1291,7 @@ def require_matches(
             active = _when_condition_active(
                 term,
                 input_value,
+                routing_value,
                 worker_labels=labels,
                 worker_metadata=metadata,
                 worker_metrics=worker_metrics or {},
@@ -1215,7 +1307,7 @@ def require_matches(
                 return False
         elif term.get("kind") != "match":
             return False
-        resolved = _resolve_require_term(term, input_value)
+        resolved = _resolve_require_term(term, input_value, routing_value)
         if isinstance(resolved, _Problem):
             if resolved.category == "unresolved" and term.get("optional"):
                 continue
