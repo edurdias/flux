@@ -1738,6 +1738,12 @@ Same workflow, different eligible sets, zero catalog churn.</p>
   against a constant or <code>input("path")</code> (dotted paths descend nested dicts).
   Only <code>==</code> and <code>!=</code>; ordered comparisons belong to
   <a href="../dynamic-routing/">Dynamic Routing</a>.</li>
+<li><code>routing_input("key")</code> — a drop-in alternative to <code>input(...)</code> anywhere a
+  term takes one: reads per-execution routing values that are matched at
+  dispatch but never delivered to the worker (set via the run header, a
+  schedule's <code>routing_input</code> field, <code>call(routing_input=...)</code>, or the CLI's
+  <code>--routing-input</code>). Same resolution and fail-closed semantics as <code>input</code>.
+  See <a href="../dynamic-routing/#routing-on-values-the-worker-cannot-see">Dynamic Routing</a>.</li>
 <li><code>label_for(prefix, input("path"))</code> — dynamic label key: the author
   declares the namespace (<code>prefix</code> is mandatory), input only completes it.
   The resolved key must be a valid label key; inputs never create labels,
