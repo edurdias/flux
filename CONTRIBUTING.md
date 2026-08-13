@@ -63,6 +63,11 @@ CLI commands, and add HTTP endpoints without breaking the permission model.
 | `tests/security/` | auth, permissions, providers |
 | `tests/perf/` | opt-in perf suite (`FLUX_PERF=1`), see `tests/perf/PLAN.md` |
 
+The docker and airgapped runner suites include container-gated integration tests (no network,
+read-only rootfs, wall-clock kill) that need an image with the working tree's `flux-core`
+installed — `make test-docker` builds one and runs them; CI runs the same thing in the
+`runner-docker` job.
+
 Markers: `e2e`, `ollama`, `network`, `postgresql`, `perf`, `integration`, `slow` — see
 `pyproject.toml` for the authoritative list.
 

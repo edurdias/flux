@@ -223,6 +223,49 @@ jobs:
           tests/flux/test_scheduler_dispatch_lock.py \
           -m postgresql -v
 
+  runner-docker:
+    needs: [version-check]
+    # Run when version-check succeeded OR was skipped (Dependabot exemption).
+    if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.7.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction
+
+    - name: Build runner test image from the working tree
+      run: |
+        poetry build -f wheel
+        cp dist/*.whl docker/test/
+        docker build -t flux-test:ci docker/test
+
+    # The only place the airgapped runner's security properties (no network,
+    # read-only rootfs, wall-clock kill) are verified against a real
+    # container rather than as argv construction.
+    - name: Run docker + airgapped runner tests
+      env:
+        FLUX_TEST_DOCKER_IMAGE: flux-test:ci
+      run: |
+        poetry run pytest \
+          tests/flux/test_docker_runner.py \
+          tests/flux/test_airgapped_runner.py \
+          -v
+
   perf-postgres:
     needs: [version-check]
     # Run when version-check succeeded OR was skipped (Dependabot exemption).

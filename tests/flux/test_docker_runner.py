@@ -6,6 +6,9 @@ integration test executes a real container and only runs when
 one locally and run:
 
     FLUX_TEST_DOCKER_IMAGE=my-flux-image pytest tests/flux/test_docker_runner.py
+
+or ``make test-docker``, which builds the image from the working tree. CI
+runs the same thing in the ``runner-docker`` job.
 """
 
 from __future__ import annotations

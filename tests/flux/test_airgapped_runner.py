@@ -3,7 +3,9 @@
 Command-profile and validation tests run everywhere (no docker needed).
 The timeout tests exercise a real subprocess child, same as the subprocess
 runner suite. Container-level integration (network truly absent, read-only
-rootfs) is gated on ``FLUX_TEST_DOCKER_IMAGE`` like the docker runner suite.
+rootfs) is gated on ``FLUX_TEST_DOCKER_IMAGE`` like the docker runner suite —
+``make test-docker`` builds the image and runs both; CI runs the same thing
+in the ``runner-docker`` job.
 """
 
 from __future__ import annotations
