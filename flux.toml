@@ -48,6 +48,13 @@ eviction_grace_period = 30                                  # Seconds to wait af
 cancellation_orphan_grace = 300                             # Seconds before the scheduler resolves a CANCELLING execution whose worker never returned (0 = wait forever); parked cancels resolve immediately
 join_token_retention = 86400                                # Seconds past expiry a join-token row is kept as audit trail before the hourly purge (0 = keep forever)
 
+# Capability labels, equivalent to repeated --label flags (--label wins per
+# key). A sub-table, so it must stay at the end of [flux.workers]: any key
+# after the header would belong to it.
+# [flux.workers.labels]
+# node = "node-a"
+# gpu = "true"
+
 [flux.security.encryption]
 # encryption_key = "<generate with: openssl rand -hex 32>"
 # Required for the secrets store. Set via FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY

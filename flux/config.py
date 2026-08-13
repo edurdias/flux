@@ -136,6 +136,14 @@ class WorkersConfig(BaseConfig):
             "(0 = unbounded, the legacy behavior)"
         ),
     )
+    labels: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Capability labels this worker advertises at registration — the "
+            "config-file equivalent of repeated --label flags, which win on "
+            "key conflicts. The flux. prefix is reserved."
+        ),
+    )
     runners: list[str] = Field(
         default=["inprocess", "subprocess"],
         description=(
@@ -717,8 +725,38 @@ class FluxConfig(BaseSettings):
 
         filtered_config = drop_env_overrides(config)
 
+        # A key pydantic does not know is silently dropped, which reads as
+        # configured while doing nothing — and when the misconfiguration
+        # only parks work (a label that never matches), nothing ever
+        # surfaces it (issue #235). Warn on the pre-filter dict so keys
+        # shadowed by env vars are still checked.
+        cls._warn_unknown_keys(config, cls, "flux")
+
         # Create instance with toml values as fallback; env vars are applied by pydantic-settings
         return cls(**filtered_config)
+
+    @classmethod
+    def _warn_unknown_keys(cls, raw: dict, model: type[BaseModel], path: str) -> None:
+        import logging
+
+        fields = model.model_fields
+        for key, value in raw.items():
+            if key not in fields:
+                logging.getLogger("flux.config").warning(
+                    f"Unknown configuration key '{key}' in [{path}] — ignored. "
+                    f"Check for a typo; the shipped flux.toml documents the "
+                    f"full surface.",
+                )
+                continue
+            annotation = fields[key].annotation
+            # Descend only into typed sections; dict-valued fields (labels,
+            # AI provider descriptors) take arbitrary keys by design.
+            if (
+                isinstance(value, dict)
+                and isinstance(annotation, type)
+                and issubclass(annotation, BaseModel)
+            ):
+                cls._warn_unknown_keys(value, annotation, f"{path}.{key}")
 
     @staticmethod
     def _load_from_pyproject() -> dict[str, Any]:

@@ -22,6 +22,18 @@ flux start worker --label role=harness --label env=sandbox --label browser=true
 
 Multiple `--label` flags declare multiple labels. Label keys and values are strings.
 
+Labels can equally come from configuration — `[flux.workers.labels]` in
+`flux.toml`, or the `FLUX_WORKERS__LABELS` environment variable as JSON —
+which suits fleets whose config files are the deployment artifact:
+
+```toml
+[flux.workers.labels]
+role = "harness"
+env = "sandbox"
+```
+
+`--label` flags are applied on top and win on key conflicts.
+
 View a worker's labels:
 
 ```bash

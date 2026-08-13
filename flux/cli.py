@@ -1495,7 +1495,23 @@ def start_worker(name: str | None, server_url: str | None = None, label: tuple[s
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
 
+    # Config-file labels first, --label on top (per-key precedence for the
+    # flag): [flux.workers] labels went silently ignored before it was a
+    # real field (issue #235). Same normalization and fail-fast as the flag
+    # path — a whitespace-only key from config would otherwise register a
+    # label nothing can match.
     labels = {}
+    for k, v in (settings.labels or {}).items():
+        key = str(k).strip()
+        value = str(v).strip()
+        if not key or not value:
+            click.echo(
+                f"Invalid label in [flux.workers] labels: {k!r} = {v!r}. "
+                "Label keys and values must be non-empty.",
+                err=True,
+            )
+            raise SystemExit(1)
+        labels[key] = value
     for item in label:
         if "=" not in item:
             click.echo(f"Invalid label format: '{item}'. Expected key=value.", err=True)
