@@ -244,3 +244,73 @@ class TestMonitorExitVisibility:
             _report_monitor_exit(task)
 
         assert "monitor" not in caplog.text
+
+
+class TestSseStallDetection:
+    """A dropped link does not error an idle read: a dead socket can hang
+    aiter_sse() forever, leaving the worker ponging over HTTP but invisible
+    to dispatch, with the reconnect loop never running (t6c). The server
+    pings every heartbeat_interval, so a stream silent past the stall bound
+    is dead and must raise into the reconnect loop."""
+
+    @pytest.mark.asyncio
+    async def test_a_silent_stream_raises_within_the_stall_bound(self):
+        worker = make_worker()
+        worker.session_token = "tok"
+        worker._sse_stall_timeout = 0.05
+
+        class _DeadStream:
+            def aiter_sse(self):
+                async def _events():
+                    ping = MagicMock()
+                    ping.event = "keep-alive"
+                    yield ping
+                    await asyncio.sleep(3600)  # the dead socket: silent forever
+
+                return _events()
+
+        class _FakeSse:
+            async def __aenter__(self):
+                return _DeadStream()
+
+            async def __aexit__(self, *args):
+                return False
+
+        with (
+            patch("flux.worker.httpx.AsyncClient"),
+            patch("flux.worker.aconnect_sse", return_value=_FakeSse()),
+        ):
+            with pytest.raises(ConnectionError, match="silent"):
+                async with asyncio.timeout(5):
+                    await worker._connect()
+
+    @pytest.mark.asyncio
+    async def test_a_stream_delivering_events_stays_up(self):
+        worker = make_worker()
+        worker.session_token = "tok"
+        worker._sse_stall_timeout = 0.5
+
+        class _LiveStream:
+            def aiter_sse(self):
+                async def _events():
+                    for _ in range(5):
+                        ping = MagicMock()
+                        ping.event = "keep-alive"
+                        yield ping
+                        await asyncio.sleep(0.05)  # well inside the bound
+
+                return _events()
+
+        class _FakeSse:
+            async def __aenter__(self):
+                return _LiveStream()
+
+            async def __aexit__(self, *args):
+                return False
+
+        with (
+            patch("flux.worker.httpx.AsyncClient"),
+            patch("flux.worker.aconnect_sse", return_value=_FakeSse()),
+        ):
+            async with asyncio.timeout(5):
+                await worker._connect()  # stream ends normally, no raise

@@ -30,6 +30,7 @@ def mock_config():
     mock_settings.workers.subprocess_term_grace = 5.0
     mock_settings.workers.subprocess_memory_limit = 0
     mock_settings.workers.loop_lag_threshold = 0
+    mock_settings.workers.heartbeat_interval = 10
     mock_settings.workers.metrics_provider = None
     mock_settings.workers.metrics_interval = 10.0
     mock_settings.workers.builtin_metrics = False
@@ -136,6 +137,7 @@ def test_worker_init_strips_bootstrap_token_padding():
     mock_settings.workers.default_runner = "inprocess"
     mock_settings.workers.module_cache_ttl = 0
     mock_settings.workers.module_cache_max_size = 64
+    mock_settings.workers.heartbeat_interval = 10
 
     with patch.object(Configuration, "get") as mock_get:
         mock_get.return_value = MagicMock(settings=mock_settings)

@@ -165,6 +165,9 @@ class Worker:
             list[tuple[asyncio.Queue, asyncio.Task | None]],
         ] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
+        # The server pings the SSE stream every heartbeat_interval; a stream
+        # silent for several intervals is dead, however live the socket looks.
+        self._sse_stall_timeout = max(30.0, 3.0 * config.heartbeat_interval)
         # The flux. label prefix is reserved for platform-derived labels so
         # user labels cannot spoof capability grants (service sockets below).
         reserved = sorted(k for k in self.labels if k.startswith("flux."))
@@ -765,7 +768,25 @@ class Worker:
                 ) as es:
                     logger.info("Connection established successfully")
                     logger.debug("Starting event loop to receive events")
-                    async for evt in es.aiter_sse():
+                    # A dropped link does not error an idle read: a dead
+                    # socket can hang aiter_sse() forever, leaving the worker
+                    # ponging over HTTP but invisible to dispatch (its SSE
+                    # queue is gone server-side) with the reconnect loop never
+                    # running. The server pings every heartbeat_interval, so a
+                    # silent stream past the stall bound is dead — raise and
+                    # let the reconnect loop take over.
+                    events = aiter(es.aiter_sse())
+                    while True:
+                        try:
+                            async with asyncio.timeout(self._sse_stall_timeout):
+                                evt = await anext(events)
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError:
+                            raise ConnectionError(
+                                f"SSE stream silent for {self._sse_stall_timeout:.0f}s; "
+                                "treating the connection as dead",
+                            ) from None
                         if evt.event == "execution_scheduled":
                             asyncio.create_task(
                                 self._handle_execution_scheduled(base_url, evt),
