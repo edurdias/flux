@@ -54,18 +54,24 @@ class TestLoopLagMonitor:
             mock_time.monotonic.side_effect = itertools.chain(lagged, clean)
             monitor = asyncio.create_task(worker._monitor_loop_health())
             try:
+                # Observe via the pong mock, not by sampling _healthy: the
+                # unhealthy window is only three 1ms probes wide, and on a
+                # loaded runner a sampling loop can be starved right across
+                # it, then spin on "still healthy" until timeout (the
+                # intermittent CI TimeoutError this replaced). The monitor
+                # calls _send_pong() synchronously in the same block as each
+                # flip, so call #1 IS the unhealthy transition and call #2
+                # the recovery — no window to miss.
                 async with asyncio.timeout(10):
-                    while worker._healthy:
-                        await asyncio.sleep(0.005)
-                    unhealthy_seen = not worker._healthy
-                    while not worker._healthy:
-                        await asyncio.sleep(0.005)
+                    while worker._send_pong.call_count < 2:
+                        await asyncio.sleep(0.001)
             finally:
                 monitor.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor
 
-        assert unhealthy_seen
         assert worker._healthy  # recovered after three clean probes
-        worker._send_pong.assert_called()  # state changes pushed to server
+        assert worker._send_pong.call_count == 2  # one pong per transition
 
     @pytest.mark.asyncio
     async def test_a_raising_metrics_recorder_does_not_kill_the_monitor(self):
@@ -97,20 +103,20 @@ class TestLoopLagMonitor:
             mock_time.monotonic.side_effect = itertools.chain(lagged, clean)
             monitor = asyncio.create_task(worker._monitor_loop_health())
             try:
+                # Pong-count observation for the same reason as the test
+                # above: the unhealthy window is a few 1ms probes wide and a
+                # sampling loop can be starved across it.
                 async with asyncio.timeout(10):
-                    while worker._healthy:
-                        await asyncio.sleep(0.005)
-                    unhealthy_seen = not worker._healthy
-                    while not worker._healthy:
-                        await asyncio.sleep(0.005)
-                    assert not monitor.done(), "the monitor must survive metrics failures"
+                    while worker._send_pong.call_count < 2:
+                        await asyncio.sleep(0.001)
+                assert not monitor.done(), "the monitor must survive metrics failures"
             finally:
                 monitor.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await monitor
 
-        assert unhealthy_seen
         assert worker._healthy
+        assert worker._send_pong.call_count == 2
         # Proves the raise was exercised, not skipped.
         raising_metrics.record_worker_health_transition.assert_called()
 
