@@ -5,6 +5,10 @@
 
 **Prime directive:** measure product code as it is. If a test fails its gate, the deliverable is the measurement plus a written proposal — not an inline product patch on this branch. "Product code" means everything under `flux/`; `pyproject.toml` marker registration and dev-only config changes needed to host the suite are explicitly allowed.
 
+## Changelog v1.2 → v1.3
+
+1. **T8 startup / image-load baseline** (`test_t8_startup.py`). Three probes: bare-interpreter import cost per process role (server / worker / execution child), in-container load cost against a working-tree image (gated on `FLUX_TEST_DOCKER_IMAGE`, same knob as the runner integration tests), and an import manifest recording which heavyweight packages each role loads — so a layering regression diffs in the results record even when runner noise hides it in wall time. Budgets are soft per the v1.2 gate policy; the structural halves are always-on unit tests (`tests/flux/test_startup_import_budget.py`, `tests/flux/test_child_import_graph.py`). Baseline and improvement areas: `findings/T8_startup_baseline.md`.
+
 ## Changelog v1.1 → v1.2 (full implementation)
 
 1. **Profiles.** `FLUX_PERF_PROFILE=ci|full` (`fixtures/harness/profile.py`). `ci` (default) uses short windows sized for a shared pipeline runner — the PR pipeline gives an initial "where are we" number for every scenario; `full` uses the plan-spec durations for dedicated hardware. On-demand runs: the `perf` workflow (`.github/workflows/perf.yml`, `workflow_dispatch`) takes profile + backend inputs.
