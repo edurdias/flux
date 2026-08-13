@@ -731,6 +731,19 @@ class WorkerRoutesMixin:
                                     await asyncio.sleep(fallback_interval)
                                     continue
 
+                                # Arm the wait BEFORE checking for work: a
+                                # submission landing mid-check re-sets the
+                                # events and the wait below returns at once.
+                                # Clearing after the checks discarded exactly
+                                # those signals, and the affected requests
+                                # slept the whole fallback interval — a flat
+                                # ~500 ms tax visible as a bimodal dispatch
+                                # latency with nothing between the modes
+                                # (issue #234). The worst this ordering does
+                                # is one spurious extra poll.
+                                worker_event.clear()
+                                self._work_available.clear()
+
                                 ctx = await asyncio.to_thread(
                                     context_manager.next_execution,
                                     worker,
@@ -801,9 +814,11 @@ class WorkerRoutesMixin:
                                     )
                                     continue
 
-                                # No work found — wait for per-worker signal or fallback
-                                worker_event.clear()
-                                self._work_available.clear()
+                                # No work found — wait for the per-worker
+                                # signal or fallback. The events were armed
+                                # before the checks above, so a signal that
+                                # raced them is still set here and the wait
+                                # returns immediately.
                                 try:
                                     worker_task = asyncio.ensure_future(worker_event.wait())
                                     broadcast_task = asyncio.ensure_future(
