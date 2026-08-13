@@ -5,10 +5,6 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any
 
-from sqlalchemy import select
-
-from flux.models import ConfigModel, RepositoryFactory
-
 
 class ConfigManager(ABC):
     @abstractmethod
@@ -38,7 +34,12 @@ class ConfigManager(ABC):
 
 
 class DatabaseConfigManager(ConfigManager):
+    # The persistence graph is imported per method, worker_registry-style: a
+    # runner child imports this module for the ConfigManager ABC alone, and a
+    # top-level import would pull SQLAlchemy into every sandbox (issue #233).
     def __init__(self):
+        from flux.models import RepositoryFactory
+
         self._repository = RepositoryFactory.create_repository()
 
     def session(self):
@@ -50,6 +51,8 @@ class DatabaseConfigManager(ConfigManager):
 
         serialized = json.dumps(value)
 
+        from flux.models import ConfigModel
+
         with self.session() as session:
             config = session.get(ConfigModel, name)
             if config:
@@ -59,6 +62,8 @@ class DatabaseConfigManager(ConfigManager):
             session.commit()
 
     def remove(self, name: str) -> None:
+        from flux.models import ConfigModel
+
         with self.session() as session:
             config = session.get(ConfigModel, name)
             if config:
@@ -67,6 +72,10 @@ class DatabaseConfigManager(ConfigManager):
 
     async def get(self, config_requests: list[str]) -> dict[str, Any]:
         def _query() -> dict[str, Any]:
+            from sqlalchemy import select
+
+            from flux.models import ConfigModel
+
             with self.session() as session:
                 stmt = select(ConfigModel.name, ConfigModel.value).where(
                     ConfigModel.name.in_(config_requests),
@@ -79,6 +88,10 @@ class DatabaseConfigManager(ConfigManager):
         return result
 
     def all(self) -> list[str]:
+        from sqlalchemy import select
+
+        from flux.models import ConfigModel
+
         with self.session() as session:
             stmt = select(ConfigModel.name)
             return [row[0] for row in session.execute(stmt)]
