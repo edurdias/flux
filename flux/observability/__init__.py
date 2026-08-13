@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from flux.observability.config import ObservabilityConfig
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Imported lazily at runtime: ObservabilityConfig is a pydantic model,
+    # and task.py imports this package on every task call for get_metrics —
+    # a top-level import dragged pydantic into runner children whose config
+    # arrives as a plain snapshot (issue #241).
+    from flux.observability.config import ObservabilityConfig
 
 _enabled = False
 

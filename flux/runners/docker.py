@@ -177,9 +177,18 @@ class DockerRunner(SubprocessRunner):
 
     def _locked_args(self, options: dict | None = None) -> list[str]:
         """Non-configurable flags, emitted after extra_args so they win."""
+        from flux.runners.child_settings import CHILD_SETTINGS_ENV, snapshot
+
         # Tells the child it is containerized; the agent shell tool refuses to
         # build without it, so an operator must not be able to unset it.
-        return ["--env", f"{SANDBOX_ENV_VAR}=1"]
+        # The settings snapshot is allowlisted and secret-free by
+        # construction, so its visibility in `docker inspect` is acceptable.
+        return [
+            "--env",
+            f"{SANDBOX_ENV_VAR}=1",
+            "--env",
+            f"{CHILD_SETTINGS_ENV}={snapshot()}",
+        ]
 
     async def _spawn(self, request: WorkflowExecutionRequest):
         container_name = self._container_name(request.context.execution_id)

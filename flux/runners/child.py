@@ -316,6 +316,12 @@ async def _run(request: dict) -> int:
 
 
 def main() -> int:
+    # Before anything can resolve flux.config: install the parent-provided
+    # settings snapshot so the sandbox never imports pydantic (issue #241).
+    from flux.runners.child_settings import install_from_env
+
+    install_from_env()
+
     # Stdout carries frames; force every log record to stderr.
     logging.basicConfig(stream=sys.stderr, force=True)
     # Before the stdio protocol starts: once the request frame arrives this

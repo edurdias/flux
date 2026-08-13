@@ -8,8 +8,6 @@ from zoneinfo import ZoneInfo
 
 import croniter  # type: ignore
 
-from flux.config import Configuration
-
 
 class ScheduleType(Enum):
     """Types of schedules supported by Flux"""
@@ -126,7 +124,12 @@ class CronSchedule(Schedule):
 
         self.cron_expression = cron_expression
 
-        # Cache tolerance from configuration
+        # Cache tolerance from configuration. Imported here, not at module
+        # top: flux.domain wildcard-imports this module, so a top-level
+        # Configuration import dragged pydantic into every process that
+        # touches the domain core, runner children included (issue #241).
+        from flux.config import Configuration
+
         self._tolerance = Configuration.get().settings.scheduling.schedule_check_tolerance
 
     @property
@@ -335,6 +338,8 @@ class OnceSchedule(Schedule):
         self.executed = False
 
         # Cache tolerance from configuration
+        from flux.config import Configuration
+
         self._tolerance = Configuration.get().settings.scheduling.once_schedule_tolerance
 
     @property

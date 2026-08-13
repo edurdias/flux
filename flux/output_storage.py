@@ -9,7 +9,6 @@ from typing import Any
 
 import dill
 
-from flux.config import Configuration
 from flux.security.integrity import sign, verify
 
 
@@ -123,6 +122,8 @@ class InlineOutputStorage(OutputStorage):
 
 class LocalFileStorage(OutputStorage):
     def __init__(self):
+        from flux.config import Configuration
+
         settings = Configuration.get().settings
         self.base_path = Path(settings.home) / settings.local_storage_path
         self.serializer = settings.serializer

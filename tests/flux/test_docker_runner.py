@@ -173,6 +173,7 @@ async def test_container_child_runs_user_code_without_the_persistence_graph():
             return {
                 "sqlalchemy": "sqlalchemy" in sys.modules,
                 "flux_models": "flux.models" in sys.modules,
+                "pydantic": "pydantic" in sys.modules,
             }
         """,
     )
@@ -208,6 +209,6 @@ async def test_container_child_runs_user_code_without_the_persistence_graph():
     )
 
     assert result.has_finished and not result.has_failed
-    assert result.output == {"sqlalchemy": False, "flux_models": False}, (
-        f"the container child carried the persistence graph into user code: {result.output}"
+    assert result.output == {"sqlalchemy": False, "flux_models": False, "pydantic": False}, (
+        f"the container child carried heavyweight machinery into user code: {result.output}"
     )
