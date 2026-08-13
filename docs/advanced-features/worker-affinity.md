@@ -161,6 +161,12 @@ affinity=require(label("maintenance") != "true")
   against a constant or `input("path")` (dotted paths descend nested dicts).
   Only `==` and `!=`; ordered comparisons belong to
   [Dynamic Routing](dynamic-routing.md).
+- `routing_input("key")` — a drop-in alternative to `input(...)` anywhere a
+  term takes one: reads per-execution routing values that are matched at
+  dispatch but never delivered to the worker (set via the run header, a
+  schedule's `routing_input` field, `call(routing_input=...)`, or the CLI's
+  `--routing-input`). Same resolution and fail-closed semantics as `input`.
+  See [Dynamic Routing](dynamic-routing.md#routing-on-values-the-worker-cannot-see).
 - `label_for(prefix, input("path"))` — dynamic label key: the author
   declares the namespace (`prefix` is mandatory), input only completes it.
   The resolved key must be a valid label key; inputs never create labels,
