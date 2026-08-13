@@ -46,6 +46,7 @@ def _report_monitor_exit(task: asyncio.Task) -> None:
         logger.error(
             f"Loop-health monitor died: {error!r} — health transitions have "
             "stopped; the worker keeps its current health state until restart",
+            exc_info=error,
         )
 
 
@@ -638,16 +639,22 @@ class Worker:
     # unhealthy flip would strand the worker unhealthy forever with nothing
     # left to recover it (issue #224).
     def _record_loop_lag(self, lag: float) -> None:
+        # Guarded separately: the built-in collector feeds the flux.loop_lag*
+        # routing metrics, and an unhealthy OTel backend must not take those
+        # down with it.
         try:
             from flux.observability import get_metrics
 
             m = get_metrics()
             if m:
                 m.record_loop_lag(lag)
+        except Exception as ex:
+            logger.debug(f"OTel loop-lag recording failed: {ex}", exc_info=True)
+        try:
             if self._metrics_collector:
                 self._metrics_collector.record_loop_lag(lag)
         except Exception as ex:
-            logger.debug(f"Loop-lag metrics recording failed: {ex}")
+            logger.debug(f"Built-in loop-lag recording failed: {ex}", exc_info=True)
 
     def _record_health_transition(self, state: str) -> None:
         try:
@@ -657,7 +664,7 @@ class Worker:
             if m:
                 m.record_worker_health_transition(state)
         except Exception as ex:
-            logger.debug(f"Health-transition metric failed: {ex}")
+            logger.debug(f"Health-transition metric failed: {ex}", exc_info=True)
 
     async def _drain(self):
         """Let running executions finish, then flush their checkpoints.

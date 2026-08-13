@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -105,6 +106,8 @@ class TestLoopLagMonitor:
                     assert not monitor.done(), "the monitor must survive metrics failures"
             finally:
                 monitor.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await monitor
 
         assert unhealthy_seen
         assert worker._healthy
