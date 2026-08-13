@@ -45,6 +45,7 @@ loop_lag_probe_interval = 1.0                               # Seconds between ev
 # metrics_interval = 10.0                                   # Seconds between metrics refreshes (provider + built-ins)
 builtin_metrics = true                                      # Publish built-in flux.* metrics (loop lag, rates, durations, cpu/mem) on heartbeats
 eviction_grace_period = 30                                  # Seconds to wait after marking worker stale before evicting
+cancellation_orphan_grace = 300                             # Seconds before the scheduler resolves a CANCELLING execution whose worker never returned (0 = wait forever); parked cancels resolve immediately
 
 [flux.security.encryption]
 # encryption_key = "<generate with: openssl rand -hex 32>"

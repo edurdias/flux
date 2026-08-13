@@ -103,6 +103,18 @@ class WorkersConfig(BaseConfig):
             "endpoints."
         ),
     )
+    cancellation_orphan_grace: int = Field(
+        default=300,
+        ge=0,
+        description=(
+            "Seconds a CANCELLING execution assigned to a disconnected "
+            "worker may wait for that worker to return before the scheduler "
+            "sweep resolves it CANCELLED server-side (issue #225). 0 keeps "
+            "waiting indefinitely for named workers. Executions cancelled "
+            "while parked (no worker assigned) are resolved immediately "
+            "regardless."
+        ),
+    )
     module_cache_ttl: int = Field(
         default=300,
         description="Seconds to cache compiled workflow modules (0 to disable)",

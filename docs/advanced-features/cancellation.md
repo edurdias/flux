@@ -100,3 +100,10 @@ execution remains `CANCELLING`, so delivery edge cases resolve rather than park:
   the worker declines to resolve a cancellation and waits for the next
   delivery, which either cancels the now-running task or resolves the row if
   the claim failed.
+- **A cancellation with no live delivery target resolves from the scheduler.**
+  An execution cancelled while parked (never dispatched, so no worker to
+  notify) resolves on the next scheduler tick. One assigned to a worker that
+  never reconnects resolves after `[flux.workers] cancellation_orphan_grace`
+  (default 300s; 0 waits forever) — the grace gives a worker in reconnect
+  backoff the chance to resolve its own row, which interrupts the running
+  body rather than abandoning it.
