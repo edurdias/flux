@@ -21,7 +21,7 @@
     
     
       
-        <title>Flux Workflow Cancellation - Flux Documentation</title>
+        <title>Orphaned-cancellation sweep - Flux Documentation</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#flux-workflow-cancellation" class="md-skip">
+        <a href="#orphaned-cancellation-sweep" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Flux Workflow Cancellation
+              Orphaned-cancellation sweep
             
           </span>
         </div>
@@ -884,7 +884,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task-patterns/" class="md-nav__link">
+      <a href="../../advanced-features/task-patterns/" class="md-nav__link">
         
   
   
@@ -912,7 +912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../workflow-controls/" class="md-nav__link">
+      <a href="../../advanced-features/workflow-controls/" class="md-nav__link">
         
   
   
@@ -940,7 +940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../worker-affinity/" class="md-nav__link">
+      <a href="../../advanced-features/worker-affinity/" class="md-nav__link">
         
   
   
@@ -968,7 +968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dynamic-routing/" class="md-nav__link">
+      <a href="../../advanced-features/dynamic-routing/" class="md-nav__link">
         
   
   
@@ -996,7 +996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../airgapped-execution/" class="md-nav__link">
+      <a href="../../advanced-features/airgapped-execution/" class="md-nav__link">
         
   
   
@@ -1024,7 +1024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../observability/" class="md-nav__link">
+      <a href="../../advanced-features/observability/" class="md-nav__link">
         
   
   
@@ -1052,7 +1052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../task-progress/" class="md-nav__link">
+      <a href="../../advanced-features/task-progress/" class="md-nav__link">
         
   
   
@@ -1080,7 +1080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-skills/" class="md-nav__link">
+      <a href="../../advanced-features/agent-skills/" class="md-nav__link">
         
   
   
@@ -1108,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../agent-harness/" class="md-nav__link">
+      <a href="../../advanced-features/agent-harness/" class="md-nav__link">
         
   
   
@@ -1136,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../mcp-client/" class="md-nav__link">
+      <a href="../../advanced-features/mcp-client/" class="md-nav__link">
         
   
   
@@ -1164,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../ai-memory/" class="md-nav__link">
+      <a href="../../advanced-features/ai-memory/" class="md-nav__link">
         
   
   
@@ -1192,7 +1192,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../database-migrations/" class="md-nav__link">
+      <a href="../../advanced-features/database-migrations/" class="md-nav__link">
         
   
   
@@ -1247,93 +1247,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#problem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cancellation-states" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cancellation States
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How to Use
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How to Use">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#api-endpoint" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        API Endpoint
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#command-line-interface" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Command Line Interface
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#testing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Testing
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#implementation-details" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Implementation Details
+        Problem
       
     </span>
   </a>
@@ -1360,87 +1277,78 @@
   
 
 
-<h1 id="flux-workflow-cancellation">Flux Workflow Cancellation<a class="headerlink" href="#flux-workflow-cancellation" title="Permanent link">&para;</a></h1>
-<p>This document provides information about the cancellation feature in Flux.</p>
-<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>The cancellation feature allows you to cancel workflows that are currently running. This is useful for long-running workflows that you want to stop before they complete.</p>
-<h2 id="cancellation-states">Cancellation States<a class="headerlink" href="#cancellation-states" title="Permanent link">&para;</a></h2>
-<p>A workflow can be in one of the following cancellation-related states:</p>
-<ul>
-<li><code>CANCELLING</code> - The workflow is in the process of being cancelled</li>
-<li><code>CANCELLED</code> - The workflow has been successfully cancelled</li>
-</ul>
-<h2 id="how-to-use">How to Use<a class="headerlink" href="#how-to-use" title="Permanent link">&para;</a></h2>
-<h3 id="api-endpoint">API Endpoint<a class="headerlink" href="#api-endpoint" title="Permanent link">&para;</a></h3>
-<p>You can cancel a workflow using the API endpoint:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>GET /workflows/{workflow_name}/cancel/{execution_id}?mode=async
-</code></pre></div>
-<p>Parameters:
-- <code>workflow_name</code> - The name of the workflow
-- <code>execution_id</code> - The ID of the workflow execution
-- <code>mode</code> - Either <code>sync</code> or <code>async</code> (defaults to <code>async</code>)
-  - <code>sync</code> - Waits for the cancellation to complete before responding
-  - <code>async</code> - Initiates the cancellation and returns immediately</p>
-<h3 id="command-line-interface">Command Line Interface<a class="headerlink" href="#command-line-interface" title="Permanent link">&para;</a></h3>
-<p>You can also cancel workflows using the Flux CLI:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Asynchronous cancellation (returns immediately)</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>workflow<span class="w"> </span>cancel<span class="w"> </span>&lt;workflow_name&gt;<span class="w"> </span>&lt;execution_id&gt;
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Synchronous cancellation (waits for the cancellation to complete)</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>flux<span class="w"> </span>workflow<span class="w"> </span>cancel<span class="w"> </span>&lt;workflow_name&gt;<span class="w"> </span>&lt;execution_id&gt;<span class="w"> </span>--sync
-</code></pre></div>
-<p>This command will send a cancellation request to the server and display the current status of the workflow.</p>
-<h2 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h2>
-<p>See <code>examples/cancellation.py</code> for a complete example of how to cancel a workflow.</p>
-<p>Run the example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>examples/cancellation.py
-</code></pre></div>
-<p>This example demonstrates:
-1. Starting a long-running workflow
-2. Requesting cancellation after 5 seconds
-3. Handling the cancellation in the workflow</p>
-<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
-<p>To run the tests for the cancellation feature:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pytest<span class="w"> </span>tests/flux/test_cancellation_integration.py
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>pytest<span class="w"> </span>tests/flux/domain/test_execution_context.py
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>pytest<span class="w"> </span>tests/flux/test_context_manager_cancellation.py
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>pytest<span class="w"> </span>tests/flux/test_worker_cancellation.py
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>pytest<span class="w"> </span>tests/flux/test_server_cancellation.py
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>pytest<span class="w"> </span>tests/examples/test_cancellation.py
-</code></pre></div>
-<h2 id="implementation-details">Implementation Details<a class="headerlink" href="#implementation-details" title="Permanent link">&para;</a></h2>
-<p>The cancellation feature works as follows:</p>
+<h1 id="orphaned-cancellation-sweep">Orphaned-cancellation sweep<a class="headerlink" href="#orphaned-cancellation-sweep" title="Permanent link">&para;</a></h1>
+<p><strong>Issue:</strong> #225 · <strong>Status:</strong> implemented</p>
+<h2 id="problem">Problem<a class="headerlink" href="#problem" title="Permanent link">&para;</a></h2>
+<p>The cancel route writes <code>CANCELLING</code> for any unfinished execution and relies on
+delivery to a worker for resolution: <code>next_cancellations_batch</code> matches rows by
+<code>worker_name</code> against <em>currently connected</em> workers. Two orphan classes never
+resolve:</p>
 <ol>
-<li>When a cancellation is requested, the execution context is put into the <code>CANCELLING</code> state</li>
-<li>The server notifies the worker that is executing the workflow</li>
-<li>The worker cancels the asyncio task that is running the workflow</li>
-<li>The workflow catches the <code>asyncio.CancelledError</code> and updates its state to <code>CANCELLED</code></li>
-<li>The worker sends a checkpoint back to the server with the final state</li>
+<li><strong><code>worker_name IS NULL</code></strong> — cancellation requested while the execution was
+   parked (<code>CREATED</code>, never dispatched). No worker ever owned it; NULL matches
+   no connected worker; dispatch skips non-<code>CREATED</code> rows, so nobody ever
+   claims it either. The row is stranded the moment it is written. A
+   <code>mode=sync</code> cancel of a parked execution hangs the HTTP request
+   indefinitely (<code>while not ctx.has_finished</code> re-polls forever).</li>
+<li><strong><code>worker_name</code> names a worker that never returns</strong> — eviction deliberately
+   leaves <code>CANCELLING</code> rows untouched (<code>unclaim</code> recovers only
+   initial/resume states), so the row keeps pointing at the dead worker and
+   re-delivery targets nobody.</li>
 </ol>
-<p>This approach ensures that the workflow is cancelled cleanly and all resources are properly released.</p>
-<p>The server re-sends the cancellation on every dispatch cycle for as long as the
-execution remains <code>CANCELLING</code>, so delivery edge cases resolve rather than park:</p>
+<h1 id="222-fixed-every-variant-where-a-live-worker-receives-the-delivery-this-is">222 fixed every variant where a live worker receives the delivery. This is<a class="headerlink" href="#222-fixed-every-variant-where-a-live-worker-receives-the-delivery-this-is" title="Permanent link">&para;</a></h1>
+<p>the remaining hole: rows whose delivery target is gone.</p>
+<h2 id="design">Design<a class="headerlink" href="#design" title="Permanent link">&para;</a></h2>
+<p>A sweep in the scheduler tick, alongside the park-TTL and pause-wake passes,
+under the same cross-replica dispatch lock:</p>
 <ul>
-<li><strong>The terminal write survives a second cancellation.</strong> The checkpoint that
-  persists <code>CANCELLED</code> runs shielded with a bounded wait; a further
-  cancellation arriving mid-write cannot discard it. If the wait ends before
-  the write lands, the write continues detached and its outcome is logged.</li>
-<li><strong>A worker that is not running the execution resolves it.</strong> If the notified
-  worker has no matching running task — for example, it restarted after the
-  claim — it checkpoints the execution as <code>CANCELLED</code> itself. Executions
-  already in a terminal state are never rewritten; the server rejects state
-  writes to finished executions.</li>
-<li><strong>A claim in flight defers.</strong> Between claiming an execution and starting it,
-  the worker declines to resolve a cancellation and waits for the next
-  delivery, which either cancels the now-running task or resolves the row if
-  the claim failed.</li>
-<li><strong>A cancellation with no live delivery target resolves from the scheduler.</strong>
-  An execution cancelled while parked (never dispatched, so no worker to
-  notify) resolves on the next scheduler tick. One assigned to a worker that
-  never reconnects resolves after <code>[flux.workers] cancellation_orphan_grace</code>
-  (default 300s; 0 waits forever) — the grace gives a worker in reconnect
-  backoff the chance to resolve its own row, which interrupts the running
-  body rather than abandoning it.</li>
+<li><strong>NULL-owner rows resolve immediately.</strong> Nothing was ever asked to resolve
+  them, so there is nobody to defer to. Any dispatched row has <code>worker_name</code>
+  stamped at dispatch time, so NULL cannot be a claim in flight (#222's
+  deferral window applies only to named rows).</li>
+<li><strong>Named rows resolve only when the worker is not live AND the row has
+  been <code>CANCELLING</code> longer than a grace period</strong> (<code>[flux.workers]
+  cancellation_orphan_grace</code>, default 300s, 0 disables the sweep for named
+  rows). Live workers keep the existing re-delivery path — they resolve
+  within a dispatch cycle. The grace covers reconnect backoff: a
+  disconnected-but-alive worker that returns inside it still resolves its own
+  row, which is preferable because it actually interrupts the running body
+  rather than abandoning it.</li>
+<li><strong>Liveness is cross-replica.</strong> The sweeping replica's SSE view
+  (<code>_worker_queues</code>) is per-replica by construction; a worker connected to a
+  different replica is invisible in it. The sweep unions in workers with a
+  recent <code>workers.last_seen_at</code> (written on every heartbeat pong regardless
+  of replica), with the window sized <code>heartbeat_timeout +
+  eviction_grace_period</code> — a worker no replica has heard from inside the
+  window any replica would evict over is the only kind the sweep touches.</li>
+<li><strong>Age is measured from the newest <code>WORKFLOW_CANCELLING</code> event</strong>, which is
+  written in the same transaction as the <code>CANCELLING</code> state — no schema
+  change, no clock skew beyond what the event log already carries.</li>
+</ul>
+<p>Resolution appends <code>WORKFLOW_CANCELLED</code> and writes terminal <code>CANCELLED</code> —
+the operator asked for cancellation, so completing it is the correct outcome
+(unlike the park sweep, which fails rows with a diagnostic). The write is
+guarded the same way as the park sweep: <code>state == CANCELLING</code> filter plus
+<code>with_for_update(skip_locked=True)</code>, so a worker checkpoint landing
+concurrently wins the row lock race and the sweep skips; a sweep write landing
+first makes the worker's late write a no-op via <code>_accept_state_write</code>.</p>
+<h2 id="non-goals">Non-goals<a class="headerlink" href="#non-goals" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Interrupting a partitioned-but-alive worker's running body. If it outlives
+  the grace, its checkpoints are rejected after the sweep resolves; the body
+  runs to waste but the row is correct. The alternative — waiting forever —
+  is the bug this fixes.</li>
+<li>Reaping <code>CANCELLING</code> rows whose worker is connected. That path is owned by
+  re-delivery (#222).</li>
+</ul>
+<h2 id="test-surface">Test surface<a class="headerlink" href="#test-surface" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Unit: NULL-owner resolved immediately; named+connected untouched;
+  named+disconnected untouched inside grace, resolved past it; grace 0
+  disables named sweeps but not NULL sweeps; terminal rows untouched;
+  resolution appends <code>WORKFLOW_CANCELLED</code>.</li>
+<li>E2E: cancel a parked execution (affinity matches no worker) and observe it
+  reach <code>CANCELLED</code> — red before this change (stuck <code>CANCELLING</code>).</li>
 </ul>
 
 
