@@ -75,7 +75,7 @@ def _heavy_hitters(module: str, top: int = 5) -> list[dict]:
         text=True,
         check=True,
     )
-    rows = []
+    rows: list[tuple[float, str]] = []
     for line in out.stderr.splitlines():
         parts = line.split("|")
         if len(parts) != 3 or "import time" not in parts[0]:
@@ -87,9 +87,9 @@ def _heavy_hitters(module: str, top: int = 5) -> list[dict]:
         name = parts[2].strip()
         if name.startswith("flux"):
             continue
-        rows.append({"module": name, "self_ms": round(self_us / 1000, 1)})
-    rows.sort(key=lambda r: -float(r["self_ms"]))
-    return rows[:top]
+        rows.append((round(self_us / 1000, 1), name))
+    rows.sort(reverse=True)
+    return [{"module": name, "self_ms": ms} for ms, name in rows[:top]]
 
 
 def test_t8a_bare_interpreter_import_cost():
