@@ -4,8 +4,10 @@ Minting was additive with no inverse: a token left live by a failed bring-up
 stayed claimable until it expired, and an operator could neither see what was
 outstanding nor retire it (issue #197).
 
-A soft delete rather than a row delete — ``purge_expired`` stays the single
-reaper, and a revoked row keeps the audit trail of who minted it and when.
+A soft delete rather than a row delete, so a revoked row keeps the audit trail
+of who minted it, who retired it, and when. Note that nothing currently calls ``purge_expired``,
+so no row is ever removed — revocation does not change that either way, but it
+means the table only grows.
 
 Nullable with no backfill: NULL means live, which is how every token before
 this revision behaves.
@@ -28,18 +30,20 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _TABLE = "worker_join_tokens"
-_COLUMN = "revoked_at"
+_COLUMNS = {"revoked_at": sa.DateTime(), "revoked_by": sa.String()}
 
 
 def upgrade() -> None:
     bind = op.get_bind()
     existing = {c["name"] for c in sa.inspect(bind).get_columns(_TABLE)}
-    if _COLUMN not in existing:
-        op.add_column(_TABLE, sa.Column(_COLUMN, sa.DateTime(), nullable=True))
+    for name, type_ in _COLUMNS.items():
+        if name not in existing:
+            op.add_column(_TABLE, sa.Column(name, type_, nullable=True))
 
 
 def downgrade() -> None:
     bind = op.get_bind()
     existing = {c["name"] for c in sa.inspect(bind).get_columns(_TABLE)}
-    if _COLUMN in existing:
-        op.drop_column(_TABLE, _COLUMN)
+    for name in _COLUMNS:
+        if name in existing:
+            op.drop_column(_TABLE, name)

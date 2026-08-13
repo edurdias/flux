@@ -132,7 +132,11 @@ class WorkerRoutesMixin:
             """
             from flux.security import join_tokens
 
-            if not await asyncio.to_thread(join_tokens.revoke, token_id):
+            if not await asyncio.to_thread(
+                join_tokens.revoke,
+                token_id,
+                revoked_by=identity.subject,
+            ):
                 raise HTTPException(status_code=404, detail="No live join token with that id.")
             logger.info(f"Join token {token_id} revoked by {identity.subject}")
             return {"revoked": 1}
@@ -157,7 +161,11 @@ class WorkerRoutesMixin:
             # as "there was nothing outstanding".
             name = (subject or "").strip()
             try:
-                revoked = await asyncio.to_thread(join_tokens.revoke_for_subject, name)
+                revoked = await asyncio.to_thread(
+                    join_tokens.revoke_for_subject,
+                    name,
+                    revoked_by=identity.subject,
+                )
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
             logger.info(
@@ -372,10 +380,24 @@ class WorkerRoutesMixin:
                             f"Refusing registration for banned worker principal: "
                             f"{registration.name}",
                         )
+                        # Who is told *why* depends on what they presented.
+                        # A bootstrap-token holder has the fleet-wide
+                        # registration secret, so naming the quarantine tells
+                        # them nothing they could not get anyway, and the
+                        # diagnostic is what an operator wants. A join-token
+                        # holder is scoped to one registration — and since
+                        # is_claimable no longer consumes the token, a distinct
+                        # message would let a single unbound token enumerate
+                        # every quarantined name in the fleet, repeatedly. The
+                        # real reason is always in the log above.
                         raise HTTPException(
                             status_code=403,
-                            detail="Worker principal is banned; an administrator "
-                            "must unban and enable it before it can register.",
+                            detail=(
+                                "Worker principal is banned; an administrator "
+                                "must unban and enable it before it can register."
+                                if bootstrap_ok
+                                else "Invalid bootstrap or join token."
+                            ),
                         )
 
                 if join_token_ok:

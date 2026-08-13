@@ -398,6 +398,7 @@ flux principals revoke-key <subject> --key-name <name>
 | `DELETE` | `/admin/principals/{id}` | `admin:principals:manage` |
 | `POST` | `/admin/principals/{id}/keys` | `admin:principals:manage` |
 | `DELETE` | `/admin/principals/{id}/keys/{name}` | `admin:principals:manage` |
+| `POST` | `/admin/workers/join-tokens` | `admin:workers:manage` |
 | `GET` | `/admin/workers/join-tokens` | `admin:workers:manage` |
 | `DELETE` | `/admin/workers/join-tokens/{id}` | `admin:workers:manage` |
 | `DELETE` | `/admin/workers/join-tokens?subject=` | `admin:workers:manage` |
@@ -435,10 +436,11 @@ caller already knows the worker name and does not track token ids. **Unbound
 tokens are never matched by `--subject`** — they carry no subject, so retiring
 them under one worker's name would take out credentials meant for others.
 
-Revocation is a soft delete: the row keeps who minted it and when, and the
-existing expiry sweep stays the only thing that removes rows. The listing never
-returns the token or its hash — the plaintext is unrecoverable by design, and
-the hash is credential-equivalent to an offline guesser.
+Revocation is a soft delete, so the row keeps who minted it and when. Note that
+`purge_expired()` exists but is not wired to anything, so no join-token row is
+ever removed — the table grows with every mint, revoked or not. The listing
+never returns the token or its hash: the plaintext is unrecoverable by design,
+and the hash is credential-equivalent to an offline guesser.
 
 Note that banning a principal is already a complete control on its own: worker
 registration refuses a banned principal regardless of credential, so a token

@@ -1648,7 +1648,7 @@ def server_revoke_join_token(token_id: str | None, subject: str | None):
     if bool(token_id) == bool(subject):
         raise click.ClickException("Pass exactly one of --id or --subject.")
     if token_id:
-        if not join_tokens.revoke(token_id):
+        if not join_tokens.revoke(token_id, revoked_by="cli"):
             raise click.ClickException(f"No live join token with id '{token_id}'.")
         click.echo(f"Revoked join token {token_id}.")
         return
@@ -1656,7 +1656,7 @@ def server_revoke_join_token(token_id: str | None, subject: str | None):
     name = subject.strip()
     if not name:
         raise click.ClickException("--subject must not be blank")
-    revoked = join_tokens.revoke_for_subject(name)
+    revoked = join_tokens.revoke_for_subject(name, revoked_by="cli")
     click.echo(f"Revoked {revoked} join token(s) for subject '{name}'.")
 
 
