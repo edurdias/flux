@@ -1187,11 +1187,13 @@ class Server(
         now = time.monotonic() if now_monotonic is None else now_monotonic
         if self._last_join_token_purge is not None and now - self._last_join_token_purge < 3600:
             return 0
-        self._last_join_token_purge = now
 
         from flux.security import join_tokens
 
         removed = join_tokens.purge_expired(older_than_seconds=retention)
+        # Stamped only on success: a failed purge (the caller logs it) retries
+        # on the next tick instead of being silenced for an hour.
+        self._last_join_token_purge = now
         if removed:
             logger.info(f"Purged {removed} expired worker join token(s)")
         return removed

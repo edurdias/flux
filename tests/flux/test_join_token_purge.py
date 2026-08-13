@@ -43,6 +43,20 @@ class TestPurgeThrottle:
             server._purge_join_tokens(now_monotonic=1000.0 + 3601)
         assert purge.call_count == 2
 
+    def test_a_failed_purge_retries_next_tick_not_next_hour(self, server):
+        """The throttle stamp lands only after a successful purge: a DB
+        failure (logged by the tick) must not silence retries for an hour."""
+        with patch(
+            "flux.security.join_tokens.purge_expired",
+            side_effect=RuntimeError("db down"),
+        ):
+            with pytest.raises(RuntimeError):
+                server._purge_join_tokens(now_monotonic=1000.0)
+
+        with patch("flux.security.join_tokens.purge_expired", return_value=1) as purge:
+            assert server._purge_join_tokens(now_monotonic=1001.0) == 1
+        purge.assert_called_once()
+
     def test_retention_zero_disables(self, server):
         Configuration.get().override(workers={"join_token_retention": 0})
         try:

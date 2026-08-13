@@ -184,8 +184,9 @@ def purge_expired(*, older_than_seconds: int = 86400) -> int:
 
     Used, revoked, and never-claimed rows all age out on the same expiry
     clock; inside the window they remain an audit trail of recent joins.
-    Called hourly from the scheduler tick with ``[flux.workers]
-    join_token_retention`` as the window. Returns the number of rows removed.
+    Called hourly from the scheduler tick, with the window taken from
+    ``join_token_retention`` in ``[flux.workers]``. Returns the number of
+    rows removed.
     """
     repo = RepositoryFactory.create_repository()
     cutoff = _utcnow() - timedelta(seconds=older_than_seconds)
