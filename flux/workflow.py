@@ -14,12 +14,22 @@ from flux.domain.resource_request import ResourceRequest
 from flux.domain.schedule import Schedule
 from flux.errors import PauseRequested
 from flux.output_storage import OutputStorage
-from flux.utils import maybe_awaitable
+from flux.utils import get_logger, maybe_awaitable
 from flux.worker_registry import WorkerInfo
 
-from flux.utils import get_logger
-
 logger = get_logger(__name__)
+
+
+def _report_detached_checkpoint(task: asyncio.Future, execution_id: str) -> None:
+    """Log the outcome of a checkpoint nobody is awaiting any more."""
+    if task.cancelled():
+        logger.warning(f"Execution {execution_id}: detached CANCELLED checkpoint was cancelled")
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error(f"Execution {execution_id}: detached CANCELLED checkpoint failed: {error}")
+    else:
+        logger.info(f"Execution {execution_id}: detached CANCELLED checkpoint landed late")
 
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -267,7 +277,14 @@ class workflow:
         except (TimeoutError, asyncio.CancelledError):
             # The shield means the write is still in flight; the caller is
             # unwinding regardless. Losing the race is what the park sweep and
-            # the worker-side resolution below it are for.
+            # the worker-side resolution below it are for. Nobody awaits the
+            # task now, so attach a callback: an exception it raises later
+            # would otherwise surface only as asyncio's "Task exception was
+            # never retrieved" at garbage-collection time, detached from the
+            # execution it belongs to.
+            checkpoint.add_done_callback(
+                lambda t: _report_detached_checkpoint(t, ctx.execution_id),
+            )
             logger.warning(
                 f"Execution {ctx.execution_id}: terminal CANCELLED checkpoint did not "
                 f"complete within {CANCELLED_CHECKPOINT_TIMEOUT}s",

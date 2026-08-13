@@ -188,3 +188,25 @@ class TestCancelledCheckpointSurvivesASecondCancel:
         assert "CANCELLED" in checkpoints, (
             "the terminal state was lost to the second cancel, leaving the row CANCELLING forever"
         )
+
+    @pytest.mark.asyncio
+    async def test_a_checkpoint_that_outlives_the_wait_is_still_observed(self, caplog):
+        """On timeout the shielded write keeps running with nobody awaiting it.
+        An exception it raises then would otherwise surface only as asyncio's
+        "Task exception was never retrieved" at GC time, detached from the
+        execution it belongs to."""
+        import logging
+
+        from flux.workflow import _report_detached_checkpoint
+
+        async def _boom():
+            raise RuntimeError("checkpoint exploded")
+
+        task = asyncio.ensure_future(_boom())
+        await asyncio.sleep(0)
+
+        with caplog.at_level(logging.ERROR):
+            _report_detached_checkpoint(task, "exec-1")
+
+        assert "checkpoint exploded" in caplog.text
+        assert "exec-1" in caplog.text
