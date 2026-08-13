@@ -110,7 +110,7 @@ def test_t8a_bare_interpreter_import_cost():
         results[role] = measured
 
     write_run(
-        "T8",
+        "T8a",
         f"bare-import-{profile_name()}",
         {
             "gate": "all roles measured (hard); medians within budget (soft)",
@@ -155,7 +155,7 @@ def test_t8b_container_image_load_cost():
         results[role] = measured
 
     write_run(
-        "T8",
+        "T8b",
         f"container-load-{profile_name()}",
         {
             "gate": "all roles measured (hard); medians within budget (soft)",
@@ -194,11 +194,14 @@ def test_t8c_import_graph_manifest():
         manifest[role] = json.loads(out.stdout.strip().splitlines()[-1])
 
     write_run(
-        "T8",
+        "T8c",
         f"import-manifest-{profile_name()}",
         {
             "gate": "manifest recorded; structural assertions live in the unit tree",
-            "measured": json.dumps(manifest),
+            "measured": "; ".join(
+                f"{role} loads " + (",".join(m for m, on in loaded.items() if on) or "none")
+                for role, loaded in manifest.items()
+            ),
             "passed": True,
             "sealed": False,
             "profile": profile_name(),

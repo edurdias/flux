@@ -19,15 +19,21 @@ paid twice: the child dropped 599→65 ms as designed, and the worker dropped
 660→333 ms as a side effect — the worker rode the same eager registry into
 SQLAlchemy despite being HTTP-only by design.
 
-## Import manifests (what each role loads)
+## Import manifests (what each role loads at import time)
 
 | Package | server | worker | child |
 |---|---|---|---|
 | sqlalchemy | yes (owns the DB) | **no** | **no** |
 | fastapi / uvicorn | yes | **no** | **no** |
-| pydantic | yes | yes (config) | yes (config) |
+| pydantic | yes | yes (config) | **no** — arrives in `_run` (config) |
 | httpx | yes | yes | no |
-| Crypto (PyCryptodome) | yes | yes | yes |
+| Crypto (PyCryptodome) | yes | yes | **no** |
+
+The child's column is import-time only, which is what the manifest records:
+its 65 ms module-level cost excludes pydantic entirely — the config graph
+(~196 ms including pydantic) loads inside `_run`, after the frame protocol
+is already up. The improvement below targets that deferred load, not the
+module-level number.
 
 Structural invariants are enforced always-on in
 `tests/flux/test_startup_import_budget.py` (server/worker) and
@@ -37,13 +43,15 @@ wall time hides it in runner noise.
 
 ## Improvement areas, in value order
 
-1. **Child residual (~65 ms bare / ~153 ms container): pydantic via
-   `flux.config`.** The child reads Configuration for loader cache settings
-   and runner knobs — a handful of scalars. A config-light child (parent
-   passes the needed values over the frame protocol, as it already does for
-   secrets/configs) would cut most of the residual and drop pydantic from
-   the sandbox entirely. Medium effort; per-execution payoff for container
-   runners only.
+1. **Child `_run`-path config load (~196 ms): pydantic via `flux.config`.**
+   The child's module level is already lean (65 ms, no pydantic — see the
+   manifest above); the config graph loads inside `_run`, where the child
+   reads Configuration for loader cache settings and runner knobs — a
+   handful of scalars. A config-light child (parent passes the needed
+   values over the frame protocol, as it already does for secrets/configs)
+   would cut most of that deferred load and drop pydantic from the sandbox
+   entirely. Medium effort; per-execution payoff for container runners
+   only.
 2. **Worker residual (~333 ms): pydantic (~160 ms) + httpx (~110 ms).** Both
    genuinely used at startup (config, HTTP client). No cheap cut; a lazy
    `pydantic_settings` import inside `Configuration.load` would help only
@@ -56,10 +64,11 @@ wall time hides it in runner noise.
    immediately) and only speeds `import flux.server` in tests/tooling. Not
    recommended; the per-process cost is paid once per deployment, not per
    request.
-4. **Crypto (PyCryptodome) loads in all three roles** via the secret-manager
-   ABC chain. Small (~10 ms), but the child needs it only when a workflow
-   actually requests secrets — a candidate rider for the config-light child
-   work in (1).
+4. **Crypto (PyCryptodome) loads in server and worker** (encryption for the
+   secrets store). The child no longer loads it at import time; if the
+   `_run` path pulls it regardless of whether the workflow requests
+   secrets, that is a candidate rider for the config-light child work
+   in (1).
 
 ## Method
 
