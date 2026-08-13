@@ -1548,6 +1548,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#revoking-join-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revoking join tokens
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#worker-bootstrap-token" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2152,6 +2163,26 @@ rebind schedules.</p>
 </tr>
 <tr>
 <td><code>POST</code></td>
+<td><code>/admin/workers/join-tokens</code></td>
+<td><code>admin:workers:manage</code></td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/admin/workers/join-tokens</code></td>
+<td><code>admin:workers:manage</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/admin/workers/join-tokens/{id}</code></td>
+<td><code>admin:workers:manage</code></td>
+</tr>
+<tr>
+<td><code>DELETE</code></td>
+<td><code>/admin/workers/join-tokens?subject=</code></td>
+<td><code>admin:workers:manage</code></td>
+</tr>
+<tr>
+<td><code>POST</code></td>
 <td><code>/workers/register</code></td>
 <td>bootstrap_token (see below)</td>
 </tr>
@@ -2191,6 +2222,27 @@ is per worker, so <code>worker:build-7:target</code> does not permit binding to 
 for any worker. The advisory <code>X-Flux-Preferred-Worker</code> needs no grant: it
 cannot force placement. See
 <a href="../dynamic-routing/#binding-an-execution-to-one-worker">Dynamic Routing</a>.</p>
+<h3 id="revoking-join-tokens">Revoking join tokens<a class="headerlink" href="#revoking-join-tokens" title="Permanent link">&para;</a></h3>
+<p>Minting is additive: each call produces another independently valid token, and
+before revocation existed a token left live by a failed bring-up stayed
+claimable until its TTL with no way to see or retire it (issue #197).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>flux<span class="w"> </span>server<span class="w"> </span>join-tokens<span class="w">                          </span><span class="c1"># what is outstanding</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>flux<span class="w"> </span>server<span class="w"> </span>revoke-join-token<span class="w"> </span>--id<span class="w"> </span>&lt;id&gt;<span class="w">          </span><span class="c1"># retire one</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>flux<span class="w"> </span>server<span class="w"> </span>revoke-join-token<span class="w"> </span>--subject<span class="w"> </span>worker-7<span class="w"> </span><span class="c1"># retire every token for a worker</span>
+</code></pre></div>
+<p>Revoking by subject is the shape that pairs with <code>flux principals ban</code>: the
+caller already knows the worker name and does not track token ids. <strong>Unbound
+tokens are never matched by <code>--subject</code></strong> — they carry no subject, so retiring
+them under one worker's name would take out credentials meant for others.</p>
+<p>Revocation is a soft delete, so the row keeps who minted it and when. Note that
+<code>purge_expired()</code> exists but is not wired to anything, so no join-token row is
+ever removed — the table grows with every mint, revoked or not. The listing
+never returns the token or its hash: the plaintext is unrecoverable by design,
+and the hash is credential-equivalent to an offline guesser.</p>
+<p>Note that banning a principal is already a complete control on its own: worker
+registration refuses a banned principal regardless of credential, so a token
+minted before the ban cannot register. Revocation is for the operational case —
+retiring credentials you no longer intend to use.</p>
 <h3 id="worker-bootstrap-token">Worker bootstrap token<a class="headerlink" href="#worker-bootstrap-token" title="Permanent link">&para;</a></h3>
 <p><code>POST /workers/register</code> is gated by a long-lived shared secret rather than the auth-service permission system. Resolution order on the server:</p>
 <ol>
@@ -2229,23 +2281,23 @@ cannot force placement. See
 </tbody>
 </table>
 <h3 id="getting-a-test-token">Getting a test token<a class="headerlink" href="#getting-a-test-token" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">  </span>http://localhost:8080/realms/flux/protocol/openid-connect/token<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s2">&quot;grant_type=password&amp;client_id=flux-api&amp;username=admin@local&amp;password=admin&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; print(json.load(sys.stdin)[&#39;access_token&#39;])&quot;</span><span class="k">)</span>
-<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>
-<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span>
-<a id="__codelineno-21-7" name="__codelineno-21-7" href="#__codelineno-21-7"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span>http://localhost:8000/workflows
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span>http://localhost:8080/realms/flux/protocol/openid-connect/token<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">  </span>-d<span class="w"> </span><span class="s2">&quot;grant_type=password&amp;client_id=flux-api&amp;username=admin@local&amp;password=admin&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>python3<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys,json; print(json.load(sys.stdin)[&#39;access_token&#39;])&quot;</span><span class="k">)</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>flux<span class="w"> </span>auth<span class="w"> </span>test-token<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$TOKEN</span><span class="s2">&quot;</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span>http://localhost:8000/workflows
 </code></pre></div>
 <h3 id="flux-config-for-dev">Flux config for dev<a class="headerlink" href="#flux-config-for-dev" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">[flux.security.auth.oidc]</span>
-<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
-<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8080/realms/flux&quot;</span>
-<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
-<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
-<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>
-<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="k">[flux.security.auth]</span>
-<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">[flux.security.auth.oidc]</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="n">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http://localhost:8080/realms/flux&quot;</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="n">audience</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;flux-api&quot;</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="n">clock_skew</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">60</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="k">[flux.security.auth]</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="n">default_user_roles</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;viewer&quot;</span><span class="p">]</span>
 </code></pre></div>
 
 
