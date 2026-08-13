@@ -58,6 +58,16 @@ DEFAULT_DRAIN_TIMEOUT = 2.0
 # the original body.
 CANCELLED_ROLLBACK_TIMEOUT = 10.0
 
+# Bound on persisting a cancelled workflow's terminal state
+# (flux/workflow.py). That checkpoint runs in the `finally` of a coroutine
+# already unwinding from a delivered CancelledError, so a *second* cancel — and
+# the dispatcher re-sends a cancellation every cycle while the row is still
+# CANCELLING — interrupts the await and the CANCELLED state is never written.
+# The row then stays CANCELLING, which is re-dispatched, which cancels again
+# (issue #189). Shielded for the same reason as the rollback above, and bounded
+# for the same reason: a wedged checkpoint must not strand a worker drain.
+CANCELLED_CHECKPOINT_TIMEOUT = 10.0
+
 
 async def gather_batch(
     awaitables: Iterable[Awaitable[Any]],

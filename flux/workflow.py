@@ -8,6 +8,7 @@ from collections.abc import Callable
 from flux._namespace import validate_namespace
 from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionState
+from flux._concurrency import CANCELLED_CHECKPOINT_TIMEOUT
 from flux.domain.execution_context import ExecutionContext
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.schedule import Schedule
@@ -15,6 +16,11 @@ from flux.errors import PauseRequested
 from flux.output_storage import OutputStorage
 from flux.utils import maybe_awaitable
 from flux.worker_registry import WorkerInfo
+
+from flux.utils import get_logger
+
+logger = get_logger(__name__)
+
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -209,6 +215,7 @@ class workflow:
             ctx.start(self.id)
 
         token = ExecutionContext.set(ctx)
+        cancelled = False
         try:
             output = await maybe_awaitable(self._func(ctx))
             output_value = (
@@ -225,13 +232,48 @@ class workflow:
             )
         except asyncio.CancelledError:
             ctx.cancel()
+            cancelled = True
             raise
         except Exception as ex:
             ctx.fail(self.id, ex)
         finally:
-            await ctx.checkpoint()
+            if cancelled:
+                await self._checkpoint_cancelled(ctx)
+            else:
+                await ctx.checkpoint()
             ExecutionContext.reset(token)
         return ctx
+
+    @staticmethod
+    async def _checkpoint_cancelled(ctx: ExecutionContext) -> None:
+        """Persist CANCELLED against a second cancellation.
+
+        This runs while already unwinding from a delivered CancelledError, so a
+        plain ``await`` here is interrupted by the next cancel — and the
+        dispatcher re-sends a cancellation every cycle for as long as the row
+        is CANCELLING, so the next cancel is imminent by construction. Losing
+        this write leaves the row CANCELLING forever and turns one missed
+        checkpoint into an endless re-dispatch loop (issue #189).
+
+        Its own task, so the awaits inside start uncancelled, awaited through a
+        shield with a deadline: a wedged checkpoint must not strand a drain.
+        """
+        checkpoint = asyncio.ensure_future(ctx.checkpoint())
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(checkpoint),
+                timeout=CANCELLED_CHECKPOINT_TIMEOUT,
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            # The shield means the write is still in flight; the caller is
+            # unwinding regardless. Losing the race is what the park sweep and
+            # the worker-side resolution below it are for.
+            logger.warning(
+                f"Execution {ctx.execution_id}: terminal CANCELLED checkpoint did not "
+                f"complete within {CANCELLED_CHECKPOINT_TIMEOUT}s",
+            )
+        except Exception as ex:  # pragma: no cover - defensive
+            logger.error(f"Execution {ctx.execution_id}: cancelled checkpoint failed: {ex}")
 
     def run(self, *args, **kwargs) -> ExecutionContext:
         if "execution_id" in kwargs:

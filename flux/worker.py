@@ -790,6 +790,22 @@ class Worker:
                         )
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
+            else:
+                # Not running here. Before this branch existed the handler
+                # simply returned: nothing was written, the row stayed
+                # CANCELLING, and the dispatcher re-sent the cancellation every
+                # cycle — 57,905 times in the run that finally produced logs
+                # (issue #189). Resolve it instead. A row that already reached a
+                # terminal state rejects this write server-side
+                # (_accept_state_write), so a completed execution is not
+                # rewritten as cancelled; only a genuinely stuck CANCELLING row
+                # advances.
+                logger.info(
+                    f"Execution {context.execution_id} is not running here; "
+                    "resolving its cancellation",
+                )
+                context.cancel()
+                await context.checkpoint()
         except Exception as ex:
             logger.error(f"Error handling execution_cancelled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
