@@ -1,5 +1,5 @@
 # Flux Makefile
-.PHONY: help install test test-unit test-integration test-postgresql test-postgresql-unit test-postgresql-integration
+.PHONY: help install test test-unit test-integration test-docker docker-test-image test-postgresql test-postgresql-unit test-postgresql-integration
 .PHONY: postgres-up postgres-down postgres-test-up postgres-test-down
 .PHONY: docker-build docker-up docker-down docker-logs
 .PHONY: perf perf-postgresql
@@ -39,6 +39,18 @@ test-unit: ## Run unit tests only
 
 test-integration: ## Run integration tests only
 	poetry run pytest tests/flux/integration/ -v
+
+# Docker/airgapped runner integration tests: build an image with the working
+# tree's flux-core, then run the container-gated tests against it.
+test-docker: docker-test-image ## Run docker + airgapped runner tests against a locally built image
+	FLUX_TEST_DOCKER_IMAGE=flux-test:local \
+	poetry run pytest tests/flux/test_docker_runner.py tests/flux/test_airgapped_runner.py -v
+
+docker-test-image: ## Build the runner test image from the working tree
+	rm -f dist/*.whl docker/test/*.whl
+	poetry build -f wheel
+	cp dist/*.whl docker/test/
+	docker build -t flux-test:local docker/test
 
 # PostgreSQL Testing
 test-postgresql: postgres-test-up test-postgresql-all postgres-test-down ## Run all PostgreSQL tests with test database

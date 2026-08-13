@@ -42,6 +42,7 @@ poe test-e2e                                    # ALL E2E incl. ollama (needs lo
 poe test-e2e-no-ai                              # E2E minus @pytest.mark.ollama
 poetry run pytest -m postgresql                 # PostgreSQL-tagged tests
 make test-postgresql                            # full PG suite (docker-compose up + tests + down)
+make test-docker                                # docker + airgapped runner tests against a working-tree image
 FLUX_PERF=1 poetry run pytest tests/perf/       # perf suite (see tests/perf/PLAN.md)
 
 # Run a server / worker locally
@@ -283,6 +284,7 @@ Higher-level managers:
 | `unit` | `pytest tests/ --ignore=tests/e2e --cov=flux` on 3.12 / 3.13 / 3.14 |
 | `e2e` | `pytest tests/e2e/ -m "not ollama and not network" -v` (15-min timeout) |
 | `migrations-postgres` | PostgreSQL-only tests, incl. the migration parity check |
+| `runner-docker` | docker + airgapped runner tests against an image built from the working tree |
 | `perf-postgres` | perf suite on the `ci` profile |
 
 Run pre-commit, the unit suite, and the E2E suite locally before pushing — the version-bump check
