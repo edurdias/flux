@@ -55,6 +55,9 @@ class TestSnapshotParity:
         assert isinstance(s.cache_path, str)
         assert isinstance(s.local_storage_path, str)
         assert isinstance(s.security.auth.enabled, bool)
+        # The cache/storage path calls integrity.sign() in the child; the
+        # read must resolve — to None, so signing no-ops keylessly.
+        assert s.security.encryption.encryption_key is None
         assert isinstance(s.workers.server_url, str)
         assert isinstance(s.workers.transient_fast_path, bool)
         assert isinstance(s.scheduling.schedule_check_tolerance, float)
@@ -86,8 +89,12 @@ class TestSnapshotSecrecy:
         assert "SUPER-SECRET-BOOTSTRAP" not in raw
         assert "SUPER-SECRET-KEY" not in raw
         data = json.loads(raw)
-        assert set(data["security"]) == {"auth"}
+        assert set(data["security"]) == {"auth", "encryption"}
         assert set(data["security"]["auth"]) == {"enabled"}
+        # The encryption entry exists so the child's integrity read resolves,
+        # but its value is unconditionally None — even when the parent holds
+        # a real key, as this override ensures it does.
+        assert data["security"]["encryption"] == {"encryption_key": None}
         assert "bootstrap_token" not in data.get("workers", {})
 
     def test_shim_settings_are_read_only(self):

@@ -54,7 +54,15 @@ def snapshot() -> str:
     data: dict = {name: getattr(settings, name) for name in _TOP_LEVEL}
     data["workers"] = {name: getattr(settings.workers, name) for name in _WORKERS}
     data["scheduling"] = {name: getattr(settings.scheduling, name) for name in _SCHEDULING}
-    data["security"] = {"auth": {"enabled": settings.security.auth.enabled}}
+    data["security"] = {
+        "auth": {"enabled": settings.security.auth.enabled},
+        # Explicitly keyless: the child must never hold the encryption key
+        # (its environment strips FLUX_SECURITY__* for the same reason), and
+        # integrity signing no-ops without one — exactly the pre-snapshot
+        # behavior of a sanitized child reading real config. The None is the
+        # deliberate absence of the secret, stated rather than implied.
+        "encryption": {"encryption_key": None},
+    }
     # Provider descriptors carry key NAMES (env var / secret store), never
     # key values — agent tasks in the child resolve the values themselves
     # through the parent pipe.
