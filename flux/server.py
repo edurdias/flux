@@ -1111,6 +1111,32 @@ class Server(
                         except Exception:
                             logger.error("Park-TTL sweep failed", exc_info=True)
 
+                        # Orphaned-cancellation sweep (issue #225):
+                        # CANCELLING rows whose delivery target is gone —
+                        # cancelled while parked (no worker to match) or
+                        # assigned to a worker that never came back — resolve
+                        # server-side instead of parking forever.
+                        try:
+                            orphaned = ContextManager.create().resolve_orphaned_cancellations(
+                                list(self._worker_queues.keys()),
+                                Configuration.get().settings.workers.cancellation_orphan_grace,
+                                current_time,
+                            )
+                            if orphaned:
+                                logger.warning(
+                                    f"Resolved {len(orphaned)} orphaned "
+                                    f"cancellation(s): {', '.join(orphaned)}",
+                                )
+                                for execution_id in orphaned:
+                                    event = self._execution_events.get(execution_id)
+                                    if event:
+                                        event.set()
+                        except Exception:
+                            logger.error(
+                                "Orphaned-cancellation sweep failed",
+                                exc_info=True,
+                            )
+
                         # Pause-wake pass (issue #145): resume paused
                         # executions whose timed or completion wake fired.
                         # Same lock, same timing authority as the schedules.

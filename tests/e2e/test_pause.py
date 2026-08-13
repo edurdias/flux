@@ -71,3 +71,34 @@ def test_cancellation(cli):
     # CANCELLING is not accepted: a row parked there is issue #189, the bug
     # this asserts against.
     assert s["state"] == "CANCELLED"
+
+
+def test_cancellation_of_parked_execution(cli):
+    """A cancel with no delivery target must still resolve (issue #225).
+
+    A when()-gated execution parks with no worker assigned; cancelling it
+    writes CANCELLING with nobody to deliver to. Before the orphan sweep the
+    row stayed CANCELLING forever. The wait spans a full scheduler tick
+    (30s default), hence the generous deadline.
+    """
+    plain = cli.start_worker("cancel-parked-worker", labels={"region": "eu-west"})
+    try:
+        cli.register(str(FIXTURES / "require_workflow.py"))
+        r = cli.run(
+            "require_task",
+            '{"region": "eu-west", "tier": "dedicated"}',
+            mode="async",
+            timeout=30,
+        )
+        exec_id = r["execution_id"]
+
+        time.sleep(3)
+        s = cli.status("require_task", exec_id)
+        assert s["state"] not in ("COMPLETED", "FAILED"), s
+
+        cli.cancel("require_task", exec_id)
+
+        final = cli.wait_for_state("require_task", exec_id, "CANCELLED", timeout=90)
+        assert final["state"] == "CANCELLED"
+    finally:
+        cli.stop_worker(plain)

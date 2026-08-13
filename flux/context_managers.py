@@ -644,6 +644,84 @@ class DatabaseContextManager(ContextManager):
             session.commit()
         return failed
 
+    def resolve_orphaned_cancellations(
+        self,
+        connected_workers: Sequence[str],
+        grace_seconds: int,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """Resolve CANCELLING rows whose delivery target is gone (issue #225).
+
+        Cancellation delivery matches ``worker_name`` against connected
+        workers, so two orphan classes never resolve on their own: rows
+        cancelled while parked (``worker_name`` NULL — matched by nobody,
+        and dispatch skips non-CREATED rows so nobody ever claims them
+        either) and rows whose worker died for good (eviction deliberately
+        leaves CANCELLING untouched).
+
+        NULL-owner rows resolve immediately: nothing was ever asked to
+        resolve them, and a dispatched row always has a worker stamped, so
+        NULL cannot be a claim in flight. Named rows resolve only when the
+        worker is not connected and the row has been CANCELLING longer than
+        ``grace_seconds`` (measured from the newest WORKFLOW_CANCELLING
+        event, written in the same transaction as the state) — a worker in
+        reconnect backoff that returns inside the grace still resolves its
+        own row, which actually interrupts the running body instead of
+        abandoning it. ``grace_seconds`` <= 0 disables the named sweep.
+
+        Runs in the scheduler tick under the dispatch lock. Same locking as
+        the park sweep: a concurrent worker checkpoint wins the row lock and
+        the sweep skips; a sweep write landing first makes the worker's late
+        write a no-op (``_accept_state_write``).
+        """
+        from flux.domain.events import ExecutionEventType
+
+        if now is None:
+            now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=grace_seconds)
+        connected = set(connected_workers)
+        resolved: list[str] = []
+        with self.session() as session:
+            query = (
+                session.query(ExecutionContextModel)
+                .filter(ExecutionContextModel.state == ExecutionState.CANCELLING)
+                .with_for_update(skip_locked=True)
+            )
+            for model in query:
+                if model.worker_name is not None:
+                    if grace_seconds <= 0 or model.worker_name in connected:
+                        continue
+                    stamped = (
+                        session.query(ExecutionEventModel.time)
+                        .filter(
+                            ExecutionEventModel.execution_id == model.execution_id,
+                            ExecutionEventModel.type == ExecutionEventType.WORKFLOW_CANCELLING,
+                        )
+                        .order_by(ExecutionEventModel.id.desc())
+                        .limit(1)
+                        .scalar()
+                    )
+                    # SQLite round-trips the aware write back naive.
+                    if stamped is not None and stamped.tzinfo is None:
+                        stamped = stamped.replace(tzinfo=timezone.utc)
+                    # A CANCELLING row without its event is anomalous; waiting
+                    # forever on it repeats the bug, so only a fresh stamp
+                    # defers the sweep.
+                    if stamped is not None and stamped > cutoff:
+                        continue
+                ctx = model.to_plain()
+                ctx.cancel()
+                model.state = ctx.state
+                session.add_all(self._get_additional_events(ctx, session))
+                owner = model.worker_name or "no worker"
+                logger.warning(
+                    f"Execution {model.execution_id} cancellation had no live "
+                    f"delivery target ({owner}); resolved by the scheduler sweep",
+                )
+                resolved.append(model.execution_id)
+            session.commit()
+        return resolved
+
     @staticmethod
     def _sync_wake_columns(model, ctx: ExecutionContext) -> None:
         """Mirror the pause's wake condition (issue #145) onto the row.
