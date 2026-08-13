@@ -7,7 +7,6 @@ from collections.abc import Callable
 
 from flux._concurrency import CANCELLED_CHECKPOINT_TIMEOUT
 from flux._namespace import validate_namespace
-from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionState
 from flux.domain.execution_context import ExecutionContext
 from flux.domain.resource_request import ResourceRequest
@@ -378,6 +377,8 @@ class workflow:
         Returns:
             ExecutionContext: The updated execution context after resuming the workflow.
         """
+        from flux.context_managers import ContextManager
+
         ctx = ContextManager.create().get(execution_id)
         if input is not None:
             ctx.start_resuming(input)
@@ -386,4 +387,11 @@ class workflow:
         return asyncio.run(self(ctx))
 
     def _save(self, ctx: ExecutionContext):
+        # Imported here, not at module top: the persistence graph (SQLAlchemy
+        # and friends) is inline-path only, and a module-level import would
+        # drag it into every runner child and workflow-module exec (issue
+        # #233 — 185 ms of SQLAlchemy into a network=none sandbox that
+        # cannot open a database connection).
+        from flux.context_managers import ContextManager
+
         ContextManager.create().save(ctx)

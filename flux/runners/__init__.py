@@ -14,12 +14,38 @@ container-based runners (Docker, Kubernetes) fit behind it later.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+# Runner classes are imported inside create_runners, not here: this package
+# init runs in every runner child (python -m flux.runners.child imports the
+# package first), and the eager registry pulled the loader's whole dependency
+# graph into the sandbox before any user code (issue #233).
 from flux.runners.base import Runner, RunnerHooks
-from flux.runners.inprocess import InProcessRunner
-from flux.runners.loader import WorkflowModuleLoader
-from flux.runners.subprocess_runner import SubprocessRunner
+
+if TYPE_CHECKING:
+    from flux.runners.inprocess import InProcessRunner  # noqa: F401
+    from flux.runners.loader import WorkflowModuleLoader  # noqa: F401
+    from flux.runners.subprocess_runner import SubprocessRunner  # noqa: F401
 
 KNOWN_RUNNERS = ("inprocess", "subprocess", "docker", "docker-airgapped")
+
+
+def __getattr__(name: str):
+    # Preserve `from flux.runners import InProcessRunner` for existing
+    # imports without paying for the registry in the child.
+    if name == "InProcessRunner":
+        from flux.runners.inprocess import InProcessRunner
+
+        return InProcessRunner
+    if name == "SubprocessRunner":
+        from flux.runners.subprocess_runner import SubprocessRunner
+
+        return SubprocessRunner
+    if name == "WorkflowModuleLoader":
+        from flux.runners.loader import WorkflowModuleLoader
+
+        return WorkflowModuleLoader
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def create_runners(names: list[str], config) -> dict[str, Runner]:
@@ -31,6 +57,9 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
     runners: dict[str, Runner] = {}
     for name in names:
         if name == "inprocess":
+            from flux.runners.inprocess import InProcessRunner
+            from flux.runners.loader import WorkflowModuleLoader
+
             runners[name] = InProcessRunner(
                 loader=WorkflowModuleLoader(
                     ttl=config.module_cache_ttl,
@@ -38,6 +67,8 @@ def create_runners(names: list[str], config) -> dict[str, Runner]:
                 ),
             )
         elif name == "subprocess":
+            from flux.runners.subprocess_runner import SubprocessRunner
+
             runners[name] = SubprocessRunner(
                 term_grace=config.subprocess_term_grace,
                 memory_limit=config.subprocess_memory_limit,

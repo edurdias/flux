@@ -5,12 +5,6 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-
-from flux.models import RepositoryFactory
-from flux.models import SecretModel
-
 
 class SecretManager(ABC):
     @abstractmethod
@@ -43,7 +37,12 @@ class SecretManager(ABC):
 class DatabaseSecretManager(SecretManager):
     """Dialect-agnostic secret manager. Delegates to ``RepositoryFactory``."""
 
+    # Persistence imports are per-method, worker_registry-style: a runner
+    # child imports this module for the SecretManager ABC alone, and a
+    # top-level import pulled SQLAlchemy into every sandbox (issue #233).
     def __init__(self):
+        from flux.models import RepositoryFactory
+
         self._repository = RepositoryFactory.create_repository()
 
     def session(self):
@@ -52,6 +51,10 @@ class DatabaseSecretManager(SecretManager):
     def save(self, name: str, value: Any):
         if value is None:
             raise ValueError("Secret value cannot be None")
+
+        from sqlalchemy.exc import IntegrityError
+
+        from flux.models import SecretModel
 
         with self.session() as session:
             try:
@@ -66,6 +69,10 @@ class DatabaseSecretManager(SecretManager):
                 raise
 
     def remove(self, name: str):
+        from sqlalchemy.exc import IntegrityError
+
+        from flux.models import SecretModel
+
         with self.session() as session:
             try:
                 secret = session.get(SecretModel, name)
@@ -78,6 +85,10 @@ class DatabaseSecretManager(SecretManager):
 
     async def get(self, secret_requests: list[str]) -> dict[str, Any]:
         def _query() -> dict[str, Any]:
+            from sqlalchemy import select
+
+            from flux.models import SecretModel
+
             with self.session() as session:
                 stmt = select(SecretModel.name, SecretModel.value).where(
                     SecretModel.name.in_(secret_requests),
@@ -91,6 +102,10 @@ class DatabaseSecretManager(SecretManager):
 
     def all(self) -> list[str]:
         """Return a list of all secret names in the database."""
+        from sqlalchemy import select
+
+        from flux.models import SecretModel
+
         with self.session() as session:
             stmt = select(SecretModel.name)
             result = [row[0] for row in session.execute(stmt)]
