@@ -88,7 +88,7 @@ def _heavy_hitters(module: str, top: int = 5) -> list[dict]:
         if name.startswith("flux"):
             continue
         rows.append({"module": name, "self_ms": round(self_us / 1000, 1)})
-    rows.sort(key=lambda r: -r["self_ms"])
+    rows.sort(key=lambda r: -float(r["self_ms"]))
     return rows[:top]
 
 
