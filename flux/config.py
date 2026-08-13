@@ -105,6 +105,7 @@ class WorkersConfig(BaseConfig):
     )
     cancellation_orphan_grace: int = Field(
         default=300,
+        ge=0,
         description=(
             "Seconds a CANCELLING execution assigned to a disconnected "
             "worker may wait for that worker to return before the scheduler "

@@ -649,6 +649,7 @@ class DatabaseContextManager(ContextManager):
         connected_workers: Sequence[str],
         grace_seconds: int,
         now: datetime | None = None,
+        liveness_seconds: int = 60,
     ) -> list[str]:
         """Resolve CANCELLING rows whose delivery target is gone (issue #225).
 
@@ -673,15 +674,33 @@ class DatabaseContextManager(ContextManager):
         the park sweep: a concurrent worker checkpoint wins the row lock and
         the sweep skips; a sweep write landing first makes the worker's late
         write a no-op (``_accept_state_write``).
+
+        ``connected_workers`` is the sweeping replica's SSE view, which is
+        per-replica by construction — a worker connected to another replica
+        is invisible in it. Recent heartbeats (``workers.last_seen_at``,
+        written on every pong regardless of replica) are unioned in as the
+        cross-replica liveness signal, ``liveness_seconds`` wide, so the
+        sweep only resolves rows whose worker no replica has heard from.
         """
         from flux.domain.events import ExecutionEventType
+        from flux.models import WorkerModel
 
         if now is None:
             now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=grace_seconds)
-        connected = set(connected_workers)
         resolved: list[str] = []
         with self.session() as session:
+            # last_seen_at is naive UTC by convention (see worker_registry).
+            live_cutoff = now.replace(tzinfo=None) - timedelta(seconds=liveness_seconds)
+            connected = set(connected_workers) | {
+                row.name
+                for row in session.query(WorkerModel.name)
+                .filter(
+                    WorkerModel.last_seen_at.isnot(None),
+                    WorkerModel.last_seen_at >= live_cutoff,
+                )
+                .all()
+            }
             query = (
                 session.query(ExecutionContextModel)
                 .filter(ExecutionContextModel.state == ExecutionState.CANCELLING)

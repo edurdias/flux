@@ -144,6 +144,44 @@ class TestNamedOwner:
         assert resolved == [ctx.execution_id]
         assert _state(manager, ctx.execution_id) == ExecutionState.CANCELLED
 
+    def test_worker_heartbeating_through_another_replica_is_left_alone(self, manager):
+        """connected_workers is the sweeping replica's SSE view, per-replica
+        by construction. A worker connected to a different replica still
+        heartbeats into workers.last_seen_at, and that must protect its rows
+        — otherwise a multi-replica deployment resolves cancellations for
+        workers that are alive and mid-run."""
+        from flux.models import WorkerModel
+
+        _register_workflow(manager)
+        ctx = _cancelling_execution(manager, worker_name="w1", cancelling_age_seconds=3600)
+        with manager.session() as session:
+            live = WorkerModel(name="w1")
+            live.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            session.add(live)
+            session.commit()
+
+        resolved = manager.resolve_orphaned_cancellations([], 300, liveness_seconds=60)
+
+        assert resolved == []
+        assert _state(manager, ctx.execution_id) == ExecutionState.CANCELLING
+
+    def test_worker_with_a_stale_heartbeat_is_swept(self, manager):
+        from flux.models import WorkerModel
+
+        _register_workflow(manager)
+        ctx = _cancelling_execution(manager, worker_name="w1", cancelling_age_seconds=3600)
+        stale = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=600)
+        with manager.session() as session:
+            gone = WorkerModel(name="w1")
+            gone.last_seen_at = stale
+            session.add(gone)
+            session.commit()
+
+        resolved = manager.resolve_orphaned_cancellations([], 300, liveness_seconds=60)
+
+        assert resolved == [ctx.execution_id]
+        assert _state(manager, ctx.execution_id) == ExecutionState.CANCELLED
+
     def test_grace_zero_waits_forever(self, manager):
         _register_workflow(manager)
         ctx = _cancelling_execution(manager, worker_name="w1", cancelling_age_seconds=3600)

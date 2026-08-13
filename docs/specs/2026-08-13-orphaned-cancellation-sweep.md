@@ -32,14 +32,21 @@ under the same cross-replica dispatch lock:
   them, so there is nobody to defer to. Any dispatched row has `worker_name`
   stamped at dispatch time, so NULL cannot be a claim in flight (#222's
   deferral window applies only to named rows).
-- **Named rows resolve only when the worker is not connected AND the row has
+- **Named rows resolve only when the worker is not live AND the row has
   been `CANCELLING` longer than a grace period** (`[flux.workers]
   cancellation_orphan_grace`, default 300s, 0 disables the sweep for named
-  rows). Connected workers keep the existing re-delivery path — they resolve
+  rows). Live workers keep the existing re-delivery path — they resolve
   within a dispatch cycle. The grace covers reconnect backoff: a
   disconnected-but-alive worker that returns inside it still resolves its own
   row, which is preferable because it actually interrupts the running body
   rather than abandoning it.
+- **Liveness is cross-replica.** The sweeping replica's SSE view
+  (`_worker_queues`) is per-replica by construction; a worker connected to a
+  different replica is invisible in it. The sweep unions in workers with a
+  recent `workers.last_seen_at` (written on every heartbeat pong regardless
+  of replica), with the window sized `heartbeat_timeout +
+  eviction_grace_period` — a worker no replica has heard from inside the
+  window any replica would evict over is the only kind the sweep touches.
 - **Age is measured from the newest `WORKFLOW_CANCELLING` event**, which is
   written in the same transaction as the `CANCELLING` state — no schema
   change, no clock skew beyond what the event log already carries.

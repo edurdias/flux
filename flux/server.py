@@ -1117,10 +1117,18 @@ class Server(
                         # assigned to a worker that never came back — resolve
                         # server-side instead of parking forever.
                         try:
+                            workers_cfg = Configuration.get().settings.workers
                             orphaned = ContextManager.create().resolve_orphaned_cancellations(
                                 list(self._worker_queues.keys()),
-                                Configuration.get().settings.workers.cancellation_orphan_grace,
+                                workers_cfg.cancellation_orphan_grace,
                                 current_time,
+                                # A worker is live if any replica heard from
+                                # it within the window a heartbeat may
+                                # legitimately lag before eviction.
+                                liveness_seconds=(
+                                    workers_cfg.heartbeat_timeout
+                                    + workers_cfg.eviction_grace_period
+                                ),
                             )
                             if orphaned:
                                 logger.warning(
