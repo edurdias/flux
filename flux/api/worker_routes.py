@@ -1030,7 +1030,11 @@ class WorkerRoutesMixin:
             try:
                 self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
-                self._verify_worker_owns_execution(name, execution_id)
+                await asyncio.to_thread(
+                    self._verify_worker_owns_execution,
+                    name,
+                    execution_id,
+                )
 
                 context_manager = ContextManager.create()
 
