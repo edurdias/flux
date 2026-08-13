@@ -5,10 +5,10 @@ from functools import wraps
 from typing import Any, TypeVar
 from collections.abc import Callable
 
+from flux._concurrency import CANCELLED_CHECKPOINT_TIMEOUT
 from flux._namespace import validate_namespace
 from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionState
-from flux._concurrency import CANCELLED_CHECKPOINT_TIMEOUT
 from flux.domain.execution_context import ExecutionContext
 from flux.domain.resource_request import ResourceRequest
 from flux.domain.schedule import Schedule
@@ -276,9 +276,9 @@ class workflow:
             )
         except (TimeoutError, asyncio.CancelledError):
             # The shield means the write is still in flight; the caller is
-            # unwinding regardless. Losing the race is what the park sweep and
-            # the worker-side resolution below it are for. Nobody awaits the
-            # task now, so attach a callback: an exception it raises later
+            # unwinding regardless. Losing the race is what the worker-side
+            # resolution of an unowned CANCELLING row is for. Nobody awaits
+            # the task now, so attach a callback: an exception it raises later
             # would otherwise surface only as asyncio's "Task exception was
             # never retrieved" at garbage-collection time, detached from the
             # execution it belongs to.
@@ -286,10 +286,15 @@ class workflow:
                 lambda t: _report_detached_checkpoint(t, ctx.execution_id),
             )
             logger.warning(
-                f"Execution {ctx.execution_id}: terminal CANCELLED checkpoint did not "
-                f"complete within {CANCELLED_CHECKPOINT_TIMEOUT}s",
+                f"Execution {ctx.execution_id}: wait for the terminal CANCELLED "
+                f"checkpoint ended early (interrupted or past the "
+                f"{CANCELLED_CHECKPOINT_TIMEOUT}s bound); its outcome is logged "
+                "when it lands",
             )
-        except Exception as ex:  # pragma: no cover - defensive
+        except Exception as ex:
+            # Reachable inline, where checkpoint() saves straight to the
+            # database: a save failure lands here. Swallowed deliberately —
+            # the original CancelledError must keep unwinding.
             logger.error(f"Execution {ctx.execution_id}: cancelled checkpoint failed: {ex}")
 
     def run(self, *args, **kwargs) -> ExecutionContext:

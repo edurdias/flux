@@ -103,6 +103,31 @@ class TestWorkerCancellation:
         assert checkpointed.state == ExecutionState.CANCELLED
 
     @pytest.mark.asyncio
+    async def test_handle_execution_cancelled_defers_while_claim_in_flight(
+        self,
+        worker,
+        execution_context,
+    ):
+        """Between the claim POST and task registration the execution is owned
+        here but absent from _running_workflows. Resolving it in that window
+        would write CANCELLED, stop re-delivery, and let the body then run to
+        completion with every checkpoint rejected — so the handler must defer
+        to the next delivery instead.
+        """
+        worker._running_workflows = {}
+        worker._claiming = {"test-execution-id"}
+        execution_context.start_cancel()
+
+        mock_event = MagicMock()
+        mock_event.json.return_value = {"context": execution_context.to_dict()}
+
+        await worker._handle_execution_cancelled(mock_event)
+
+        assert worker._checkpoint.await_count == 0, (
+            "an in-flight claim must not be resolved as CANCELLED"
+        )
+
+    @pytest.mark.asyncio
     async def test_handle_execution_cancelled_task_already_done(self, worker, execution_context):
         """Test handling execution cancelled when task is already done."""
         # Create a mock task that raises CancelledError when awaited
@@ -210,3 +235,67 @@ class TestCancelledCheckpointSurvivesASecondCancel:
 
         assert "checkpoint exploded" in caplog.text
         assert "exec-1" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_timeout_detaches_the_write_and_reports_its_landing(
+        self,
+        caplog,
+        monkeypatch,
+    ):
+        """Drives _checkpoint_cancelled itself into its timeout, covering the
+        callback-attach wiring the test above only exercises directly."""
+        import logging
+        import sys
+
+        from flux.workflow import workflow
+
+        # flux.workflow the *attribute* resolves to the class; the module
+        # global being patched lives on the module object in sys.modules.
+        monkeypatch.setattr(sys.modules["flux.workflow"], "CANCELLED_CHECKPOINT_TIMEOUT", 0.01)
+        landed = asyncio.Event()
+
+        async def _slow_checkpoint(ctx):
+            await asyncio.sleep(0.1)
+            landed.set()
+
+        ctx = ExecutionContext(
+            workflow_id="default/_slow",
+            workflow_namespace="default",
+            workflow_name="_slow",
+            checkpoint=_slow_checkpoint,
+        )
+
+        with caplog.at_level(logging.INFO):
+            await workflow._checkpoint_cancelled(ctx)
+            assert "ended early" in caplog.text, "the bounded wait must give up at the timeout"
+            assert not landed.is_set()
+
+            await asyncio.wait_for(landed.wait(), timeout=5)
+            await asyncio.sleep(0)  # let the done-callback run
+
+        assert "landed late" in caplog.text, "the detached write's outcome must be reported"
+
+    @pytest.mark.asyncio
+    async def test_a_failing_checkpoint_does_not_mask_the_cancellation(self, caplog):
+        """Inline mode saves straight to the database, so a save failure lands
+        in _checkpoint_cancelled directly. It must be logged and swallowed —
+        the original CancelledError keeps unwinding."""
+        import logging
+
+        from flux.workflow import workflow
+
+        async def _failing_checkpoint(ctx):
+            raise RuntimeError("db unavailable")
+
+        ctx = ExecutionContext(
+            workflow_id="default/_slow",
+            workflow_namespace="default",
+            workflow_name="_slow",
+            checkpoint=_failing_checkpoint,
+        )
+
+        with caplog.at_level(logging.ERROR):
+            await workflow._checkpoint_cancelled(ctx)
+
+        assert "cancelled checkpoint failed" in caplog.text
+        assert "db unavailable" in caplog.text
