@@ -10,14 +10,43 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from slowapi.errors import RateLimitExceeded
 
+from flux.routing_input import (
+    RoutingInputError,
+    parse_routing_input_header,
+    validate_routing_input,
+)
+
 
 MAX_WORKFLOW_UPLOAD_BYTES = 1_048_576  # 1 MiB — workflow sources should be small
 SERVICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+# The routing-input ingress adapters: every HTTP entry point validates the
+# same way, so the mapping to 400 (rejected, never dropped — a dropped
+# directive routes the execution somewhere the caller did not intend, #211)
+# and the explicit-clear quirk live in one place instead of being repeated
+# at each route.
+def routing_input_or_400(value: Any) -> dict[str, Any] | None:
+    try:
+        checked = validate_routing_input(value)
+    except RoutingInputError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # {} is the explicit clear at the API surface (schedule updates); the
+    # validator normalises it to None, so restore the distinction.
+    return {} if value == {} else checked
+
+
+def routing_input_header_or_400(raw: str | list[str] | None) -> dict[str, Any] | None:
+    try:
+        return parse_routing_input_header(raw)
+    except RoutingInputError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:

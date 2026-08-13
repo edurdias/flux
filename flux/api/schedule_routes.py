@@ -19,7 +19,6 @@ from flux.errors import WorkflowNotFoundError
 from flux.schedule_manager import create_schedule_manager
 from flux.security.dependencies import get_identity, require_permission
 from flux.security.identity import FluxIdentity
-from flux.routing_input import RoutingInputError, validate_routing_input
 from flux.utils import get_logger
 from flux.api.schemas import (
     ScheduleRequest,
@@ -27,6 +26,7 @@ from flux.api.schemas import (
     ScheduleUpdateRequest,
     ScheduleHistoryEntry,
     ScheduleHistoryResponse,
+    routing_input_or_400,
 )
 
 logger = get_logger(__name__)
@@ -197,12 +197,7 @@ class ScheduleRoutesMixin:
                 # Create schedule from configuration
                 schedule = schedule_factory(request.schedule_config)
 
-                try:
-                    checked_routing_input = validate_routing_input(request.routing_input)
-                    if request.routing_input == {}:
-                        checked_routing_input = {}  # explicit clear
-                except RoutingInputError as e:
-                    raise HTTPException(status_code=400, detail=str(e))
+                checked_routing_input = routing_input_or_400(request.routing_input)
 
                 # Create schedule via manager
                 schedule_manager = create_schedule_manager()
@@ -417,12 +412,7 @@ class ScheduleRoutesMixin:
                             },
                         )
 
-                try:
-                    checked_routing_input = validate_routing_input(request.routing_input)
-                    if request.routing_input == {}:
-                        checked_routing_input = {}  # explicit clear
-                except RoutingInputError as e:
-                    raise HTTPException(status_code=400, detail=str(e))
+                checked_routing_input = routing_input_or_400(request.routing_input)
 
                 # Build update parameters
                 schedule_param = None

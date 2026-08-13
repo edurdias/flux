@@ -500,3 +500,40 @@ class TestCallIngress:
         from flux.tasks.call import call
 
         assert "routing_input" in call.digest_exclude
+
+
+class TestIngressAdapters:
+    """One adapter per wire shape, shared by every HTTP ingress — the #220
+    defect lived in an ingress diverging from the validator, so the mapping
+    to 400 and the explicit-clear quirk live in exactly one place."""
+
+    def test_error_maps_to_400_with_the_diagnostic(self):
+        from fastapi import HTTPException
+
+        from flux.api.schemas import routing_input_or_400
+
+        with pytest.raises(HTTPException) as excinfo:
+            routing_input_or_400({"a.b": 1})
+
+        assert excinfo.value.status_code == 400
+        assert "a.b" in str(excinfo.value.detail)
+
+    def test_header_error_maps_to_400(self):
+        from fastapi import HTTPException
+
+        from flux.api.schemas import routing_input_header_or_400
+
+        with pytest.raises(HTTPException) as excinfo:
+            routing_input_header_or_400("{oops")
+
+        assert excinfo.value.status_code == 400
+
+    def test_explicit_clear_survives_normalisation(self):
+        """{} means 'clear the stored value' on schedule updates; the
+        validator normalises it to None, which would read as 'leave it
+        alone' — the adapter must preserve the distinction."""
+        from flux.api.schemas import routing_input_or_400
+
+        assert routing_input_or_400({}) == {}
+        assert routing_input_or_400(None) is None
+        assert routing_input_or_400({"cohort": "canary"}) == {"cohort": "canary"}
