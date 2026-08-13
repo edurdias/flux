@@ -943,3 +943,20 @@ class TestWorkerLabelSources:
             {"node": "node-a", "region": "eu"},
         )
         assert labels == {"node": "node-b", "region": "eu", "gpu": "true"}
+
+    def test_config_labels_are_normalized_like_flags(self, runner):
+        labels = self._start(runner, [], {"  node  ": "  node-a  "})
+        assert labels == {"node": "node-a"}
+
+    def test_whitespace_only_config_label_fails_fast(self, runner):
+        from flux.config import Configuration
+
+        Configuration.get().override(workers={"labels": {"   ": "x"}})
+        try:
+            with patch("flux.worker.Worker") as worker_cls:
+                result = runner.invoke(cli, ["start", "worker", "w1"])
+            assert result.exit_code == 1
+            assert "Invalid label in [flux.workers] labels" in result.output
+            worker_cls.assert_not_called()
+        finally:
+            Configuration.get().override(workers={"labels": {}})
