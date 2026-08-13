@@ -1,0 +1,113 @@
+{
+  "test": "T8",
+  "run": "bare-import-ci",
+  "recorded_at": "2026-08-13T13:03:17-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743314944,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "all roles measured (hard); medians within budget (soft)",
+  "measured": "server 927.7ms/2500ms; worker 334.5ms/1200ms; execution-child 65.0ms/400ms",
+  "passed": true,
+  "sealed": false,
+  "profile": "ci",
+  "roles": {
+    "server": {
+      "median_ms": 927.7,
+      "min_ms": 925.7,
+      "max_ms": 943.9,
+      "samples": 5,
+      "modules_loaded": 930,
+      "heavy_hitters": [
+        {
+          "module": "fastapi.openapi.models",
+          "self_ms": 102.9
+        },
+        {
+          "module": "email_validator.rfc_constants",
+          "self_ms": 26.6
+        },
+        {
+          "module": "six",
+          "self_ms": 16.2
+        },
+        {
+          "module": "fastapi.exceptions",
+          "self_ms": 15.9
+        },
+        {
+          "module": "pydantic_core.core_schema",
+          "self_ms": 12.6
+        }
+      ],
+      "budget_ms": 2500,
+      "within_budget": true
+    },
+    "worker": {
+      "median_ms": 334.5,
+      "min_ms": 331.4,
+      "max_ms": 342.9,
+      "samples": 5,
+      "modules_loaded": 472,
+      "heavy_hitters": [
+        {
+          "module": "pydantic_settings.sources.utils",
+          "self_ms": 13.3
+        },
+        {
+          "module": "pydantic_core.core_schema",
+          "self_ms": 12.5
+        },
+        {
+          "module": "annotated_types",
+          "self_ms": 10.7
+        },
+        {
+          "module": "pydantic.types",
+          "self_ms": 8.7
+        },
+        {
+          "module": "croniter.croniter",
+          "self_ms": 5.5
+        }
+      ],
+      "budget_ms": 1200,
+      "within_budget": true
+    },
+    "execution-child": {
+      "median_ms": 65.0,
+      "min_ms": 64.8,
+      "max_ms": 65.6,
+      "samples": 5,
+      "modules_loaded": 169,
+      "heavy_hitters": [
+        {
+          "module": "typing",
+          "self_ms": 3.3
+        },
+        {
+          "module": "ssl",
+          "self_ms": 2.8
+        },
+        {
+          "module": "inspect",
+          "self_ms": 2.7
+        },
+        {
+          "module": "logging",
+          "self_ms": 2.6
+        },
+        {
+          "module": "_ssl",
+          "self_ms": 2.0
+        }
+      ],
+      "budget_ms": 400,
+      "within_budget": true
+    }
+  }
+}

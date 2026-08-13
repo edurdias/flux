@@ -36,6 +36,15 @@ PROFILES: dict[str, dict] = {
         # exercise reconnect-and-resume; the eviction fate is full-profile's.
         "t6c": {"rate": 100, "seconds": 30, "drop_after_s": 8, "drop_for_s": 2},
         "t7": {"streams": 3, "rate": 100, "seconds": 240, "churn_every_s": 20},
+        "t8": {
+            "samples": 5,
+            "budget_ms": {"flux.server": 2500, "flux.worker": 1200, "flux.runners.child": 400},
+            "container_budget_ms": {
+                "flux.server": 4000,
+                "flux.worker": 2500,
+                "flux.runners.child": 1200,
+            },
+        },
     },
     "workstation": {
         # Push offered rates past the ci ceiling so the loss-onset curve and
@@ -56,6 +65,15 @@ PROFILES: dict[str, dict] = {
         # still exercises reconnect-and-resume (eviction fate is full's job).
         "t6c": {"rate": 200, "seconds": 45, "drop_after_s": 10, "drop_for_s": 3},
         "t7": {"streams": 8, "rate": 300, "seconds": 600, "churn_every_s": 30},
+        "t8": {
+            "samples": 9,
+            "budget_ms": {"flux.server": 1500, "flux.worker": 700, "flux.runners.child": 200},
+            "container_budget_ms": {
+                "flux.server": 2500,
+                "flux.worker": 1500,
+                "flux.runners.child": 700,
+            },
+        },
     },
     "full": {
         "t1": {"frame_sizes": [150, 2048], "rates": [500, 1000, 2000, 4000, 0], "seconds": 60},
@@ -68,6 +86,15 @@ PROFILES: dict[str, dict] = {
         "t6b": {"detect_timeout_s": 180},
         "t6c": {"rate": 100, "seconds": 60, "drop_after_s": 15, "drop_for_s": 10},
         "t7": {"streams": 10, "rate": 300, "seconds": 3600, "churn_every_s": 30},
+        "t8": {
+            "samples": 15,
+            "budget_ms": {"flux.server": 1500, "flux.worker": 700, "flux.runners.child": 200},
+            "container_budget_ms": {
+                "flux.server": 2500,
+                "flux.worker": 1500,
+                "flux.runners.child": 700,
+            },
+        },
     },
 }
 

@@ -1,0 +1,47 @@
+{
+  "test": "T8",
+  "run": "import-manifest-ci",
+  "recorded_at": "2026-08-13T13:03:19-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743314944,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "manifest recorded; structural assertions live in the unit tree",
+  "measured": "{\"server\": {\"sqlalchemy\": true, \"fastapi\": true, \"uvicorn\": true, \"pydantic\": true, \"httpx\": true, \"Crypto\": true, \"alembic\": false}, \"worker\": {\"sqlalchemy\": false, \"fastapi\": false, \"uvicorn\": false, \"pydantic\": true, \"httpx\": true, \"Crypto\": false, \"alembic\": false}, \"execution-child\": {\"sqlalchemy\": false, \"fastapi\": false, \"uvicorn\": false, \"pydantic\": false, \"httpx\": false, \"Crypto\": false, \"alembic\": false}}",
+  "passed": true,
+  "sealed": false,
+  "profile": "ci",
+  "manifest": {
+    "server": {
+      "sqlalchemy": true,
+      "fastapi": true,
+      "uvicorn": true,
+      "pydantic": true,
+      "httpx": true,
+      "Crypto": true,
+      "alembic": false
+    },
+    "worker": {
+      "sqlalchemy": false,
+      "fastapi": false,
+      "uvicorn": false,
+      "pydantic": true,
+      "httpx": true,
+      "Crypto": false,
+      "alembic": false
+    },
+    "execution-child": {
+      "sqlalchemy": false,
+      "fastapi": false,
+      "uvicorn": false,
+      "pydantic": false,
+      "httpx": false,
+      "Crypto": false,
+      "alembic": false
+    }
+  }
+}

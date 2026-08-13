@@ -1,0 +1,48 @@
+{
+  "test": "T8",
+  "run": "container-load-ci",
+  "recorded_at": "2026-08-13T13:02:05-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.12.13",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743314944,
+    "disk_total_bytes": 1081101176832
+  },
+  "gate": "all roles measured (hard); medians within budget (soft)",
+  "measured": "server 1021.6ms/4000ms; worker 407.8ms/2500ms; execution-child 153.1ms/1200ms",
+  "passed": true,
+  "sealed": false,
+  "profile": "ci",
+  "image": "flux-test:local",
+  "roles": {
+    "server": {
+      "median_ms": 1021.6,
+      "min_ms": 1011.0,
+      "max_ms": 1024.9,
+      "samples": 5,
+      "modules_loaded": 928,
+      "budget_ms": 4000,
+      "within_budget": true
+    },
+    "worker": {
+      "median_ms": 407.8,
+      "min_ms": 405.7,
+      "max_ms": 408.0,
+      "samples": 5,
+      "modules_loaded": 471,
+      "budget_ms": 2500,
+      "within_budget": true
+    },
+    "execution-child": {
+      "median_ms": 153.1,
+      "min_ms": 152.8,
+      "max_ms": 154.9,
+      "samples": 5,
+      "modules_loaded": 168,
+      "budget_ms": 1200,
+      "within_budget": true
+    }
+  }
+}
