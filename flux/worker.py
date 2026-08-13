@@ -116,6 +116,12 @@ class _CheckpointOutbox:
         self.sender: asyncio.Task | None = None
         self.delivered = asyncio.Event()  # set once a terminal snapshot is acked
         self.closed = False  # handler ended; sender exits after catching up
+        # The claim generation this lifecycle checkpoints under, pinned at
+        # creation. Read from the box, never the worker's shared dict: after
+        # a fenced abort and same-worker re-dispatch, a stale lifecycle's
+        # sender must not pick up (or its cleanup delete) the fresh claim's
+        # fence.
+        self.claim_generation: str | None = None
         # Event ids already acknowledged by the server. Snapshots are
         # cumulative, so each send carries only events NOT in this set —
         # O(delta) payloads instead of O(history) per checkpoint.
@@ -966,8 +972,7 @@ class Worker:
 
                 claim_data = response.json()
                 generation = response.headers.get("X-Flux-Claim-Generation")
-                if generation is not None:
-                    self._claim_generations[request.context.execution_id] = generation
+                self._begin_claim_lifecycle(request.context.execution_id, generation)
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if request.exec_token:
                     request.context.set_exec_token(request.exec_token)
@@ -1076,8 +1081,7 @@ class Worker:
                 response.raise_for_status()
                 claim_data = response.json()
                 generation = response.headers.get("X-Flux-Claim-Generation")
-                if generation is not None:
-                    self._claim_generations[request.context.execution_id] = generation
+                self._begin_claim_lifecycle(request.context.execution_id, generation)
                 request.context = ExecutionContext.from_json(claim_data, self._checkpoint)
                 if is_transient:
                     request.context.mark_transient()
@@ -1406,6 +1410,7 @@ class Worker:
         box = self._checkpoint_outboxes.get(ctx.execution_id)
         if box is None:
             box = self._checkpoint_outboxes[ctx.execution_id] = _CheckpointOutbox()
+            box.claim_generation = self._claim_generations.get(ctx.execution_id)
 
         box.latest = ctx
         box.generation += 1
@@ -1454,6 +1459,7 @@ class Worker:
                     sent_ids = await self._send_checkpoint(
                         ctx,
                         exclude_event_ids=box.acked_ids,
+                        claim_generation=box.claim_generation,
                     )
                     box.acked_ids.update(sent_ids)
                     box.acked = generation
@@ -1475,15 +1481,45 @@ class Worker:
             latest = box.latest
             if latest is not None and latest.has_finished:
                 box.delivered.set()
-                self._checkpoint_outboxes.pop(execution_id, None)
-                self._claim_generations.pop(execution_id, None)
-                self._transient_started.discard(execution_id)
+                self._discard_outbox_state(execution_id, box)
                 return
             if box.closed:
-                self._checkpoint_outboxes.pop(execution_id, None)
-                self._claim_generations.pop(execution_id, None)
-                self._transient_started.discard(execution_id)
+                self._discard_outbox_state(execution_id, box)
                 return
+
+    def _begin_claim_lifecycle(self, execution_id: str, generation: str | None) -> None:
+        """A fresh claim supersedes anything a previous lifecycle left behind.
+
+        A same-worker re-dispatch (fenced abort raced re-assignment) can find
+        the old lifecycle's outbox still draining under the same execution id.
+        Its events predate the unclaim, so every send would be fenced anyway —
+        detach it so the new run starts with a clean fence and outbox, and so
+        the stale sender exits without flushing into the new claim.
+        """
+        stale = self._checkpoint_outboxes.pop(execution_id, None)
+        if stale is not None:
+            stale.closed = True
+            stale.wakeup.set()
+            stale.delivered.set()
+        if generation is not None:
+            self._claim_generations[execution_id] = generation
+        else:
+            # A claim without the header (pre-fencing server) must not leave
+            # an older claim's generation behind as this run's fence.
+            self._claim_generations.pop(execution_id, None)
+
+    def _discard_outbox_state(self, execution_id: str, box: _CheckpointOutbox) -> None:
+        """Drop an ended lifecycle's shared state — only if it still owns it.
+
+        The dicts are keyed by execution id, and a same-worker re-dispatch
+        starts a new lifecycle under the same id: an owner check keeps a
+        stale sender's exit from deleting the fresh claim's outbox and fence.
+        """
+        if self._checkpoint_outboxes.get(execution_id) is not box:
+            return
+        self._checkpoint_outboxes.pop(execution_id, None)
+        self._claim_generations.pop(execution_id, None)
+        self._transient_started.discard(execution_id)
 
     def _abort_fenced_execution(self, execution_id: str, box: _CheckpointOutbox):
         """The server rejected our claim generation: another worker owns the
@@ -1492,12 +1528,18 @@ class Worker:
         logger.warning(
             f"Execution {execution_id} was reassigned (stale claim); aborting the local copy",
         )
-        task = self._running_workflows.get(execution_id)
-        if task and not task.done():
-            task.cancel()
         # Unblock any terminal-checkpoint waiter; the result is discarded
         # server-side anyway.
         box.delivered.set()
+        # Only clear shared state this lifecycle still owns: the "new owner"
+        # can be this same worker under a fresh claim (fenced-abort raced a
+        # re-dispatch), and destroying the fresh lifecycle's task, outbox, or
+        # fence would kill the run the server just handed us.
+        if self._checkpoint_outboxes.get(execution_id) is not box:
+            return
+        task = self._running_workflows.get(execution_id)
+        if task and not task.done():
+            task.cancel()
         self._checkpoint_outboxes.pop(execution_id, None)
         self._claim_generations.pop(execution_id, None)
         self._transient_started.discard(execution_id)
@@ -1571,6 +1613,7 @@ class Worker:
         self,
         ctx: ExecutionContext,
         exclude_event_ids: set[str] | None = None,
+        claim_generation: str | None = None,
     ) -> list[str]:
         """POST one checkpoint; returns the ids of the events it carried.
 
@@ -1579,6 +1622,10 @@ class Worker:
         can be omitted — the server reconciles by event id either way. Raises
         ``StaleClaimError`` if the server fences the claim (409): the
         execution was reassigned and this worker's copy must abort.
+
+        ``claim_generation`` is the sender's pinned fence — passed in rather
+        than read from the shared dict so a stale lifecycle cannot checkpoint
+        under a newer claim's generation.
         """
         base_url = f"{self.base_url}/{self.name}"
         try:
@@ -1603,9 +1650,8 @@ class Worker:
             )
 
             headers = {}
-            generation = self._claim_generations.get(ctx.execution_id)
-            if generation is not None:
-                headers["X-Flux-Claim-Generation"] = generation
+            if claim_generation is not None:
+                headers["X-Flux-Claim-Generation"] = claim_generation
 
             checkpoint_start = time.monotonic()
             response = await self._authorized_post(

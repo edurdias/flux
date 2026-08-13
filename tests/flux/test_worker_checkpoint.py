@@ -416,3 +416,94 @@ async def test_release_claim_is_fenced_even_after_sender_drained():
     assert len(release_calls) == 1
     assert release_calls[0][1].get("X-Flux-Claim-Generation") == "3"
     assert "exec-1" not in worker._claim_generations
+
+
+class TestLifecycleOwnership:
+    """A same-worker re-dispatch reuses the execution id, so the outbox and
+    claim-generation dicts hold state for whichever lifecycle wrote last.
+    Cleanup from the stale lifecycle (a fenced abort, a sender's exit) must
+    not destroy the fresh claim's state — before the fence became mandatory
+    that destruction was masked (header-less checkpoints were accepted
+    unfenced); after it, the fresh run's checkpoints were 409-fenced by its
+    own worker's cleanup (t6c connection-drop wedge)."""
+
+    def test_begin_claim_lifecycle_detaches_the_stale_outbox(self):
+        worker = make_worker()
+        from flux.worker import _CheckpointOutbox
+
+        stale = _CheckpointOutbox()
+        worker._checkpoint_outboxes["exec-1"] = stale
+        worker._claim_generations["exec-1"] = "1"
+
+        worker._begin_claim_lifecycle("exec-1", "3")
+
+        assert "exec-1" not in worker._checkpoint_outboxes
+        assert stale.closed and stale.delivered.is_set()
+        assert worker._claim_generations["exec-1"] == "3"
+
+    def test_begin_claim_lifecycle_without_header_clears_the_old_fence(self):
+        worker = make_worker()
+        worker._claim_generations["exec-1"] = "1"
+
+        worker._begin_claim_lifecycle("exec-1", None)
+
+        assert "exec-1" not in worker._claim_generations
+
+    def test_stale_abort_leaves_the_fresh_lifecycle_alone(self):
+        worker = make_worker()
+        from flux.worker import _CheckpointOutbox
+
+        stale = _CheckpointOutbox()
+        fresh = _CheckpointOutbox()
+        fresh.claim_generation = "3"
+        worker._checkpoint_outboxes["exec-1"] = fresh
+        worker._claim_generations["exec-1"] = "3"
+        fresh_task = MagicMock()
+        fresh_task.done.return_value = False
+        worker._running_workflows["exec-1"] = fresh_task
+
+        worker._abort_fenced_execution("exec-1", stale)
+
+        assert worker._checkpoint_outboxes["exec-1"] is fresh
+        assert worker._claim_generations["exec-1"] == "3"
+        fresh_task.cancel.assert_not_called()
+        assert stale.delivered.is_set()  # its own waiter is still unblocked
+
+    def test_stale_sender_exit_leaves_the_fresh_lifecycle_alone(self):
+        worker = make_worker()
+        from flux.worker import _CheckpointOutbox
+
+        stale = _CheckpointOutbox()
+        fresh = _CheckpointOutbox()
+        worker._checkpoint_outboxes["exec-1"] = fresh
+        worker._claim_generations["exec-1"] = "3"
+
+        worker._discard_outbox_state("exec-1", stale)
+
+        assert worker._checkpoint_outboxes["exec-1"] is fresh
+        assert worker._claim_generations["exec-1"] == "3"
+
+    @pytest.mark.asyncio
+    async def test_sender_uses_its_pinned_generation_not_the_shared_dict(self):
+        """After a re-claim stores a newer generation, a still-draining stale
+        sender must keep checkpointing under its own fence (and get fenced),
+        never under the fresh claim's."""
+        worker = make_worker()
+        worker._claim_generations["exec-1"] = "1"
+        seen_headers = []
+
+        async def capture_post(url, **kwargs):
+            seen_headers.append(kwargs.get("headers") or {})
+            return ok_response()
+
+        worker._authorized_post = capture_post
+
+        ctx = make_ctx(finished=True)
+        checkpoint = asyncio.ensure_future(worker._checkpoint(ctx))
+        await asyncio.sleep(0)
+        # Re-claim lands while the sender is in flight.
+        worker._claim_generations["exec-1"] = "9"
+        await asyncio.wait_for(checkpoint, timeout=5)
+
+        assert seen_headers, "no checkpoint was sent"
+        assert seen_headers[0].get("X-Flux-Claim-Generation") == "1"
