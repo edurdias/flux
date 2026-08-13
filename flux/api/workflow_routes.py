@@ -27,7 +27,6 @@ from flux.errors import (
     WorkerNotFoundError,
     WorkflowNotFoundError,
 )
-from flux.routing_input import RoutingInputError, parse_routing_input_header
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -37,6 +36,7 @@ from flux.utils import to_json
 from flux.api.schemas import (
     MAX_WORKFLOW_UPLOAD_BYTES,
     WorkflowVersionResponse,
+    routing_input_header_or_400,
 )
 
 logger = get_logger(__name__)
@@ -304,13 +304,8 @@ class WorkflowRoutesMixin:
                     )
 
                 # Routing-only values (issue #211): matched at dispatch, never
-                # delivered. Rejected rather than dropped — a discarded routing
-                # directive routes the execution somewhere the caller did not
-                # intend, and that is invisible from outside.
-                try:
-                    parsed_routing_input = parse_routing_input_header(routing_input)
-                except RoutingInputError as e:
-                    raise HTTPException(status_code=400, detail=str(e))
+                # delivered.
+                parsed_routing_input = routing_input_header_or_400(routing_input)
 
                 ctx = self._create_execution(
                     namespace,
