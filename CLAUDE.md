@@ -139,7 +139,10 @@ Implementation hot-spots:
 
 - `flux/task.py` — `task` is a class with `__call__`; `task.with_options(...)` returns a decorator.
   Options: `name`, `fallback`, `rollback`, `retry_max_attempts/_delay/_backoff`, `timeout`,
-  `secret_requests`, `config_requests`, `output_storage`, `cache`, `metadata`, `auth_exempt`, plus:
+  `secret_requests`, `config_requests`, `output_storage`, `cache`, `metadata`, `auth_exempt`,
+  `digest_exclude` (kwargs kept out of the identity digest — the task_id doubles as cache key and
+  approval call_id, so excluded kwargs make calls differing only in them identical; how
+  `call(routing_input=...)` keeps routing values out of replay identity), plus:
   - `requires_approval` (bool or runtime predicate) — pauses the workflow until an operator runs
     `flux execution approve|reject` (or POSTs the equivalent). Rejection raises `ApprovalRejected` and
     **bypasses retry/fallback/rollback**, since the body never ran. `approve --always` records a
@@ -240,9 +243,11 @@ Higher-level managers:
   `service_proxy.py` provides standalone MCP endpoints with lazy discovery.
 - `flux/schedule_manager.py` — runs in the server process. Under the cross-replica dispatch lock, the
   scheduler tick polls due schedules, runs the overlap-skip check, sweeps the park-TTL (failing
-  executions unclaimed past `executions.park_deadline`), and resumes executions whose
+  executions unclaimed past `executions.park_deadline`), resumes executions whose
   `wake_at`/`wake_on_complete` fired — wake columns are stamped atomically with the PAUSED state write
-  in `context_managers.py::_sync_wake_columns`.
+  in `context_managers.py::_sync_wake_columns` — resolves orphaned CANCELLING executions whose
+  delivery target is gone (`resolve_orphaned_cancellations`, issue #225), and reaps dead worker
+  join tokens hourly (`Server._purge_join_tokens`).
 - `flux/observability/` — OpenTelemetry tracing/metrics + a Prometheus `/metrics` endpoint, gated by
   `[flux.observability] enabled` and the `observability` extra.
 
