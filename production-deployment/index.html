@@ -1506,7 +1506,12 @@ the same path. Plain HTTP round-robin works for everything else.</p>
 <li><strong>Fencing</strong>: if a partitioned worker is evicted and its executions
   reassigned, its later checkpoints are rejected (stale claim generation)
   and it aborts those local runs — expect <code>stale-claim</code> warnings in worker
-  logs after partitions heal; they are the mechanism working.</li>
+  logs after partitions heal; they are the mechanism working. The fence is
+  mandatory once an execution has ever been dispatched: a checkpoint or
+  release without the generation header is rejected the same way, so a
+  writer cannot sidestep the fence by omitting it. The exceptions are the
+  writes that legitimately predate a claim — resolving an unowned
+  cancellation, and declining a dispatch that was never claimed.</li>
 <li><strong>Self-health</strong>: each worker probes its own event-loop lag
   (<code>FLUX_WORKERS__LOOP_LAG_THRESHOLD</code>, default 1 s; 0 disables). Three
   consecutive breaches — typically in-process workflow code blocking the
