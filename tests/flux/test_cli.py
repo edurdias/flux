@@ -913,3 +913,33 @@ class TestWorkflowCommandsNamespaceRouting:
         # pending approvals for the execution. Inspect the first call.
         first_call = mock_client.get.call_args_list[0]
         assert "/workflows/billing/invoice/status/exec-1" in first_call[0][0]
+
+
+class TestWorkerLabelSources:
+    """--label and [flux.workers] labels compose; the flag wins per key
+    (issue #235: config labels used to be silently dropped)."""
+
+    def _start(self, runner, args, config_labels):
+        from flux.config import Configuration
+
+        Configuration.get().override(workers={"labels": config_labels})
+        try:
+            with patch("flux.worker.Worker") as worker_cls:
+                worker_cls.return_value.start = MagicMock()
+                result = runner.invoke(cli, ["start", "worker", "w1", *args])
+                assert result.exit_code == 0, result.output
+                return worker_cls.call_args.kwargs["labels"]
+        finally:
+            Configuration.get().override(workers={"labels": {}})
+
+    def test_config_labels_reach_the_worker(self, runner):
+        labels = self._start(runner, [], {"node": "node-a"})
+        assert labels == {"node": "node-a"}
+
+    def test_flag_wins_on_key_conflict(self, runner):
+        labels = self._start(
+            runner,
+            ["--label", "node=node-b", "--label", "gpu=true"],
+            {"node": "node-a", "region": "eu"},
+        )
+        assert labels == {"node": "node-b", "region": "eu", "gpu": "true"}

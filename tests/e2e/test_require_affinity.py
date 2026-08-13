@@ -80,3 +80,20 @@ def test_require_when_gate_waits_for_capable_worker(cli):
             cli.stop_worker(dedicated)
     finally:
         cli.stop_worker(plain)
+
+
+def test_config_sourced_labels_register_and_route(cli):
+    """[flux.workers] labels registers like --label (issue #235: it used to
+    be silently dropped). Env delivery here is the same pydantic-settings
+    path a flux.toml section takes."""
+    worker = cli.start_worker(
+        "cfg-label-worker",
+        env={"FLUX_WORKERS__LABELS": '{"region": "cfg-zone"}'},
+    )
+    try:
+        cli.register(str(FIXTURES / "require_workflow.py"))
+        r = cli.run("require_task", '{"region": "cfg-zone"}')
+        assert r["state"] == "COMPLETED"
+        assert r.get("current_worker") == "cfg-label-worker"
+    finally:
+        cli.stop_worker(worker)

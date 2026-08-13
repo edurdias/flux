@@ -410,3 +410,67 @@ def test_configuration_update_nested_dict(reset_configuration):
     u = {"b": {"y": 3, "z": 4}}
     config._update_nested_dict(d, u)
     assert d == {"a": 1, "b": {"x": 1, "y": 3, "z": 4}}
+
+
+class TestUnknownKeyWarnings:
+    """Silent misconfiguration surface (issue #235): a key pydantic does not
+    know used to be dropped without a trace, reading as configured while
+    doing nothing."""
+
+    def _load_with(self, caplog, config: dict):
+        import logging
+
+        with (
+            patch.object(FluxConfig, "_load_from_config") as mock_config,
+            patch.object(FluxConfig, "_load_from_pyproject") as mock_pyproject,
+        ):
+            mock_config.return_value = config
+            mock_pyproject.return_value = {}
+            with caplog.at_level(logging.WARNING, logger="flux.config"):
+                return FluxConfig.load()
+
+    def test_unknown_top_level_key_warns_then_fails(self, caplog):
+        """Top-level unknowns already fail loudly (pydantic-settings forbids
+        extras at the root); the warning names the key first. Nested sections
+        are the ones that were silent."""
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._load_with(caplog, {"log_levl": "INFO"})
+        assert "Unknown configuration key 'log_levl' in [flux]" in caplog.text
+
+    def test_unknown_nested_key_names_its_section(self, caplog):
+        self._load_with(caplog, {"workers": {"hertbeat_interval": 5}})
+        assert "'hertbeat_interval' in [flux.workers]" in caplog.text
+
+    def test_known_keys_do_not_warn(self, caplog):
+        self._load_with(caplog, {"workers": {"heartbeat_interval": 5}})
+        assert "Unknown configuration key" not in caplog.text
+
+    def test_dict_valued_fields_take_arbitrary_keys_silently(self, caplog):
+        """labels and provider descriptors are open mappings by design."""
+        self._load_with(caplog, {"workers": {"labels": {"node": "node-a"}}})
+        assert "Unknown configuration key" not in caplog.text
+
+    def test_env_shadowed_keys_are_still_checked(self, caplog, monkeypatch):
+        """The warning walks the pre-filter dict, so a typo'd key is reported
+        even when an env var would have shadowed a sibling."""
+        monkeypatch.setenv("FLUX_WORKERS__HEARTBEAT_INTERVAL", "7")
+        self._load_with(
+            caplog,
+            {"workers": {"heartbeat_interval": 5, "hearbeat_timeout": 1}},
+        )
+        assert "'hearbeat_timeout' in [flux.workers]" in caplog.text
+
+
+class TestWorkerLabelsFromConfig:
+    def test_labels_field_parses(self):
+        with (
+            patch.object(FluxConfig, "_load_from_config") as mock_config,
+            patch.object(FluxConfig, "_load_from_pyproject") as mock_pyproject,
+        ):
+            mock_config.return_value = {"workers": {"labels": {"node": "node-a"}}}
+            mock_pyproject.return_value = {}
+            config = FluxConfig.load()
+
+        assert config.workers.labels == {"node": "node-a"}

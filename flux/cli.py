@@ -1495,7 +1495,10 @@ def start_worker(name: str | None, server_url: str | None = None, label: tuple[s
     settings = Configuration.get().settings.workers
     server_url = server_url or settings.server_url
 
-    labels = {}
+    # Config-file labels first, --label on top (per-key precedence for the
+    # flag): [flux.workers] labels went silently ignored before it was a
+    # real field (issue #235).
+    labels = {str(k): str(v) for k, v in (settings.labels or {}).items()}
     for item in label:
         if "=" not in item:
             click.echo(f"Invalid label format: '{item}'. Expected key=value.", err=True)
