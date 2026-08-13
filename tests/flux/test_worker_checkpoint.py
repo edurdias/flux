@@ -17,6 +17,7 @@ def make_worker() -> Worker:
     worker.session_token = "tok"
     worker.client = AsyncMock()
     worker._running_workflows = {}
+    worker._claiming = set()
     worker._checkpoint_outboxes = {}
     worker._claim_generations = {}
     worker._transient_started = set()

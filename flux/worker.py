@@ -125,6 +125,9 @@ class Worker:
         self.base_url = f"{server_url or config.server_url}/workers"
         self.client = httpx.AsyncClient(timeout=config.http_timeout or None)
         self._running_workflows: dict[str, asyncio.Task] = {}
+        # Claims in flight: claimed server-side but not yet in
+        # _running_workflows. The cancellation handler must not resolve these.
+        self._claiming: set[str] = set()
         self._checkpoint_outboxes: dict[str, _CheckpointOutbox] = {}
         self._claim_generations: dict[str, str] = {}
         # Transient executions whose RUNNING transition has been persisted.
@@ -790,6 +793,34 @@ class Worker:
                         )
                 finally:
                     self._running_workflows.pop(context.execution_id, None)
+            elif context.execution_id in self._claiming:
+                # Claimed here but not yet registered in _running_workflows —
+                # the claim POST and task registration are separated by awaits.
+                # Resolving now would write CANCELLED, stop re-delivery, and
+                # let the body then run to completion with every checkpoint
+                # rejected. Defer: the dispatcher re-sends next cycle, by which
+                # point the task is registered (or the claim failed and the
+                # branch below resolves it).
+                logger.info(
+                    f"Execution {context.execution_id} claim is in flight; "
+                    "deferring cancellation to the next delivery",
+                )
+            else:
+                # Not running here. Before this branch existed the handler
+                # simply returned: nothing was written, the row stayed
+                # CANCELLING, and the dispatcher re-sent the cancellation every
+                # cycle — 57,905 times in the run that finally produced logs
+                # (issue #189). Resolve it instead. A row that already reached a
+                # terminal state rejects this write server-side
+                # (_accept_state_write), so a completed execution is not
+                # rewritten as cancelled; only a genuinely stuck CANCELLING row
+                # advances.
+                logger.info(
+                    f"Execution {context.execution_id} is not running here; "
+                    "resolving its cancellation",
+                )
+                context.cancel()
+                await context.checkpoint()
         except Exception as ex:
             logger.error(f"Error handling execution_cancelled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
@@ -964,6 +995,7 @@ class Worker:
             return
 
         is_transient = bool(event_data.get("transient"))
+        self._claiming.add(request.context.execution_id)
         try:
             with span_cm as span:
                 logger.info(
@@ -1024,6 +1056,7 @@ class Worker:
             logger.error(f"Error handling execution_scheduled event: {str(ex)}")
             logger.debug(f"Exception details: {type(ex).__name__}: {str(ex)}", exc_info=True)
         finally:
+            self._claiming.discard(request.context.execution_id)
             self._close_checkpoint_outbox(request.context.execution_id)
 
     async def _execute_workflow(self, request: WorkflowExecutionRequest) -> ExecutionContext:
@@ -1100,6 +1133,10 @@ class Worker:
         logger.debug(f"Executing workflow {request.workflow.name} via runner '{runner_name}'")
         task = asyncio.create_task(runner.execute(request, hooks))
         self._running_workflows[ctx.execution_id] = task
+        # Same synchronous block as the registration above: no await between
+        # them, so the cancellation handler always finds the execution in one
+        # of the two structures.
+        self._claiming.discard(ctx.execution_id)
         start_time = asyncio.get_event_loop().time()
         if self._metrics_collector and not ctx.is_transient:
             # Resolved by the first checkpoint -> flux.startup_overhead_seconds.

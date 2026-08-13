@@ -65,7 +65,9 @@ def test_cancellation(cli):
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         s = cli.status("cancellable_e2e", exec_id)
-        if s["state"] in ("CANCELLED", "CANCELLING"):
+        if s["state"] == "CANCELLED":
             break
         time.sleep(2)
-    assert s["state"] in ("CANCELLED", "CANCELLING")
+    # CANCELLING is not accepted: a row parked there is issue #189, the bug
+    # this asserts against.
+    assert s["state"] == "CANCELLED"

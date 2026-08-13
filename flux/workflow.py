@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any, TypeVar
 from collections.abc import Callable
 
+from flux._concurrency import CANCELLED_CHECKPOINT_TIMEOUT
 from flux._namespace import validate_namespace
 from flux.context_managers import ContextManager
 from flux.domain.events import ExecutionState
@@ -13,8 +14,23 @@ from flux.domain.resource_request import ResourceRequest
 from flux.domain.schedule import Schedule
 from flux.errors import PauseRequested
 from flux.output_storage import OutputStorage
-from flux.utils import maybe_awaitable
+from flux.utils import get_logger, maybe_awaitable
 from flux.worker_registry import WorkerInfo
+
+logger = get_logger(__name__)
+
+
+def _report_detached_checkpoint(task: asyncio.Future, execution_id: str) -> None:
+    """Log the outcome of a checkpoint nobody is awaiting any more."""
+    if task.cancelled():
+        logger.warning(f"Execution {execution_id}: detached CANCELLED checkpoint was cancelled")
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error(f"Execution {execution_id}: detached CANCELLED checkpoint failed: {error}")
+    else:
+        logger.info(f"Execution {execution_id}: detached CANCELLED checkpoint landed late")
+
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -209,6 +225,7 @@ class workflow:
             ctx.start(self.id)
 
         token = ExecutionContext.set(ctx)
+        cancelled = False
         try:
             output = await maybe_awaitable(self._func(ctx))
             output_value = (
@@ -225,13 +242,60 @@ class workflow:
             )
         except asyncio.CancelledError:
             ctx.cancel()
+            cancelled = True
             raise
         except Exception as ex:
             ctx.fail(self.id, ex)
         finally:
-            await ctx.checkpoint()
+            if cancelled:
+                await self._checkpoint_cancelled(ctx)
+            else:
+                await ctx.checkpoint()
             ExecutionContext.reset(token)
         return ctx
+
+    @staticmethod
+    async def _checkpoint_cancelled(ctx: ExecutionContext) -> None:
+        """Persist CANCELLED against a second cancellation.
+
+        This runs while already unwinding from a delivered CancelledError, so a
+        plain ``await`` here is interrupted by the next cancel — and the
+        dispatcher re-sends a cancellation every cycle for as long as the row
+        is CANCELLING, so the next cancel is imminent by construction. Losing
+        this write leaves the row CANCELLING forever and turns one missed
+        checkpoint into an endless re-dispatch loop (issue #189).
+
+        Its own task, so the awaits inside start uncancelled, awaited through a
+        shield with a deadline: a wedged checkpoint must not strand a drain.
+        """
+        checkpoint = asyncio.ensure_future(ctx.checkpoint())
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(checkpoint),
+                timeout=CANCELLED_CHECKPOINT_TIMEOUT,
+            )
+        except (TimeoutError, asyncio.CancelledError):
+            # The shield means the write is still in flight; the caller is
+            # unwinding regardless. Losing the race is what the worker-side
+            # resolution of an unowned CANCELLING row is for. Nobody awaits
+            # the task now, so attach a callback: an exception it raises later
+            # would otherwise surface only as asyncio's "Task exception was
+            # never retrieved" at garbage-collection time, detached from the
+            # execution it belongs to.
+            checkpoint.add_done_callback(
+                lambda t: _report_detached_checkpoint(t, ctx.execution_id),
+            )
+            logger.warning(
+                f"Execution {ctx.execution_id}: wait for the terminal CANCELLED "
+                f"checkpoint ended early (interrupted or past the "
+                f"{CANCELLED_CHECKPOINT_TIMEOUT}s bound); its outcome is logged "
+                "when it lands",
+            )
+        except Exception as ex:
+            # Reachable inline, where checkpoint() saves straight to the
+            # database: a save failure lands here. Swallowed deliberately —
+            # the original CancelledError must keep unwinding.
+            logger.error(f"Execution {ctx.execution_id}: cancelled checkpoint failed: {ex}")
 
     def run(self, *args, **kwargs) -> ExecutionContext:
         if "execution_id" in kwargs:

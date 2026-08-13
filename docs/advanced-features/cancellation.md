@@ -83,3 +83,20 @@ The cancellation feature works as follows:
 5. The worker sends a checkpoint back to the server with the final state
 
 This approach ensures that the workflow is cancelled cleanly and all resources are properly released.
+
+The server re-sends the cancellation on every dispatch cycle for as long as the
+execution remains `CANCELLING`, so delivery edge cases resolve rather than park:
+
+- **The terminal write survives a second cancellation.** The checkpoint that
+  persists `CANCELLED` runs shielded with a bounded wait; a further
+  cancellation arriving mid-write cannot discard it. If the wait ends before
+  the write lands, the write continues detached and its outcome is logged.
+- **A worker that is not running the execution resolves it.** If the notified
+  worker has no matching running task — for example, it restarted after the
+  claim — it checkpoints the execution as `CANCELLED` itself. Executions
+  already in a terminal state are never rewritten; the server rejects state
+  writes to finished executions.
+- **A claim in flight defers.** Between claiming an execution and starting it,
+  the worker declines to resolve a cancellation and waits for the next
+  delivery, which either cancels the now-running task or resolves the row if
+  the claim failed.
