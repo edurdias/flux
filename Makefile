@@ -47,8 +47,8 @@ test-docker: docker-test-image ## Run docker + airgapped runner tests against a 
 	poetry run pytest tests/flux/test_docker_runner.py tests/flux/test_airgapped_runner.py -v
 
 docker-test-image: ## Build the runner test image from the working tree
+	rm -f dist/*.whl docker/test/*.whl
 	poetry build -f wheel
-	rm -f docker/test/*.whl
 	cp dist/*.whl docker/test/
 	docker build -t flux-test:local docker/test
 
