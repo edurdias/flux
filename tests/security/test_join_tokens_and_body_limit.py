@@ -348,3 +348,358 @@ class TestBodySizeLimit:
         client = make_client(server_max_body_size=0)
         resp = client.post("/workflows", content=b"z" * 4096)
         assert resp.status_code != 413
+
+
+class TestJoinTokenRevocation:
+    """Minting had no inverse (issue #197): a token left live by a failed
+    bring-up stayed claimable until its TTL, invisible and unretirable."""
+
+    def test_outstanding_lists_live_tokens_without_the_secret(self, make_client):
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a", created_by="test")
+
+        rows = join_tokens.outstanding()
+
+        assert [r["subject"] for r in rows] == ["worker-a"]
+        assert token not in str(rows), "the plaintext must never be recoverable"
+        assert "token_hash" not in rows[0], "the hash is credential-equivalent"
+
+    def test_revoked_token_cannot_register(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+
+        assert join_tokens.revoke(join_tokens.outstanding()[0]["id"]) is True
+
+        assert _register(client, "worker-a", token).status_code == 403
+
+    def test_revoking_by_subject_retires_every_token_for_that_worker(self, make_client):
+        """The shape that pairs with a ban: the caller knows the worker name
+        and does not track token ids."""
+        make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        join_tokens.mint(3600, subject="worker-a")
+        join_tokens.mint(3600, subject="worker-b")
+
+        assert join_tokens.revoke_for_subject("worker-a") == 2
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == ["worker-b"]
+
+    def test_revoking_by_subject_leaves_unbound_tokens_alone(self, make_client):
+        """An unbound token carries no subject, so retiring it under one
+        worker's name would take out a credential meant for another."""
+        make_client()
+        join_tokens.mint(3600)  # unbound
+        join_tokens.mint(3600, subject="worker-a")
+
+        assert join_tokens.revoke_for_subject("worker-a") == 1
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == [None]
+
+    def test_revoking_a_spent_token_reports_nothing_to_do(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a")
+        token_id = join_tokens.outstanding()[0]["id"]
+        assert _register(client, "worker-a", token).status_code == 200
+
+        assert join_tokens.revoke(token_id) is False
+        assert join_tokens.revoke("no-such-id") is False
+
+    def test_a_banned_worker_does_not_burn_the_token(self, make_client):
+        """claim() consumes the token in a committed UPDATE, so checking the
+        ban afterwards let a banned holder spend a credential the operator
+        would have to mint again. The ban check runs first."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+        token, _ = join_tokens.mint(3600, subject="worker-banned")
+
+        assert _register(client, "worker-banned", token).status_code == 403
+
+        assert [r["subject"] for r in join_tokens.outstanding()] == ["worker-banned"], (
+            "the token must survive a refused registration"
+        )
+
+    def test_an_invalid_token_does_not_reveal_ban_state(self, make_client):
+        """Credential validity is established before the ban check, so an
+        unauthenticated caller cannot tell a quarantined worker name from any
+        other by comparing the two rejections."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+
+        banned = _register(client, "worker-banned", "not-a-real-token")
+        unknown = _register(client, "worker-unknown", "not-a-real-token")
+
+        assert banned.status_code == unknown.status_code == 403
+        assert banned.json()["detail"] == unknown.json()["detail"]
+
+    def test_a_valid_token_for_a_banned_worker_is_still_refused(self, make_client):
+        """Ordering must not weaken the quarantine: a live credential does not
+        buy a banned principal a registration."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+        token, _ = join_tokens.mint(3600, subject="worker-banned")
+
+        resp = _register(client, "worker-banned", token)
+
+        assert resp.status_code == 403
+        # Same detail as an invalid credential: is_claimable does not consume
+        # the token, so a distinct message would turn one unbound token into an
+        # unlimited enumerator of quarantined worker names.
+        assert resp.json()["detail"] == "Invalid bootstrap or join token."
+
+    def test_a_valid_unbound_token_cannot_enumerate_banned_names(self, make_client):
+        """The regression the consume-first ordering used to bound: probing
+        cost you the token. It no longer does, so the responses must not
+        differ."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+        token, _ = join_tokens.mint(3600)  # unbound: claimable under any name
+
+        banned = _register(client, "worker-banned", token)
+
+        assert banned.status_code == 403
+        assert banned.json()["detail"] == "Invalid bootstrap or join token."
+        assert join_tokens.outstanding(), "probing must not consume the token"
+
+    def test_the_bootstrap_holder_still_gets_the_diagnostic(self, make_client):
+        """The disclosure is scoped, not removed. Whoever holds the fleet-wide
+        registration secret learns nothing from the quarantine that they could
+        not get anyway, and an operator debugging a refused worker wants to be
+        told why."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        client = make_client()
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        principal = registry.create(
+            type="service_account",
+            subject="worker-banned",
+            external_issuer="flux",
+        )
+        registry.set_banned(principal.id, True)
+
+        resp = _register(client, "worker-banned", BOOTSTRAP)
+
+        assert resp.status_code == 403
+        assert "banned" in resp.json()["detail"]
+
+
+class TestJoinTokenRevocationRoutes:
+    """The routes themselves, not just the manager functions behind them.
+
+    A refactor that dropped `Depends(require_permission(...))` from the list
+    route — exposing outstanding ids, subjects and minters — would otherwise
+    pass the whole suite green.
+    """
+
+    def test_listing_returns_live_tokens_without_the_secret(self, make_client):
+        client = make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a", created_by="admin")
+
+        resp = client.get("/admin/workers/join-tokens")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [r["subject"] for r in body] == ["worker-a"]
+        assert token not in resp.text
+        assert "token_hash" not in resp.text
+
+    def test_listing_timestamps_are_utc_labelled(self, make_client):
+        """The sibling mint endpoint returns tz-aware values; an unlabelled
+        listing reads as local time and looks already-expired."""
+        client = make_client()
+        join_tokens.mint(3600, subject="worker-a")
+
+        row = client.get("/admin/workers/join-tokens").json()[0]
+
+        assert row["expires_at"].endswith("+00:00") or row["expires_at"].endswith("Z")
+
+    def test_revoke_by_id(self, make_client):
+        client = make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        token_id = join_tokens.outstanding()[0]["id"]
+
+        assert client.delete(f"/admin/workers/join-tokens/{token_id}").json() == {"revoked": 1}
+        assert join_tokens.outstanding() == []
+
+    def test_revoke_unknown_id_is_404(self, make_client):
+        client = make_client()
+
+        assert client.delete("/admin/workers/join-tokens/nope").status_code == 404
+
+    def test_revoke_by_subject_reports_a_count(self, make_client):
+        client = make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        join_tokens.mint(3600, subject="worker-a")
+
+        resp = client.delete("/admin/workers/join-tokens", params={"subject": "worker-a"})
+
+        assert resp.json() == {"revoked": 2}
+
+    def test_revoke_by_subject_tolerates_surrounding_whitespace(self, make_client):
+        """Untrimmed it would report revoked: 0 — indistinguishable from
+        'there was nothing outstanding', which reads as done."""
+        client = make_client()
+        join_tokens.mint(3600, subject="worker-a")
+
+        resp = client.delete("/admin/workers/join-tokens", params={"subject": "  worker-a  "})
+
+        assert resp.json() == {"revoked": 1}
+
+    def test_revoke_by_blank_subject_is_400(self, make_client):
+        client = make_client()
+
+        assert (
+            client.delete(
+                "/admin/workers/join-tokens",
+                params={"subject": "   "},
+            ).status_code
+            == 400
+        )
+
+    def test_revocation_records_who_did_it(self, make_client):
+        from flux.models import RepositoryFactory
+        from flux.security.join_tokens import WorkerJoinTokenModel
+
+        client = make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        token_id = join_tokens.outstanding()[0]["id"]
+
+        client.delete(f"/admin/workers/join-tokens/{token_id}")
+
+        with RepositoryFactory.create_repository().session() as session:
+            row = session.get(WorkerJoinTokenModel, token_id)
+            assert row.revoked_at is not None
+            assert row.revoked_by, "a bare timestamp cannot answer who retired it"
+
+
+class TestJoinTokenRevocationCLI:
+    """authentication.md documents these as the operator interface, so the
+    same reasoning as TestJoinTokenCLI applies: pin the documented path."""
+
+    def _run(self, args):
+        from click.testing import CliRunner
+
+        from flux.cli import cli
+
+        return CliRunner().invoke(cli, args)
+
+    def test_listing_shows_the_subject_and_not_the_token(self, make_client):
+        make_client()
+        token, _ = join_tokens.mint(3600, subject="worker-a", created_by="admin")
+
+        result = self._run(["server", "join-tokens"])
+
+        assert result.exit_code == 0, result.output
+        assert "worker-a" in result.output
+        assert token not in result.output
+
+    def test_listing_reports_when_there_is_nothing(self, make_client):
+        make_client()
+
+        result = self._run(["server", "join-tokens"])
+
+        assert result.exit_code == 0
+        assert "No outstanding join tokens" in result.output
+
+    def test_json_format(self, make_client):
+        import json as _json
+
+        make_client()
+        join_tokens.mint(3600, subject="worker-a")
+
+        result = self._run(["server", "join-tokens", "--format", "json"])
+
+        assert result.exit_code == 0, result.output
+        assert _json.loads(result.output)[0]["subject"] == "worker-a"
+
+    def test_unbound_tokens_render_without_a_subject(self, make_client):
+        """The table branch formats every column; an unbound token has None
+        where the subject goes."""
+        make_client()
+        join_tokens.mint(3600)
+
+        result = self._run(["server", "join-tokens"])
+
+        assert result.exit_code == 0, result.output
+        assert "(unbound)" in result.output
+
+    def test_revoke_by_id(self, make_client):
+        make_client()
+        join_tokens.mint(3600, subject="worker-a")
+        token_id = join_tokens.outstanding()[0]["id"]
+
+        result = self._run(["server", "revoke-join-token", "--id", token_id])
+
+        assert result.exit_code == 0, result.output
+        assert join_tokens.outstanding() == []
+
+    def test_revoke_by_subject(self, make_client):
+        make_client()
+        join_tokens.mint(3600, subject="worker-a")
+
+        result = self._run(["server", "revoke-join-token", "--subject", "worker-a"])
+
+        assert result.exit_code == 0, result.output
+        assert "Revoked 1" in result.output
+
+    def test_both_or_neither_is_refused(self, make_client):
+        make_client()
+
+        assert self._run(["server", "revoke-join-token"]).exit_code != 0
+        assert (
+            self._run(
+                ["server", "revoke-join-token", "--id", "x", "--subject", "y"],
+            ).exit_code
+            != 0
+        )
+
+    def test_blank_subject_is_refused(self, make_client):
+        make_client()
+
+        assert self._run(["server", "revoke-join-token", "--subject", "  "]).exit_code != 0
+
+    def test_unknown_id_exits_non_zero(self, make_client):
+        make_client()
+
+        assert self._run(["server", "revoke-join-token", "--id", "nope"]).exit_code != 0

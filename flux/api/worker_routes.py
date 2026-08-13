@@ -105,6 +105,74 @@ class WorkerRoutesMixin:
         def _register_limited(fn):
             return limiter.limit(register_rate_limit)(fn) if register_rate_limit else fn
 
+        @api.get("/admin/workers/join-tokens")
+        async def list_join_tokens(
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Outstanding join tokens: minted, unused, unrevoked, unexpired.
+
+            Never returns the token or its hash — the plaintext is
+            unrecoverable by design, and the hash is credential-equivalent to
+            an offline guesser. The id is what revocation takes.
+            """
+            from flux.security import join_tokens
+
+            return await asyncio.to_thread(join_tokens.outstanding)
+
+        @api.delete("/admin/workers/join-tokens/{token_id}")
+        async def revoke_join_token(
+            token_id: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Retire one live token before its TTL.
+
+            404 when it is already used, already revoked, expired, or unknown —
+            all four mean "there is nothing here to retire", and distinguishing
+            them would tell an unauthorized caller which ids exist.
+            """
+            from flux.security import join_tokens
+
+            if not await asyncio.to_thread(
+                join_tokens.revoke,
+                token_id,
+                revoked_by=identity.subject,
+            ):
+                raise HTTPException(status_code=404, detail="No live join token with that id.")
+            logger.info(f"Join token {token_id} revoked by {identity.subject}")
+            return {"revoked": 1}
+
+        @api.delete("/admin/workers/join-tokens")
+        async def revoke_join_tokens_for_subject(
+            subject: str,
+            identity: FluxIdentity = Depends(require_permission("admin:workers:manage")),
+        ):
+            """Retire every live token bound to one worker name.
+
+            The shape that pairs with a ban: the caller knows the worker name
+            and does not track token ids. Returns 200 with a count rather than
+            404 when none match — "nothing outstanding" is the desired end
+            state, so an operator scripting ban-then-revoke should not have to
+            special-case it.
+            """
+            from flux.security import join_tokens
+
+            # Trimmed here as well as in the manager: '?subject=%20worker-a%20'
+            # would otherwise match nothing and report revoked: 0, which reads
+            # as "there was nothing outstanding".
+            name = (subject or "").strip()
+            try:
+                revoked = await asyncio.to_thread(
+                    join_tokens.revoke_for_subject,
+                    name,
+                    revoked_by=identity.subject,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            logger.info(
+                f"{revoked} join token(s) for subject '{name}' revoked by {identity.subject}",
+            )
+            return {"revoked": revoked}
+
         @api.post("/admin/workers/join-tokens")
         async def mint_join_token(
             body: dict | None = Body(None),
@@ -268,24 +336,29 @@ class WorkerRoutesMixin:
                 expected = self._bootstrap_token
                 workers_config = Configuration.get().settings.workers
 
-                # Two accepted credentials: the shared bootstrap token (unless
-                # the fleet has migrated off it) or a one-time join token,
-                # consumed atomically so it cannot be replayed.
-                authorized = bool(
+                # Three ordered steps, and the order is the point (#197):
+                #   1. establish the credential is valid WITHOUT consuming it,
+                #   2. reject a banned principal,
+                #   3. only then consume the join token.
+                # Checking the ban first would tell an unauthenticated caller
+                # which worker names are quarantined; consuming first would let
+                # a banned holder burn a credential the operator must re-mint.
+                bootstrap_ok = bool(
                     workers_config.bootstrap_token_enabled
                     and expected
                     and token
                     and hmac.compare_digest(expected, token),
                 )
-                if not authorized and token:
+                join_token_ok = False
+                if not bootstrap_ok and token:
                     from flux.security import join_tokens
 
-                    authorized = await asyncio.to_thread(
-                        join_tokens.claim,
+                    join_token_ok = await asyncio.to_thread(
+                        join_tokens.is_claimable,
                         token,
                         registration.name,
                     )
-                if not authorized:
+                if not (bootstrap_ok or join_token_ok):
                     logger.warning(f"Invalid registration token for worker: {registration.name}")
                     raise HTTPException(
                         status_code=403,
@@ -307,10 +380,43 @@ class WorkerRoutesMixin:
                             f"Refusing registration for banned worker principal: "
                             f"{registration.name}",
                         )
+                        # Who is told *why* depends on what they presented.
+                        # A bootstrap-token holder has the fleet-wide
+                        # registration secret, so naming the quarantine tells
+                        # them nothing they could not get anyway, and the
+                        # diagnostic is what an operator wants. A join-token
+                        # holder is scoped to one registration — and since
+                        # is_claimable no longer consumes the token, a distinct
+                        # message would let a single unbound token enumerate
+                        # every quarantined name in the fleet, repeatedly. The
+                        # real reason is always in the log above.
                         raise HTTPException(
                             status_code=403,
-                            detail="Worker principal is banned; an administrator "
-                            "must unban and enable it before it can register.",
+                            detail=(
+                                "Worker principal is banned; an administrator "
+                                "must unban and enable it before it can register."
+                                if bootstrap_ok
+                                else "Invalid bootstrap or join token."
+                            ),
+                        )
+
+                if join_token_ok:
+                    from flux.security import join_tokens
+
+                    # The claim stays the atomic step, so two registrations
+                    # racing on one token still resolve here: the loser is
+                    # refused rather than both succeeding.
+                    if not await asyncio.to_thread(
+                        join_tokens.claim,
+                        token,
+                        registration.name,
+                    ):
+                        logger.warning(
+                            f"Join token for worker {registration.name} was claimed concurrently",
+                        )
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Invalid bootstrap or join token.",
                         )
 
                 registry = WorkerRegistry.create()
