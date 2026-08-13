@@ -1030,9 +1030,18 @@ class WorkerRoutesMixin:
             try:
                 self._verify_worker_identity(identity, name)
                 self._worker_last_pong[name] = time.monotonic()
+                await asyncio.to_thread(
+                    self._verify_worker_owns_execution,
+                    name,
+                    execution_id,
+                )
 
                 context_manager = ContextManager.create()
 
+                current_generation = await asyncio.to_thread(
+                    context_manager.get_claim_generation,
+                    execution_id,
+                )
                 if claim_generation is not None:
                     try:
                         expected_generation = int(claim_generation)
@@ -1041,10 +1050,6 @@ class WorkerRoutesMixin:
                             status_code=400,
                             detail="Invalid X-Flux-Claim-Generation header.",
                         )
-                    current_generation = await asyncio.to_thread(
-                        context_manager.get_claim_generation,
-                        execution_id,
-                    )
                     if expected_generation != current_generation:
                         raise HTTPException(
                             status_code=409,
@@ -1052,6 +1057,31 @@ class WorkerRoutesMixin:
                                 f"stale-claim: release carries generation "
                                 f"{expected_generation} but the row is at "
                                 f"{current_generation}"
+                            ),
+                        )
+                elif current_generation > 0:
+                    # The fence must not be opt-in: without this, omitting
+                    # the header let any worker principal unclaim any
+                    # execution ever dispatched, forcing a re-run. The one
+                    # release that legitimately carries no generation is a
+                    # worker declining a dispatch it never claimed (paused /
+                    # unhealthy) — the claim response is what hands out the
+                    # generation, so pre-claim there is nothing to send.
+                    # That case is exactly a SCHEDULED / RESUME_SCHEDULED row
+                    # assigned to the caller; everything else is fenced.
+                    summary = await asyncio.to_thread(
+                        context_manager.get_summary,
+                        execution_id,
+                    )
+                    if not (
+                        summary["state"] in ("SCHEDULED", "RESUME_SCHEDULED")
+                        and summary["current_worker"] == name
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                f"stale-claim: release carries no generation "
+                                f"but the row is at {current_generation}"
                             ),
                         )
 

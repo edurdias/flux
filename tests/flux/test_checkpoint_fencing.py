@@ -163,15 +163,68 @@ def test_update_rejects_stale_generation(env):
     cm.update(ctx, expected_claim_generation=1)
 
 
-def test_update_without_generation_is_unfenced(env):
-    """Legacy workers send no generation header and keep working."""
+def test_update_without_generation_is_fenced_once_claimed(env):
+    """The fence must not be opt-in per request: omitting the generation
+    used to skip it entirely, so a write fenced at claim time could land by
+    simply not carrying the header — worst case a late RUNNING write onto
+    an evicted-and-unclaimed row, leaving it RUNNING with no owner,
+    invisible to dispatch, the reaper, and the cancellation sweep."""
     cm, registry = env
     w1 = _register(registry, "w1")
     wf_id = _create_workflow(cm)
     cm.save(ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"))
     ctx = _dispatch(cm, w1)
 
-    cm.update(ctx)  # no expected generation: accepted
+    with pytest.raises(StaleClaimError):
+        cm.update(ctx)
+
+
+def test_update_without_generation_on_a_never_dispatched_row_is_accepted(env):
+    """Inline saves and pre-dispatch writes carry no generation because the
+    row has none; only ever-claimed rows require the fence."""
+    cm, registry = env
+    wf_id = _create_workflow(cm)
+    ctx = ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf")
+    cm.save(ctx)
+
+    cm.update(ctx)  # generation 0: accepted
+
+
+def test_unowned_cancellation_resolution_stays_legal(env):
+    """The one writer with no claim by design (issue #189): a worker
+    resolving an unowned CANCELLING row to CANCELLED never claimed the
+    execution, so its checkpoint carries no generation and must land."""
+    cm, registry = env
+    w1 = _register(registry, "w1")
+    wf_id = _create_workflow(cm)
+    cm.save(ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"))
+    ctx = _dispatch(cm, w1)
+    ctx.start_cancel()
+    cm.update(ctx, expected_claim_generation=1)
+
+    resolution = cm.get(ctx.execution_id)
+    resolution.cancel()
+    cm.update(resolution)  # no generation: CANCELLING -> terminal is allowed
+
+    assert cm.get(ctx.execution_id).state.value == "CANCELLED"
+
+
+def test_unfenced_noncancelling_write_cannot_resurrect_an_unclaimed_row(env):
+    """The concrete wedge the fence closes: evict-and-unclaim resets the row
+    to CREATED with no owner; a late claimless RUNNING write must not drag
+    it back to RUNNING-with-no-owner."""
+    cm, registry = env
+    w1 = _register(registry, "w1")
+    wf_id = _create_workflow(cm)
+    cm.save(ExecutionContext(workflow_id=wf_id, workflow_namespace="default", workflow_name="wf"))
+    ctx = _dispatch(cm, w1)
+    cm.unclaim(ctx.execution_id)  # eviction: CREATED, no owner, generation bumped
+
+    ctx.start(ctx.execution_id)  # the partitioned worker's stale RUNNING state
+    with pytest.raises(StaleClaimError):
+        cm.update(ctx)
+
+    assert cm.get(ctx.execution_id).state.value == "CREATED"
 
 
 def test_batch_dispatch_bumps_generation(env):

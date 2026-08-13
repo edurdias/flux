@@ -205,13 +205,18 @@ class StaleClaimError(Exception):
 
     def __init__(self, execution_id: str, expected: int = -1, actual: int = -1):
         # Defaults cover the worker side, which learns only *that* it was
-        # fenced (409 from the server), not the row's current generation.
+        # fenced (409 from the server), not the row's current generation —
+        # there the message must not claim to know what was carried.
         self.execution_id = execution_id
-        super().__init__(
-            f"Stale claim for execution {execution_id}: checkpoint carries "
-            f"generation {expected} but the row is at {actual}; the execution "
-            f"was reassigned",
-        )
+        if actual < 0:
+            detail = "the server fenced this write; the claim was superseded"
+        else:
+            carried = "no generation" if expected < 0 else f"generation {expected}"
+            detail = (
+                f"checkpoint carries {carried} but the row is at {actual}; "
+                f"the execution was reassigned"
+            )
+        super().__init__(f"Stale claim for execution {execution_id}: {detail}")
 
 
 class WorkerProcessCrashed(Exception):

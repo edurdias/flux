@@ -497,6 +497,21 @@ class DatabaseContextManager(ContextManager):
                     expected=expected_claim_generation,
                     actual=model.claim_generation or 0,
                 )
+            if expected_claim_generation is None and (model.claim_generation or 0) > 0:
+                # The fence was opt-in per request: omitting the generation
+                # skipped it entirely, so a write fenced at claim time could
+                # land by simply not carrying the header — worst case a late
+                # RUNNING write onto an evicted-and-unclaimed row, leaving it
+                # RUNNING with no owner, invisible to dispatch, the reaper,
+                # and the cancellation sweep. Ever-claimed rows now require
+                # the fence. The one writer with no claim by design stays
+                # legal: a worker resolving an unowned CANCELLING row to a
+                # terminal state (issue #189).
+                if not (model.state == ExecutionState.CANCELLING and ctx.state in _TERMINAL_STATES):
+                    raise StaleClaimError(
+                        ctx.execution_id,
+                        actual=model.claim_generation or 0,
+                    )
             if _accept_state_write(ctx.state, model.state):
                 model.state = ctx.state
                 model.output = ctx.output
