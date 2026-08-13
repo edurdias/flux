@@ -182,8 +182,11 @@ def claim(token: str, worker_name: str) -> bool:
 def purge_expired(*, older_than_seconds: int = 86400) -> int:
     """Delete tokens whose expiry passed more than the grace window ago.
 
-    Used rows are kept inside the window as an audit trail of recent joins.
-    Returns the number of rows removed.
+    Used, revoked, and never-claimed rows all age out on the same expiry
+    clock; inside the window they remain an audit trail of recent joins.
+    Called hourly from the scheduler tick, with the window taken from
+    ``join_token_retention`` in ``[flux.workers]``. Returns the number of
+    rows removed.
     """
     repo = RepositoryFactory.create_repository()
     cutoff = _utcnow() - timedelta(seconds=older_than_seconds)

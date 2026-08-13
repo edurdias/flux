@@ -158,6 +158,7 @@ class Server(
         self._dispatcher = None
         self._retention_job = None
         self._reaper_task: asyncio.Task | None = None
+        self._last_join_token_purge: float | None = None
 
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
@@ -1157,11 +1158,45 @@ class Server(
                         except Exception:
                             logger.error("Pause-wake pass failed", exc_info=True)
 
+                        # Join-token reaping (issue #197 follow-up): minting
+                        # had no inverse, so dead rows accumulated forever.
+                        # Same lock, so one replica reaps.
+                        try:
+                            self._purge_join_tokens()
+                        except Exception:
+                            logger.error("Join-token purge failed", exc_info=True)
+
                 except Exception as e:
                     logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
 
         except asyncio.CancelledError:
             logger.info("Scheduler loop cancelled")
+
+    def _purge_join_tokens(self, *, now_monotonic: float | None = None) -> int:
+        """Reap dead join-token rows, at most once an hour.
+
+        Purging every tick would be wasted DELETEs against a table that
+        changes on the cadence of fleet growth, so the tick calls this each
+        cycle and the throttle makes it an hourly job. Rows are kept for
+        ``[flux.workers] join_token_retention`` past expiry as an audit
+        trail; 0 keeps them forever.
+        """
+        retention = Configuration.get().settings.workers.join_token_retention
+        if retention <= 0:
+            return 0
+        now = time.monotonic() if now_monotonic is None else now_monotonic
+        if self._last_join_token_purge is not None and now - self._last_join_token_purge < 3600:
+            return 0
+
+        from flux.security import join_tokens
+
+        removed = join_tokens.purge_expired(older_than_seconds=retention)
+        # Stamped only on success: a failed purge (the caller logs it) retries
+        # on the next tick instead of being silenced for an hour.
+        self._last_join_token_purge = now
+        if removed:
+            logger.info(f"Purged {removed} expired worker join token(s)")
+        return removed
 
     async def _trigger_scheduled_workflow(self, schedule, scheduled_time: datetime):
         """

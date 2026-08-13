@@ -141,6 +141,40 @@ class TestJoinTokenLifecycle:
 
         assert join_tokens.purge_expired(older_than_seconds=86400) == 1
 
+    def test_purge_removes_revoked_rows_on_the_same_expiry_clock(self, make_client):
+        """Revocation is a soft delete for the audit trail's sake; the purge
+        is what finally removes the row, once expiry plus retention passed —
+        revoked rows must not be exempt or the table still only grows."""
+        make_client()
+        join_tokens.mint(3600)
+        token_id = join_tokens.outstanding()[0]["id"]
+        assert join_tokens.revoke(token_id, revoked_by="ops")
+
+        from flux.models import RepositoryFactory
+
+        repo = RepositoryFactory.create_repository()
+        with repo.session() as session:
+            session.query(join_tokens.WorkerJoinTokenModel).filter(
+                join_tokens.WorkerJoinTokenModel.id == token_id,
+            ).update(
+                {
+                    "expires_at": datetime.now(timezone.utc).replace(tzinfo=None)
+                    - timedelta(days=2),
+                },
+                synchronize_session=False,
+            )
+            session.commit()
+
+        assert join_tokens.purge_expired(older_than_seconds=86400) == 1
+
+    def test_purge_keeps_revoked_rows_inside_retention(self, make_client):
+        make_client()
+        join_tokens.mint(3600)
+        token_id = join_tokens.outstanding()[0]["id"]
+        assert join_tokens.revoke(token_id, revoked_by="ops")
+
+        assert join_tokens.purge_expired(older_than_seconds=86400) == 0
+
 
 class TestSubjectBinding:
     """A token minted for one worker must not authorize another (#174).

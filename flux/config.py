@@ -51,6 +51,15 @@ class WorkersConfig(BaseConfig):
             "/admin/workers/join-tokens"
         ),
     )
+    join_token_retention: int = Field(
+        default=86400,
+        description=(
+            "Seconds past expiry a join-token row (used, revoked, or never "
+            "claimed) is kept as an audit trail before the scheduler purges "
+            "it. 0 disables purging: rows are kept forever and the table "
+            "only grows."
+        ),
+    )
 
     server_url: str = Field(
         default="http://localhost:8000",
