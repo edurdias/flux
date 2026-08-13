@@ -207,9 +207,10 @@ class StaleClaimError(Exception):
         # Defaults cover the worker side, which learns only *that* it was
         # fenced (409 from the server), not the row's current generation.
         self.execution_id = execution_id
+        carried = "no generation" if expected < 0 else f"generation {expected}"
         super().__init__(
             f"Stale claim for execution {execution_id}: checkpoint carries "
-            f"generation {expected} but the row is at {actual}; the execution "
+            f"{carried} but the row is at {actual}; the execution "
             f"was reassigned",
         )
 
