@@ -67,6 +67,51 @@ class TestLoopLagMonitor:
         worker._send_pong.assert_called()  # state changes pushed to server
 
     @pytest.mark.asyncio
+    async def test_a_raising_metrics_recorder_does_not_kill_the_monitor(self):
+        """The monitor is the only producer of health transitions. Before the
+        recorders were guarded, a metrics raise right after the unhealthy flip
+        killed the loop and stranded the worker unhealthy forever (issue #224)
+        — so a worker whose metrics backend misbehaves must still flip
+        unhealthy AND recover, with the monitor alive throughout.
+        """
+        worker = make_worker()
+        worker._loop_lag_threshold = 1.0
+        worker._loop_lag_probe_interval = 0.001
+        worker._send_pong = AsyncMock()
+        worker._metrics_collector = MagicMock()
+        worker._metrics_collector.record_loop_lag.side_effect = RuntimeError("collector broken")
+
+        raising_metrics = MagicMock()
+        raising_metrics.record_loop_lag.side_effect = RuntimeError("otel broken")
+        raising_metrics.record_worker_health_transition.side_effect = RuntimeError("otel broken")
+
+        import itertools
+
+        lagged = [0.0, 10.0] * 3
+        clean = itertools.cycle([0.0, 0.001])
+        with (
+            patch("flux.observability.get_metrics", return_value=raising_metrics),
+            patch("flux.worker.time") as mock_time,
+        ):
+            mock_time.monotonic.side_effect = itertools.chain(lagged, clean)
+            monitor = asyncio.create_task(worker._monitor_loop_health())
+            try:
+                async with asyncio.timeout(10):
+                    while worker._healthy:
+                        await asyncio.sleep(0.005)
+                    unhealthy_seen = not worker._healthy
+                    while not worker._healthy:
+                        await asyncio.sleep(0.005)
+                    assert not monitor.done(), "the monitor must survive metrics failures"
+            finally:
+                monitor.cancel()
+
+        assert unhealthy_seen
+        assert worker._healthy
+        # Proves the raise was exercised, not skipped.
+        raising_metrics.record_worker_health_transition.assert_called()
+
+    @pytest.mark.asyncio
     async def test_single_breach_does_not_trip(self):
         worker = make_worker()
         worker._loop_lag_threshold = 1.0
@@ -147,3 +192,46 @@ class TestDispatcherExclusion:
         dispatcher._server = server
 
         assert dispatcher._connected_workers() == ["info1"]
+
+
+class TestMonitorExitVisibility:
+    """A dead monitor must be loud: nothing awaits the task, so without the
+    done-callback its exception surfaces only at GC time, detached from the
+    worker it silenced (issue #224)."""
+
+    @pytest.mark.asyncio
+    async def test_monitor_death_is_logged(self, caplog):
+        import logging
+
+        from flux.worker import _report_monitor_exit
+
+        async def _dies():
+            raise RuntimeError("probe exploded")
+
+        task = asyncio.ensure_future(_dies())
+        await asyncio.sleep(0)
+
+        with caplog.at_level(logging.ERROR):
+            _report_monitor_exit(task)
+
+        assert "Loop-health monitor died" in caplog.text
+        assert "probe exploded" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancellation_is_silent(self, caplog):
+        import logging
+
+        from flux.worker import _report_monitor_exit
+
+        async def _forever():
+            await asyncio.sleep(30)
+
+        task = asyncio.ensure_future(_forever())
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+
+        with caplog.at_level(logging.WARNING):
+            _report_monitor_exit(task)
+
+        assert "monitor" not in caplog.text
