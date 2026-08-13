@@ -147,3 +147,67 @@ async def test_docker_runner_executes_workflow_in_container():
     # 16 * 2 + len("0123456789") — the secret resolved through the parent pipe.
     assert result.output == 42
     assert checkpoints and checkpoints[-1].has_finished
+
+
+@pytest.mark.skipif(
+    not DOCKER_TEST_IMAGE,
+    reason="FLUX_TEST_DOCKER_IMAGE not set (needs an image with flux-core installed)",
+)
+@pytest.mark.asyncio
+async def test_container_child_runs_user_code_without_the_persistence_graph():
+    """Issue #233, asserted inside the real container: by the time the
+    workflow body runs, sqlalchemy and flux.models must be absent. For
+    container runners the import graph is paid per execution, and a sandboxed
+    child has no database to reach either way."""
+    from flux.domain.execution_context import ExecutionContext
+    from flux.runners.base import RunnerHooks
+    from flux.worker import WorkflowDefinition, WorkflowExecutionRequest
+
+    source = textwrap.dedent(
+        """
+        from flux import ExecutionContext, workflow
+
+        @workflow
+        async def lean_wf(ctx: ExecutionContext):
+            import sys
+            return {
+                "sqlalchemy": "sqlalchemy" in sys.modules,
+                "flux_models": "flux.models" in sys.modules,
+            }
+        """,
+    )
+
+    async def checkpoint(ctx):
+        pass
+
+    async def get_secrets(names):
+        return {}
+
+    async def get_configs(names):
+        return {}
+
+    request = WorkflowExecutionRequest(
+        workflow=WorkflowDefinition(
+            id="default/lean_wf",
+            namespace="default",
+            name="lean_wf",
+            version=1,
+            source=base64.b64encode(source.encode()).decode(),
+        ),
+        context=ExecutionContext(
+            workflow_id="default/lean_wf",
+            workflow_namespace="default",
+            workflow_name="lean_wf",
+            input=None,
+        ),
+    )
+    runner = DockerRunner(image=DOCKER_TEST_IMAGE, term_grace=10)
+    result = await runner.execute(
+        request,
+        RunnerHooks(checkpoint=checkpoint, get_secrets=get_secrets, get_configs=get_configs),
+    )
+
+    assert result.has_finished and not result.has_failed
+    assert result.output == {"sqlalchemy": False, "flux_models": False}, (
+        f"the container child carried the persistence graph into user code: {result.output}"
+    )
