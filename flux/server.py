@@ -847,18 +847,21 @@ class Server(
                 except RuntimeError:
                     logger.warning(f"Cannot revoke API key for {name}: no event loop")
 
-    def _gc_worker_principal(self, name: str) -> None:
+    def _gc_worker_principal(self, name: str) -> asyncio.Task | None:
         """Disable a pruned worker's principal and revoke its API keys.
 
         Runs as a fire-and-forget task off the reaper. Registration re-enables
         the principal if the worker ever returns, so this is reversible.
+        Returns the task (None when there is nothing to do or no loop) so a
+        caller that needs completion — tests — can await it instead of
+        sleeping and hoping.
         """
         from flux.security.dependencies import _get_auth_service
         from flux.security.principals import PrincipalRegistry
 
         auth_service = _get_auth_service()
         if auth_service is None:
-            return
+            return None
 
         async def _gc():
             try:
@@ -878,9 +881,10 @@ class Server(
                 logger.warning(f"Principal GC for pruned worker {name} failed: {e}")
 
         try:
-            asyncio.create_task(_gc())
+            return asyncio.create_task(_gc())
         except RuntimeError:
             logger.warning(f"Cannot GC principal for {name}: no event loop")
+            return None
 
     def _unclaim_worker_executions(self, worker_name: str) -> None:
         """Recover all executions assigned to an evicted worker.

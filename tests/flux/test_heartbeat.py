@@ -436,6 +436,7 @@ class TestWorkerReconnect:
         mock_settings.workers.checkpoint_retry_max_delay = 30
         mock_settings.workers.terminal_checkpoint_deadline = 300
         mock_settings.workers.reconnect_max_delay = 4
+        mock_settings.workers.heartbeat_interval = 10
         mock_settings.workers.module_cache_ttl = 300
         mock_settings.workers.module_cache_max_size = 64
         mock_settings.workers.runners = ["inprocess", "subprocess"]

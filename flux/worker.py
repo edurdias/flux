@@ -32,6 +32,24 @@ from flux.utils import get_logger
 logger = get_logger(__name__)
 
 
+def _report_monitor_exit(task: asyncio.Task) -> None:
+    """Make the loop-health monitor's death loud.
+
+    It is the only producer of health transitions: if it dies between the
+    unhealthy flip and recovery, the worker declines all new work for its
+    remaining lifetime with nothing left to flip it back (issue #224).
+    """
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error(
+            f"Loop-health monitor died: {error!r} — health transitions have "
+            "stopped; the worker keeps its current health state until restart",
+            exc_info=error,
+        )
+
+
 class WorkflowDefinition(BaseModel):
     id: str
     namespace: str = "default"
@@ -147,6 +165,9 @@ class Worker:
             list[tuple[asyncio.Queue, asyncio.Task | None]],
         ] = {}
         self._reconnect_max_delay = config.reconnect_max_delay
+        # The server pings the SSE stream every heartbeat_interval; a stream
+        # silent for several intervals is dead, however live the socket looks.
+        self._sse_stall_timeout = max(30.0, 3.0 * config.heartbeat_interval)
         # The flux. label prefix is reserved for platform-derived labels so
         # user labels cannot spoof capability grants (service sockets below).
         reserved = sorted(k for k in self.labels if k.startswith("flux."))
@@ -518,6 +539,9 @@ class Worker:
         health_monitor: asyncio.Task | None = None
         if self._loop_lag_threshold > 0:
             health_monitor = asyncio.create_task(self._monitor_loop_health())
+            # Fire-and-forget task nobody awaits: without this, its death is
+            # invisible and health transitions silently stop (issue #224).
+            health_monitor.add_done_callback(_report_monitor_exit)
 
         backoff = 1
         try:
@@ -583,13 +607,7 @@ class Worker:
             await asyncio.sleep(self._loop_lag_probe_interval)
             lag = time.monotonic() - start - self._loop_lag_probe_interval
 
-            from flux.observability import get_metrics
-
-            m = get_metrics()
-            if m:
-                m.record_loop_lag(lag)
-            if self._metrics_collector:
-                self._metrics_collector.record_loop_lag(lag)
+            self._record_loop_lag(lag)
 
             if lag >= self._loop_lag_threshold:
                 recoveries = 0
@@ -602,8 +620,7 @@ class Worker:
                         f"marking worker unhealthy — declining new work until "
                         f"the loop recovers",
                     )
-                    if m:
-                        m.record_worker_health_transition("unhealthy")
+                    self._record_health_transition("unhealthy")
                     # Tell the server immediately instead of waiting for the
                     # next ping/pong round-trip.
                     asyncio.create_task(self._send_pong())
@@ -617,9 +634,40 @@ class Worker:
                         logger.warning(
                             "Event loop recovered; worker healthy — accepting work again",
                         )
-                        if m:
-                            m.record_worker_health_transition("recovered")
+                        self._record_health_transition("recovered")
                         asyncio.create_task(self._send_pong())
+
+    # Both recorders are best-effort: the monitor loop above is the only
+    # producer of health transitions, so a metrics raise escaping it after the
+    # unhealthy flip would strand the worker unhealthy forever with nothing
+    # left to recover it (issue #224).
+    def _record_loop_lag(self, lag: float) -> None:
+        # Guarded separately: the built-in collector feeds the flux.loop_lag*
+        # routing metrics, and an unhealthy OTel backend must not take those
+        # down with it.
+        try:
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_loop_lag(lag)
+        except Exception as ex:
+            logger.debug(f"OTel loop-lag recording failed: {ex}", exc_info=True)
+        try:
+            if self._metrics_collector:
+                self._metrics_collector.record_loop_lag(lag)
+        except Exception as ex:
+            logger.debug(f"Built-in loop-lag recording failed: {ex}", exc_info=True)
+
+    def _record_health_transition(self, state: str) -> None:
+        try:
+            from flux.observability import get_metrics
+
+            m = get_metrics()
+            if m:
+                m.record_worker_health_transition(state)
+        except Exception as ex:
+            logger.debug(f"Health-transition metric failed: {ex}", exc_info=True)
 
     async def _drain(self):
         """Let running executions finish, then flush their checkpoints.
@@ -720,7 +768,25 @@ class Worker:
                 ) as es:
                     logger.info("Connection established successfully")
                     logger.debug("Starting event loop to receive events")
-                    async for evt in es.aiter_sse():
+                    # A dropped link does not error an idle read: a dead
+                    # socket can hang aiter_sse() forever, leaving the worker
+                    # ponging over HTTP but invisible to dispatch (its SSE
+                    # queue is gone server-side) with the reconnect loop never
+                    # running. The server pings every heartbeat_interval, so a
+                    # silent stream past the stall bound is dead — raise and
+                    # let the reconnect loop take over.
+                    events = aiter(es.aiter_sse())
+                    while True:
+                        try:
+                            async with asyncio.timeout(self._sse_stall_timeout):
+                                evt = await anext(events)
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError:
+                            raise ConnectionError(
+                                f"SSE stream silent for {self._sse_stall_timeout:.0f}s; "
+                                "treating the connection as dead",
+                            ) from None
                         if evt.event == "execution_scheduled":
                             asyncio.create_task(
                                 self._handle_execution_scheduled(base_url, evt),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -53,8 +52,12 @@ class TestWorkerPrincipalGC:
             registry = registry_cls.return_value
             registry.find.return_value = principal
 
-            server._gc_worker_principal("dead-worker")
-            await asyncio.sleep(0.05)  # let the fire-and-forget task run
+            # Await the returned task instead of sleeping: on a loaded
+            # runner a fixed sleep can elapse before the fire-and-forget
+            # task ever runs.
+            task = server._gc_worker_principal("dead-worker")
+            assert task is not None
+            await task
 
         registry.set_enabled.assert_called_once_with("p-1", False)
         auth_service.revoke_all_api_keys.assert_awaited_once_with("p-1")
