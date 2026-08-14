@@ -61,6 +61,11 @@ def server_modules() -> dict[str, bool]:
     return _presence("flux.server")
 
 
+@pytest.fixture(scope="module")
+def console_modules() -> dict[str, bool]:
+    return _presence("flux.agents.ui.api")
+
+
 class TestWorkerBudget:
     def test_no_persistence_graph(self, worker_modules):
         assert not worker_modules["sqlalchemy"]
@@ -83,3 +88,9 @@ class TestServerBudget:
     def test_no_worker_runtime(self, server_modules):
         assert not server_modules["flux.worker"]
         assert not server_modules["flux.runners.loader"]
+
+
+class TestConsoleBudget:
+    def test_console_process_stays_lean(self, console_modules):
+        assert not console_modules["sqlalchemy"]
+        assert not console_modules["flux.models"]
