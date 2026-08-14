@@ -29,6 +29,7 @@ from textual.widgets.option_list import Option
 from flux.agents.console.errors import error_detail, missing_permission_of
 from flux.agents.console.hub import KIND_LOG_DELTA, ConsoleEvent, EventHub
 from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
+from flux.agents.console.titles import MAX_TITLE_LEN, truncate_title
 from flux.agents.events import (
     KIND_APPROVAL_REQUIRED,
     KIND_CHAT_RESPONSE,
@@ -105,7 +106,7 @@ INTERNAL_TASK = re.compile(r"^(pause$|get_config|get_secret|agent_|llm_|wm_)")
 RAIL_REFRESH_SECONDS = 3.0
 NARROW_WIDTH = 100  # below this the rail and context panels fold away
 CHAT_ONLY_WIDTH = 80  # below this the status line goes compact
-TITLE_LIMIT = 48  # matches the server's derived_title truncation
+TITLE_LIMIT = MAX_TITLE_LEN  # one limit, shared with the server's derived_title
 RAIL_WIDTH = 32
 RAIL_TEXT_WIDTH = RAIL_WIDTH - 4  # minus the panel's border and padding
 
@@ -160,8 +161,10 @@ def _epoch(value: Any) -> float | None:
 
 
 def _truncate(text: str, limit: int = TITLE_LIMIT) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 1] + "…"
+    # Collapse first (a rail row is exactly one line), then cut on a word
+    # boundary through the server's own helper, so a session is not called
+    # one thing here and another in the derived_title the API serves.
+    return truncate_title(" ".join(text.split()), limit)
 
 
 def _fmt_elapsed(seconds: float | None) -> str:
@@ -505,6 +508,13 @@ class ConsoleApp(App):
         self.hub = hub
         self.initial_agent = initial_agent
         self.initial_session = initial_session
+        # The rail's *current* agent filter. It starts at initial_agent
+        # (naming an agent asks for its sessions first) but is only an
+        # initial view: the new-session picker lists every agent, and a
+        # session the rail cannot see is one every later action resolves
+        # against the wrong row -- or no row at all. Dropped for good as
+        # soon as a session outside it is created or opened.
+        self._agent_filter = initial_agent
 
         self.sessions: list[SessionRow] = []
         self.approvals: list[ApprovalRow] = []
@@ -525,6 +535,9 @@ class ConsoleApp(App):
         self._stream_widget: Static | None = None
         self._reasoning: ChatBlock | None = None
         self._local_title: str | None = None
+        # The open session's workflow, straight from its detail read -- the
+        # authority whenever the rail has not caught up with it yet.
+        self._active_workflow: str | None = None
         self._busy: bool = False
         self._compact: bool = False
         self._minimal: bool = False
@@ -606,7 +619,7 @@ class ConsoleApp(App):
         )
 
     async def _refresh_lists(self) -> None:
-        sessions = await self._read(self.service.list_sessions(self.initial_agent), "sessions")
+        sessions = await self._read(self.service.list_sessions(self._agent_filter), "sessions")
         if sessions is not None:
             self.sessions = sessions
         approvals = await self._read(self.service.list_approvals(), "approvals")
@@ -732,8 +745,9 @@ class ConsoleApp(App):
         elif kind == KIND_TOOL_DONE:
             running_tool = self.tools.get(str(data.get("id")))
             if running_tool is not None:
-                status = str(data.get("status") or "done")
-                running_tool.status = "success" if status == "success" else status
+                # Same default as console.js's `data.status || "done"`: the
+                # two surfaces share one status vocabulary.
+                running_tool.status = str(data.get("status") or "done")
                 running_tool.ended = time.time()
                 await self._render_chat()
                 await self._render_context()
@@ -793,6 +807,22 @@ class ConsoleApp(App):
             None,
         )
 
+    def _workflow_of(self, session_id: str) -> str | None:
+        """The workflow a session runs under, or None when it is unknown.
+
+        Never falls back to ``agent_chat``: an agent declaring a
+        ``workflow_file`` runs under ``agent_custom_<name>``, so guessing
+        here sends a resume (or a cancel) at a workflow the execution does
+        not belong to, and the turn fails with nothing on screen explaining
+        why. Callers report the unknown instead.
+        """
+        row = next((row for row in self.sessions if row.execution_id == session_id), None)
+        if row is not None:
+            return row.workflow_name
+        if session_id == self.active_session:
+            return self._active_workflow
+        return None
+
     def _bucket_of(self, row: SessionRow) -> str:
         state = (row.state or "").upper()
         if state in ("FAILED", "CANCELLED"):
@@ -829,11 +859,21 @@ class ConsoleApp(App):
         self.blocks = []
         self.tools = {}
         detail = await self._read(self.hub.open_session(session_id), "session")
+        self._active_workflow = detail.get("workflow_name") if detail else None
         if detail is not None:
             self.blocks, self.tools, self._local_title = derive_blocks(detail)
         await self._render_chat()
         await self._render_context()
-        self._render_rail()
+        if self._agent_filter is not None and not any(
+            row.execution_id == session_id for row in self.sessions
+        ):
+            # Opening a session the rail's filter excludes widens the rail
+            # rather than leaving the session invisible in it.
+            self._agent_filter = None
+            await self._refresh_lists()
+        # Focused explicitly: `r` and `x` act on the highlighted row, so the
+        # highlight has to follow the session that is on screen.
+        self._render_rail(focus=session_id)
         row = self._active_row()
         self.query_one("#chat-input", Input).placeholder = (
             f"Message {row.agent_name}…" if row else "Message…"
@@ -850,9 +890,13 @@ class ConsoleApp(App):
             self.notice = f"read-only: requires {required}"
             self._update_status()
             return
+        workflow_name = self._workflow_of(self.active_session)
+        if workflow_name is None:
+            self.notice = f"send: unknown workflow for {self.active_session[:8]}"
+            self._update_status()
+            return
         row = self._active_row()
         agent_name = row.agent_name if row else (self.initial_agent or "")
-        workflow_name = row.workflow_name if row else "agent_chat"
         self.blocks.append(ChatBlock("user", text=message))
         self._busy = True
         await self._render_chat()
@@ -870,6 +914,9 @@ class ConsoleApp(App):
             self.service.spawn(agent_name, name or None),
             "new session",
         )
+        if execution_id and self._agent_filter not in (None, agent_name):
+            # Started outside the initial filter: the rail has to show it.
+            self._agent_filter = None
         await self._refresh_lists()
         if execution_id:
             await self.open_session(str(execution_id))
@@ -934,9 +981,12 @@ class ConsoleApp(App):
         prompt.append(tail, style=AMBER if bucket == "waiting" else MUTED)
         return prompt
 
-    def _render_rail(self) -> None:
+    def _render_rail(self, focus: str | None = None) -> None:
         rail = self.query_one("#panel-sessions", SessionRail)
-        previous = self._highlighted_session()
+        # Preference order: the session just opened, then whatever the
+        # operator had highlighted, then the open session (a boot render has
+        # no previous highlight to restore), then the first row.
+        previous = focus or self._highlighted_session() or self.active_session
 
         # Failed gets its own heading: bucketing it under DONE would file a
         # session that needs attention with the ones that need none.
@@ -1375,11 +1425,11 @@ class ConsoleApp(App):
         session_id = block.session_id or self.active_session
         if session_id is None:
             return
-        row = next(
-            (candidate for candidate in self.sessions if candidate.execution_id == session_id),
-            None,
-        )
-        workflow_name = row.workflow_name if row else "agent_chat"
+        workflow_name = self._workflow_of(session_id)
+        if workflow_name is None:
+            self.notice = f"elicitation: unknown workflow for {session_id[:8]}"
+            self._update_status()
+            return
         payload = {
             "elicitation_response": {
                 "elicitation_id": block.data.get("elicitation_id", ""),
@@ -1423,6 +1473,11 @@ class ConsoleApp(App):
             self.notice = "stop: session already finished"
             self._update_status()
             return
+        workflow_name = self._workflow_of(session_id)
+        if workflow_name is None:
+            self.notice = f"stop: unknown workflow for {session_id[:8]}"
+            self._update_status()
+            return
         if self._stop_armed != session_id:
             # Armed, not fired: a cancel is not undoable, and `x` is one key
             # away from every other single-press action.
@@ -1432,7 +1487,6 @@ class ConsoleApp(App):
             self._update_status()
             return
         self._stop_armed = None
-        workflow_name = row.workflow_name if row else "agent_chat"
         self.run_worker(self._stop_session(session_id, workflow_name), name="console-stop")
 
     async def _stop_session(self, session_id: str, workflow_name: str) -> None:

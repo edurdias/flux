@@ -111,13 +111,17 @@ class _FakeService(ConsoleService):
         self.session_filters: list[str | None] = []
         self.elicitations: list[tuple] = []
         self.stops: list[tuple] = []
+        self.sends: list[tuple[str, str]] = []
 
     async def list_agents(self):
         return list(self._agents)
 
     async def list_sessions(self, agent=None):
+        # Filters for real, like GET /agents/sessions?agent=: a rail query
+        # that quietly returned everything would hide exactly the bug where
+        # a session falls outside the filter the console is asking with.
         self.session_filters.append(agent)
-        return list(self._sessions)
+        return [row for row in self._sessions if agent is None or row.agent_name == agent]
 
     async def list_approvals(self):
         return list(self._approvals)
@@ -126,11 +130,25 @@ class _FakeService(ConsoleService):
         return self._detail
 
     async def send(self, execution_id, agent_name, workflow_name, text):
+        self.sends.append((execution_id, workflow_name))
         for frame in self._frames:
             yield frame
 
     async def spawn(self, agent_name, name):
         self.spawned.append((agent_name, name))
+        # Mirrors ConsoleService.spawn: an agent with a workflow_file runs
+        # under its own agent_custom_<name> workflow, and the new session
+        # shows up in the next listing.
+        self._sessions.append(
+            SessionRow(
+                execution_id="exec-new",
+                agent_name=agent_name,
+                state="RUNNING",
+                name=name or None,
+                started_at="2026-08-14T12:00:00",
+                workflow_name=f"agent_custom_{agent_name}",
+            ),
+        )
         return "exec-new"
 
     async def decide(
@@ -656,6 +674,133 @@ async def test_initial_agent_with_no_live_session_spawns_one():
         assert app.active_session == "exec-new"
 
 
+async def test_a_session_for_another_agent_joins_the_rail():
+    """``initial_agent`` is an *initial* filter, not a permanent one.
+
+    The new-session picker lists every agent, so the operator can start one
+    outside it; if the rail keeps querying with the old filter that session
+    is invisible to it, and every later action on it resolves against no
+    row at all.
+    """
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app._create_session("writer", "")
+        await pilot.pause()
+
+        assert app.active_session == "exec-new"
+        row = app._active_row()
+        assert row is not None
+        assert row.workflow_name == "agent_custom_writer"
+        assert "exec-new" in {
+            app.query_one("#panel-sessions", OptionList).get_option_at_index(index).id
+            for index in range(app.query_one("#panel-sessions", OptionList).option_count)
+        }
+
+
+async def test_a_turn_on_a_session_outside_the_filter_resumes_its_own_workflow():
+    """Resuming under ``agent_chat`` because the row was missing targets a
+    workflow the execution does not belong to, and the turn fails."""
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app._create_session("writer", "")
+        await pilot.pause()
+        await app.send_message_text("hello")
+        await pilot.pause()
+
+    assert service.sends == [("exec-new", "agent_custom_writer")]
+
+
+async def test_a_turn_with_no_known_workflow_fails_loudly():
+    """When the workflow genuinely cannot be resolved, say so -- silently
+    falling back to ``agent_chat`` guesses at the one thing that decides
+    where the turn lands."""
+    service = _FakeService(sessions=[])
+    app = _console(service)
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        app.active_session = "exec-ghost"
+        await app.send_message_text("hello")
+        await pilot.pause()
+
+        assert service.sends == []
+        assert "unknown workflow" in _text(app.query_one("#status-line", Static))
+
+
+# ── the rail highlight follows the session on screen ─────────────────
+
+
+async def test_boot_on_a_resumed_session_highlights_it():
+    """`r` and `x` act on the *highlighted* row: an open session the rail
+    never highlighted means both act on a different session than the one the
+    operator is looking at."""
+    other = SessionRow(
+        execution_id="exec-2",
+        agent_name="coder",
+        state="RUNNING",
+        name="other",
+        started_at="2026-08-14T11:00:00",
+        workflow_name="agent_chat",
+    )
+    app = _console(_FakeService(sessions=[RUNNING_ROW, other]), session="exec-2")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app.active_session == "exec-2"
+        assert app._highlighted_session() == "exec-2"
+
+
+async def test_attaching_to_an_agent_highlights_the_session_it_opened():
+    older = SessionRow(
+        execution_id="exec-old",
+        agent_name="coder",
+        state="RUNNING",
+        name="older",
+        started_at="2026-08-14T09:00:00",
+        workflow_name="agent_chat",
+    )
+    app = _console(_FakeService(sessions=[older, RUNNING_ROW]), agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app.active_session == "exec-1"
+        assert app._highlighted_session() == "exec-1"
+
+
+async def test_creating_a_session_highlights_the_new_row():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app._create_session("coder", "")
+        await pilot.pause()
+        assert app.active_session == "exec-new"
+        assert app._highlighted_session() == "exec-new"
+
+
+async def test_stop_targets_the_session_on_screen_after_opening_it():
+    """The end of the same bug: `x` armed and fired against the row the rail
+    happened to highlight, not the session the operator opened."""
+    other = SessionRow(
+        execution_id="exec-2",
+        agent_name="coder",
+        state="RUNNING",
+        name="other",
+        started_at="2026-08-14T11:00:00",
+        workflow_name="agent_custom_coder",
+    )
+    service = _FakeService(sessions=[RUNNING_ROW, other])
+    app = _console(service, session="exec-2")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await pilot.press("x")
+        await pilot.press("x")
+        await pilot.pause()
+
+    assert service.stops == [("exec-2", "agents", "agent_custom_coder")]
+
+
 async def test_initial_session_wins_over_initial_agent():
     service = _FakeService(sessions=[RUNNING_ROW])
     app = _console(service, agent="coder", session="exec-1")
@@ -947,3 +1092,38 @@ async def test_waiting_approval_glyph_wins_over_running():
     async with app.run_test(size=(120, 32)) as pilot:
         await pilot.pause()
         assert "◔ fix CI" in _rail_text(app)
+
+
+async def test_a_tool_done_without_a_status_lands_on_the_web_default():
+    """Parity with console.js's `data.status || "done"`: the two surfaces
+    share one status vocabulary, so a frame that names no status must not
+    resolve differently here."""
+    app = _console(_FakeService(sessions=[RUNNING_ROW]), session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(
+            ConsoleEvent(
+                "exec-1",
+                AgentEvent(kind="tool_start", data={"id": "t1", "name": "grep"}),
+            ),
+        )
+        await app.handle_event(
+            ConsoleEvent("exec-1", AgentEvent(kind="tool_done", data={"id": "t1"})),
+        )
+        await pilot.pause()
+        assert app.tools["t1"].status == "done"
+
+
+def test_the_tui_truncates_titles_the_way_the_server_does():
+    """The rail, the status line and the server's derived_title all name the
+    same session; three truncation rules meant three different names for it
+    depending on which surface the operator was looking at."""
+    from flux.agents.console.titles import derived_title
+    from flux.agents.ui.textual_app import _truncate
+
+    message = "reproduce the flaky scheduler test and explain what actually races"
+    server_title = derived_title(
+        {"events": [{"type": "WORKFLOW_RESUMED", "value": {"message": message}}]},
+    )
+
+    assert _truncate(message) == server_title

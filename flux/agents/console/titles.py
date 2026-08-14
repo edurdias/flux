@@ -10,7 +10,7 @@ console follows).
 
 from __future__ import annotations
 
-_MAX_TITLE_LEN = 48
+MAX_TITLE_LEN = 48
 
 
 def derived_title(detail: dict) -> str | None:
@@ -37,11 +37,18 @@ def derived_title(detail: dict) -> str | None:
             # is drawn on one line (the TUI rail gives it exactly one row),
             # and a pasted multi-line first message would otherwise wrap the
             # row and read as two sessions.
-            return _truncate(" ".join(message.split()))
+            return truncate_title(" ".join(message.split()))
     return None
 
 
-def _truncate(text: str, limit: int = _MAX_TITLE_LEN) -> str:
+def truncate_title(text: str, limit: int = MAX_TITLE_LEN) -> str:
+    """Cut ``text`` to ``limit`` on a word boundary.
+
+    Shared with the TUI (flux/agents/ui/textual_app.py): the rail, the
+    status line and the server's ``derived_title`` all name the same
+    session, and three truncation rules meant three different names for it
+    depending on which surface the operator was looking at.
+    """
     if len(text) <= limit:
         return text
     cut = text[:limit]
