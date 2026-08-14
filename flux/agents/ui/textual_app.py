@@ -1,10 +1,10 @@
-"""Textual Apps for the agent terminal UIs.
+"""``ConsoleApp`` -- the terminal mission control.
 
-Two apps live here. ``AgentApp`` is the single-session chat TUI (``flux
-agent start``). ``ConsoleApp`` is the terminal mission control -- the
-btop-grammar counterpart of the web console: three numbered panels whose
-names ride in the border, hotkeys to focus them, overlays for the actions
-that need the keyboard, and a status line that carries the session state.
+The btop-grammar counterpart of the web console: three numbered panels
+whose names ride in the border, hotkeys to focus them, overlays for the
+actions that need the keyboard, and a status line that carries the session
+state. ``flux agent start`` opens this; ``--plain`` opens the line-based
+REPL in ``terminal.py`` instead.
 """
 
 from __future__ import annotations
@@ -13,12 +13,9 @@ import asyncio
 import logging
 import re
 import time
-import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
-
-from flux.tasks.mcp.elicitation import is_browsable
 
 from rich.text import Text
 from textual import events
@@ -26,7 +23,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.widget import Widget
-from textual.widgets import Collapsible, Input, Markdown, OptionList, Static
+from textual.widgets import Collapsible, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from flux.agents.console.hub import KIND_LOG_DELTA, ConsoleEvent, EventHub
@@ -46,533 +43,17 @@ from flux.agents.events import (
 )
 from flux.agents.ui.console_screens import (
     ApprovalsScreen,
+    ElicitationScreen,
     NewSessionScreen,
     RenameScreen,
-)
-from flux.agents.ui.textual_messages import (
-    ApprovalRequested,
-    ElicitationRequested,
-    ReasoningReceived,
-    ReplyEnded,
-    ReplyStarted,
-    ResponseReceived,
-    SessionEnded,
-    SessionInfoReceived,
-    TokenReceived,
-    ToolCompleted,
-    ToolStarted,
 )
 from flux.agents.ui.textual_widgets import (
     ChatPanel,
     ContextPanel,
-    ElicitationPrompt,
     SessionRail,
-    SpinnerBlock,
-    StreamBlock,
-    ThinkingBlock,
-    ToolBlock,
 )
 
 logger = logging.getLogger(__name__)
-
-QUIT_SENTINEL = "\x04"
-
-_SLASH_COMMANDS = {
-    "/help": "Show available commands",
-    "/session": "Show session ID",
-    "/clear": "Clear chat history",
-    "/quit": "End session",
-}
-
-
-class AgentApp(App):
-    """Full-screen agent chat TUI."""
-
-    BINDINGS = [
-        Binding("ctrl+d", "quit_app", "Exit", show=False),
-    ]
-
-    CSS = """
-    Screen {
-        background: $background;
-        layers: default above;
-    }
-
-    #chat-view {
-        scrollbar-size: 1 1;
-        scrollbar-background: $background;
-        scrollbar-color: $surface-lighten-2;
-        scrollbar-color-hover: $surface-lighten-3;
-        scrollbar-color-active: $accent;
-        min-height: 1;
-        margin: 0;
-        padding: 0;
-    }
-
-    .user-message {
-        height: auto;
-        padding: 0 1;
-        color: $text;
-        background: transparent;
-    }
-
-    .system-message {
-        height: auto;
-        padding: 0 1;
-        color: $text-muted;
-        background: transparent;
-    }
-
-    StreamBlock {
-        background: transparent;
-    }
-
-    StreamBlock Markdown {
-        background: transparent;
-        margin: 0;
-        padding: 0 1;
-    }
-
-    ToolBlock {
-        background: transparent;
-    }
-
-    Collapsible {
-        background: transparent;
-        border: none;
-        padding: 0 1;
-    }
-
-    Collapsible > Contents {
-        background: transparent;
-    }
-
-    CollapsibleTitle {
-        background: transparent;
-        color: $text-muted;
-        padding: 0;
-    }
-
-    #status-bar {
-        dock: bottom;
-        height: 1;
-        background: transparent;
-        color: $text-muted;
-        padding: 0 1;
-    }
-
-    #agent-input {
-        dock: bottom;
-        height: 3;
-        margin: 1 0 2 0;
-        border: hkey $surface-lighten-1;
-        background: $background;
-        padding: 0 1;
-    }
-
-    #agent-input:focus {
-        border: hkey $accent;
-    }
-
-    #slash-completions {
-        dock: bottom;
-        layer: above;
-        height: auto;
-        max-height: 6;
-        display: none;
-        background: $surface;
-        border: tall $accent;
-        margin-bottom: 6;
-    }
-    """
-
-    def __init__(
-        self,
-        input_queue: asyncio.Queue[str],
-        user_id: str | None = None,
-        **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-        self._input_queue = input_queue
-        self._user_id: str | None = user_id
-        self._session_id: str | None = None
-        self._agent_name: str = ""
-        self._current_stream: StreamBlock | None = None
-        self._current_thinking: ThinkingBlock | None = None
-        self._pending_tools: dict[str, ToolBlock] = {}
-        self._history: list[str] = []
-        self._history_index: int = -1
-        self._navigating_history: bool = False
-        self._elicitation_future: asyncio.Future | None = None
-        self._elicitation_url: str = ""
-        self._approval_future: asyncio.Future | None = None
-        self._approval_request: dict | None = None
-        self._turn_count: int = 0
-        self._session_start: float = time.monotonic()
-        self._is_processing: bool = False
-        self._spinner: SpinnerBlock | None = None
-
-    def compose(self) -> ComposeResult:
-        yield VerticalScroll(id="chat-view")
-        yield OptionList(id="slash-completions")
-        yield Input(placeholder="Send a message…", id="agent-input")
-        yield Static(self._build_status(), id="status-bar")
-
-    def on_mount(self) -> None:
-        self.query_one("#agent-input", Input).focus()
-
-    def on_unmount(self) -> None:
-        if self._elicitation_future and not self._elicitation_future.done():
-            self._elicitation_future.cancel()
-        if self._approval_future and not self._approval_future.done():
-            self._approval_future.cancel()
-        self._is_processing = False
-        if self._spinner is not None:
-            self._spinner.stop()
-            self._spinner = None
-        self._input_queue.put_nowait(QUIT_SENTINEL)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        event.input.clear()
-        self.query_one("#slash-completions", OptionList).display = False
-
-        if not text:
-            return
-
-        self._history.append(text)
-        self._history_index = -1
-
-        if text.startswith("/"):
-            self._handle_slash_command(text)
-        else:
-            self._append_user_message(text)
-            self._input_queue.put_nowait(text)
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if self._navigating_history:
-            return
-        self._history_index = -1
-        text = event.value
-        completions = self.query_one("#slash-completions", OptionList)
-
-        if text.startswith("/"):
-            prefix = text.strip()
-            matches = [
-                (cmd, desc) for cmd, desc in _SLASH_COMMANDS.items() if cmd.startswith(prefix)
-            ]
-            completions.clear_options()
-            for cmd, desc in matches:
-                completions.add_option(f"{cmd}  — {desc}")
-            if matches:
-                completions.display = True
-                completions.highlighted = 0
-            else:
-                completions.display = False
-        else:
-            completions.display = False
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        label = str(event.option.prompt)
-        command = label.split("  —")[0].strip()
-        self.query_one("#agent-input", Input).clear()
-        self.query_one("#slash-completions", OptionList).display = False
-        self._handle_slash_command(command)
-
-    def _handle_slash_command(self, command: str) -> None:
-        chat = self.query_one("#chat-view", VerticalScroll)
-        if command == "/quit":
-            self._input_queue.put_nowait(QUIT_SENTINEL)
-            self.exit()
-        elif command == "/help":
-            lines = "\n".join(f"  {k}  {v}" for k, v in _SLASH_COMMANDS.items())
-            chat.mount(Static(lines, classes="system-message"))
-            self._auto_scroll()
-        elif command == "/session":
-            sid = self._session_id or "not connected"
-            chat.mount(Static(f"  session {sid}", classes="system-message"))
-            self._auto_scroll()
-        elif command == "/clear":
-            chat.remove_children()
-            self._current_stream = None
-            self._current_thinking = None
-            self._pending_tools.clear()
-
-    def _append_user_message(self, text: str) -> None:
-        self._turn_count += 1
-        chat = self.query_one("#chat-view", VerticalScroll)
-        chat.mount(Static(f"❯ {text}", classes="user-message"))
-        self._auto_scroll()
-
-    def on_click(self, event) -> None:
-        self.query_one("#agent-input", Input).focus()
-
-    async def on_key(self, event) -> None:
-        if event.key == "ctrl+d":
-            self.action_quit_app()
-            event.prevent_default()
-            return
-
-        input_widget = self.query_one("#agent-input", Input)
-
-        if self._elicitation_future is not None and not self._elicitation_future.done():
-            if event.key in ("y", "Y"):
-                if self._elicitation_url and is_browsable(self._elicitation_url):
-                    webbrowser.open(self._elicitation_url)
-                self._elicitation_future.set_result("accept")
-                self._elicitation_future = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-            if event.key in ("n", "N"):
-                self._elicitation_future.set_result("decline")
-                self._elicitation_future = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-
-        if self._approval_future is not None and not self._approval_future.done():
-            if event.key == "a":
-                self._approval_future.set_result(
-                    {"approved": True, "reason": None},
-                )
-                self._approval_future = None
-                self._approval_request = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-            if event.key == "A":
-                # Standing grant: later gates on this task auto-approve.
-                self._approval_future.set_result(
-                    {"approved": True, "reason": None, "always": True},
-                )
-                self._approval_future = None
-                self._approval_request = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-            if event.key in ("r", "R"):
-                self._approval_future.set_result(
-                    {"approved": False, "reason": None},
-                )
-                self._approval_future = None
-                self._approval_request = None
-                self._update_status_bar()
-                event.prevent_default()
-                return
-
-        completions = self.query_one("#slash-completions", OptionList)
-
-        if event.key == "tab" and completions.display:
-            idx = completions.highlighted
-            if idx is not None and idx < completions.option_count:
-                label = str(completions.get_option_at_index(idx).prompt)
-                command = label.split("  —")[0].strip()
-                input_widget.value = command
-                input_widget.cursor_position = len(command)
-                completions.display = False
-            event.prevent_default()
-            return
-
-        if completions.display and event.key in ("up", "down"):
-            if event.key == "up" and completions.highlighted is not None:
-                completions.highlighted = max(0, completions.highlighted - 1)
-            elif event.key == "down" and completions.highlighted is not None:
-                completions.highlighted = min(
-                    completions.option_count - 1,
-                    completions.highlighted + 1,
-                )
-            event.prevent_default()
-            return
-
-        if event.key == "escape" and input_widget.has_focus:
-            input_widget.clear()
-            completions.display = False
-            event.prevent_default()
-            return
-
-        if event.key == "up" and input_widget.has_focus:
-            if self._history and (input_widget.value == "" or self._history_index != -1):
-                if self._history_index == -1:
-                    self._history_index = len(self._history) - 1
-                elif self._history_index > 0:
-                    self._history_index -= 1
-                self._navigating_history = True
-                input_widget.value = self._history[self._history_index]
-                input_widget.cursor_position = len(input_widget.value)
-                self._navigating_history = False
-            event.prevent_default()
-            return
-
-        if event.key == "down" and input_widget.has_focus and self._history_index != -1:
-            self._navigating_history = True
-            if self._history_index < len(self._history) - 1:
-                self._history_index += 1
-                input_widget.value = self._history[self._history_index]
-                input_widget.cursor_position = len(input_widget.value)
-            else:
-                self._history_index = -1
-                input_widget.clear()
-            self._navigating_history = False
-            event.prevent_default()
-            return
-
-    def action_quit_app(self) -> None:
-        self._input_queue.put_nowait(QUIT_SENTINEL)
-        self.exit()
-
-    # ── Spinner ─────────────────────────────────────────────────────
-
-    def _start_spinner(self, label: str = "Thinking") -> None:
-        self._is_processing = True
-        if self._spinner is None:
-            chat = self.query_one("#chat-view", VerticalScroll)
-            self._spinner = SpinnerBlock(label)
-            chat.mount(self._spinner)
-            self._auto_scroll()
-        else:
-            self._spinner.set_label(label)
-
-    async def _stop_spinner(self) -> None:
-        self._is_processing = False
-        if self._spinner is not None:
-            self._spinner.stop()
-            await self._spinner.remove()
-            self._spinner = None
-
-    # ── Event handlers ──────────────────────────────────────────────
-
-    def on_session_info_received(self, message: SessionInfoReceived) -> None:
-        self._session_id = message.session_id
-        self._agent_name = message.agent_name
-        self._update_status_bar()
-
-    def on_reply_started(self, message: ReplyStarted) -> None:
-        self._start_spinner("Thinking")
-
-    async def on_reply_ended(self, message: ReplyEnded) -> None:
-        self._finalize_current_thinking()
-        if self._current_stream is not None:
-            await self._current_stream.finalize()
-            self._current_stream = None
-        await self._stop_spinner()
-        self._update_status_bar()
-        self.query_one("#agent-input", Input).focus()
-
-    async def on_token_received(self, message: TokenReceived) -> None:
-        self._finalize_current_thinking()
-        chat = self.query_one("#chat-view", VerticalScroll)
-        if self._current_stream is None:
-            self._current_stream = StreamBlock()
-            chat.mount(self._current_stream)
-        self._current_stream.append_token(message.text)
-        if self._spinner is not None:
-            self._spinner.set_label("Streaming")
-        self._auto_scroll()
-
-    async def on_reasoning_received(self, message: ReasoningReceived) -> None:
-        if self._spinner is not None:
-            await self._stop_spinner()
-        chat = self.query_one("#chat-view", VerticalScroll)
-        if self._current_thinking is None:
-            self._current_thinking = ThinkingBlock()
-            chat.mount(self._current_thinking)
-        self._current_thinking.append_text(message.text)
-        self._auto_scroll()
-
-    async def on_tool_started(self, message: ToolStarted) -> None:
-        self._finalize_current_thinking()
-        if self._spinner is not None:
-            await self._stop_spinner()
-        chat = self.query_one("#chat-view", VerticalScroll)
-        block = ToolBlock(message.name, message.args)
-        self._pending_tools[message.tool_id] = block
-        chat.mount(block)
-        self._auto_scroll()
-
-    def on_tool_completed(self, message: ToolCompleted) -> None:
-        block = self._pending_tools.pop(message.tool_id, None)
-        if block:
-            block.mark_done(message.status)
-
-    async def on_response_received(self, message: ResponseReceived) -> None:
-        if self._current_stream is not None:
-            await self._current_stream.finalize(message.content)
-            self._current_stream = None
-        elif message.content:
-            chat = self.query_one("#chat-view", VerticalScroll)
-            await chat.mount(Markdown(message.content))
-        self._auto_scroll()
-
-    async def on_elicitation_requested(self, message: ElicitationRequested) -> None:
-        chat = self.query_one("#chat-view", VerticalScroll)
-        prompt = ElicitationPrompt(
-            server_name=message.request.get("server_name", "unknown"),
-            message=message.request.get("message", "Authorization required"),
-        )
-        chat.mount(prompt)
-        self._auto_scroll()
-        self._elicitation_future = message.future
-        self._elicitation_url = message.request.get("url", "")
-        await self._stop_spinner()
-        status = self.query_one("#status-bar", Static)
-        status.update("  [Y]es to authorize  │  [N]o to decline")
-
-    async def on_approval_requested(self, message: ApprovalRequested) -> None:
-        chat = self.query_one("#chat-view", VerticalScroll)
-        task_name = message.request.get("task_name", "<unknown>")
-        ns = message.request.get("workflow_namespace", "?")
-        wf = message.request.get("workflow_name", "?")
-        chat.mount(
-            Static(
-                f"  ⚡ Tool {task_name} (in {ns}/{wf}) requires approval.",
-                classes="system-message",
-            ),
-        )
-        self._auto_scroll()
-        self._approval_future = message.future
-        self._approval_request = message.request
-        await self._stop_spinner()
-        status = self.query_one("#status-bar", Static)
-        status.update("  [a] approve  │  [A] always  │  [r] reject")
-
-    async def on_session_ended(self, message: SessionEnded) -> None:
-        chat = self.query_one("#chat-view", VerticalScroll)
-        chat.mount(
-            Static(
-                f"  Session ended: {message.reason} ({message.turns} turns)",
-                classes="system-message",
-            ),
-        )
-        await self._stop_spinner()
-        self._auto_scroll()
-
-    # ── Helpers ──────────────────────────────────────────────────────
-
-    def _finalize_current_thinking(self) -> None:
-        if self._current_thinking is not None:
-            self._current_thinking.finalize()
-            self._current_thinking = None
-
-    def _build_status(self) -> str:
-        elapsed = time.monotonic() - self._session_start
-        minutes = int(elapsed // 60)
-        agent = self._agent_name or "connecting"
-        turns = f"{self._turn_count} turn{'s' if self._turn_count != 1 else ''}"
-        duration = f"{minutes}m" if minutes > 0 else "<1m"
-        sid = f"  │  {self._session_id}" if self._session_id else ""
-        user = f"  │  {self._user_id}" if self._user_id else ""
-        return f"  {agent}{sid}  │  {turns}  │  {duration}{user}  │  /help  │  Ctrl+D quit"
-
-    def _update_status_bar(self) -> None:
-        status = self.query_one("#status-bar", Static)
-        status.update(self._build_status())
-
-    def _auto_scroll(self) -> None:
-        chat = self.query_one("#chat-view", VerticalScroll)
-        if chat.scroll_y >= chat.max_scroll_y - 2:
-            chat.scroll_end(animate=False)
-
 
 # ══ Console — terminal mission control ═══════════════════════════════
 
@@ -598,6 +79,8 @@ GLYPH_STYLE = {
     "done": MUTED,
     "failed": DANGER,
 }
+
+TERMINAL_STATES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
 
 RUNNING_STATES = frozenset(
     {
@@ -655,6 +138,9 @@ class ChatBlock:
     data: dict[str, Any] = field(default_factory=dict)
     tool: ToolCall | None = None
     decided: str | None = None
+    # The execution a prompt was raised in. Answers go back to it, never to
+    # whichever session happens to be open when the operator gets to it.
+    session_id: str | None = None
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -805,7 +291,14 @@ def derive_blocks(
             if output_type == KIND_CHAT_RESPONSE and output.get("content"):
                 blocks.append(ChatBlock("agent", text=str(output["content"]), time=when))
             elif output_type == KIND_ELICITATION:
-                blocks.append(ChatBlock("elicitation", data=output, time=when))
+                blocks.append(
+                    ChatBlock(
+                        "elicitation",
+                        data=output,
+                        time=when,
+                        session_id=detail.get("execution_id"),
+                    ),
+                )
             elif output_type == KIND_SESSION_END:
                 blocks.append(
                     ChatBlock(
@@ -1034,7 +527,9 @@ class ConsoleApp(App):
         Binding("3", "panel('context')", "context"),
         Binding("n", "new_session", "new"),
         Binding("a", "approvals", "approvals"),
+        Binding("e", "elicitation", "answer"),
         Binding("r", "rename", "rename"),
+        Binding("x", "stop_session", "stop"),
         Binding("enter", "compose", "write", show=False),
         Binding("escape", "leave", "back", show=False),
         Binding("ctrl+d", "quit_console", "quit", priority=True, show=False),
@@ -1080,6 +575,10 @@ class ConsoleApp(App):
         self._focused_panel: str = "sessions"
         self._context_signature: tuple | None = None
         self._layout_ready: bool = False
+        # Stop is armed by one `x` and fired by the next: cancelling a
+        # session cannot be undone, and `x` sits under the same fingers as
+        # the other single-key actions.
+        self._stop_armed: str | None = None
 
     # ── composition ─────────────────────────────────────────────────
 
@@ -1117,6 +616,29 @@ class ConsoleApp(App):
         await self._refresh_lists()
         if self.initial_session:
             await self.open_session(self.initial_session)
+            return
+        if self.initial_agent:
+            # `flux agent start NAME` opens focused on a session of that
+            # agent (the binding spec's NAME semantics, and what the web
+            # console does on boot) -- naming an agent is a request to talk
+            # to it, not merely to filter the rail by it.
+            await self._attach_to_agent(self.initial_agent)
+
+    async def _attach_to_agent(self, agent_name: str) -> None:
+        """Open that agent's most recent live session, or start one."""
+        # self.sessions is already filtered to this agent (it is the rail
+        # query's filter), so "most recent still-answerable session" is a
+        # pick over what the rail is showing.
+        candidates = [
+            row
+            for row in self.sessions
+            if row.agent_name == agent_name and (row.state or "").upper() not in TERMINAL_STATES
+        ]
+        if candidates:
+            newest = max(candidates, key=lambda row: row.started_at or "")
+            await self.open_session(newest.execution_id)
+            return
+        await self._create_session(agent_name, "")
 
     def _schedule_refresh(self) -> None:
         self.run_worker(
@@ -1266,8 +788,11 @@ class ConsoleApp(App):
                 self.blocks.append(ChatBlock("agent", text=str(content)))
             await self._render_chat()
         elif kind == KIND_ELICITATION:
-            self.blocks.append(ChatBlock("elicitation", data=dict(data)))
+            self.blocks.append(
+                ChatBlock("elicitation", data=dict(data), session_id=envelope.session_id),
+            )
             await self._render_chat()
+            self._update_status()
         elif kind == KIND_PLAN:
             self.plan = data.get("plan") or None
             await self._render_context()
@@ -1559,8 +1084,9 @@ class ConsoleApp(App):
         if block.kind == "elicitation":
             server = block.data.get("server_name") or "server"
             message = block.data.get("message") or "Authorization required"
+            note = f" — {block.decided}" if block.decided else " — press e to answer"
             return Static(
-                Text(f"⚡ {server}: {message}", style=AMBER),
+                Text(f"⚡ {server}: {message}{note}", style=AMBER),
                 classes="chat-prompt",
             )
         if block.kind == "error":
@@ -1713,12 +1239,19 @@ class ConsoleApp(App):
             hint("1/3", "panels")
             hint("n", "new", write=True)
             hint("a", "appr")
+            hint("x", "stop", write=True)
             hint("^d", "quit")
         else:
             hint("1/2/3", "panels")
             hint("n", "new", write=True)
             hint("a", "approvals")
+            # Only advertised while there is something to answer: an
+            # always-on hint for a rare prompt spends width the session
+            # identity needs.
+            if self._pending_elicitation() is not None:
+                hint("e", "answer", write=True)
             hint("r", "rename", write=True)
+            hint("x", "stop", write=True)
             hint("enter", "open")
             hint("^d", "quit")
         status.append("│ ", style=LINE)
@@ -1846,6 +1379,112 @@ class ConsoleApp(App):
 
     def action_approvals(self) -> None:
         self.push_screen(ApprovalsScreen(self.approvals, self.can_write, self.decide_approval))
+
+    def action_elicitation(self) -> None:
+        """Answer the open session's outstanding elicitation.
+
+        Without this the terminal console can see an MCP authorization
+        prompt but never answer it, so any flow that raises one hangs until
+        the operator goes to the web console.
+        """
+        block = self._pending_elicitation()
+        if block is None:
+            self.notice = "no elicitation to answer"
+            self._update_status()
+            return
+        if not self.can_write:
+            required = self.missing_permission or "a write permission"
+            self.notice = f"read-only: requires {required}"
+            self._update_status()
+            return
+
+        def answered(action: str | None) -> None:
+            if action:
+                self.run_worker(
+                    self._respond_to_elicitation(block, action),
+                    name="console-elicitation",
+                )
+
+        self.push_screen(ElicitationScreen(block.data, self.can_write), answered)
+
+    def _pending_elicitation(self) -> ChatBlock | None:
+        """The open session's most recent unanswered elicitation, if any."""
+        for block in reversed(self.blocks):
+            if block.kind == "elicitation" and not block.decided:
+                return block
+        return None
+
+    async def _respond_to_elicitation(self, block: ChatBlock, action: str) -> None:
+        session_id = block.session_id or self.active_session
+        if session_id is None:
+            return
+        row = next(
+            (candidate for candidate in self.sessions if candidate.execution_id == session_id),
+            None,
+        )
+        workflow_name = row.workflow_name if row else "agent_chat"
+        payload = {
+            "elicitation_response": {
+                "elicitation_id": block.data.get("elicitation_id", ""),
+                "action": action,
+            },
+        }
+        previous = block.decided
+        block.decided = action
+        await self._render_chat()
+        try:
+            # Called straight on the service: this console is in-process, so
+            # the /console/sessions/{id}/elicitation route the web app posts
+            # to is this same call, one HTTP hop further away.
+            await self.service.respond_to_elicitation(session_id, workflow_name, payload)
+        except Exception as exc:
+            # The prompt is still outstanding, so the block goes back to
+            # unanswered and `e` can try again.
+            block.decided = previous
+            self._note_failure(exc, "elicitation", is_write=True)
+            await self._render_chat()
+            return
+        await self._refresh_lists()
+
+    def action_stop_session(self) -> None:
+        """Cancel the highlighted (or open) session, on a second press."""
+        session_id = self._highlighted_session() or self.active_session
+        if session_id is None:
+            self.notice = "stop: no session highlighted"
+            self._update_status()
+            return
+        if not self.can_write:
+            required = self.missing_permission or "a write permission"
+            self.notice = f"read-only: requires {required}"
+            self._update_status()
+            return
+        row = next(
+            (candidate for candidate in self.sessions if candidate.execution_id == session_id),
+            None,
+        )
+        if row is not None and (row.state or "").upper() in TERMINAL_STATES:
+            self.notice = "stop: session already finished"
+            self._update_status()
+            return
+        if self._stop_armed != session_id:
+            # Armed, not fired: a cancel is not undoable, and `x` is one key
+            # away from every other single-press action.
+            self._stop_armed = session_id
+            title = self._session_title(row) if row is not None else session_id[:8]
+            self.notice = f"press x again to stop {title}"
+            self._update_status()
+            return
+        self._stop_armed = None
+        workflow_name = row.workflow_name if row else "agent_chat"
+        self.run_worker(self._stop_session(session_id, workflow_name), name="console-stop")
+
+    async def _stop_session(self, session_id: str, workflow_name: str) -> None:
+        # Console sessions always live in the `agents` namespace (the same
+        # one ConsoleService.spawn starts them in).
+        await self._write(self.service.stop(session_id, "agents", workflow_name), "stop")
+        await self._refresh_lists()
+        if self.active_session == session_id:
+            await self.open_session(session_id)
 
     def action_rename(self) -> None:
         session_id = self._highlighted_session() or self.active_session

@@ -18,6 +18,7 @@ from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
 from flux.agents.events import AgentEvent
 from flux.agents.ui.console_screens import (
     ApprovalsScreen,
+    ElicitationScreen,
     NewSessionScreen,
     RenameScreen,
 )
@@ -108,6 +109,8 @@ class _FakeService(ConsoleService):
         self.renames: list[tuple[str, str]] = []
         self.spawned: list[tuple[str, str | None]] = []
         self.session_filters: list[str | None] = []
+        self.elicitations: list[tuple] = []
+        self.stops: list[tuple] = []
 
     async def list_agents(self):
         return list(self._agents)
@@ -145,6 +148,12 @@ class _FakeService(ConsoleService):
         if self._rename_error is not None:
             raise self._rename_error
         self.renames.append((execution_id, name))
+
+    async def respond_to_elicitation(self, execution_id, workflow_name, payload):
+        self.elicitations.append((execution_id, workflow_name, payload))
+
+    async def stop(self, execution_id, namespace, workflow_name):
+        self.stops.append((execution_id, namespace, workflow_name))
 
     async def aclose(self):
         return None
@@ -598,6 +607,248 @@ async def test_initial_agent_filters_the_rail_query():
     async with app.run_test(size=(120, 32)) as pilot:
         await pilot.pause()
         assert service.session_filters and service.session_filters[0] == "coder"
+
+
+# ── `flux agent start NAME` opens a session ──────────────────────────
+
+
+async def test_initial_agent_attaches_to_that_agent_most_recent_live_session():
+    """Naming an agent is a request to talk to it, not merely to filter the
+    rail by it: the console opens focused on a session of that agent."""
+    older = SessionRow(
+        execution_id="exec-old",
+        agent_name="coder",
+        state="PAUSED",
+        name=None,
+        started_at="2026-08-14T09:00:00",
+        workflow_name="agent_chat",
+    )
+    service = _FakeService(sessions=[older, RUNNING_ROW])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app.active_session == "exec-1"  # the most recently started
+        assert service.spawned == []
+
+
+async def test_initial_agent_skips_finished_sessions_when_attaching():
+    finished = SessionRow(
+        execution_id="exec-done",
+        agent_name="coder",
+        state="COMPLETED",
+        name=None,
+        started_at="2026-08-14T23:00:00",  # newest, but nothing left to say
+        workflow_name="agent_chat",
+    )
+    service = _FakeService(sessions=[finished, RUNNING_ROW])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app.active_session == "exec-1"
+
+
+async def test_initial_agent_with_no_live_session_spawns_one():
+    service = _FakeService(sessions=[])
+    app = _console(service, agent="coder")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert service.spawned == [("coder", None)]
+        assert app.active_session == "exec-new"
+
+
+async def test_initial_session_wins_over_initial_agent():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, agent="coder", session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        assert app.active_session == "exec-1"
+        assert service.spawned == []
+
+
+# ── elicitation: the terminal console can answer one ─────────────────
+
+
+ELICITATION = {
+    "type": "elicitation",
+    "elicitation_id": "elicit-7",
+    "server_name": "github",
+    "message": "Authorize Flux to read your repos?",
+    "url": "https://github.test/authorize",
+}
+
+
+async def test_elicitation_block_advertises_its_key():
+    app = _console(_FakeService(sessions=[RUNNING_ROW]), session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(
+            ConsoleEvent("exec-1", AgentEvent(kind="elicitation", data=ELICITATION)),
+        )
+        await pilot.pause()
+        rendered = _panel_text(app, "#panel-chat")
+        assert "Authorize Flux to read your repos?" in rendered
+        assert "press e to answer" in rendered
+        assert "e answer" in _text(app.query_one("#status-line", Static))
+
+
+async def test_e_opens_the_elicitation_overlay_and_accepting_answers_it():
+    """Without this the terminal console can see an MCP authorization prompt
+    but never answer it, so every MCP auth flow hangs."""
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(
+            ConsoleEvent("exec-1", AgentEvent(kind="elicitation", data=ELICITATION)),
+        )
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        assert isinstance(app.screen, ElicitationScreen)
+        await pilot.click("#accept")
+        await pilot.pause()
+
+    assert service.elicitations == [
+        (
+            "exec-1",
+            "agent_chat",
+            {"elicitation_response": {"elicitation_id": "elicit-7", "action": "accept"}},
+        ),
+    ]
+
+
+async def test_answered_elicitation_is_marked_and_not_offered_again():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(
+            ConsoleEvent("exec-1", AgentEvent(kind="elicitation", data=ELICITATION)),
+        )
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        await pilot.click("#decline")
+        await pilot.pause()
+        assert "decline" in _panel_text(app, "#panel-chat")
+        assert app._pending_elicitation() is None
+
+
+async def test_elicitation_answers_the_session_that_raised_it():
+    """The block's own execution, not whichever session is open by the time
+    the operator gets to it."""
+    other = SessionRow(
+        execution_id="exec-2",
+        agent_name="coder",
+        state="RUNNING",
+        name="other",
+        started_at="2026-08-14T11:00:00",
+        workflow_name="agent_custom_coder",
+    )
+    service = _FakeService(sessions=[RUNNING_ROW, other])
+    app = _console(service, session="exec-2")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(
+            ConsoleEvent("exec-2", AgentEvent(kind="elicitation", data=ELICITATION)),
+        )
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        await pilot.click("#accept")
+        await pilot.pause()
+
+    assert service.elicitations[0][0] == "exec-2"
+    assert service.elicitations[0][1] == "agent_custom_coder"
+
+
+async def test_elicitation_overlay_refuses_a_non_browsable_url():
+    """The url comes from a remote MCP server; only absolute http(s) is ever
+    offered to a browser."""
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    hostile = {**ELICITATION, "url": "file:///etc/passwd"}
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await app.handle_event(ConsoleEvent("exec-1", AgentEvent(kind="elicitation", data=hostile)))
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, ElicitationScreen)
+        assert len(screen.query("#open-url")) == 0
+        assert "refusing a non-browsable url" in "\n".join(
+            _text(node) for node in screen.query(Static)
+        )
+
+
+async def test_read_only_cannot_answer_an_elicitation():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        app.can_write = False
+        await app.handle_event(
+            ConsoleEvent("exec-1", AgentEvent(kind="elicitation", data=ELICITATION)),
+        )
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        assert not isinstance(app.screen, ElicitationScreen)
+        assert "read-only" in _text(app.query_one("#status-line", Static))
+        assert service.elicitations == []
+
+
+# ── stop ─────────────────────────────────────────────────────────────
+
+
+async def test_x_twice_stops_the_open_session():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await pilot.press("x")
+        await pilot.pause()
+        # Armed, not fired: a cancel is not undoable.
+        assert service.stops == []
+        assert "press x again to stop" in _text(app.query_one("#status-line", Static))
+        await pilot.press("x")
+        await pilot.pause()
+
+    assert service.stops == [("exec-1", "agents", "agent_chat")]
+
+
+async def test_stop_refuses_a_finished_session():
+    finished = SessionRow(
+        execution_id="exec-done",
+        agent_name="coder",
+        state="COMPLETED",
+        name="done",
+        started_at="2026-08-14T10:00:00",
+        workflow_name="agent_chat",
+    )
+    service = _FakeService(sessions=[finished])
+    app = _console(service, session="exec-done")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        await pilot.press("x")
+        await pilot.press("x")
+        await pilot.pause()
+        assert service.stops == []
+        assert "already finished" in _text(app.query_one("#status-line", Static))
+
+
+async def test_read_only_cannot_stop_a_session():
+    service = _FakeService(sessions=[RUNNING_ROW])
+    app = _console(service, session="exec-1")
+    async with app.run_test(size=(120, 32)) as pilot:
+        await pilot.pause()
+        app.can_write = False
+        await pilot.press("x")
+        await pilot.press("x")
+        await pilot.pause()
+        assert service.stops == []
+        assert "read-only" in _text(app.query_one("#status-line", Static))
 
 
 def test_derive_blocks_mirrors_the_web_log_semantics():

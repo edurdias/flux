@@ -110,9 +110,9 @@ async def test_terminal_mode_dispatches_session_end():
 
 
 def test_process_uses_console_by_default_on_tty():
-    """Terminal mode with a real terminal opens the console, not the old
-    single-session TextualUI/AgentApp chat (Task 9: NAME + terminal mode
-    without --plain opens the console focused on that agent)."""
+    """Terminal mode with a real terminal opens the console, not a plain
+    single-session REPL (NAME + terminal mode without --plain opens the
+    console focused on that agent)."""
     with mock_patch("sys.stdout") as mock_stdout:
         mock_stdout.isatty.return_value = True
         proc = AgentProcess(

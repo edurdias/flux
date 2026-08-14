@@ -14,16 +14,18 @@ app and a browser app.
 
 ```bash
 flux agent start                    # console, every agent's sessions (terminal)
-flux agent start reviewer           # console, rail filtered to one agent
+flux agent start reviewer           # console focused on a reviewer session
 flux agent start --mode web         # same console in the browser (port 8080)
 flux agent start --mode api         # headless: JSON + SSE, no renderer
 flux agent session resume <id>      # console opened straight into a session
 ```
 
 `NAME` is optional everywhere. Given, it filters the session rail to that
-agent (and labels the header); omitted, the console is rail-first and shows
-every agent's sessions. Either way you pick the agent when you start a new
-session, so one console can drive them all.
+agent (and labels the header) *and* opens focused on one of its sessions —
+the most recent one still going, or a fresh one when there is none. Omitted,
+the console is rail-first and shows every agent's sessions. Either way you
+pick the agent when you start a new session, so one console can drive them
+all.
 
 Terminal mode needs a real terminal. When stdout is not a TTY (piped,
 scripted, CI) `flux agent start NAME` falls back to the plain single-agent
@@ -48,10 +50,11 @@ Both surfaces are the same three regions: **rail**, **stage**, **context**.
 
 ![The Flux console in a terminal](../images/console-tui.png)
 
-- **1 sessions** — every session grouped `ACTIVE` / `DONE` / `FAILED`, one
-  glyph per state (`●` running, `◔` waiting on an approval, `◐` idle, `○`
-  done, `✗` failed). Failed sessions get their own group; they are never
-  dimmed in with the finished-normally ones.
+- **1 sessions** — every session grouped `ACTIVE` / `IDLE` / `DONE` /
+  `FAILED`, one glyph per state (`●` running, `◔` waiting on an approval,
+  `◐` idle, `○` done, `✗` failed). `IDLE` is where a healthy session spends
+  most of its life: paused, waiting for your next turn. Failed sessions get
+  their own group; they are never dimmed in with the finished-normally ones.
 - **2 chat** — the transcript: your turns, the agent's replies, and each tool
   call as a collapsible row.
 - **3 context** — `PLAN` with a done/total hero figure, `ACTIVITY` (tool calls
@@ -86,11 +89,15 @@ composer only holds focus while you are actually writing.
 | `escape` | Leave the composer (or close an overlay) and step back to the panel |
 | `n` | New session — pick an agent, optionally name it |
 | `a` | Approvals overlay — approve/reject, including the standing-grant options |
+| `e` | Answer the open session's MCP authorization prompt (accept/decline/cancel) |
 | `r` | Rename the open session |
+| `x` | Stop the highlighted session — press twice; a cancel is not undoable |
 | `ctrl+d` | Quit |
 
 In the browser: `Enter` sends, `Shift+Enter` inserts a newline, `Escape`
-closes the approvals drawer or the new-session modal.
+closes the approvals drawer, the new-session modal, or an armed stop. The
+stage header carries the rename pencil and, for a session that has not
+finished, a `◼ stop` button that asks for a second click before it fires.
 
 ## What the console shows, and when
 
@@ -175,12 +182,12 @@ the console's own.
 | Method | Path | Notes |
 |--------|------|-------|
 | `GET` | `/console/state` | Bound agent, server URL, `can_write`, `missing_permission` |
-| `GET` | `/console/agents` | Agent definitions available to spawn |
+| `GET` | `/console/agents` | Agents available to spawn, projected to `name`/`model`/`description` — never the full definition |
 | `GET` | `/console/sessions` | Rail rows (`derived_title` is the cached display fallback) |
 | `GET` | `/console/approvals` | Pending approvals across executions |
 | `GET` | `/console/sessions/{id}/detail` | The execution's detailed log |
 | `POST` | `/console/sessions` | `{"agent": "...", "name": "..."}` → `{"execution_id": ...}` |
-| `POST` | `/console/sessions/{id}/send` | `{"text": "..."}` → SSE; the turn always ends with one `log_delta` frame |
+| `POST` | `/console/sessions/{id}/send` | `{"text": "..."}` → SSE; every frame carries the `session_id` it belongs to, and the turn always ends with one `log_delta` frame |
 | `POST` | `/console/approvals/{execution_id}/{task_call_id}` | `{"approve": true, "always": false, "always_for_target": false}` → `{"result": "decided"\|"already_decided"}` |
 | `POST` | `/console/sessions/{id}/elicitation` | `{"payload": {...}}` |
 | `PUT` | `/console/sessions/{id}/name` | `{"name": "..."}` |

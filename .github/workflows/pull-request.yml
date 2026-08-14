@@ -347,7 +347,10 @@ jobs:
     # Run when version-check succeeded OR was skipped (Dependabot exemption).
     if: ${{ !cancelled() && (needs.version-check.result == 'success' || needs.version-check.result == 'skipped') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The suite spawns a real server + worker per session and now runs ~14.5
+    # minutes; 15 left under a minute of headroom, which one slow runner
+    # turns into a red build.
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v7
 

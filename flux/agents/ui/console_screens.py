@@ -1,10 +1,10 @@
 """Overlay screens for the Textual mission control.
 
-Three modal overlays sit on top of the three-panel console: starting a
-session, deciding pending approvals, and renaming a session. They are
-modal rather than inline panels because each one takes over the keyboard
--- in a terminal there is no second place to put a focused control
-without stealing keys from the panel underneath.
+Four modal overlays sit on top of the three-panel console: starting a
+session, deciding pending approvals, answering an elicitation, and renaming
+a session. They are modal rather than inline panels because each one takes
+over the keyboard -- in a terminal there is no second place to put a
+focused control without stealing keys from the panel underneath.
 
 Every screen is a pure renderer of what it is handed: the app owns the
 service calls (and the read-only degradation that comes with them), so a
@@ -14,6 +14,7 @@ returns the note to show on the row.
 
 from __future__ import annotations
 
+import webbrowser
 from collections.abc import Awaitable, Callable
 
 from textual.app import ComposeResult
@@ -24,6 +25,7 @@ from textual.widgets import Button, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from flux.agents.console.service import ApprovalRow
+from flux.tasks.mcp.elicitation import is_browsable
 
 # Kept in sync with textual_app's palette; imported from there would be a
 # cycle (the app imports the screens), and both trace back to the design's
@@ -174,6 +176,112 @@ class RenameScreen(ModalScreen[str | None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         name = event.value.strip()
         self.dismiss(name or None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ElicitationScreen(ModalScreen[str | None]):
+    """Answer one MCP elicitation: accept, decline, or cancel.
+
+    An overlay rather than buttons on the chat block, for the same reason
+    the other actions are overlays: the transcript is re-rendered on every
+    streamed event, which would remount inline controls under the
+    operator's fingers.
+
+    The url is opened only by an explicit press, and only when it is
+    absolute http(s) -- the string comes from a remote MCP server, so a
+    ``file:``/``javascript:`` payload must never reach ``webbrowser``.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "cancel", show=False),
+        Binding("y", "accept", "accept", show=False),
+        Binding("n", "decline", "decline", show=False),
+    ]
+
+    DEFAULT_CSS = f"""
+    ElicitationScreen {{
+        align: center middle;
+        background: #0b111c 70%;
+    }}
+    ElicitationScreen #overlay {{
+        width: 64;
+        height: auto;
+        max-height: 80%;
+        background: {_PANEL};
+        border: solid {_AMBER};
+        border-title-color: {_AMBER};
+        border-title-align: left;
+        padding: 0 1;
+    }}
+    ElicitationScreen .elicitation-message {{
+        color: {_AMBER};
+    }}
+    ElicitationScreen .elicitation-url, ElicitationScreen .overlay-hint {{
+        color: {_MUTED};
+    }}
+    ElicitationScreen Button {{
+        min-width: 8;
+        margin: 0 1 0 0;
+        background: {_LINE};
+        color: #c9d2e0;
+    }}
+    ElicitationScreen Button:focus {{
+        text-style: bold;
+        background: {_AMBER};
+        color: #0b111c;
+    }}
+    """
+
+    def __init__(self, request: dict, can_write: bool) -> None:
+        super().__init__()
+        self._request = dict(request or {})
+        self._can_write = can_write
+
+    @property
+    def _url(self) -> str:
+        url = self._request.get("url")
+        return url if isinstance(url, str) else ""
+
+    def compose(self) -> ComposeResult:
+        server = self._request.get("server_name") or "server"
+        message = self._request.get("message") or "Authorization required"
+        with Vertical(id="overlay") as overlay:
+            overlay.border_title = "authorization"
+            yield Static(f"⚡ {server}: {message}", classes="elicitation-message")
+            if self._url:
+                yield Static(
+                    self._url
+                    if is_browsable(self._url)
+                    else f"refusing a non-browsable url: {self._url}",
+                    classes="elicitation-url",
+                )
+            with Horizontal(classes="elicitation-actions"):
+                yield Button("Accept", id="accept", compact=True, disabled=not self._can_write)
+                yield Button("Decline", id="decline", compact=True, disabled=not self._can_write)
+                yield Button("Cancel", id="cancel", compact=True, disabled=not self._can_write)
+                if self._url and is_browsable(self._url):
+                    yield Button("Open url", id="open-url", compact=True)
+            yield Static("y accept · n decline · esc close", classes="overlay-hint")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        action = event.button.id or ""
+        if action == "open-url":
+            # Explicit operator action, never automatic, and only for an
+            # address already proven to be http(s).
+            if is_browsable(self._url):
+                webbrowser.open(self._url)
+            return
+        self.dismiss(action or None)
+
+    def action_accept(self) -> None:
+        if self._can_write:
+            self.dismiss("accept")
+
+    def action_decline(self) -> None:
+        if self._can_write:
+            self.dismiss("decline")
 
     def action_cancel(self) -> None:
         self.dismiss(None)
