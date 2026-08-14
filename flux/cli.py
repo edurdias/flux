@@ -401,6 +401,11 @@ def list_workflow_versions(
     "dispatch, never delivered to the worker.",
 )
 @click.option(
+    "--name",
+    default=None,
+    help="Operator-facing label for this execution (agent console session title).",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -413,6 +418,7 @@ def run_workflow(
     version: int | None,
     detailed: bool,
     routing_input: tuple[str, ...],
+    name: str | None,
     server_url: str | None,
 ):
     """Run the specified workflow."""
@@ -421,12 +427,14 @@ def run_workflow(
         from flux.utils import parse_value, to_json
 
         base_url = server_url or get_server_url()
-        namespace, name = resolve_workflow_ref(workflow_name)
+        namespace, wf_name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
 
         params: dict[str, Any] = {"detailed": detailed}
         if version is not None:
             params["version"] = version
+        if name is not None:
+            params["name"] = name
 
         from flux.routing_input import RoutingInputError, parse_cli_pairs
 
@@ -438,7 +446,7 @@ def run_workflow(
 
         with get_http_client(timeout=60.0) as client:
             response = client.post(
-                f"{base_url}/workflows/{namespace}/{name}/run/{mode}",
+                f"{base_url}/workflows/{namespace}/{wf_name}/run/{mode}",
                 json=parsed_input,
                 params=params,
                 headers=headers,
@@ -743,9 +751,14 @@ def list_executions(
                 state_str = ex.get("state", "UNKNOWN")
                 worker = ex.get("worker_name") or "unassigned"
                 ns = ex.get("workflow_namespace", "default")
+                # Most executions have no operator-facing name; a column of
+                # dashes would cost width every row to say nothing, so the
+                # label is appended only where one was set.
+                name = ex.get("name")
+                label = f'  "{name}"' if name else ""
                 click.echo(
                     f"  {ex['execution_id'][:12]}...  "
-                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}",
+                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}{label}",
                 )
 
     except httpx.HTTPStatusError as ex:
@@ -1092,6 +1105,35 @@ def execution_reject(
     except Exception as ex:
         click.echo(f"Error rejecting: {str(ex)}", err=True)
         raise click.exceptions.Exit(1)
+
+
+@execution.command("rename")
+@click.argument("execution_id")
+@click.argument("name")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def execution_rename(execution_id: str, name: str, server_url: str | None):
+    """Set an execution's operator-facing label."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.put(
+                f"{base_url}/executions/{execution_id}/name",
+                json={"name": name},
+            )
+            response.raise_for_status()
+            result = response.json()
+        click.echo(f"Execution {result['execution_id']} → {result['name']}")
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            raise click.ClickException(f"Execution '{execution_id}' not found.")
+        raise click.ClickException(f"Error renaming execution: {str(ex)}")
+    except Exception as ex:
+        raise click.ClickException(f"Error renaming execution: {str(ex)}")
 
 
 # =============================================================================
@@ -3023,7 +3065,7 @@ def delete_agent(name, format, server_url):
 
 
 @agent.command("start")
-@click.argument("name")
+@click.argument("name", required=False)
 @click.option(
     "--mode",
     "-m",
@@ -3036,16 +3078,82 @@ def delete_agent(name, format, server_url):
 @click.option(
     "--host",
     default="127.0.0.1",
-    help="Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose externally)",
+    help=(
+        "Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose "
+        "externally — then browsers reach the console under a real hostname, so "
+        "state-changing requests also need that origin allowlisted via --allow-origin)"
+    ),
+)
+@click.option(
+    "--allow-origin",
+    "allow_origins",
+    multiple=True,
+    help=(
+        "Extra browser origin allowed on state-changing console requests, e.g. "
+        "http://console.internal:8080 (repeatable; loopback origins are always allowed)"
+    ),
+)
+@click.option(
+    "--allow-remote",
+    is_flag=True,
+    help=(
+        "Required to bind web mode to a non-loopback host: the console has no "
+        "authentication of its own, so anyone who can reach the port acts as the operator"
+    ),
 )
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
-@click.option("--plain", is_flag=True, help="Use plain ANSI terminal (no TUI)")
-def start_agent(name, mode, session_id, port, host, server, plain):
-    """Start an agent in the specified mode."""
+@click.option(
+    "--plain",
+    is_flag=True,
+    help="Use the plain single-agent ANSI REPL instead of the console; requires NAME",
+)
+def start_agent(name, mode, session_id, port, host, allow_origins, allow_remote, server, plain):
+    """Start an agent, or the multi-session console, in the given mode.
+
+    NAME is optional. Omitted, terminal mode opens the console rail-first
+    (every agent's sessions visible) — this needs an interactive terminal
+    unless --mode api. Given, terminal mode opens the console filtered to
+    that agent instead of starting a session for it directly; --plain keeps
+    the old single-agent REPL and requires NAME. web/api modes always accept
+    a missing NAME (the console serves with no agent preselected).
+
+    In the console, press 2 to focus the chat transcript — enter steps into
+    the composer, escape steps back out.
+    """
     import asyncio
 
     from flux.agents.process import AgentProcess
     from flux.config import Configuration
+
+    if plain and not name:
+        click.echo("--plain requires an agent name", err=True)
+        raise SystemExit(1)
+
+    if not name and mode == "terminal" and not _console_can_render():
+        # Only the Textual console needs a terminal to draw on; web and api
+        # render in a browser or over HTTP, so they must stay startable from
+        # systemd, Docker and CI.
+        click.echo(
+            "the console needs a terminal; use --mode web/api or provide an agent name",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    if mode == "web" and not allow_remote:
+        from flux.agents.process import is_loopback_host
+
+        if not is_loopback_host(host):
+            # api mode authenticates every request with a Bearer; web mode
+            # carries the operator's token in the process, so reaching the
+            # port IS the authorization. Exposure has to be deliberate.
+            click.echo(
+                f"web mode has no authentication of its own — binding {host} grants "
+                f"operator rights to anyone who can reach port {port or 8080}. "
+                "Pass --allow-remote to accept that, or run --mode api behind a proxy "
+                "that authenticates.",
+                err=True,
+            )
+            raise SystemExit(1)
 
     try:
         if server is None:
@@ -3055,37 +3163,40 @@ def start_agent(name, mode, session_id, port, host, server, plain):
         token = _get_auth_token()
 
         workflow_name = "agent_chat"
-        try:
-            with get_http_client() as client:
-                resp = client.get(f"{server}/admin/agents/{name}")
-                if resp.status_code == 200:
-                    agent_def = resp.json()
-                    if agent_def.get("workflow_file"):
-                        click.echo("Custom workflow detected. Registering...")
-                        custom_name = f"agent_custom_{name}"
-                        source = agent_def["workflow_file"]
-                        if isinstance(source, str):
-                            source = source.encode("utf-8")
-                        reg_resp = client.post(
-                            f"{server}/workflows",
-                            files={"file": (f"{custom_name}.py", source)},
-                        )
-                        if reg_resp.status_code == 200:
-                            workflow_name = custom_name
-                            click.echo(f"Custom workflow registered as '{custom_name}'.")
-                        else:
-                            click.echo(
-                                f"Warning: failed to register custom workflow: {reg_resp.text}",
-                                err=True,
+        # No single agent to look up when NAME is omitted — every session the
+        # console spawns resolves its own workflow via ConsoleService.spawn.
+        if name:
+            try:
+                with get_http_client() as client:
+                    resp = client.get(f"{server}/admin/agents/{name}")
+                    if resp.status_code == 200:
+                        agent_def = resp.json()
+                        if agent_def.get("workflow_file"):
+                            click.echo("Custom workflow detected. Registering...")
+                            custom_name = f"agent_custom_{name}"
+                            source = agent_def["workflow_file"]
+                            if isinstance(source, str):
+                                source = source.encode("utf-8")
+                            reg_resp = client.post(
+                                f"{server}/workflows",
+                                files={"file": (f"{custom_name}.py", source)},
                             )
-        except Exception as ex:
-            # Falling back to the default workflow silently would run the wrong
-            # thing — surface the failure so the operator can see why.
-            click.echo(
-                f"Warning: custom workflow lookup/registration raised {type(ex).__name__}: {ex}; "
-                f"falling back to default 'agent_chat'.",
-                err=True,
-            )
+                            if reg_resp.status_code == 200:
+                                workflow_name = custom_name
+                                click.echo(f"Custom workflow registered as '{custom_name}'.")
+                            else:
+                                click.echo(
+                                    f"Warning: failed to register custom workflow: {reg_resp.text}",
+                                    err=True,
+                                )
+            except Exception as ex:
+                # Falling back to the default workflow silently would run the wrong
+                # thing — surface the failure so the operator can see why.
+                click.echo(
+                    f"Warning: custom workflow lookup/registration raised {type(ex).__name__}: {ex}; "
+                    f"falling back to default 'agent_chat'.",
+                    err=True,
+                )
 
         if plain:
             import os
@@ -3101,12 +3212,18 @@ def start_agent(name, mode, session_id, port, host, server, plain):
             port=port,
             host=host,
             workflow_name=workflow_name,
+            allowed_origins=tuple(allow_origins),
+            allow_remote=allow_remote,
         )
         asyncio.run(process.run())
     except KeyboardInterrupt:
         pass
     except Exception as ex:
         click.echo(f"Error starting agent: {str(ex)}", err=True)
+        # A startup failure printed but not surfaced as a real exit code is
+        # worse than a traceback -- a script/CI caller would read this as
+        # success. See the Task 9 fix report for the reproduction.
+        raise SystemExit(1) from None
 
 
 @agent.command("stop")
@@ -3229,11 +3346,20 @@ def show_session(session_id, format, server_url):
 @agent_session.command("resume")
 @click.argument("session_id")
 def resume_session(session_id):
-    """Resume a session in terminal mode (shortcut for start --session)."""
+    """Resume a session: opens the console focused on that session."""
     import asyncio
 
     from flux.agents.process import AgentProcess
     from flux.config import Configuration
+
+    # Resume always opens the console (no --plain path exists here), so it
+    # needs the same pre-flight check `start_agent` uses -- unguarded, a
+    # non-interactive resume (piped, scripted, CI) would hit AgentProcess's
+    # ValueError with a message that references --plain, a flag resume
+    # doesn't even have.
+    if not _console_can_render():
+        click.echo("the console needs a terminal to resume a session", err=True)
+        raise SystemExit(1)
 
     try:
         settings = Configuration.get().settings
@@ -3241,7 +3367,7 @@ def resume_session(session_id):
         token = _get_auth_token()
 
         process = AgentProcess(
-            agent_name="",
+            agent_name=None,
             server_url=server,
             mode="terminal",
             session_id=session_id,
@@ -3252,6 +3378,33 @@ def resume_session(session_id):
         pass
     except Exception as ex:
         click.echo(f"Error resuming session: {str(ex)}", err=True)
+        raise SystemExit(1) from None
+
+
+def _console_can_render() -> bool:
+    """Whether `agent start`/`agent session resume` can actually open the
+    multi-session console here.
+
+    Delegates to ``flux.agents.process.wants_plain_terminal`` -- the exact
+    check ``AgentProcess`` itself uses to decide plain vs. console -- so
+    this pre-flight guard can never drift from what would actually happen
+    once ``AgentProcess`` is constructed. An earlier version checked
+    ``sys.stdin`` here while ``AgentProcess`` checked ``sys.stdout``, which
+    let some invocations (e.g. ``flux agent start | tee log``: stdin is a
+    tty, stdout isn't) pass this guard and still fail downstream -- silently,
+    since the resulting error was swallowed by a bare ``except Exception``
+    with no non-zero exit.
+
+    Indirected behind a function (rather than importing and calling
+    ``wants_plain_terminal`` inline at each call site) so tests can patch one
+    name; this also sidesteps Click's ``CliRunner`` replacing ``sys.stdout``
+    (and ``sys.stdin``) with its own captured streams during ``invoke()`` --
+    patching the real stream from a test does not survive that isolation,
+    but patching this function does.
+    """
+    from flux.agents.process import wants_plain_terminal
+
+    return not wants_plain_terminal()
 
 
 def _get_auth_token() -> str | None:

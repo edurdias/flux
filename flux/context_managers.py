@@ -74,6 +74,7 @@ class ContextManager(ABC):
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> ExecutionContext:  # pragma: no cover
         raise NotImplementedError()
 
@@ -87,6 +88,7 @@ class ContextManager(ABC):
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> bool:  # pragma: no cover
         """Like ``save`` but report whether the state write was applied.
 
@@ -99,6 +101,11 @@ class ContextManager(ABC):
 
     @abstractmethod
     def get(self, execution_id: str | None) -> ExecutionContext:  # pragma: no cover
+        raise NotImplementedError()
+
+    def rename(self, execution_id: str, name: str) -> None:  # pragma: no cover
+        """Set an execution's operator-facing label. Raises
+        ``ExecutionContextNotFoundError`` when the execution doesn't exist."""
         raise NotImplementedError()
 
     def get_summary(self, execution_id: str) -> dict:  # pragma: no cover
@@ -296,6 +303,7 @@ class DatabaseContextManager(ContextManager):
                     ExecutionContextModel.output,
                     ExecutionContextModel.state,
                     ExecutionContextModel.worker_name,
+                    ExecutionContextModel.name,
                 )
                 .filter(ExecutionContextModel.execution_id == execution_id)
                 .first()
@@ -332,6 +340,7 @@ class DatabaseContextManager(ContextManager):
                 # DTO parity: the domain context coalesces a missing worker
                 # to "" (see ExecutionContext.current_worker).
                 "current_worker": row.worker_name or "",
+                "name": row.name,
             }
 
     def last_event_ordinal(self, execution_id: str) -> int | None:
@@ -360,6 +369,7 @@ class DatabaseContextManager(ContextManager):
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> ExecutionContext:
         self.save_checked(
             ctx,
@@ -368,6 +378,7 @@ class DatabaseContextManager(ContextManager):
             required_worker=required_worker,
             routing_input=routing_input,
             park_ttl=park_ttl,
+            name=name,
         )
         return ctx
 
@@ -380,6 +391,7 @@ class DatabaseContextManager(ContextManager):
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> bool:
         if uow is not None:
             return self._save_with_session(
@@ -390,6 +402,7 @@ class DatabaseContextManager(ContextManager):
                 required_worker=required_worker,
                 routing_input=routing_input,
                 park_ttl=park_ttl,
+                name=name,
             )
         with self.session() as session:
             return self._save_with_session(
@@ -400,6 +413,7 @@ class DatabaseContextManager(ContextManager):
                 required_worker=required_worker,
                 routing_input=routing_input,
                 park_ttl=park_ttl,
+                name=name,
             )
 
     @staticmethod
@@ -431,6 +445,7 @@ class DatabaseContextManager(ContextManager):
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> bool:
         try:
             model = self._lock_for_write(session, ctx.execution_id)
@@ -440,6 +455,14 @@ class DatabaseContextManager(ContextManager):
                     model.state = ctx.state
                     model.output = ctx.output
                     self._sync_wake_columns(model, ctx)
+                    if name is not None:
+                        # Only ever set, never cleared here — a later
+                        # state-update save (no name kwarg) must not erase
+                        # an operator-set name. The in-memory ctx is synced
+                        # alongside the row so a caller serializing the
+                        # returned ctx sees what was just persisted.
+                        model.name = name
+                        ctx._name = name
                     if (
                         ctx.state == ExecutionState.RESUMING
                         and model.required_worker
@@ -465,6 +488,9 @@ class DatabaseContextManager(ContextManager):
                     new_model.required_worker = required_worker
                 if routing_input:
                     new_model.routing_input = routing_input
+                if name is not None:
+                    new_model.name = name
+                    ctx._name = name
                 # Park TTL (issue #157): per-run override wins; otherwise the
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in
@@ -478,6 +504,19 @@ class DatabaseContextManager(ContextManager):
             if manage_transaction:
                 session.rollback()
             raise
+
+    def rename(self, execution_id: str, name: str) -> None:
+        """Set an execution's operator-facing label, independent of state.
+
+        Unlike ``save(..., name=...)`` this needs no ``ExecutionContext`` —
+        the PUT /executions/{id}/name route only has an id and a string.
+        """
+        with self.session() as session:
+            model = self._lock_for_write(session, execution_id)
+            if not model:
+                raise ExecutionContextNotFoundError(execution_id)
+            model.name = name
+            session.commit()
 
     def update(
         self,

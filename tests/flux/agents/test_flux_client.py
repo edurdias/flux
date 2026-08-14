@@ -211,3 +211,116 @@ async def test_decide_approval_409_returns_body_instead_of_raising():
 
     assert result["error"] == "already_decided"
     assert result["current_status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_decide_approval_always_for_target_body_key():
+    """Regression: always_for_target must reach the body distinctly from always
+    (mutually exclusive scoping flags — the server rejects both set)."""
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content) if request.content else {}
+        return httpx.Response(200, json={"status": "approved"})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        await client.decide_approval("exec-1", "call-1", approved=True, always_for_target=True)
+
+    assert captured["body"] == {"always_for_target": True}
+
+
+@pytest.mark.asyncio
+async def test_get_agent_fetches_definition():
+    client = FluxClient(server_url="http://test", token="t")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"name": "coder", "workflow_file": None})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        result = await client.get_agent("coder")
+
+    assert captured["url"] == "http://test/admin/agents/coder"
+    assert captured["auth"] == "Bearer t"
+    assert result == {"name": "coder", "workflow_file": None}
+
+
+@pytest.mark.asyncio
+async def test_get_execution_default_omits_detailed_query_param():
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"execution_id": "exec-1"})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        await client.get_execution("exec-1")
+
+    assert captured["url"] == "http://test/executions/exec-1"
+
+
+@pytest.mark.asyncio
+async def test_get_execution_detailed_true_adds_query_param():
+    """Regression: the console's get_detail needs the redacted, event-hydrated
+    DTO -- the default sync/summary fast path skips event log hydration."""
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"execution_id": "exec-1", "events": []})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        await client.get_execution("exec-1", detailed=True)
+
+    assert captured["url"] == "http://test/executions/exec-1?detailed=true"
+
+
+@pytest.mark.asyncio
+async def test_start_agent_omits_name_query_param_by_default():
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=b'data: {"execution_id":"exec-1"}\n\n',
+        )
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        [e async for e in client.start_agent("coder")]
+
+    assert captured["url"] == "http://test/workflows/agents/agent_chat/run/stream"
+
+
+@pytest.mark.asyncio
+async def test_start_agent_name_adds_query_param():
+    """Regression: the console names a session at spawn time (Task 1's ?name=
+    on the run route) instead of a separate rename round-trip."""
+    client = FluxClient(server_url="http://test")
+    captured: dict = {}
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            content=b'data: {"execution_id":"exec-1"}\n\n',
+        )
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        [e async for e in client.start_agent("coder", name="My Session")]
+
+    assert captured["url"] == "http://test/workflows/agents/agent_chat/run/stream?name=My+Session"

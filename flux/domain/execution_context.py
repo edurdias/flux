@@ -39,6 +39,7 @@ class ExecutionContext(Generic[WorkflowInputType]):
         requests: ResourceRequest | None = None,
         current_worker: str | None = None,
         progress_callback: Callable | None = None,
+        name: str | None = None,
     ):
         self._workflow_id = workflow_id
         self._workflow_namespace = workflow_namespace
@@ -56,6 +57,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
         self._checkpoint = checkpoint or (lambda _: maybe_awaitable(None))
         self._requests = requests or None
         self._current_worker = current_worker or ""
+        # Operator-facing label, read-only here: it is set through
+        # ContextManager.rename / save(name=...), never by workflow code, and
+        # is deliberately absent from the wire form (FluxEncoder) -- a worker
+        # has no use for it and must not be able to write one back.
+        self._name = name
         self._progress_callback = progress_callback or (lambda *_: None)
         self._exec_token: str | None = None
         # Transient executions never persist: checkpoint stays the no-op and
@@ -112,6 +118,11 @@ class ExecutionContext(Generic[WorkflowInputType]):
     @property
     def current_worker(self) -> str:
         return self._current_worker
+
+    @property
+    def name(self) -> str | None:
+        """The operator-facing label, when one was set (``executions.name``)."""
+        return getattr(self, "_name", None)
 
     @property
     def input(self) -> WorkflowInputType:

@@ -443,6 +443,7 @@ class AdminRoutesMixin:
                         workflow_namespace=ex.workflow_namespace,
                         workflow_name=ex.workflow_name,
                         current_worker=ex.worker_name,
+                        name=ex.name,
                     )
                     for s, ex in rows
                 ]

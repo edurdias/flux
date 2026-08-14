@@ -11,7 +11,7 @@ A Flux agent is a row in the `agents` table plus a process (`flux agent start`) 
 Capabilities:
 
 - **Declarative agents** — define an agent in YAML, store it in Flux, reuse it anywhere.
-- **Three serving modes** — `terminal` for interactive CLI use, `web` for a local single-user chat page, `api` for headless integration.
+- **Three serving modes** — `terminal` for the interactive console, `web` for the same console in a browser, `api` for headless integration. All three drive one multi-session surface; see [Agent Console](agent-console.md).
 - **Tool integration** — bundled system tools (shell, files, search, directory), individual groups, cherry-picked names, or custom Python `@task` tools from a file.
 - **MCP integration** — connect to any MCP server; URL-based elicitation (auth) is handled across all three serving modes.
 - **Elicitation** — MCP `elicitation/create` requests pause the workflow; the process shows the URL and resumes on completion.
@@ -30,8 +30,8 @@ Capabilities:
 │                                                     │
 │  ┌─────────┐   ┌─────────┐   ┌─────────────────┐    │
 │  │Terminal │   │ Web UI  │   │   API (SSE)     │    │
-│  │         │   │ (chat   │   │                 │    │
-│  │         │   │  page)  │   │  POST /chat     │    │
+│  │ (TUI    │   │ (console│   │                 │    │
+│  │ console)│   │  page)  │   │  /console/*     │    │
 │  └────┬────┘   └────┬────┘   └────────┬────────┘    │
 │       │             │                  │            │
 │       └─────────────┼──────────────────┘            │
@@ -218,14 +218,21 @@ flux agent delete <name> [--format simple|json]
 ### `flux agent start`
 
 ```bash
-flux agent start <name> \
+flux agent start [<name>] \
   [--mode terminal|web|api] \
   [--session SESSION_ID] \
   [--port PORT] \
-  [--server URL]
+  [--host HOST] \
+  [--server URL] \
+  [--plain]
 ```
 
+- `NAME` is optional: it opens the [agent console](agent-console.md) with the
+  session rail filtered to that agent. Omitted, the console shows every
+  agent's sessions and you pick one when starting a session.
 - `--mode` defaults to `terminal`.
+- `--plain` keeps the old single-agent ANSI REPL instead of the console, and
+  requires `NAME`.
 - `--session` resumes an existing session instead of starting a new one.
 - `--port` applies only to `web` and `api`; defaults to `8080`.
 - `--server` overrides the Flux server URL; defaults to `http://<server_host>:<server_port>` from config.
@@ -237,7 +244,10 @@ flux agent start <name> \
 flux agent stop <session-id>
 ```
 
-Cancels the underlying Flux execution via `POST /executions/<id>/cancel`.
+Intended to cancel the underlying Flux execution. **Known issue:** it POSTs to
+`/executions/<id>/cancel`, a route the server does not expose, so it 404s
+today. Stop a session from the console instead, or use
+`flux workflow cancel agents/<workflow> <session-id>`.
 
 ### `flux agent session`
 
@@ -355,26 +365,29 @@ The built-in template is `agents/agent_chat`. Most agents do not need anything e
 
 ## Serving Modes
 
+All three modes serve the same thing: the **[agent console](agent-console.md)**
+— session rail, transcript, plan/activity/sub-agents, approvals queue. That
+page is the reference for the layout, the keyboard grammar, the permission each
+action needs, and the `/console/*` endpoints; this section covers only what
+differs per mode.
+
 ### Terminal
 
 ```bash
 flux agent start coder --mode terminal
 ```
 
-- Direct readline interaction, no HTTP server.
-- Tokens stream inline; tool calls print a `Calling name(args)... Done.` line.
-- In-chat commands:
-  - `/help` — list commands.
-  - `/session` — print the current session ID.
-  - `/quit` — exit cleanly.
-- `Ctrl+D` (EOF) exits. `Ctrl+C` cancels the current turn.
-- On exit, the session ID is printed so you can resume later:
-
-  ```
-  Session: 7f3c2d1a-...-...
-  ```
-
-- Elicitation is handled inline: the URL is printed, and you are prompted `Open browser to authorize? [Y/n]`. Answering yes calls `webbrowser.open(url)`.
+- Opens the Textual console, rail filtered to `coder` (omit the name for every
+  agent's sessions). Needs a real terminal.
+- `--plain` (or `FLUX_PLAIN_TERMINAL=1`) keeps the single-agent ANSI REPL
+  instead, and requires a name. The REPL is also the automatic fallback when
+  stdout is not a TTY, since a Textual app cannot render there. In it:
+  - Direct readline interaction, no HTTP server; tokens stream inline and tool
+    calls print a `Calling name(args)... Done.` line.
+  - `/help`, `/session`, `/quit`; `Ctrl+D` exits, `Ctrl+C` cancels the turn.
+  - Elicitation is handled inline: the URL is printed and you are prompted
+    `Open browser to authorize? [Y/n]`.
+  - The session ID is printed on exit so you can resume later.
 
 ### Web
 
@@ -382,11 +395,21 @@ flux agent start coder --mode terminal
 flux agent start coder --mode web --port 8080
 ```
 
-- Binds to `0.0.0.0:<port>` and serves a single-page chat UI at `GET /`.
-- The SSE `/chat` endpoint uses the operator's Flux token, set at process start time (either `$FLUX_AUTH_TOKEN` or refreshed via `flux auth login`). No per-request Bearer is required.
-- Intended for a single operator. If you expose web mode publicly, put it behind a reverse proxy that enforces your own access control — Flux does not authenticate the browser side of web mode.
-- Elicitation renders as a banner message with a link that opens the authorization URL in a new tab; the UI resumes automatically when the user responds.
-- The UI follows the system light/dark preference via CSS `prefers-color-scheme`.
+- Binds `127.0.0.1:<port>` and serves the console at `GET /`. A non-loopback
+  `--host` needs `--allow-remote` as well: web mode has no authentication of
+  its own, so anyone who can reach the port acts as the operator. See the
+  [console's trust model](agent-console.md#trust-model).
+- Uses the operator's Flux token, set at process start (either
+  `$FLUX_AUTH_TOKEN` or refreshed via `flux auth login`). No per-request Bearer
+  is required, so the browser never handles a credential.
+- State-changing requests still require the `X-Flux-Console: 1` header and a
+  matching `Origin`, so another site cannot drive your console.
+- Intended for a single operator. If you expose web mode publicly, put it
+  behind a reverse proxy that enforces your own access control — Flux does not
+  authenticate the browser side of web mode.
+- Elicitation renders inline in the transcript with accept/decline controls.
+- The UI follows the system light/dark preference and remembers an explicit
+  choice from the theme toggle.
 
 ### API
 
@@ -394,55 +417,39 @@ flux agent start coder --mode web --port 8080
 flux agent start coder --mode api --port 8080
 ```
 
-Headless SSE service. Every non-health endpoint requires a Bearer token that is passed through to the Flux server on a per-request basis — the operator token supplied at process start is not used.
+Headless SSE service, and the same `/console/*` surface `web` mode serves —
+one contract for both, per session rather than bound to one agent. Every
+non-health endpoint requires a Bearer token, passed through to the Flux server
+per request; the operator token supplied at process start is not used. Every
+state-changing request must also carry `X-Flux-Console: 1`, or it is refused
+with 403 before auth is consulted.
 
-| Method | Path | Body | Notes |
-|--------|------|------|-------|
-| `GET` | `/health` | — | Public. Returns `{"status": "ok"}`. |
-| `POST` | `/chat` | `{"message": "..."}` | Starts a new session. SSE response. First frames include a `session_id` event. |
-| `POST` | `/chat?session=<id>` | `{"message": "..."}` | Resumes an existing session. SSE response. |
-| `POST` | `/elicitation/{elicitation_id}?session=<id>` | `{"elicitation_id": "...", "action": "accept"\|"decline"\|"cancel"}` | Resume the session in response to an elicitation. SSE response. |
-| `GET` | `/session/{id}` | — | Proxy to `GET /executions/{id}` on the Flux server. |
-
-SSE frames are JSON objects with a `type` field matching the event kinds above (except `chat_response` is serialized as `type: response` on the wire, for backward compatibility with the bundled web UI):
-
-```json
-{"type": "session_id", "id": "7f3c2d1a-..."}
-{"type": "token", "text": "Hello"}
-{"type": "tool_start", "name": "shell", "args": {"cmd": "ls"}}
-{"type": "tool_done", "name": "shell", "status": "success"}
-{"type": "response", "content": "Hi! What can I help with?", "turn": 1}
-{"type": "elicitation", "elicitation_id": "el-1", "url": "https://auth...", "message": "Authorize", "server_name": "github", "mode": "url"}
-{"type": "session_end", "reason": "user_exit", "turns": 5}
-{"type": "error", "message": "..."}
-```
-
-Example curl (note `-N` to disable buffering):
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/health` | Public. Returns `{"status": "ok"}`. |
+| — | `/console/*` | The agent API: sessions, approvals, elicitations, rename, stop. Documented in [Agent Console](agent-console.md#headless-mode-api). |
 
 ```bash
-curl -N -X POST http://localhost:8080/chat \
+curl -s -X POST http://localhost:8080/console/sessions \
   -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
+  -H "X-Flux-Console: 1" \
   -H "Content-Type: application/json" \
-  -d '{"message": "list the files in /tmp"}'
+  -d '{"agent": "coder"}'
 ```
 
-Resume:
+Then stream a turn (note `-N` to disable buffering):
 
 ```bash
-curl -N -X POST "http://localhost:8080/chat?session=$SESSION_ID" \
+curl -N -X POST "http://localhost:8080/console/sessions/$EXECUTION_ID/send" \
   -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
+  -H "X-Flux-Console: 1" \
   -H "Content-Type: application/json" \
-  -d '{"message": "now summarize what you found"}'
+  -d '{"text": "list the files in /tmp"}'
 ```
 
-Respond to an elicitation:
-
-```bash
-curl -N -X POST "http://localhost:8080/elicitation/el-1?session=$SESSION_ID" \
-  -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"elicitation_id": "el-1", "action": "accept"}'
-```
+Each SSE frame is `{"session_id": "...", "kind": "...", "data": {...}}`, where
+`kind` is one of the event kinds above plus `log_delta`, which closes every
+turn with a fresh read of the execution log.
 
 ## Tool Configuration
 
@@ -552,9 +559,9 @@ Some MCP servers require user authorization before exposing a tool. The MCP clie
 
 The agent process observes the pause, handles the UX for the current mode, and resumes with an `ElicitationResponse`:
 
-- **Terminal**: prints `[github] Authorize Flux ...`, prompts `Open browser to authorize? [Y/n]`, and on yes calls `webbrowser.open(url)`. Resumes with `action: accept` or `decline`.
+- **Terminal**: the console marks the session and offers the elicitation under `e`; the overlay opens the URL only on an explicit `Open url`, and only for `http(s)`. Resumes with `action: accept`, `decline` or `cancel`.
 - **Web**: renders a clickable link (`Click to authorize`) that opens in a new tab. The operator completes the flow on the provider's site; the page stays open and the agent process resumes when the user submits.
-- **API**: emits a `{"type": "elicitation", ...}` SSE event. The client is responsible for directing the end-user to the URL and then calling `POST /elicitation/{id}?session=<id>` with the chosen action.
+- **API**: emits an `elicitation` SSE frame. The client directs the end-user to the URL and then calls `POST /console/sessions/{execution_id}/elicitation` with the chosen action.
 
 Elicitation is handled in a generic way in the MCP client — any workflow that uses MCP tools can pause with this payload, not just agents.
 
@@ -616,7 +623,7 @@ See [Authentication & Authorization](authentication.md) for the general RBAC mod
 The agent process is a thin client of the Flux server. It talks over HTTPS and SSE, so it can run anywhere the Flux API is reachable.
 
 - **Terminal**: runs on the operator's machine. No network surface beyond its outbound HTTP calls.
-- **Web**: binds to `0.0.0.0` by default but is designed as a single-operator chat UI. Put a reverse proxy (nginx, Caddy) in front if you need to expose it beyond localhost, and enforce your own authentication there. Web mode does **not** check a per-request Bearer token.
+- **Web**: binds to `127.0.0.1` and is designed as a single-operator console. It does **not** check a per-request Bearer token — it carries the operator's token in-process — so exposing it means anyone who can reach the port acts as that operator. A non-loopback `--host` therefore requires `--allow-remote`, and should sit behind a reverse proxy (nginx, Caddy) that enforces your own authentication.
 - **API**: multi-client by design. Each request must carry a Bearer token; tokens are passed through to the Flux server untrusted on the agent process side.
 
 ### Pinning agents to specific workers
@@ -694,13 +701,15 @@ flux agent start assistant --mode api --port 9100
 Endpoints:
 
 ```
-POST /chat                  Start a new session (SSE response)
-POST /chat?session=<id>     Resume a session (SSE response)
-POST /elicitation/<id>      Respond to an MCP elicitation
-GET  /health                Health check
+POST /console/sessions                       Create a session
+POST /console/sessions/<id>/send             Send a message (SSE response)
+POST /console/sessions/<id>/elicitation      Respond to an MCP elicitation
+POST /console/approvals/<exec>/<task_call>   Approve or reject a gated task
+GET  /console/sessions                       List sessions
+GET  /health                                 Health check
 ```
 
-Every request except `/health` requires `Authorization: Bearer <token>`. See `examples/agents/api_client.py` for a Python client example.
+Every request except `/health` requires `Authorization: Bearer <token>`, and every state-changing one also requires `X-Flux-Console: 1`. The full surface is documented in [Agent Console](agent-console.md#headless-mode-api); see `examples/agents/api_client.py` for a Python client example.
 
 ## Example: A Coding Assistant
 
@@ -792,7 +801,7 @@ This calls the Flux execution cancel endpoint. The next resume will not reattach
 
 **`Error starting agent: ... 401`** — the process could not authenticate to the Flux server. Run `flux auth login`, or set `FLUX_AUTH_TOKEN` to a valid Bearer token. Confirm with `flux auth status`.
 
-**`Missing or invalid Authorization header`** — you hit the API mode `/chat` endpoint without a Bearer token. API mode does **not** fall back to the operator token; every request must carry its own `Authorization: Bearer ...` header.
+**`Missing or invalid Authorization header`** — you hit an API mode `/console/*` endpoint without a Bearer token. API mode does **not** fall back to the operator token; every request must carry its own `Authorization: Bearer ...` header.
 
 **`Agent process started without a token`** — web mode was started without a way to resolve the operator token. Run `flux auth login` first, or launch with `FLUX_AUTH_TOKEN` set in the environment.
 

@@ -30,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0024_join_token_revoked"
+HEAD = "0025_execution_name"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

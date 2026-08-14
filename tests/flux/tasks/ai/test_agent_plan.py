@@ -1504,3 +1504,136 @@ def test_build_plan_tools_works_without_ltm():
     ctx = test_wf2.run()
     assert ctx.has_succeeded
     assert "0/2" in ctx.output
+
+
+# --- Console progress emission tests ---
+
+
+def test_create_plan_emits_plan_progress():
+    import json
+    from unittest.mock import AsyncMock, patch
+
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        return await create_plan_tool(
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
+        )
+
+    with patch("flux.tasks.ai.agent_plan.progress", new_callable=AsyncMock) as mock_progress:
+        ctx = test_wf.run()
+
+    assert ctx.has_succeeded
+    mock_progress.assert_awaited_once()
+    (payload,), _ = mock_progress.await_args
+    assert payload["type"] == "plan"
+    assert [s["name"] for s in payload["plan"]["steps"]] == ["a", "b"]
+
+
+def test_start_step_emits_plan_progress_with_updated_status():
+    import json
+    from unittest.mock import AsyncMock, patch
+
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        start_step_tool = next(t for t in tools if t.func.__name__ == "start_step")
+        await create_plan_tool(
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
+        )
+        return await start_step_tool(step_name="a")
+
+    with patch("flux.tasks.ai.agent_plan.progress", new_callable=AsyncMock) as mock_progress:
+        ctx = test_wf.run()
+
+    assert ctx.has_succeeded
+    assert mock_progress.await_count == 2
+    last_payload = mock_progress.await_args_list[-1][0][0]
+    assert last_payload["type"] == "plan"
+    step_a = next(s for s in last_payload["plan"]["steps"] if s["name"] == "a")
+    assert step_a["status"] == "in_progress"
+
+
+def test_mark_step_done_emits_plan_progress():
+    import json
+    from unittest.mock import AsyncMock, patch
+
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_done_tool = next(t for t in tools if t.func.__name__ == "mark_step_done")
+        await create_plan_tool(
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
+        )
+        return await mark_step_done_tool(step_name="a", result="Done A.")
+
+    with patch("flux.tasks.ai.agent_plan.progress", new_callable=AsyncMock) as mock_progress:
+        ctx = test_wf.run()
+
+    assert ctx.has_succeeded
+    last_payload = mock_progress.await_args_list[-1][0][0]
+    step_a = next(s for s in last_payload["plan"]["steps"] if s["name"] == "a")
+    assert step_a["status"] == "completed"
+    assert step_a["result"] == "Done A."
+
+
+def test_mark_step_failed_emits_plan_progress():
+    import json
+    from unittest.mock import AsyncMock, patch
+
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        create_plan_tool = tools[0]
+        mark_step_failed_tool = next(t for t in tools if t.func.__name__ == "mark_step_failed")
+        await create_plan_tool(
+            steps=json.dumps(
+                [{"name": "a", "description": "Do A."}, {"name": "b", "description": "Do B."}],
+            ),
+        )
+        return await mark_step_failed_tool(step_name="a", reason="Timeout.")
+
+    with patch("flux.tasks.ai.agent_plan.progress", new_callable=AsyncMock) as mock_progress:
+        ctx = test_wf.run()
+
+    assert ctx.has_succeeded
+    last_payload = mock_progress.await_args_list[-1][0][0]
+    step_a = next(s for s in last_payload["plan"]["steps"] if s["name"] == "a")
+    assert step_a["status"] == "failed"
+    assert step_a["error"] == "Timeout."
+
+
+def test_get_plan_does_not_emit_progress():
+    """Read-only tools must not emit — they run no mutation through _persist."""
+    from unittest.mock import AsyncMock, patch
+
+    from flux import ExecutionContext, workflow
+
+    @workflow
+    async def test_wf(ctx: ExecutionContext):
+        tools, _ = await build_plan_tools()
+        get_plan_tool = next(t for t in tools if t.func.__name__ == "get_plan")
+        return await get_plan_tool()
+
+    with patch("flux.tasks.ai.agent_plan.progress", new_callable=AsyncMock) as mock_progress:
+        ctx = test_wf.run()
+
+    assert ctx.has_succeeded
+    mock_progress.assert_not_awaited()

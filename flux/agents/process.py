@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from flux.agents.events import AgentEvent
 from flux.agents.flux_client import FluxClient
@@ -9,34 +8,69 @@ from flux.agents.session import AgentSession
 from flux.agents.ui import UI
 from flux.agents.ui.terminal import TerminalUI
 
-logger = logging.getLogger("flux.agents")
-
-
 VALID_MODES = ("terminal", "web", "api")
 
 
-def _make_terminal_ui():
+def wants_plain_terminal() -> bool:
+    """True when the environment forces (or cannot avoid) the plain ANSI
+    REPL instead of the multi-session console: an explicit ``--plain``
+    (``FLUX_PLAIN_TERMINAL``), or stdout not being a real terminal (a
+    Textual app cannot render there).
+
+    This is the single source of truth for "plain vs console" -- both
+    ``_make_terminal_ui`` (below) and the CLI's pre-flight guards
+    (``flux/cli.py::start_agent``, ``resume_session``) call this rather than
+    each rolling their own check. They used to disagree (the CLI checked
+    ``sys.stdin``, this checked ``sys.stdout``), which let a NAME-less
+    invocation with an interactive stdin but a redirected stdout (e.g.
+    ``flux agent start | tee log``) pass the CLI's guard and still fail once
+    ``AgentProcess`` decided plain mode was required -- and *that* failure
+    was silent, since a bare ``except Exception`` printed the message
+    without ever setting a non-zero exit code. Fixed by sharing this check
+    instead of letting the two drift.
+    """
     import os
     import sys
 
-    if os.environ.get("FLUX_PLAIN_TERMINAL") or not sys.stdout.isatty():
-        return TerminalUI()
-    try:
-        from flux.agents.ui.textual_ui import TextualUI
+    return bool(os.environ.get("FLUX_PLAIN_TERMINAL")) or not sys.stdout.isatty()
 
-        return TextualUI()
-    except Exception:
-        logger.debug(
-            "Failed to initialize TextualUI, falling back to plain terminal",
-            exc_info=True,
-        )
+
+def is_loopback_host(host: str) -> bool:
+    """True when binding ``host`` keeps a server reachable only from this
+    machine.
+
+    Shared by the CLI's `--mode web` bind gate and ``WebUI``'s Host-header
+    check so the two cannot disagree about what "local" means. Anything
+    that is not ``localhost`` or a literal loopback address -- wildcards
+    (``0.0.0.0``, ``::``) and every other hostname -- counts as exposure,
+    so an unfamiliar or unparseable value fails closed.
+    """
+    import ipaddress
+
+    candidate = host.strip().strip("[]")
+    if candidate.lower() in ("localhost", "localhost."):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
+def _make_terminal_ui() -> UI | None:
+    """Decide between the plain single-agent REPL and the multi-session console.
+
+    Returns ``None`` to mean "use the console" -- the console is a full
+    Textual app that needs a real terminal.
+    """
+    if wants_plain_terminal():
         return TerminalUI()
+    return None
 
 
 class AgentProcess:
     def __init__(
         self,
-        agent_name: str,
+        agent_name: str | None,
         server_url: str,
         mode: str = "terminal",
         session_id: str | None = None,
@@ -44,6 +78,8 @@ class AgentProcess:
         port: int | None = None,
         workflow_name: str = "agent_chat",
         host: str | None = None,
+        allowed_origins: tuple[str, ...] = (),
+        allow_remote: bool = False,
     ):
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode: '{mode}'. Must be one of: {VALID_MODES}")
@@ -56,8 +92,20 @@ class AgentProcess:
         self.port = port
         self.host = host
         self.workflow_name = workflow_name
+        self.allowed_origins = allowed_origins
+        self.allow_remote = allow_remote
         self.client = FluxClient(server_url=server_url, token=token)
         self.ui: UI | None = _make_terminal_ui() if mode == "terminal" else None
+
+        # `agent_name=None` is only meaningful for the modes that route
+        # through the multi-session console (terminal without --plain, web,
+        # api) -- the plain REPL and the legacy /chat route both need one
+        # concrete agent to start or resume a session against.
+        if agent_name is None and self.ui is not None:
+            raise ValueError(
+                "agent_name is required for the plain terminal UI; "
+                "omit --plain (or provide an agent name) to use the console",
+            )
 
     async def run(self) -> None:
         await self.client.ensure_workflow_registered(
@@ -69,17 +117,17 @@ class AgentProcess:
             await self._run_server()
 
     async def _run_terminal(self) -> None:
-        assert self.ui is not None
-
-        from flux.agents.ui.textual_ui import TextualUI
-
-        if isinstance(self.ui, TextualUI):
-            await self._run_textual_terminal()
-        else:
+        if self.ui is not None:
             await self._run_plain_terminal()
+        else:
+            await self._run_console()
 
     async def _run_plain_terminal(self) -> None:
         assert self.ui is not None
+        # Guaranteed by __init__ (agent_name=None raises unless self.ui is
+        # None, i.e. console mode) -- narrows the type for AgentSession and
+        # display_session_info below, both of which require a concrete name.
+        assert self.agent_name is not None
         session = AgentSession(
             client=self.client,
             agent_name=self.agent_name,
@@ -130,80 +178,36 @@ class AgentProcess:
 
         print(f"\n\033[2m  session {self.session_id}\033[0m")
 
-    async def _run_textual_terminal(self) -> None:
-        import asyncio
+    async def _run_console(self) -> None:
+        """Boot the multi-session console (Task 8's ``ConsoleApp``).
 
-        from flux.agents.ui.textual_ui import TextualUI
-
-        assert isinstance(self.ui, TextualUI)
-        ui: TextualUI = self.ui
+        ``agent_name`` becomes the rail's initial agent filter (``None`` for
+        the rail-first, every-agent view); ``session_id`` -- when set, e.g.
+        by ``agent session resume`` -- opens straight into that session.
+        Unlike the plain REPL, the console owns its own server calls through
+        ``ConsoleService``/``EventHub``, so there is no ``AgentSession`` or
+        ``self._dispatch`` in this path.
+        """
+        from flux.agents.console.hub import EventHub
+        from flux.agents.console.service import ConsoleService
+        from flux.agents.ui.textual_app import ConsoleApp
 
         # Suppress Textual's internal logging so it doesn't bleed to stderr.
         logging.getLogger("textual").setLevel(logging.CRITICAL)
         logging.getLogger("textual.css").setLevel(logging.CRITICAL)
 
-        async def session_loop() -> None:
-            try:
-                session = AgentSession(
-                    client=self.client,
-                    agent_name=self.agent_name,
-                    session_id=self.session_id,
-                    workflow_name=self.workflow_name,
-                )
-
-                if self.session_id is None:
-                    await ui.begin_reply()
-                    async for event in session.start():
-                        await self._dispatch(event, session)
-                    await ui.end_reply()
-
-                self.session_id = session.session_id
-                assert self.session_id is not None
-
-                await ui.display_session_info(self.session_id, self.agent_name)
-
-                try:
-                    while True:
-                        try:
-                            user_input = await ui.prompt_user()
-                        except EOFError:
-                            break
-
-                        if user_input == "\x04":
-                            break
-                        if not user_input.strip():
-                            continue
-
-                        await ui.begin_reply()
-                        async for event in session.send(user_input):
-                            await self._dispatch(event, session)
-                        await ui.end_reply()
-                except KeyboardInterrupt:
-                    pass
-
-            # Redirect stderr before exit() so Textual's teardown messages
-            # ("Unmount()", "focus was removed") are suppressed.
-            finally:
-                self._saved_stderr_fd = os.dup(2)
-                _devnull = os.open(os.devnull, os.O_WRONLY)
-                os.dup2(_devnull, 2)
-                os.close(_devnull)
-
-            ui.app.exit()
-
+        service = ConsoleService(self.server_url, self.token)
+        hub = EventHub(service)
+        app = ConsoleApp(
+            service,
+            hub,
+            initial_agent=self.agent_name,
+            initial_session=self.session_id,
+        )
         try:
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(ui.app.run_async())
-                tg.create_task(session_loop())
+            await app.run_async()
         finally:
-            # Restore stderr after Textual's teardown is complete, even if
-            # the TaskGroup propagated an exception.
-            saved = getattr(self, "_saved_stderr_fd", None)
-            if saved is not None:
-                os.dup2(saved, 2)
-                os.close(saved)
-                if hasattr(self, "_saved_stderr_fd"):
-                    delattr(self, "_saved_stderr_fd")
+            await service.aclose()
 
     async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
         assert self.ui is not None
@@ -285,5 +289,10 @@ class AgentProcess:
             port=self.port or 8080,
             workflow_name=self.workflow_name,
             host=self.host or "127.0.0.1",
+            allowed_origins=self.allowed_origins,
+            # `--session <id>` means "open on this session" in every mode;
+            # the served consoles learn it from GET /console/state.
+            session_id=self.session_id,
+            allow_remote=self.allow_remote,
         )
         await server.serve()

@@ -189,6 +189,18 @@ class ApprovalDecideRequest(BaseModel):
     always_for_target: bool = False
 
 
+class ExecutionRenameRequest(BaseModel):
+    """Body for PUT /executions/{id}/name. Bound and stripped at the route,
+    not here — the model just carries the raw string through."""
+
+    name: str
+
+
+class ExecutionRenameResponse(BaseModel):
+    execution_id: str
+    name: str
+
+
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -243,6 +255,10 @@ class ExecutionSummaryResponse(BaseModel):
     workflow_name: str
     state: str
     worker_name: str | None = None
+    # The operator-facing label set by PUT /executions/{id}/name. Optional:
+    # most executions never get one, and it stays absent rather than echoing
+    # the workflow name.
+    name: str | None = None
 
 
 class ExecutionListResponse(BaseModel):
@@ -293,6 +309,7 @@ class AgentSessionSummaryResponse(BaseModel):
     workflow_namespace: str
     workflow_name: str
     current_worker: str | None = None
+    name: str | None = None
 
 
 class AgentSessionListResponse(BaseModel):

@@ -201,6 +201,7 @@ class WorkflowRoutesMixin:
             detailed: bool = False,
             version: int | None = None,
             park_ttl: int | None = None,
+            name: str | None = None,
             preferred_worker: str | None = Header(None, alias="X-Flux-Preferred-Worker"),
             required_worker: str | None = Header(None, alias="X-Flux-Require-Worker"),
             # list[str] so FastAPI uses getlist(): as `str` it would silently
@@ -303,6 +304,16 @@ class WorkflowRoutesMixin:
                         detail="park_ttl must be >= 0 (0 disables the bound)",
                     )
 
+                # Operator-facing label (agent console session titles):
+                # stripped and bounded here, same as the rename route.
+                if name is not None:
+                    name = name.strip()
+                    if not name or len(name) > 200:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="name must be non-empty and at most 200 characters",
+                        )
+
                 # Routing-only values (issue #211): matched at dispatch, never
                 # delivered.
                 parsed_routing_input = routing_input_header_or_400(routing_input)
@@ -316,6 +327,7 @@ class WorkflowRoutesMixin:
                     required_worker=required_worker,
                     routing_input=parsed_routing_input,
                     park_ttl=park_ttl,
+                    name=name,
                 )
 
                 if parsed_routing_input:

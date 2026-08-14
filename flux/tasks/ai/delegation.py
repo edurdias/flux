@@ -11,8 +11,10 @@ from collections.abc import Callable
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
+from flux._task_context import _CURRENT_TASK
 from flux.errors import ExecutionError, PauseRequested
 from flux.task import task
+from flux.tasks.progress import progress
 
 logger = logging.getLogger("flux.delegation")
 
@@ -160,73 +162,107 @@ def build_delegate(agents: list) -> task:
         Returns:
             Dict with: agent, status, output, and optionally execution_id.
         """
+        # call_id is the delegate task's own id (set by @task for the duration of
+        # this body) — it ties the started/done|failed pair together for consoles
+        # watching the progress stream.
+        task_info = _CURRENT_TASK.get()
+        call_id = task_info[0] if task_info else ""
+
+        await progress(
+            {
+                "type": "subagent",
+                "call_id": call_id,
+                "agent": agent,
+                "status": "started",
+                "brief": instruction,
+            },
+        )
+
         target = registry.get(agent)
         if target is None:
             available = ", ".join(registry.keys())
-            return DelegationResult(
+            result = DelegationResult(
                 agent=agent,
                 status="failed",
                 output=f"Agent '{agent}' not found. Available: {available}",
-            ).to_dict()
-
-        parsed_input = _parse_input(input)
-
-        full_instruction = instruction
-        if expected_output is not None:
-            full_instruction += f"\n\nExpected output format: {expected_output}"
-
-        context = ""
-        if parsed_input is not None:
-            context = (
-                json.dumps(parsed_input) if not isinstance(parsed_input, str) else parsed_input
             )
+        else:
+            parsed_input = _parse_input(input)
 
-        try:
-            kwargs: dict[str, Any] = {}
-            if context:
-                kwargs["context"] = context
-            if execution_id is not None:
-                target_func = target.func if hasattr(target, "func") else target
-                sig = inspect.signature(target_func)
-                accepts_execution_id = "execution_id" in sig.parameters or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            full_instruction = instruction
+            if expected_output is not None:
+                full_instruction += f"\n\nExpected output format: {expected_output}"
+
+            context = ""
+            if parsed_input is not None:
+                context = (
+                    json.dumps(parsed_input) if not isinstance(parsed_input, str) else parsed_input
                 )
-                if accepts_execution_id:
-                    kwargs["execution_id"] = execution_id
 
-            raw = await target(full_instruction, **kwargs)
+            try:
+                kwargs: dict[str, Any] = {}
+                if context:
+                    kwargs["context"] = context
+                if execution_id is not None:
+                    target_func = target.func if hasattr(target, "func") else target
+                    sig = inspect.signature(target_func)
+                    accepts_execution_id = "execution_id" in sig.parameters or any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                    )
+                    if accepts_execution_id:
+                        kwargs["execution_id"] = execution_id
 
-            if isinstance(raw, WorkflowAgentResult):
+                raw = await target(full_instruction, **kwargs)
+
+                if isinstance(raw, WorkflowAgentResult):
+                    result = DelegationResult(
+                        agent=agent,
+                        status=raw.status,
+                        output=raw.output,
+                        execution_id=raw.execution_id,
+                    )
+                else:
+                    # Sub-agents with a response_format return a validated model;
+                    # surface it as plain data so the parent LLM sees clean JSON.
+                    if isinstance(raw, BaseModel):
+                        raw = raw.model_dump()
+                    result = DelegationResult(
+                        agent=agent,
+                        status="completed",
+                        output=raw,
+                    )
+
+            except PauseRequested as e:
                 result = DelegationResult(
                     agent=agent,
-                    status=raw.status,
-                    output=raw.output,
-                    execution_id=raw.execution_id,
+                    status="paused",
+                    output=e.output,
                 )
-            else:
-                # Sub-agents with a response_format return a validated model;
-                # surface it as plain data so the parent LLM sees clean JSON.
-                if isinstance(raw, BaseModel):
-                    raw = raw.model_dump()
+
+            except Exception as e:
                 result = DelegationResult(
                     agent=agent,
-                    status="completed",
-                    output=raw,
+                    status="failed",
+                    output=str(e),
                 )
 
-        except PauseRequested as e:
-            result = DelegationResult(
-                agent=agent,
-                status="paused",
-                output=e.output,
-            )
+        if result.status == "failed":
+            subagent_status = "failed"
+        elif result.status == "paused":
+            # Parked, not finished — a resumable delegation waiting on human
+            # input/approval must not read as "done" to a live console.
+            subagent_status = "paused"
+        else:
+            subagent_status = "done"
 
-        except Exception as e:
-            result = DelegationResult(
-                agent=agent,
-                status="failed",
-                output=str(e),
-            )
+        await progress(
+            {
+                "type": "subagent",
+                "call_id": call_id,
+                "status": subagent_status,
+                "result_tail": str(result.output)[-500:],
+            },
+        )
 
         return result.to_dict()
 
