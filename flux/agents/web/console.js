@@ -149,6 +149,21 @@ function toMs(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+// Every TASK_COMPLETED value in the log is an OutputStorageReference
+// envelope (flux/output_storage.py), not the return value itself; the
+// default inline storage parks the real value under metadata.value.
+// Rendering the envelope would show storage bookkeeping where the tool's
+// output belongs. A non-inline reference does not carry the value in the log
+// at all, so name where it went. Mirrored by the TUI's unwrap_output().
+function unwrapOutput(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  if (!("storage_type" in value)) return value;
+  if (value.storage_type === "inline" && value.metadata && typeof value.metadata === "object") {
+    return value.metadata.value;
+  }
+  return `[stored in ${value.storage_type}: ${value.reference_id}]`;
+}
+
 function pad(value) {
   return String(value).padStart(2, "0");
 }
@@ -418,15 +433,36 @@ function applyDetail(detail) {
       case "TASK_COMPLETED":
       case "TASK_FAILED":
       case "TASK_CANCELLED": {
-        const tool = tools.get(event.source_id);
-        if (!tool) break;
+        let tool = tools.get(event.source_id);
+        if (!tool) {
+          // A completion with no start is the normal shape for every task
+          // that begins in a *resumed* run: the engine suppresses
+          // TASK_STARTED while the execution counts as resumed (task.py),
+          // which covers every tool an agent calls after its first turn.
+          // Dropping these would blank tool activity from the transcript at
+          // every turn boundary, so render from the completion alone.
+          if (INTERNAL_TASK.test(event.name || "")) break;
+          tool = {
+            id: event.source_id,
+            name: event.name,
+            args: undefined,
+            output: undefined,
+            status: "running",
+            // No start event means no start time; leave it null so the
+            // duration is omitted rather than invented.
+            started: null,
+            ended: null,
+          };
+          tools.set(event.source_id, tool);
+          blocks.push({ kind: "tool", tool });
+        }
         tool.status =
           event.type === "TASK_COMPLETED"
             ? "success"
             : event.type === "TASK_FAILED"
               ? "failed"
               : "cancelled";
-        tool.output = value;
+        tool.output = unwrapOutput(value);
         tool.ended = toMs(time);
         break;
       }
@@ -956,7 +992,9 @@ function toolBlock(tool) {
       ? el("span", { class: "tool-duration", text: fmtDuration(tool.ended - tool.started) })
       : null,
     running ? el("span", { class: "caret", text: "▌" }) : null,
-    el("span", { class: "tool-time", text: fmtClock(tool.started || Date.now()) }),
+    // A tool recovered from its completion alone has no start time; its end
+    // time is the honest clock to show, ahead of "now".
+    el("span", { class: "tool-time", text: fmtClock(tool.started || tool.ended || Date.now()) }),
   );
 
   const node = el("div", { class: `tool${expanded ? " expanded" : ""}` }, head);

@@ -112,6 +112,28 @@ def test_failed_sessions_are_never_bucketed_with_done():
     assert "failed" not in row_class.group(0)
 
 
+def test_tool_activity_survives_a_missing_task_started():
+    """Another source-level guard: the engine logs no TASK_STARTED for a task
+    that begins in a resumed run (every tool call after an agent's first
+    turn), so `applyDetail` must build the tool from its completion event
+    instead of dropping it — the same recovery `derive_blocks` does for the
+    TUI."""
+    script = (WEB_DIR / "console.js").read_text()
+    branch = re.search(
+        r'case "TASK_COMPLETED":.*?case "TASK_AWAITING_APPROVAL"',
+        script,
+        re.DOTALL,
+    )
+    assert branch, "applyDetail must handle task completion events"
+    body = branch.group(0)
+    assert "tools.set(event.source_id" in body, "a completion with no start must create the tool"
+    assert "if (!tool) break;" not in body, "a completion with no start must not be dropped"
+    assert "INTERNAL_TASK.test" in body, "the recovery path must keep filtering internal tasks"
+    # The log stores outputs as OutputStorageReference envelopes; the panel
+    # must show what the tool returned, not the storage bookkeeping.
+    assert "unwrapOutput(value)" in body, "tool output must be unwrapped for display"
+
+
 def test_dark_palette_defined_as_custom_properties(stylesheet: str):
     block = _root_block(stylesheet)
     for token, value in DARK_TOKENS.items():

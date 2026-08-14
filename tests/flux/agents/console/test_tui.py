@@ -21,7 +21,7 @@ from flux.agents.ui.console_screens import (
     NewSessionScreen,
     RenameScreen,
 )
-from flux.agents.ui.textual_app import AMBER, ConsoleApp, derive_blocks
+from flux.agents.ui.textual_app import AMBER, ConsoleApp, derive_blocks, unwrap_output
 
 DETAIL = {
     "execution_id": "exec-1",
@@ -610,6 +610,72 @@ def test_derive_blocks_mirrors_the_web_log_semantics():
     # Internal machinery tasks are log events but not tool calls.
     assert list(tools) == ["call-1"]
     assert tools["call-1"].status == "success"
+
+
+def test_derive_blocks_recovers_a_tool_that_only_logged_its_completion():
+    """The engine records no TASK_STARTED for a task that begins in a resumed
+    run — which is every tool an agent calls after the first turn — so a bare
+    completion has to render, or the transcript loses tool activity at each
+    turn boundary."""
+    detail = {
+        "execution_id": "exec-1",
+        "events": [
+            {
+                "type": "WORKFLOW_RESUMED",
+                "value": {"message": "search the docs"},
+                "time": "2026-08-14T10:00:00",
+                "name": "w",
+            },
+            {
+                "type": "TASK_COMPLETED",
+                # The real log shape: an output-storage envelope, not the
+                # return value (verified against a live stack in
+                # tests/e2e/test_agent_console.py).
+                "value": {
+                    "storage_type": "inline",
+                    "reference_id": "search_docs_1",
+                    "metadata": {"value": "3 hits"},
+                },
+                "time": "2026-08-14T10:00:04",
+                "name": "search_docs",
+                "source_id": "call-9",
+            },
+            {
+                "type": "TASK_COMPLETED",
+                "value": None,
+                "time": "2026-08-14T10:00:05",
+                "name": "pause",
+                "source_id": "call-pause",
+            },
+        ],
+    }
+    blocks, tools, _ = derive_blocks(detail)
+
+    assert [block.kind for block in blocks] == ["user", "tool"]
+    # Internal machinery stays filtered out on this path too.
+    assert list(tools) == ["call-9"]
+    tool = tools["call-9"]
+    assert tool.name == "search_docs"
+    assert tool.status == "success"
+    # Unwrapped: operators see what the tool returned, not storage bookkeeping.
+    assert tool.output == "3 hits"
+    # No start event means no duration to show, rather than a fabricated one.
+    assert tool.started is None
+    assert tool.ended is not None
+
+
+def test_unwrap_output_names_an_externally_stored_value():
+    """A non-inline reference does not carry the value in the log at all, so
+    the panel says where it went instead of dumping the envelope."""
+    reference = {
+        "storage_type": "local_file",
+        "reference_id": "big_task_1",
+        "metadata": {"serializer": "pkl"},
+    }
+    assert unwrap_output(reference) == "[stored in local_file: big_task_1]"
+    # Anything that is not an envelope passes through untouched.
+    assert unwrap_output({"rows": 3}) == {"rows": 3}
+    assert unwrap_output("plain") == "plain"
 
 
 @pytest.mark.parametrize(

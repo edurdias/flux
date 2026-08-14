@@ -701,6 +701,26 @@ def _fmt_age(value: Any) -> str:
     return f"{int(delta // 86400)}d"
 
 
+def unwrap_output(value: Any) -> Any:
+    """The value a task returned, out of its output-storage envelope.
+
+    Every ``TASK_COMPLETED`` value in the log is an
+    ``OutputStorageReference`` dict (flux/output_storage.py), not the return
+    value itself; the default inline storage parks the real value under
+    ``metadata.value``. Rendering the envelope verbatim would show operators
+    storage bookkeeping where the tool's output belongs. A non-inline
+    reference genuinely does not carry the value in the log, so name where
+    it went instead of dumping the envelope. Same semantics as the web
+    console's ``unwrapOutput``.
+    """
+    if not isinstance(value, dict) or "storage_type" not in value:
+        return value
+    metadata = value.get("metadata")
+    if value.get("storage_type") == "inline" and isinstance(metadata, dict):
+        return metadata.get("value")
+    return f"[stored in {value.get('storage_type')}: {value.get('reference_id')}]"
+
+
 def _error_detail(exc: Exception) -> Any:
     """The server's error body, if this exception carries one."""
     response = getattr(exc, "response", None)
@@ -814,12 +834,32 @@ def derive_blocks(
         elif event_type in ("TASK_COMPLETED", "TASK_FAILED", "TASK_CANCELLED"):
             started_tool = tools.get(str(event.get("source_id")))
             if started_tool is None:
-                continue
+                # A completion with no start is the normal shape for every
+                # task that begins in a *resumed* run: task.py suppresses
+                # TASK_STARTED while `ctx.has_resumed`, and that stays true
+                # for the whole resumed run (it reads the last *workflow*
+                # event, which remains WORKFLOW_RESUMED until the next
+                # pause). Since an agent's tool calls all happen after the
+                # session's first resume, dropping these would blank tool
+                # activity from the transcript at every turn boundary.
+                # Verified end to end in tests/e2e/test_agent_console.py.
+                name = event.get("name") or ""
+                if INTERNAL_TASK.match(name):
+                    continue
+                started_tool = ToolCall(
+                    id=str(event.get("source_id") or name),
+                    name=name,
+                    # No start event means no start time; leave it unset so
+                    # the duration is omitted rather than invented.
+                    started=None,
+                )
+                tools[started_tool.id] = started_tool
+                blocks.append(ChatBlock("tool", tool=started_tool, time=when))
             started_tool.status = {
                 "TASK_COMPLETED": "success",
                 "TASK_FAILED": "failed",
             }.get(event_type, "cancelled")
-            started_tool.output = value
+            started_tool.output = unwrap_output(value)
             started_tool.ended = _epoch(when)
 
         elif event_type == "TASK_AWAITING_APPROVAL":
