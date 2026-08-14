@@ -482,12 +482,11 @@ function applyDetail(detail) {
       case "TASK_CANCELLED": {
         let tool = tools.get(event.source_id);
         if (!tool) {
-          // A completion with no start is the normal shape for every task
-          // that begins in a *resumed* run: the engine suppresses
-          // TASK_STARTED while the execution counts as resumed (task.py),
-          // which covers every tool an agent calls after its first turn.
-          // Dropping these would blank tool activity from the transcript at
-          // every turn boundary, so render from the completion alone.
+          // A completion with no start: every task begun in a resumed run
+          // looked like this until #244 (the engine suppressed TASK_STARTED
+          // for the whole resumed run), which is every tool an agent called
+          // after its first turn. Executions logged before that fix still
+          // read back this way, so render from the completion alone.
           if (INTERNAL_TASK.test(event.name || "")) break;
           tool = {
             id: event.source_id,

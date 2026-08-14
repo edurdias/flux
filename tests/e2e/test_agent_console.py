@@ -387,11 +387,10 @@ def test_session_flow_spawn_send_rename_stop(console):
     tool_start = next(f for f in frames if f["kind"] == "tool_start")
     assert tool_start["data"]["name"] == "search_docs"
 
-    # ...and durably, in the log the detail endpoint returns. Note the log
-    # carries only the *completion*: the engine suppresses TASK_STARTED for
-    # tasks that begin in a resumed run, which is every tool call an agent
-    # makes after its first turn, so both renderers rebuild the tool from
-    # this event alone (see derive_blocks / applyDetail).
+    # ...and durably, in the log the detail endpoint returns. Since #244 the
+    # log carries both halves for a tool called after a resume; renderers
+    # still rebuild from a lone completion for executions logged before that
+    # fix (see derive_blocks / applyDetail).
     detail = console.json(f"/console/sessions/{session_id}/detail")
     events = detail["events"]
     completed = [

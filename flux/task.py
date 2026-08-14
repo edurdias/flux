@@ -471,13 +471,23 @@ class task:
         # Approval gate — evaluated after auth and the replay short-circuit.
         # ``task_id`` doubles as the approval ``task_call_id`` for the
         # initial call; each retry attempt is gated under its own id.
-        gate_resumed = await self._approval_gate(ctx, task_id, full_name, args, kwargs)
+        await self._approval_gate(ctx, task_id, full_name, args, kwargs)
 
         from flux._task_context import _CURRENT_TASK
 
         task_token = _CURRENT_TASK.set((task_id, full_name))
         try:
-            if gate_resumed or (not ctx.is_resuming and not ctx.has_resumed):
+            # Per call, not per run (issue #244). Replay returns above for any
+            # call with a terminal event, so a call reaching here is running
+            # now and owes the log a start. The one exception is the call that
+            # was in flight when the execution parked — `pause` itself, or a
+            # task suspended at its approval gate: it already recorded a
+            # start, and the body re-running must not append a second.
+            already_started = any(
+                e.type == ExecutionEventType.TASK_STARTED and e.source_id == task_id
+                for e in ctx.events
+            )
+            if not already_started:
                 ctx.events.append(
                     ExecutionEvent(
                         type=ExecutionEventType.TASK_STARTED,
