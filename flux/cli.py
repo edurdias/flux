@@ -3241,8 +3241,19 @@ def stop_agent(session_id, server_url):
             # cancel` uses); there is no /executions/{id}/cancel. A session is
             # an execution, so its workflow comes from the execution itself
             # rather than from the caller.
-            lookup = client.get(f"{base_url}/executions/{session_id}")
-            lookup.raise_for_status()
+            try:
+                lookup = client.get(f"{base_url}/executions/{session_id}")
+                lookup.raise_for_status()
+            except httpx.HTTPStatusError as ex:
+                # Only the lookup can establish that the session does not
+                # exist. A 404 from the cancel below means something else
+                # (workflow mismatch, route change) and must not be reported
+                # as a missing session.
+                if ex.response.status_code == 404:
+                    click.echo(f"Session '{session_id}' not found.", err=True)
+                    raise SystemExit(1) from None
+                raise
+
             execution = lookup.json()
             namespace = execution["workflow_namespace"]
             workflow_name = execution["workflow_name"]
@@ -3253,12 +3264,6 @@ def stop_agent(session_id, server_url):
             response.raise_for_status()
 
         click.echo(f"Session {session_id} stopped.")
-    except httpx.HTTPStatusError as ex:
-        if ex.response.status_code == 404:
-            click.echo(f"Session '{session_id}' not found.", err=True)
-        else:
-            click.echo(f"Error stopping session: {str(ex)}", err=True)
-        raise SystemExit(1) from None
     except Exception as ex:
         click.echo(f"Error stopping session: {str(ex)}", err=True)
         raise SystemExit(1) from None
