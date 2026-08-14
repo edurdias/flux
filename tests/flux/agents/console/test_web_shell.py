@@ -97,6 +97,21 @@ def test_script_makes_no_third_party_requests():
     assert remote == [], f"console.js must not fetch third-party origins: {remote}"
 
 
+def test_failed_sessions_are_never_bucketed_with_done():
+    """A source-level guard (this repo runs no JS test runner): the rail must
+    file failed sessions under their own heading, and must not give them the
+    `.done` class, which dims a row to read as finished-normally."""
+    script = (WEB_DIR / "console.js").read_text()
+    groups = re.search(r"const groups = \[(.*?)\];", script, re.DOTALL)
+    assert groups, "buildRail must declare its rail groups"
+    assert '"DONE"' in groups.group(1)
+    assert '"FAILED"' in groups.group(1)
+
+    row_class = re.search(r"class: `rail-row\$\{[^`]*`", script)
+    assert row_class, "rail rows must build their class list"
+    assert "failed" not in row_class.group(0)
+
+
 def test_dark_palette_defined_as_custom_properties(stylesheet: str):
     block = _root_block(stylesheet)
     for token, value in DARK_TOKENS.items():

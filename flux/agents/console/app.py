@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -116,8 +117,41 @@ def _error_detail(exc: httpx.HTTPStatusError):
         return exc.response.text or str(exc)
 
 
+def missing_permission_of(detail, depth: int = 0) -> str | None:
+    """The permission named by a denial body, in either shape the server uses.
+
+    Flux answers a denied request two ways: the structured
+    ``{"error": "forbidden", "missing_permission": ...}`` dict (the execution
+    read/approve routes) and prose -- ``Permission denied: requires 'x'`` --
+    from the generic permission dependency and the cancel route this module
+    probes. Both are unwrapped from FastAPI's ``{"detail": ...}`` envelope,
+    which can nest once more when the console re-raises an upstream body
+    verbatim, so this walks rather than indexes.
+    """
+    if detail is None or depth > 6:
+        return None
+    if isinstance(detail, str):
+        match = re.search(r"requires '([^']+)'", detail)
+        return match.group(1) if match else None
+    if isinstance(detail, dict):
+        permission = detail.get("missing_permission")
+        if isinstance(permission, str):
+            return permission
+        values = list(detail.values())
+    elif isinstance(detail, list):
+        values = list(detail)
+    else:
+        return None
+    for value in values:
+        found = missing_permission_of(value, depth + 1)
+        if found is not None:
+            return found
+    return None
+
+
 class ConsoleWriteState:
-    """Tracks, per Bearer token, whether that token can write.
+    """Tracks, per Bearer token, whether that token can write -- and, when it
+    cannot, which permission it is missing.
 
     Keyed by token (never a single process-global flag): in ``api`` mode
     different requests can carry genuinely different tokens, and a 403
@@ -127,22 +161,41 @@ class ConsoleWriteState:
     then updated reactively (never back to True) if a later write for that
     same token is denied, e.g. because a standing grant was revoked
     mid-session.
+
+    The permission name travels with the answer because a read-only console
+    disables every write control, so no later 403 can ever arrive to name it:
+    the probe's own denial is the *only* chance to learn it.
     """
 
     def __init__(self) -> None:
         self._per_token: dict[str | None, bool] = {}
+        self._missing: dict[str | None, str | None] = {}
 
-    def mark_forbidden(self, token: str | None) -> None:
+    def mark_forbidden(self, token: str | None, permission: str | None = None) -> None:
         self._per_token[token] = False
+        # Never overwrite a known permission with None: a later denial whose
+        # body did not name one must not erase what the probe already learned.
+        if permission is not None or token not in self._missing:
+            self._missing[token] = permission
 
     async def resolve(self, token: str | None, service: ConsoleService) -> bool:
         if token not in self._per_token:
-            self._per_token[token] = await _probe_can_write(service)
+            can_write, permission = await _probe_can_write(service)
+            self._per_token[token] = can_write
+            self._missing[token] = None if can_write else permission
         return self._per_token[token]
 
+    def missing_permission(self, token: str | None) -> str | None:
+        return self._missing.get(token)
 
-async def _probe_can_write(service: ConsoleService) -> bool:
+
+async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None]:
     """Cheap, deterministic, side-effect-free probe of write authorization.
+
+    Returns ``(can_write, missing_permission)`` -- the second element is the
+    permission the denial named, which the console surfaces so a read-only
+    session can say *what* it is missing instead of merely that it is
+    read-only.
 
     ``GET /workflows/{namespace}/{workflow_name}/cancel/{execution_id}``
     (which ``ConsoleService.stop`` wraps) checks the caller's
@@ -152,9 +205,9 @@ async def _probe_can_write(service: ConsoleService) -> bool:
     precedes ``ContextManager.get``). So a "cancel" against a
     guaranteed-nonexistent execution id, under the namespace/workflow every
     console session runs in, is a real dry run of write authorization with
-    no side effects: a structured 403 means the token lacks ``:run``;
-    anything else (a 404 "not found" is what an authorized caller gets,
-    since the fake id never exists) means it has at least this write grant.
+    no side effects: a 403 means the token lacks ``:run``; anything else (a
+    404 "not found" is what an authorized caller gets, since the fake id
+    never exists) means it has at least this write grant.
     """
     try:
         await service.stop("__console_can_write_probe__", _NAMESPACE, "agent_chat")
@@ -164,16 +217,18 @@ async def _probe_can_write(service: ConsoleService) -> bool:
         # than a bare permission gap -- everything else (404 "not found" is
         # the expected shape for an authorized caller here) means the write
         # check passed.
-        return exc.response.status_code not in (401, 403)
+        if exc.response.status_code not in (401, 403):
+            return True, None
+        return False, missing_permission_of(_error_detail(exc))
     except Exception:
         # A network/etc. failure here shouldn't paint the console read-only
         # for an unrelated outage -- a real write attempt still gets the
         # correct, authoritative answer via `_call`.
-        return True
+        return True, None
     else:
         # Cancelling a fake execution id cannot genuinely succeed; treat an
         # unexpected 2xx defensively as "can write" (authorization clearly passed).
-        return True
+        return True, None
 
 
 async def _call(
@@ -202,7 +257,7 @@ async def _call(
     except httpx.HTTPStatusError as exc:
         detail = _error_detail(exc)
         if is_write and exc.response.status_code == 403:
-            write_state.mark_forbidden(_request_token.get())
+            write_state.mark_forbidden(_request_token.get(), missing_permission_of(detail))
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
     except HTTPException:
         raise
@@ -246,11 +301,15 @@ def mount_console_routes(
         token: str | None = Depends(token_dependency),
         service: ConsoleService = Depends(_service_dependency),
     ) -> dict:
+        can_write = await write_state.resolve(token, service)
         return {
             "agent": agent_name,
             "session": None,
             "server_url": server_url,
-            "can_write": await write_state.resolve(token, service),
+            "can_write": can_write,
+            # Named here or nowhere: a read-only console disables every write
+            # control, so it can never provoke a 403 of its own to learn it.
+            "missing_permission": None if can_write else write_state.missing_permission(token),
         }
 
     @app.get("/console/agents")

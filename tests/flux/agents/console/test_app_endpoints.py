@@ -432,6 +432,103 @@ def test_console_state_can_write_is_per_token_not_global():
     assert readonly_again.json()["can_write"] is False
 
 
+def test_console_state_names_the_missing_permission_for_a_read_only_token():
+    """The probe's denial is the only chance to learn the permission: a
+    read-only console disables every write control, so no later 403 can
+    arrive to name it. The answer therefore has to ride along with
+    can_write, not wait for a write that will never be attempted."""
+    fake = _FakeService(forbidden_tokens={"readonly-token"})
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer readonly-token", **CSRF},
+        )
+
+    body = response.json()
+    assert body["can_write"] is False
+    assert body["missing_permission"] == "workflow:agents:agent_chat:run"
+
+
+def test_console_state_missing_permission_is_null_for_a_writer():
+    fake = _FakeService(forbidden_tokens=set())
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer writer-token", **CSRF},
+        )
+
+    body = response.json()
+    assert body["can_write"] is True
+    assert body["missing_permission"] is None
+
+
+def test_console_state_names_the_permission_from_a_prose_denial():
+    """The cancel route the probe uses answers in prose (`Permission denied:
+    requires '...'`), not the structured dict -- so parsing only the dict
+    shape would leave the real deployment's tooltip unnamed."""
+
+    class _ProseForbiddenService(_FakeService):
+        async def stop(self, execution_id, namespace, workflow_name):
+            request = httpx.Request("GET", "http://test/cancel")
+            response = httpx.Response(
+                403,
+                json={"detail": "Permission denied: requires 'workflow:agents:agent_chat:run'"},
+                request=request,
+            )
+            raise httpx.HTTPStatusError("forbidden", request=request, response=response)
+
+    fake = _ProseForbiddenService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get("/console/state", headers=HEADERS)
+
+    body = response.json()
+    assert body["can_write"] is False
+    assert body["missing_permission"] == "workflow:agents:agent_chat:run"
+
+
+def test_console_state_names_the_permission_learned_from_a_denied_write():
+    """A grant revoked mid-session denies a real write rather than the boot
+    probe; that body names the permission too and must be recorded."""
+    fake = _FakeService(
+        rename_error=_forbidden(
+            {"error": "forbidden", "missing_permission": "workflow:agents:agent_chat:run"},
+        ),
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        assert client.get("/console/state", headers=HEADERS).json()["missing_permission"] is None
+        client.put("/console/sessions/exec-1/name", json={"name": "n"}, headers=HEADERS)
+        after = client.get("/console/state", headers=HEADERS)
+
+    assert after.json()["can_write"] is False
+    assert after.json()["missing_permission"] == "workflow:agents:agent_chat:run"
+
+
+@pytest.mark.parametrize(
+    ("detail", "expected"),
+    [
+        ({"missing_permission": "workflow:a:b:run"}, "workflow:a:b:run"),
+        ({"detail": {"error": "forbidden", "missing_permission": "x:y:z"}}, "x:y:z"),
+        ({"detail": "Permission denied: requires 'agent:*:read'"}, "agent:*:read"),
+        ("Permission denied: requires 'execution:*:read'", "execution:*:read"),
+        ({"detail": [{"msg": "requires 'a:b'"}]}, "a:b"),
+        ({"detail": "Execution not found"}, None),
+        (None, None),
+    ],
+)
+def test_missing_permission_of_reads_both_denial_shapes(detail, expected):
+    from flux.agents.console.app import missing_permission_of
+
+    assert missing_permission_of(detail) == expected
+
+
 def test_console_state_reports_agent_and_server_url():
     fake = _FakeService()
     with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):

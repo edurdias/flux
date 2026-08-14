@@ -622,7 +622,7 @@ function scheduleRender() {
 function permissionTooltip() {
   return state.missingPermission
     ? `Read-only: requires ${state.missingPermission}`
-    : "Read-only: this token cannot make changes (the server has not named the missing permission yet)";
+    : "Read-only: this token cannot make changes";
 }
 
 /** Disable a state-changing control in read-only mode, never silently. */
@@ -746,7 +746,10 @@ function railRow(row) {
     "button",
     {
       type: "button",
-      class: `rail-row${isActive ? " selected" : ""}${bucket === "done" || bucket === "failed" ? " done" : ""}`,
+      // Only a normally-finished session dims. A failed one keeps full
+      // contrast and its danger-toned glyph -- it is an outcome to notice,
+      // not history to fade out.
+      class: `rail-row${isActive ? " selected" : ""}${bucket === "done" ? " done" : ""}`,
       onclick: () => openSession(row.execution_id),
       title: sessionTitle(row),
     },
@@ -785,16 +788,20 @@ function renderRail() {
 }
 
 function buildRail() {
+  // Failed gets its own heading: bucketing it under DONE would file a
+  // session that needs attention with the ones that need none.
   const groups = [
     { name: "ACTIVE", rows: [] },
     { name: "IDLE", rows: [] },
     { name: "DONE", rows: [] },
+    { name: "FAILED", rows: [] },
   ];
   for (const row of state.sessions) {
     const bucket = bucketOf(row);
     if (bucket === "running" || bucket === "waiting") groups[0].rows.push(row);
     else if (bucket === "idle") groups[1].rows.push(row);
-    else groups[2].rows.push(row);
+    else if (bucket === "done") groups[2].rows.push(row);
+    else groups[3].rows.push(row);
   }
 
   clear(dom.rail);
@@ -1833,6 +1840,10 @@ async function boot() {
     state.agent = consoleState.agent;
     state.serverUrl = consoleState.server_url || "";
     state.canWrite = consoleState.can_write !== false;
+    // The server's write probe is the only thing that ever gets a denial for
+    // a read-only token -- every control here is disabled, so the page can
+    // never provoke a 403 of its own to learn the permission's name.
+    if (consoleState.missing_permission) state.missingPermission = consoleState.missing_permission;
     if (consoleState.session) state.activeId = consoleState.session;
   } catch (err) {
     state.notice = `console: ${errorText(err)}`;
