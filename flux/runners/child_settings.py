@@ -151,7 +151,7 @@ def install_from_env() -> bool:
             "config machinery (issue #241)",
         )
 
-    module.__getattr__ = _missing  # type: ignore[attr-defined]
+    module.__getattr__ = _missing  # type: ignore[method-assign]
     sys.modules["flux.config"] = module
     # Bind the parent-package attribute the way a real import would, so
     # attribute-style access (flux.config.X) reaches the shim instead of
