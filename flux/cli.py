@@ -751,9 +751,14 @@ def list_executions(
                 state_str = ex.get("state", "UNKNOWN")
                 worker = ex.get("worker_name") or "unassigned"
                 ns = ex.get("workflow_namespace", "default")
+                # Most executions have no operator-facing name; a column of
+                # dashes would cost width every row to say nothing, so the
+                # label is appended only where one was set.
+                name = ex.get("name")
+                label = f'  "{name}"' if name else ""
                 click.echo(
                     f"  {ex['execution_id'][:12]}...  "
-                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}",
+                    f"{ns}/{ex['workflow_name']:20}  {state_str:12}  {worker}{label}",
                 )
 
     except httpx.HTTPStatusError as ex:

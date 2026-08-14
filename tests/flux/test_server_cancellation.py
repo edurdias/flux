@@ -59,6 +59,9 @@ class TestServerCancellation:
         ctx.workflow_id = "test-workflow-id"
         ctx.workflow_name = "test-workflow"
         ctx.workflow_namespace = "default"
+        # MagicMock reserves `.name`; an unnamed execution has to say so
+        # explicitly or the DTO carries a Mock where a string belongs.
+        ctx.name = None
 
         # Set up the mock to return our context
         mock_context_manager.get.return_value = ctx
@@ -242,6 +245,9 @@ class TestExecutionEndpoints:
         mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.COMPLETED
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
+        # MagicMock reserves `.name`, so an unnamed execution has to say so
+        # explicitly or the row carries a Mock where a string belongs.
+        mock_exec.name = None
 
         mock_cm.list.return_value = ([mock_exec], 1)
         mock_cm_create.return_value = mock_cm
@@ -341,6 +347,7 @@ class TestExecutionEndpoints:
         mock_exec.workflow_namespace = "default"
         mock_exec.state = ExecutionState.RUNNING
         mock_exec.current_worker = "worker-1"  # The endpoint uses current_worker
+        mock_exec.name = None
 
         mock_cm.list.return_value = ([mock_exec], 1)
         mock_cm_create.return_value = mock_cm
@@ -485,6 +492,7 @@ class TestHealthEndpoint:
         ctx_running.workflow_id = "test-workflow-id"
         ctx_running.workflow_name = "test-workflow"
         ctx_running.workflow_namespace = "default"
+        ctx_running.name = None
 
         ctx_cancelled = MagicMock(spec=ExecutionContext)
         ctx_cancelled.has_finished = True
@@ -494,6 +502,7 @@ class TestHealthEndpoint:
         ctx_cancelled.workflow_id = "test-workflow-id"
         ctx_cancelled.workflow_name = "test-workflow"
         ctx_cancelled.workflow_namespace = "default"
+        ctx_cancelled.name = None
 
         # Set up the mock to return our contexts in sequence
         mock_context_manager.get.side_effect = [ctx_running, ctx_cancelled]
@@ -661,6 +670,7 @@ class TestWorkflowRunWithVersion:
         mock_ctx.output = None
         mock_ctx.state = ExecutionState.CREATED
         mock_ctx.events = []
+        mock_ctx.name = None
         mock_ctx.has_finished = False
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm
@@ -697,6 +707,7 @@ class TestWorkflowRunWithVersion:
         mock_ctx.output = None
         mock_ctx.state = ExecutionState.CREATED
         mock_ctx.events = []
+        mock_ctx.name = None
         mock_ctx.has_finished = False
         mock_cm.save.return_value = mock_ctx
         mock_cm_create.return_value = mock_cm

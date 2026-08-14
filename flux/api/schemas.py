@@ -250,6 +250,10 @@ class ExecutionSummaryResponse(BaseModel):
     workflow_name: str
     state: str
     worker_name: str | None = None
+    # The operator-facing label set by PUT /executions/{id}/name. Optional:
+    # most executions never get one, and it stays absent rather than echoing
+    # the workflow name.
+    name: str | None = None
 
 
 class ExecutionListResponse(BaseModel):

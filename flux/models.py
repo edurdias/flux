@@ -725,6 +725,7 @@ class ExecutionContextModel(Base):
             events=[e.to_plain() for e in self.events],
             state=self.state,
             current_worker=self.worker_name,
+            name=self.name,
         )
 
     @classmethod

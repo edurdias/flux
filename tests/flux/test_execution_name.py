@@ -1,9 +1,15 @@
 """Operator-facing execution names.
 
-``ExecutionContext`` carries no ``name`` — it is a save-time annotation only,
-same treatment as ``preferred_worker``/``required_worker``. The agent
-console (a later task) surfaces it as a session title, so it must survive
-every state-update save a running workflow makes, not just the initial one.
+Writes are a save-time annotation, same treatment as
+``preferred_worker``/``required_worker``: ``ExecutionContext.name`` is
+read-only, set by ``save(name=...)``/``rename`` and never by workflow code,
+and it must survive every state-update save a running workflow makes, not
+just the initial one.
+
+Reads are the other half: the agent console surfaces it as a session title,
+but a name nothing outside ``/agents/sessions`` could read would be
+write-only — so the execution list, both execution read paths and
+``flux execution list`` carry it too.
 """
 
 from __future__ import annotations
@@ -79,6 +85,22 @@ class TestExecutionName:
         ctx.start("w1")
         manager.save(ctx)
         assert _row(manager, ctx.execution_id).name == "keep me"
+
+    def test_loaded_context_carries_the_name(self, manager):
+        ctx = _make_ctx(manager)
+        manager.rename(ctx.execution_id, "fix CI")
+        assert manager.get(ctx.execution_id).name == "fix CI"
+
+    def test_unnamed_context_reads_none(self, manager):
+        ctx = _make_ctx(manager)
+        assert manager.get(ctx.execution_id).name is None
+
+    def test_get_summary_carries_the_name(self, manager):
+        """Summary parity with the detailed DTO: the status-poll fast path
+        reads columns directly, so it has to select the name too."""
+        ctx = _make_ctx(manager)
+        manager.rename(ctx.execution_id, "fix CI")
+        assert manager.get_summary(ctx.execution_id)["name"] == "fix CI"
 
 
 @pytest.fixture
@@ -168,6 +190,36 @@ class TestRenameRoute:
         rows = sessions_resp.json()["sessions"]
         row = next(r for r in rows if r["execution_id"] == execution_id)
         assert row["name"] == "session title"
+
+    def test_execution_list_carries_the_name(self, test_client, manager):
+        """A name only /agents/sessions could read would be write-only for
+        every non-agent execution."""
+        named = _make_ctx(manager)
+        manager.rename(named.execution_id, "nightly reprocess")
+
+        resp = test_client.get("/executions")
+
+        assert resp.status_code == 200, resp.text
+        rows = {row["execution_id"]: row for row in resp.json()["executions"]}
+        assert rows[named.execution_id]["name"] == "nightly reprocess"
+
+    def test_execution_list_leaves_an_unnamed_execution_null(self, test_client, manager):
+        ctx = _make_ctx(manager)
+
+        resp = test_client.get("/executions")
+
+        rows = {row["execution_id"]: row for row in resp.json()["executions"]}
+        assert rows[ctx.execution_id]["name"] is None
+
+    def test_execution_read_carries_the_name(self, test_client, manager):
+        ctx = _make_ctx(manager)
+        manager.rename(ctx.execution_id, "nightly reprocess")
+
+        summary = test_client.get(f"/executions/{ctx.execution_id}")
+        detailed = test_client.get(f"/executions/{ctx.execution_id}", params={"detailed": True})
+
+        assert summary.json()["name"] == "nightly reprocess"
+        assert detailed.json()["name"] == "nightly reprocess"
 
     def test_run_with_too_long_name_is_400(self, test_client, manager):
         from flux.models import WorkflowModel

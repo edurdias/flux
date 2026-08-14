@@ -330,6 +330,47 @@ class TestExecutionList:
         assert "COMPLETED" in result.output
 
     @patch("flux.cli.httpx.Client")
+    def test_list_executions_shows_the_operator_name(self, mock_client_class, runner):
+        """A named execution is named in the listing -- otherwise
+        `flux execution rename` writes a label nothing can read back."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "executions": [
+                {
+                    "execution_id": "exec-123",
+                    "workflow_name": "test_workflow",
+                    "state": "RUNNING",
+                    "worker_name": "worker-1",
+                    "name": "nightly reprocess",
+                },
+                {
+                    "execution_id": "exec-456",
+                    "workflow_name": "test_workflow",
+                    "state": "RUNNING",
+                    "worker_name": "worker-2",
+                    "name": None,
+                },
+            ],
+            "total": 2,
+            "limit": 50,
+            "offset": 0,
+        }
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["execution", "list"])
+
+        assert result.exit_code == 0
+        assert '"nightly reprocess"' in result.output
+        # An unnamed execution spends no width saying so.
+        rows = [line for line in result.output.splitlines() if "exec-456" in line]
+        assert rows and '"' not in rows[0]
+
+    @patch("flux.cli.httpx.Client")
     def test_list_executions_with_filters(self, mock_client_class, runner):
         """Test listing executions with filters."""
         mock_client = MagicMock()

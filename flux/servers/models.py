@@ -38,6 +38,9 @@ class ExecutionContext(BaseModel):
     output: Any = None
     state: str
     current_worker: str = ""
+    # Operator-facing label (executions.name). Optional and defaulted so a
+    # payload from an older client still validates.
+    name: str | None = None
     events: list[ExecutionEvent] = []
 
     class Config:
@@ -69,6 +72,7 @@ class ExecutionContext(BaseModel):
             state=ExecutionState(self.state),
             current_worker=self.current_worker or None,
             events=events,
+            name=self.name,
         )
 
     @classmethod
@@ -82,6 +86,7 @@ class ExecutionContext(BaseModel):
             state=ctx.state.value,
             output=ctx.output,
             current_worker=ctx.current_worker if isinstance(ctx.current_worker, str) else "",
+            name=ctx.name,
             events=[
                 ExecutionEvent(
                     id=event.id,
@@ -116,6 +121,7 @@ class ExecutionContext(BaseModel):
             "output": output,
             "state": self.state,
             "current_worker": self.current_worker,
+            "name": self.name,
         }
 
     @classmethod

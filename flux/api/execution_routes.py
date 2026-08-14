@@ -158,6 +158,7 @@ class ExecutionRoutesMixin:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
+                            name=ex.name,
                         )
                         for ex in executions
                     ],
@@ -811,6 +812,7 @@ class ExecutionRoutesMixin:
                             workflow_name=ex.workflow_name,
                             state=ex.state.value,
                             worker_name=ex.current_worker,
+                            name=ex.name,
                         )
                         for ex in executions
                     ],

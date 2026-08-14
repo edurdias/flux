@@ -303,6 +303,7 @@ class DatabaseContextManager(ContextManager):
                     ExecutionContextModel.output,
                     ExecutionContextModel.state,
                     ExecutionContextModel.worker_name,
+                    ExecutionContextModel.name,
                 )
                 .filter(ExecutionContextModel.execution_id == execution_id)
                 .first()
@@ -339,6 +340,7 @@ class DatabaseContextManager(ContextManager):
                 # DTO parity: the domain context coalesces a missing worker
                 # to "" (see ExecutionContext.current_worker).
                 "current_worker": row.worker_name or "",
+                "name": row.name,
             }
 
     def last_event_ordinal(self, execution_id: str) -> int | None:
