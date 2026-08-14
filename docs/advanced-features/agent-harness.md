@@ -395,8 +395,10 @@ flux agent start coder --mode terminal
 flux agent start coder --mode web --port 8080
 ```
 
-- Binds `127.0.0.1:<port>` by default (`--host 0.0.0.0` to expose) and serves
-  the console at `GET /`.
+- Binds `127.0.0.1:<port>` and serves the console at `GET /`. A non-loopback
+  `--host` needs `--allow-remote` as well: web mode has no authentication of
+  its own, so anyone who can reach the port acts as the operator. See the
+  [console's trust model](agent-console.md#trust-model).
 - Uses the operator's Flux token, set at process start (either
   `$FLUX_AUTH_TOKEN` or refreshed via `flux auth login`). No per-request Bearer
   is required, so the browser never handles a credential.
@@ -645,7 +647,7 @@ See [Authentication & Authorization](authentication.md) for the general RBAC mod
 The agent process is a thin client of the Flux server. It talks over HTTPS and SSE, so it can run anywhere the Flux API is reachable.
 
 - **Terminal**: runs on the operator's machine. No network surface beyond its outbound HTTP calls.
-- **Web**: binds to `0.0.0.0` by default but is designed as a single-operator chat UI. Put a reverse proxy (nginx, Caddy) in front if you need to expose it beyond localhost, and enforce your own authentication there. Web mode does **not** check a per-request Bearer token.
+- **Web**: binds to `127.0.0.1` and is designed as a single-operator console. It does **not** check a per-request Bearer token — it carries the operator's token in-process — so exposing it means anyone who can reach the port acts as that operator. A non-loopback `--host` therefore requires `--allow-remote`, and should sit behind a reverse proxy (nginx, Caddy) that enforces your own authentication.
 - **API**: multi-client by design. Each request must carry a Bearer token; tokens are passed through to the Flux server untrusted on the agent process side.
 
 ### Pinning agents to specific workers

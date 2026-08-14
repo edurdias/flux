@@ -1136,6 +1136,39 @@ class TestAgentStartCLI:
                 result = runner.invoke(cli, ["agent", "start", *args])
         return result, process_cls
 
+    def test_web_mode_refuses_a_non_loopback_bind_without_allow_remote(self, runner):
+        """web mode carries the operator's token in-process, so reaching the
+        port IS the authorization -- exposure must be a deliberate act."""
+        result, process_cls = self._invoke(runner, ["--mode", "web", "--host", "0.0.0.0"])
+
+        assert result.exit_code == 1
+        assert "no authentication of its own" in result.output
+        assert "--allow-remote" in result.output and "--mode api" in result.output
+        process_cls.assert_not_called()
+
+    def test_allow_remote_permits_the_bind_and_reaches_the_process(self, runner):
+        result, process_cls = self._invoke(
+            runner,
+            ["--mode", "web", "--host", "0.0.0.0", "--allow-remote"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert process_cls.call_args.kwargs["allow_remote"] is True
+
+    def test_api_mode_is_exempt_from_the_bind_gate(self, runner):
+        """api mode authenticates every request with a Bearer -- remote use
+        is its purpose, not an accident."""
+        result, process_cls = self._invoke(runner, ["--mode", "api", "--host", "0.0.0.0"])
+
+        assert result.exit_code == 0, result.output
+        assert process_cls.call_args.kwargs["allow_remote"] is False
+
+    def test_loopback_binds_need_no_flag(self, runner):
+        for host in ("127.0.0.1", "localhost", "::1"):
+            result, process_cls = self._invoke(runner, ["--mode", "web", "--host", host])
+            assert result.exit_code == 0, f"{host}: {result.output}"
+            process_cls.assert_called_once()
+
     def test_allow_origin_threads_into_the_agent_process(self, runner):
         result, process_cls = self._invoke(
             runner,

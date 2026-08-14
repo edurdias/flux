@@ -35,6 +35,27 @@ def wants_plain_terminal() -> bool:
     return bool(os.environ.get("FLUX_PLAIN_TERMINAL")) or not sys.stdout.isatty()
 
 
+def is_loopback_host(host: str) -> bool:
+    """True when binding ``host`` keeps a server reachable only from this
+    machine.
+
+    Shared by the CLI's `--mode web` bind gate and ``WebUI``'s Host-header
+    check so the two cannot disagree about what "local" means. Anything
+    that is not ``localhost`` or a literal loopback address -- wildcards
+    (``0.0.0.0``, ``::``) and every other hostname -- counts as exposure,
+    so an unfamiliar or unparseable value fails closed.
+    """
+    import ipaddress
+
+    candidate = host.strip().strip("[]")
+    if candidate.lower() in ("localhost", "localhost."):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
 def _make_terminal_ui() -> UI | None:
     """Decide between the plain single-agent REPL and the multi-session console.
 
@@ -58,6 +79,7 @@ class AgentProcess:
         workflow_name: str = "agent_chat",
         host: str | None = None,
         allowed_origins: tuple[str, ...] = (),
+        allow_remote: bool = False,
     ):
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode: '{mode}'. Must be one of: {VALID_MODES}")
@@ -71,6 +93,7 @@ class AgentProcess:
         self.host = host
         self.workflow_name = workflow_name
         self.allowed_origins = allowed_origins
+        self.allow_remote = allow_remote
         self.client = FluxClient(server_url=server_url, token=token)
         self.ui: UI | None = _make_terminal_ui() if mode == "terminal" else None
 
@@ -270,5 +293,6 @@ class AgentProcess:
             # `--session <id>` means "open on this session" in every mode;
             # the served consoles learn it from GET /console/state.
             session_id=self.session_id,
+            allow_remote=self.allow_remote,
         )
         await server.serve()

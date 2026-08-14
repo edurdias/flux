@@ -3093,13 +3093,21 @@ def delete_agent(name, format, server_url):
         "http://console.internal:8080 (repeatable; loopback origins are always allowed)"
     ),
 )
+@click.option(
+    "--allow-remote",
+    is_flag=True,
+    help=(
+        "Required to bind web mode to a non-loopback host: the console has no "
+        "authentication of its own, so anyone who can reach the port acts as the operator"
+    ),
+)
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
 @click.option(
     "--plain",
     is_flag=True,
     help="Use the plain single-agent ANSI REPL instead of the console; requires NAME",
 )
-def start_agent(name, mode, session_id, port, host, allow_origins, server, plain):
+def start_agent(name, mode, session_id, port, host, allow_origins, allow_remote, server, plain):
     """Start an agent, or the multi-session console, in the given mode.
 
     NAME is optional. Omitted, terminal mode opens the console rail-first
@@ -3127,6 +3135,22 @@ def start_agent(name, mode, session_id, port, host, allow_origins, server, plain
             err=True,
         )
         raise SystemExit(1)
+
+    if mode == "web" and not allow_remote:
+        from flux.agents.process import is_loopback_host
+
+        if not is_loopback_host(host):
+            # api mode authenticates every request with a Bearer; web mode
+            # carries the operator's token in the process, so reaching the
+            # port IS the authorization. Exposure has to be deliberate.
+            click.echo(
+                f"web mode has no authentication of its own — binding {host} grants "
+                f"operator rights to anyone who can reach port {port or 8080}. "
+                "Pass --allow-remote to accept that, or run --mode api behind a proxy "
+                "that authenticates.",
+                err=True,
+            )
+            raise SystemExit(1)
 
     try:
         if server is None:
@@ -3186,6 +3210,7 @@ def start_agent(name, mode, session_id, port, host, allow_origins, server, plain
             host=host,
             workflow_name=workflow_name,
             allowed_origins=tuple(allow_origins),
+            allow_remote=allow_remote,
         )
         asyncio.run(process.run())
     except KeyboardInterrupt:

@@ -24,6 +24,10 @@ from flux.agents.ui.web import WebUI
 
 CSRF_HEADER = {"X-Flux-Console": "1"}
 
+# WebUI answers only to its own Host (the rebinding guard); TestClient
+# would otherwise send `Host: testserver`, which is what that rejects.
+CONSOLE_ORIGIN = "http://127.0.0.1:8080"
+
 
 def _make_api_ui(**overrides):
     kwargs = dict(
@@ -259,7 +263,7 @@ def test_console_stop_without_csrf_header_rejected():
 
 def test_web_ui_chat_without_csrf_header_rejected():
     ui = WebUI(server_url="http://flux.test", agent_name="coder", operator_token="op-token")
-    client = TestClient(ui.app)
+    client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
     response = client.post("/chat", json={"message": "hi"})
     assert response.status_code == 403
 
@@ -272,7 +276,7 @@ def test_web_ui_console_sessions_honors_own_origin_allowlist():
         host="127.0.0.1",
         port=9090,
     )
-    client = TestClient(ui.app)
+    client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
     response = client.post(
         "/console/sessions",
         json={},

@@ -44,7 +44,7 @@ LIGHT_TOKENS = {
 @pytest.fixture
 def client() -> TestClient:
     ui = WebUI(server_url="http://flux.test", agent_name="coder", operator_token="op-token")
-    return TestClient(ui.app)
+    return TestClient(ui.app, base_url="http://127.0.0.1:8080")
 
 
 @pytest.fixture

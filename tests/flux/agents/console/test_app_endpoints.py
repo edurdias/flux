@@ -23,6 +23,10 @@ from flux.agents.ui.api import ApiUI
 from flux.agents.ui.web import WebUI
 
 CSRF = {"X-Flux-Console": "1"}
+
+# WebUI answers only to its own Host (the rebinding guard); TestClient
+# would otherwise send `Host: testserver`, which is what that rejects.
+CONSOLE_ORIGIN = "http://127.0.0.1:8080"
 AUTH = {"Authorization": "Bearer t"}
 HEADERS = {**AUTH, **CSRF}
 
@@ -801,6 +805,6 @@ def _throwaway_console_css():
 
 def test_static_mount_serves_console_css(_throwaway_console_css):
     ui = WebUI(server_url="http://flux.test", agent_name="coder", operator_token="op-token")
-    client = TestClient(ui.app)
+    client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
     response = client.get("/static/console.css")
     assert response.status_code == 200

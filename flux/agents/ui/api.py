@@ -43,6 +43,7 @@ class ApiUI:
         host: str = "127.0.0.1",
         allowed_origins: tuple[str, ...] = (),
         session_id: str | None = None,
+        allow_remote: bool = False,
     ) -> None:
         self.server_url = server_url
         self.agent_name = agent_name
@@ -52,6 +53,7 @@ class ApiUI:
         self.port = port
         self.workflow_name = workflow_name
         self.allowed_origins = allowed_origins
+        self.allow_remote = allow_remote
         self.app = FastAPI(title="Flux Agent API")
         self._setup_routes()
         mount_console_routes(
@@ -265,8 +267,16 @@ class ApiUI:
             client = self._make_client(token)
             return await client.get_execution(session_id)
 
+    def _startup_banner(self) -> list[str]:
+        """Lines printed before the server binds. Nothing was printed
+        before, so operators had to guess the URL."""
+        return [f"Agent API: http://{self.host}:{self.port}"]
+
     async def serve(self) -> None:
         import uvicorn
+
+        for line in self._startup_banner():
+            print(line)
 
         config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="info")
         server = uvicorn.Server(config)

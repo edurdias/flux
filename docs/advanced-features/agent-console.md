@@ -206,14 +206,37 @@ process start, so the browser never handles a credential.
 
 ## Trust model
 
-The console is single-operator by design: it binds `127.0.0.1` unless you pass
-`--host`, holds one operator token, and does no authentication of its own —
-authorization is entirely the Flux server's, per call. If you expose `web`
-mode beyond localhost, put it behind a proxy that enforces your own access
-control, and allowlist the origin browsers will actually present with
-`--allow-origin` (repeatable): a wildcard bind like `0.0.0.0` never appears in
-a browser's `Origin` header, so without an explicit entry every state-changing
-request from a non-loopback hostname is rejected with 403.
+The console is single-operator by design: it binds `127.0.0.1`, holds one
+operator token, and does no authentication of its own — authorization is
+entirely the Flux server's, per call. Three things follow.
+
+**Exposure is a deliberate act.** In `web` mode a non-loopback `--host` exits
+1 unless you also pass `--allow-remote`, because reaching the port *is* the
+authorization: anyone who can connect lists every session, reads every
+transcript, spawns agents, approves gated tasks and cancels executions. When
+you do pass it, the console says so at startup. Put a proxy that authenticates
+in front, or use `--mode api`, which requires a Bearer on every request and is
+the right shape for remote or scripted use.
+
+**The console answers only to its own name.** Bound to loopback, `web` mode
+rejects any request whose `Host` header names something else with a 400. That
+covers reads as well as writes, because DNS rebinding is a read attack: a page
+you visit resolves its own domain to `127.0.0.1` and, without the check, the
+browser would treat it as same-origin with your console. The check is dropped
+under `--allow-remote` — once the port is genuinely reachable, rebinding buys
+an attacker nothing.
+
+**Browsers must prove they are the console's own frontend.** Every
+state-changing request needs `X-Flux-Console: 1`, which a third-party page
+cannot set without a CORS preflight this app never grants, and — when a browser
+sends an `Origin` — a match against the allowlist. If you serve the console
+under a hostname, add it with `--allow-origin` (repeatable): a wildcard bind
+like `0.0.0.0` never appears in an `Origin` header, so without an explicit
+entry a state-changing request from that hostname is rejected with 403.
+
+None of this constrains other processes on your own machine, which can set any
+header they like. On a single-operator box local code already runs as you;
+closing that would need an OS-level boundary no browser can speak.
 
 ## Known follow-ups
 
