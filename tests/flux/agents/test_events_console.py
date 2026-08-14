@@ -94,6 +94,34 @@ def test_parses_subagent_done():
     ]
 
 
+def test_parses_subagent_paused():
+    """A parked/resumable delegation — status flows through verbatim, no
+    special-casing in parse_event. Distinct from 'done': the sub-agent has
+    not finished, it is waiting on human input or approval."""
+    raw = {
+        "type": "TASK_PROGRESS",
+        "value": {
+            "type": "subagent",
+            "call_id": "delegate_3",
+            "status": "paused",
+            "result_tail": "need approval",
+        },
+    }
+    events = list(parse_event(raw))
+    assert events == [
+        AgentEvent(
+            kind=KIND_SUBAGENT,
+            data={
+                "call_id": "delegate_3",
+                "agent": "",
+                "status": "paused",
+                "brief": "",
+                "result_tail": "need approval",
+            },
+        ),
+    ]
+
+
 def test_parses_subagent_failed():
     raw = {
         "type": "TASK_PROGRESS",

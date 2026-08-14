@@ -246,11 +246,20 @@ def build_delegate(agents: list) -> task:
                     output=str(e),
                 )
 
+        if result.status == "failed":
+            subagent_status = "failed"
+        elif result.status == "paused":
+            # Parked, not finished — a resumable delegation waiting on human
+            # input/approval must not read as "done" to a live console.
+            subagent_status = "paused"
+        else:
+            subagent_status = "done"
+
         await progress(
             {
                 "type": "subagent",
                 "call_id": call_id,
-                "status": "failed" if result.status == "failed" else "done",
+                "status": subagent_status,
                 "result_tail": str(result.output)[-500:],
             },
         )

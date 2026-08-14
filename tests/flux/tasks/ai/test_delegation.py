@@ -637,7 +637,7 @@ class TestDelegateProgressEmission:
         assert done["status"] == "failed"
         assert "boom" in done["result_tail"]
 
-    def test_emits_done_on_unknown_agent(self):
+    def test_emits_failed_on_unknown_agent(self):
         from unittest.mock import AsyncMock, patch
 
         from flux import ExecutionContext, workflow
@@ -656,6 +656,66 @@ class TestDelegateProgressEmission:
         done = mock_progress.await_args_list[-1][0][0]
         assert done["status"] == "failed"
         assert "not found" in done["result_tail"]
+
+    def test_emits_paused_on_pause_requested(self):
+        """A paused delegation is parked, not finished — must not read as 'done'."""
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+        from flux.errors import PauseRequested
+
+        class PausingAgent:
+            name = "pauser"
+            description = "Pauses."
+
+            async def __call__(self, instruction, **kwargs):
+                raise PauseRequested(name="need_info", output="I need more context")
+
+        delegate_tool = build_delegate([PausingAgent()])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("pauser", "Review this")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        assert ctx.output["status"] == "paused"
+
+        done = mock_progress.await_args_list[-1][0][0]
+        assert done["status"] == "paused"
+        assert "I need more context" in done["result_tail"]
+
+    def test_emits_paused_on_workflow_agent_paused_result(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        class WorkflowLikeAgent:
+            name = "deployer"
+            description = "Deploys."
+
+            async def __call__(self, instruction, **kwargs):
+                return WorkflowAgentResult(
+                    status="paused",
+                    output="need approval",
+                    execution_id="exec-1",
+                )
+
+        delegate_tool = build_delegate([WorkflowLikeAgent()])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("deployer", "Deploy v2")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        done = mock_progress.await_args_list[-1][0][0]
+        assert done["status"] == "paused"
+        assert "need approval" in done["result_tail"]
 
     def test_result_tail_truncated_to_500_chars(self):
         from unittest.mock import AsyncMock, patch
