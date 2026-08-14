@@ -27,7 +27,9 @@
 **Files:**
 - Create: `flux/migrations/versions/0025_execution_name.py`
 - Modify: `flux/models.py` (ExecutionContextModel — add `name` column beside `schedule_id`)
-- Modify: `flux/api/workflow_routes.py` (run endpoints: optional `name` query param, stored at submission — the `park_ttl` param at line ~203 is the pattern)
+- Modify: `flux/api/workflow_routes.py` (run endpoints: optional `name` query param — the `park_ttl` param at line ~203 is the pattern)
+- Modify: `flux/server.py` (`_create_execution` ~lines 483-512 — the actual save site; thread `name` through into `manager.save`)
+- Modify: `flux/api/schemas.py` (`AgentSessionSummaryResponse` ~lines 286-295 gains `name: str | None = None` — a bare dict key is dropped by the response model)
 - Modify: `flux/api/execution_routes.py` (new `PUT /executions/{execution_id}/name`)
 - Modify: `flux/api/admin_routes.py` (`_list_agent_sessions` ~line 398: include `ex.name` in rows)
 - Modify: `flux/context_managers.py` (`save(...)` accepts `name: str | None = None`, persists it; a `rename(execution_id, name)` method)
@@ -67,7 +69,7 @@ class TestExecutionName:
 - [ ] **Step 3: Migration 0025** (copy `0024_join_token_revoked.py`'s idempotent add-column shape; table `executions`, column `name` `sa.String(200)` nullable). ORM column + docstring: "Operator-facing label (issue: agent console); sessions inherit it as titles."
 - [ ] **Step 4: `save(name=...)` + `rename()`** in `context_managers.py` (thread `name` through `save`/`save_checked` kwargs; only set when not None so state updates never clear it).
 - [ ] **Step 5: Tests green; update both migration-HEAD tests; run `tests/flux/test_migrations.py`.**
-- [ ] **Step 6: Routes** — run endpoints `name: str | None = None` (validate ≤200 chars, 400 otherwise) → `manager.save(..., name=name)`; `PUT /executions/{id}/name` in `execution_routes.py`: resolve execution → `require` the workflow's `:run` permission exactly as the cancel route does (`workflow_routes.py:667-675` pattern) → `manager.rename`. Session list: add `"name": ex.name`.
+- [ ] **Step 6: Routes** — run endpoints `name: str | None = None` (validate ≤200 chars, 400 otherwise) → threaded through `flux/server.py::_create_execution` into `manager.save(..., name=name)`; `PUT /executions/{id}/name` in `execution_routes.py`: resolve execution → `require` the workflow's `:run` permission exactly as the cancel route does (`workflow_routes.py:667-675` pattern) → `manager.rename`. Session list: add `"name": ex.name`.
 - [ ] **Step 7: Route tests** (extend `tests/flux/test_execution_name.py` with a `TestClient` class using the harness from `tests/flux/test_worker_release_route.py`): rename 200 + persisted; rename 404; name>200 → 400; run-with-name lands in session list.
 - [ ] **Step 8: CLI** — `--name` on `workflow run` (pass as query param); `flux execution rename` (PUT). CliRunner tests (pattern: `tests/flux/test_cli.py::TestWorkerLabelSources`).
 - [ ] **Step 9: Full check + commit** — `poetry run pytest tests/flux/ -q`, pre-commit, commit `feat(executions): operator-facing execution names`.
@@ -86,11 +88,18 @@ class TestExecutionName:
 - [ ] **Step 1: Failing test:**
 
 ```python
+@pytest.fixture(scope="module")
+def console_modules() -> dict[str, bool]:
+    return _presence("flux.agents.ui.api")  # existing helper in this file
+
+
 class TestConsoleBudget:
-    def test_console_process_stays_lean(self):
-        assert not _loads("import flux.agents.ui.api", "sqlalchemy")
-        assert not _loads("import flux.agents.ui.api", "flux.models")
+    def test_console_process_stays_lean(self, console_modules):
+        assert not console_modules["sqlalchemy"]
+        assert not console_modules["flux.models"]
 ```
+
+Note: `flux/agents/__init__.py` eagerly imports `AgentManager`, `AgentProcess`, and `types` — all three move behind the module `__getattr__`.
 
 - [ ] **Step 2: Run — fails** (sqlalchemy present via eager `from flux.agents.manager import AgentManager`).
 - [ ] **Step 3: Lazy `__getattr__`** re-export in `flux/agents/__init__.py`; chase any remaining edge the test reports (worker_registry-style method-local imports).
@@ -120,6 +129,7 @@ class TestConsoleBudget:
 
 **Files:**
 - Create: `flux/agents/console/__init__.py`, `flux/agents/console/service.py`
+- Create: `tests/flux/agents/console/__init__.py`
 - Test: `tests/flux/agents/console/test_service.py`
 
 **Interfaces:**
@@ -145,7 +155,8 @@ class ConsoleService:
     async def list_approvals(self) -> list[ApprovalRow]  # GET /approvals
     async def get_detail(self, execution_id: str) -> dict  # GET /executions/{id}?detailed=true (redacted log)
     async def spawn(self, agent_name: str, name: str | None) -> str  # returns execution_id; custom-workflow branch!
-    async def send(self, execution_id: str, agent_name: str, text: str) -> AsyncIterator[dict]  # resume + stream
+    async def send(self, execution_id: str, agent_name: str, workflow_name: str, text: str) -> AsyncIterator[dict]  # resume + stream
+    async def respond_to_elicitation(self, execution_id: str, workflow_name: str, payload: dict) -> None
     async def decide(self, execution_id: str, task_call_id: str, approve: bool,
                      always: bool = False, always_for_target: bool = False) -> str  # "decided" | "already_decided"
     async def rename(self, execution_id: str, name: str) -> None  # PUT /executions/{id}/name
@@ -153,11 +164,17 @@ class ConsoleService:
     async def aclose(self) -> None
 ```
 
+- **FluxClient additive extensions (part of this task — extend, never rebuild):**
+  `decide_approval(..., always_for_target: bool = False)` (body key mirrors the server's `ApprovalDecideRequest`);
+  `get_execution(execution_id, detailed: bool = False)` (adds `?detailed=true`);
+  `start_agent(..., name: str | None = None)` (adds the `?name=` query param from Task 1).
 - Spawn rule (spec): read the agent definition; if it declares `workflow_file`, ensure+run `agent_custom_<name>` (replicate `flux/cli.py:3057-3088` decision), else `agent_chat`. Never unconditionally `agent_chat`.
-- `decide` maps HTTP 409 → `"already_decided"` (never raises for it).
+- `send(execution_id, agent_name, workflow_name, text)` — takes the session's `workflow_name` (from `SessionRow`) so custom-workflow sessions resume `agent_custom_<name>`, not the default.
+- `respond_to_elicitation(execution_id, workflow_name, payload: dict) -> None` — resumes the paused execution with the elicitation response, per-session (the legacy `/elicitation` route resumes with process-level names and is wrong for picker-spawned sessions).
+- Already-decided detection: `FluxClient.decide_approval` swallows the 409 and returns the body — check `body.get("error") == "already_decided"`, NOT the status code.
 - `derived_title`: `None` here; computed by callers from the log (Task 5 helper).
 
-- [ ] **Step 1: Failing tests** with `respx` if present else a stub `httpx.AsyncClient(transport=httpx.MockTransport(handler))`: list_sessions maps rows (incl. `name`); spawn picks `agent_custom_x` when definition has `workflow_file` (assert requested workflow name); decide 409 → `"already_decided"`; stop hits the workflow-scoped cancel GET; rename PUTs.
+- [ ] **Step 1: Failing tests** using the house HTTP-stub pattern — `tests/flux/agents/test_flux_client.py::_patched_async_client` (line ~44; monkeypatches `httpx.AsyncClient` — `respx` is NOT installed and FluxClient takes no transport parameter): list_sessions maps rows (incl. `name`); spawn picks `agent_custom_x` when definition has `workflow_file` (assert requested workflow name); decide already-decided body → `"already_decided"`; stop hits the workflow-scoped cancel GET; rename PUTs; send resumes with the given workflow_name.
 - [ ] **Step 2 fail → 3 implement → 4 green → 5 commit** `feat(console): ConsoleService — the single server client for console surfaces`.
 
 ---
@@ -180,8 +197,8 @@ class ConsoleEvent:
 
 class EventHub:
     def __init__(self, service: ConsoleService): ...
-    def subscribe(self) -> asyncio.Queue[ConsoleEvent]      # consumers: TUI queue, web WS pump
-    async def run_turn(self, session_id: str, agent_name: str, text: str) -> None
+    def subscribe(self) -> asyncio.Queue[ConsoleEvent]      # consumers: TUI queue, web SSE pump
+    async def run_turn(self, session_id: str, agent_name: str, workflow_name: str, text: str) -> None
         # drives service.send, fans parse_event output to subscribers,
         # then emits ConsoleEvent(session_id, AgentEvent("log_delta", {"detail": ...}))
         # from a fresh get_detail — the turn-boundary reconciliation.
@@ -210,15 +227,18 @@ def derived_title(detail: dict) -> str | None
 
 **Interfaces:**
 - Produces JSON endpoints (all `POST`/`PUT` require header `X-Flux-Console: 1` AND, when an `Origin` header is present, an allowlist match of the console's own origin — 403 otherwise):
-  - `GET  /console/state` → `{"agent": str | None, "session": str | None, "server_url": str}`
+  - `GET  /console/state` → `{"agent": str | None, "session": str | None, "server_url": str, "can_write": bool}` — `can_write` is the read-only-degradation signal: false when a probe of the operator token lacks write verbs (a 403 from any state-changing call also carries the server's structured `missing_permission`, which the UI surfaces verbatim)
   - `GET  /console/agents`, `GET /console/sessions`, `GET /console/approvals`
   - `GET  /console/sessions/{id}/detail`
   - `POST /console/sessions` `{"agent": str, "name": str | None}` → `{"execution_id"}`
   - `POST /console/sessions/{id}/send` `{"text"}` → SSE of hub events (house mechanism — SSE, not WebSocket, per review note)
-  - `POST /console/approvals/{execution_id}/{task_call_id}` `{"approve": bool, "always": bool, "always_for_target": bool}` → `{"result": "decided"|"already_decided"}`
+  - `POST /console/approvals/{execution_id}/{task_call_id:path}` (`:path` like the server's own decide routes) `{"approve": bool, "always": bool, "always_for_target": bool}` → `{"result": "decided"|"already_decided"}`
+  - `POST /console/sessions/{id}/elicitation` `{"payload": {...}}` → 204 (per-session resume via `ConsoleService.respond_to_elicitation`)
   - `PUT  /console/sessions/{id}/name` `{"name"}`
   - `POST /console/sessions/{id}/stop`
 - `api` mode serves the same endpoints with its per-request Bearer contract; WebUI keeps the operator-token dependency (unchanged trust model).
+- **Console app constructor**: the app builder gains `agent_name: str | None` (today `ApiUI.__init__` requires `str` — `ui/api.py:32-40`); when None, legacy single-agent routes (`/chat`) return 404 with "console runs multi-session — use /console/*", and `/console/state` reports `agent: null`. `flux/agents/process.py` (`AgentProcess`) accepts the optional name in Task 9.
+- **derived_title in list responses**: computed from a hub-side cache of details seen at open/turn boundaries — NEVER per-row detailed fetches (spec's cheap-list rule). Never-opened sessions report `derived_title: null` and the UI falls back to `"agent · date"`.
 
 - [ ] **Step 1: Failing security tests** (TestClient): POST `/console/sessions` without `X-Flux-Console` → 403; with header + hostile `Origin: https://evil.example` → 403; with header + own origin → passes auth layer; **regression-hardening**: existing `/chat` without the header now 403s; GETs unaffected.
 - [ ] **Step 2 fail → 3 implement dependency + wire routes to ConsoleService/EventHub → 4 green.**
@@ -244,7 +264,8 @@ def derived_title(detail: dict) -> str | None
 - Approvals drawer: rows from `/console/approvals` with Approve / Reject / Always / Always-for-target (last only when `target_value` non-null); 409 result renders "already decided elsewhere".
 - Elicitation events render an inline form in the stage (port the existing `index.html` elicitation block's behavior).
 - Theme: `data-theme` on `<html>`, toggle in top bar, persisted to `localStorage`; both palettes from Global Constraints; amber glow (`text-shadow`) on hero figures **dark only**.
-- Empty states verbatim: "No sessions yet — press + New session", "No pending approvals".
+- Empty states verbatim, one per panel: rail "No sessions yet — press + New session"; approvals drawer "No pending approvals"; PLAN "No plan yet"; ACTIVITY "No tool calls yet"; SUB-AGENTS "No sub-agents".
+- Read-only degradation: when `/console/state.can_write` is false, every state-changing control renders disabled with a tooltip naming the missing permission (from the server's structured 403) — never a silent failure.
 - JS structure: `render(state)` pure-ish DOM builders + `handleEvent(consoleEvent)` reducer — the seams named by the spec; no framework.
 
 - [ ] **Step 1: Failing shell test** (serves `console.html`, no external URLs, both token sets present as CSS custom properties).
@@ -266,6 +287,8 @@ def derived_title(detail: dict) -> str | None
 - Responsive: `on_resize` — width < 100 hides panels 1/3 (toggle with `1`/`3`); < 80 chat-only, status line carries `step n/m · ⚠k`.
 - Status line (btop footer style): key hints + session state + approvals count.
 - Data: same `ConsoleService`/`EventHub` in-process; rail from `list_sessions` on a 3s timer; open session renders detail then live events.
+- Read-only degradation mirrors the web: disabled bindings shown dimmed in the footer with the missing permission in the status line. Empty states per panel as in Task 7.
+- App class: `ConsoleApp(App)` in `textual_app.py`, constructor `(service: ConsoleService, hub: EventHub, initial_agent: str | None, initial_session: str | None)` — the object Task 9's CLI constructs.
 - Colors: web dark tokens mapped to Textual CSS.
 
 - [ ] **Step 1: Failing pilot tests**: app composes three panels; `2` focuses chat (border class asserted); `n` pushes NewSessionScreen; resize(90×30) hides rail; resize(70×30) chat-only; approval overlay lists a stubbed ApprovalRow and `Enter` on Approve calls the stubbed service with the right ids.
@@ -277,9 +300,10 @@ def derived_title(detail: dict) -> str | None
 
 **Files:**
 - Modify: `flux/cli.py` (`agent start`: `NAME` optional; NAME-less + no TTY + mode≠api → clear error `"the console needs a terminal; use --mode api or provide an agent name"`; `--plain` preserved; `agent session resume <id>` opens the console focused on that session)
+- Modify: `flux/agents/process.py` (`AgentProcess.agent_name` becomes `str | None`; None is only valid for console modes, asserted with a clear error otherwise)
 - Test: extend `tests/flux/agents/test_process.py` + CliRunner tests
 
-- [ ] **Step 1: Failing tests**: NAME-less terminal invocation on TTY constructs the console app with `initial_agent=None` (rail-first); NAME-less non-TTY exits 1 with the message; `--plain` with NAME still selects the plain REPL (existing test at test_process.py:125 keeps passing); resume path passes session id through.
+- [ ] **Step 1: Failing tests**: NAME-less terminal invocation on TTY constructs `ConsoleApp` (Task 8) with `initial_agent=None` (rail-first); NAME-less non-TTY exits 1 with the message; `--plain` with NAME still selects the plain REPL (existing test at test_process.py:125 keeps passing); resume path passes session id through.
 - [ ] **Step 2 fail → 3 implement → 4 green → 5 commit** `feat(cli): flux agent start opens the console; NAME optional`.
 
 ---
@@ -287,16 +311,19 @@ def derived_title(detail: dict) -> str | None
 ### Task 10: E2E, docs, screenshots, PR
 
 **Files:**
-- Create: `tests/e2e/test_agent_console.py` (module-scoped console-api harness on the pattern of `tests/e2e/test_agent_harness_server_modes.py::agent_harness_env`)
+- Create: `tests/e2e/test_agent_console.py` (module-scoped console-api harness on the pattern of `tests/e2e/test_agent_harness_server_modes.py::agent_harness_env`, plus the seeding above)
+- Create: `tests/flux/agents/console/__init__.py` (package-style test tree — created in Task 4, listed here as a guard)
 - Create: `docs/advanced-features/agent-console.md` + modify `docs/advanced-features/agent-harness.md` (serving-modes section) — AGENTS.md requires the docs entry
 - Create: `docs/images/console-web-dark.png`, `console-web-light.png`, `console-tui.svg` (+ png)
 - Modify: `pyproject.toml` (0.82.0)
+
+**Harness seeding (the stock `agent_harness_env` is NOT enough):** the module fixture must additionally seed via the server API — two agents through `POST /admin/agents` (one plain, one declaring a `workflow_file` so the custom-workflow spawn is assertable) and one approval-gated workflow (pattern: `tests/e2e/test_approvals.py`) so the approval round-trip has a gate to trip.
 
 **E2E flow (api mode drives the console core through a real stack):**
 - [ ] **Step 1: Failing e2e** — spawn console in api mode against the harness env; `POST /console/sessions` (picker agent) → session appears in `GET /console/sessions` with derived title after first send; send streams tokens; tool activity appears in `/detail`; approval round-trip incl. second decide → `already_decided`; `PUT name` → rename visible; custom-workflow agent spawns `agent_custom_<name>` (assert workflow name in the execution row); stop cancels.
 - [ ] **Step 2 red on missing pieces → fix → green.** Run the full gates: `poetry run pytest tests/flux/ -q`, e2e file, `pre-commit run --all-files` (cold mypy).
 - [ ] **Step 3: Screenshots** — TUI: pilot script sizes 120×32, opens a seeded session, `app.export_screenshot()` SVG → save; convert to PNG if a converter is available, else ship SVG. Web: run a live stack + `flux agent start --mode web`, capture dark and light with the browser tools; save under `docs/images/`, reference them in `agent-console.md`.
-- [ ] **Step 4: Docs page** — quick start, layout tour (embedding the screenshots), permissions-per-verb table (from spec Security), the four filed follow-ups referenced.
+- [ ] **Step 4: Docs page** — quick start, layout tour (embedding the screenshots), permissions-per-verb table (from spec Security; rename documents `workflow:{ns}:{wf}:run` explicitly), the four filed follow-ups referenced. Add the page to `mkdocs.yml` nav (~lines 87-94 — the nav is explicit; an unlisted page does not render).
 - [ ] **Step 5: Version bump, final full-suite run, commit, push, PR** — PR body: spec + plan links, screenshots inline, verification matrix; merge-order note if other PRs are open. File the four "filed separately" issues from the spec.
 
 ---
