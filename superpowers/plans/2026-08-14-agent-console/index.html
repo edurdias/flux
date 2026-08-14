@@ -1,0 +1,1814 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Distributed workflow orchestration engine to build stateful and fault-tolerant workflows">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Agent Console Implementation Plan - Flux Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-console-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Flux Documentation" class="md-header__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flux Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent Console Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Light Mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light Mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Dark Mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark Mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Flux Documentation" class="md-nav__button md-logo" aria-label="Flux Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Flux Documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/edurdias/flux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    edurdias/flux
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Introduction
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../introduction/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../introduction/features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../introduction/use-cases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use Cases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/basic_concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/quick-start-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Core Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../core-concepts/workflow-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../core-concepts/tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tasks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../core-concepts/error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../core-concepts/execution-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Execution Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../core-concepts/replay-determinism/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Replay & Determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/task-patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/workflow-controls/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflow Controls
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/worker-affinity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Affinity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/dynamic-routing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dynamic Routing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/airgapped-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Airgapped Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/task-progress/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Task Progress Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/agent-harness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Harness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/agent-console/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Console
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/mcp-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/ai-memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../advanced-features/database-migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#global-constraints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global Constraints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global Constraints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#task-1-engine-execution-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Engine — execution naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-2-prerequisite-lazy-fluxagents__init__-console-import-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Prerequisite — lazy flux/agents/__init__ + console import budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-3-emitter-enrichment-plan-and-sub-agent-progress-payloads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Emitter enrichment — plan and sub-agent progress payloads
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-4-console-core-consoleservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Console core — ConsoleService
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-5-console-core-eventhub-derived-titles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Console core — EventHub + derived titles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-6-console-app-endpoints-security-hardening-static-mount" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Console app — endpoints, security hardening, static mount
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-7-web-bundle-rail-stage-led-board" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Web bundle — Rail + Stage, LED board
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-8-tui-btop-grammar-on-textual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 8: TUI — btop grammar on Textual
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-9-cli-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 9: CLI semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-10-e2e-docs-screenshots-pr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 10: E2E, docs, screenshots, PR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#self-review-run-after-writing-fixed-inline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-review (run after writing, fixed inline)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-console-implementation-plan">Agent Console Implementation Plan<a class="headerlink" href="#agent-console-implementation-plan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Turn the agent web and terminal UIs into mission control — session dashboard, live plan/progress, approvals queue, sub-agent visibility — per <code>docs/specs/2026-08-13-agent-console-spec.md</code>.</p>
+<p><strong>Architecture:</strong> One console core (<code>flux/agents/console/</code>) renders from the persisted execution event log (redacted REST reads) with per-turn SSE as a loss-tolerant live overlay; liveness gaps close via <code>progress()</code> emissions in the AI-task library. One engine addition: execution naming. Two renderers: a static web bundle (Rail+Stage, LED-board identity) and the Textual TUI (btop grammar).</p>
+<p><strong>Tech Stack:</strong> Python 3.12, FastAPI, Textual, vanilla JS/CSS (no framework, no build step), pytest + Textual pilot.</p>
+<h2 id="global-constraints">Global Constraints<a class="headerlink" href="#global-constraints" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Spec: <code>docs/specs/2026-08-13-agent-console-spec.md</code> — binding; on conflict, the spec wins.</li>
+<li>No server/engine changes except Task 1 (execution naming). AI-task library (<code>flux/tasks/ai/</code>) emissions are allowed (Task 3).</li>
+<li>Reuse <code>FluxClient</code> (<code>flux/agents/flux_client.py</code>) and <code>parse_event</code> (<code>flux/agents/events.py</code>); never rebuild them. <code>parse_event</code> kinds are frozen strings — extend additively only.</li>
+<li>Migration discipline: new revision <code>0025_execution_name</code> chained after <code>0024_join_token_revoked</code>; update <code>HEAD</code> in BOTH <code>tests/flux/test_migrations.py</code> and <code>tests/flux/test_migrations_postgresql.py</code>.</li>
+<li>Repo rules: version bump in <code>pyproject.toml</code> (use <code>0.82.0</code> — feature), pre-commit before every commit (mypy cold via <code>--all-files</code> before push), comments explain <em>why</em> only, no AI attribution anywhere.</li>
+<li>Web bundle: no framework, no build step, no external requests (tokens as CSS custom properties, <code>data-theme="dark|light"</code>).</li>
+<li>Design tokens (verbatim from spec): dark ink <code>#0b111c</code>, panel <code>#0e1524</code>, line <code>#1c2536</code>, text <code>#c9d2e0</code>, muted <code>#8b96a8</code>, amber <code>#f0a828</code>, ok <code>#4ade80</code>, danger <code>#f87171</code>; light ground <code>#f2f0ec</code>, panel <code>#faf8f5</code>, line <code>#ddd8d0</code>, text <code>#3a4150</code>, muted <code>#7a7468</code>, amber <code>#b45309</code>, ok <code>#15803d</code>, danger <code>#b91c1c</code>. Live figures always <code>ui-monospace</code> + amber.</li>
+<li>Status glyphs: <code>●</code> running, <code>◔</code> waiting-approval, <code>◐</code> idle (PAUSED between turns — normal), <code>○</code> completed, <code>✗</code> failed/cancelled. Never bucket FAILED with done.</li>
+<li>All commits on branch <code>feature/agent-console</code> (branched from <code>design/agent-console</code> so the spec rides along).</li>
+</ul>
+<hr />
+<h3 id="task-1-engine-execution-naming">Task 1: Engine — execution naming<a class="headerlink" href="#task-1-engine-execution-naming" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>flux/migrations/versions/0025_execution_name.py</code>
+- Modify: <code>flux/models.py</code> (ExecutionContextModel — add <code>name</code> column beside <code>schedule_id</code>)
+- Modify: <code>flux/api/workflow_routes.py</code> (run endpoints: optional <code>name</code> query param — the <code>park_ttl</code> param at line ~203 is the pattern)
+- Modify: <code>flux/server.py</code> (<code>_create_execution</code> ~lines 483-512 — the actual save site; thread <code>name</code> through into <code>manager.save</code>)
+- Modify: <code>flux/api/schemas.py</code> (<code>AgentSessionSummaryResponse</code> ~lines 286-295 gains <code>name: str | None = None</code> — a bare dict key is dropped by the response model)
+- Modify: <code>flux/api/execution_routes.py</code> (new <code>PUT /executions/{execution_id}/name</code>)
+- Modify: <code>flux/api/admin_routes.py</code> (<code>_list_agent_sessions</code> ~line 398: include <code>ex.name</code> in rows)
+- Modify: <code>flux/context_managers.py</code> (<code>save(...)</code> accepts <code>name: str | None = None</code>, persists it; a <code>rename(execution_id, name)</code> method)
+- Modify: <code>flux/cli.py</code> (<code>workflow run</code> gains <code>--name</code>; new <code>flux execution rename &lt;id&gt; &lt;name&gt;</code>)
+- Test: <code>tests/flux/test_execution_name.py</code>
+- Modify: <code>tests/flux/test_migrations.py</code>, <code>tests/flux/test_migrations_postgresql.py</code> (HEAD → <code>0025_execution_name</code>)</p>
+<p><strong>Interfaces:</strong>
+- Produces: <code>ExecutionContextModel.name: str | None</code>; <code>ContextManager.rename(execution_id: str, name: str) -&gt; None</code> (raises <code>ExecutionContextNotFoundError</code>); <code>PUT /executions/{id}/name</code> body <code>{"name": "&lt;str≤200&gt;"}</code> → <code>{"execution_id", "name"}</code>, permission <code>workflow:{ns}:{wf}:run</code> (same as cancel — if you may run/cancel it you may name it); run endpoints accept <code>?name=</code>; <code>GET /agents/sessions</code> rows gain <code>"name": str | None</code>.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing tests</strong> — in <code>tests/flux/test_execution_name.py</code> (fixture pattern: copy the <code>manager</code> fixture from <code>tests/flux/test_cancellation_sweep.py</code> — Configuration override + <code>DatabaseRepository._engines.clear()</code>):</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">TestExecutionName</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_save_persists_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">):</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        <span class="n">ctx</span> <span class="o">=</span> <span class="n">_make_ctx</span><span class="p">()</span>  <span class="c1"># helper as in test_cancellation_sweep._cancelling_execution, without cancel</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>        <span class="n">manager</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;fix CI&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>        <span class="n">row</span> <span class="o">=</span> <span class="n">_row</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">execution_id</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        <span class="k">assert</span> <span class="n">row</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;fix CI&quot;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_rename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">):</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        <span class="n">ctx</span> <span class="o">=</span> <span class="n">_make_ctx</span><span class="p">();</span> <span class="n">manager</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        <span class="n">manager</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">ctx</span><span class="o">.</span><span class="n">execution_id</span><span class="p">,</span> <span class="s2">&quot;renamed&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>        <span class="k">assert</span> <span class="n">_row</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">execution_id</span><span class="p">)</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;renamed&quot;</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_rename_missing_execution_raises</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">):</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="k">with</span> <span class="n">pytest</span><span class="o">.</span><span class="n">raises</span><span class="p">(</span><span class="n">ExecutionContextNotFoundError</span><span class="p">):</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>            <span class="n">manager</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;nope&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_name_survives_state_updates</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">):</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>        <span class="n">ctx</span> <span class="o">=</span> <span class="n">_make_ctx</span><span class="p">();</span> <span class="n">manager</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;keep me&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="n">ctx</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="s2">&quot;w1&quot;</span><span class="p">);</span> <span class="n">manager</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="k">assert</span> <span class="n">_row</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">ctx</span><span class="o">.</span><span class="n">execution_id</span><span class="p">)</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;keep me&quot;</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 2: Run — must fail</strong> (<code>poetry run pytest tests/flux/test_execution_name.py -q</code>; expect AttributeError/TypeError).</li>
+<li>[ ] <strong>Step 3: Migration 0025</strong> (copy <code>0024_join_token_revoked.py</code>'s idempotent add-column shape; table <code>executions</code>, column <code>name</code> <code>sa.String(200)</code> nullable). ORM column + docstring: "Operator-facing label (issue: agent console); sessions inherit it as titles."</li>
+<li>[ ] <strong>Step 4: <code>save(name=...)</code> + <code>rename()</code></strong> in <code>context_managers.py</code> (thread <code>name</code> through <code>save</code>/<code>save_checked</code> kwargs; only set when not None so state updates never clear it).</li>
+<li>[ ] <strong>Step 5: Tests green; update both migration-HEAD tests; run <code>tests/flux/test_migrations.py</code>.</strong></li>
+<li>[ ] <strong>Step 6: Routes</strong> — run endpoints <code>name: str | None = None</code> (validate ≤200 chars, 400 otherwise) → threaded through <code>flux/server.py::_create_execution</code> into <code>manager.save(..., name=name)</code>; <code>PUT /executions/{id}/name</code> in <code>execution_routes.py</code>: resolve execution → <code>require</code> the workflow's <code>:run</code> permission exactly as the cancel route does (<code>workflow_routes.py:667-675</code> pattern) → <code>manager.rename</code>. Session list: add <code>"name": ex.name</code>.</li>
+<li>[ ] <strong>Step 7: Route tests</strong> (extend <code>tests/flux/test_execution_name.py</code> with a <code>TestClient</code> class using the harness from <code>tests/flux/test_worker_release_route.py</code>): rename 200 + persisted; rename 404; name&gt;200 → 400; run-with-name lands in session list.</li>
+<li>[ ] <strong>Step 8: CLI</strong> — <code>--name</code> on <code>workflow run</code> (pass as query param); <code>flux execution rename</code> (PUT). CliRunner tests (pattern: <code>tests/flux/test_cli.py::TestWorkerLabelSources</code>).</li>
+<li>[ ] <strong>Step 9: Full check + commit</strong> — <code>poetry run pytest tests/flux/ -q</code>, pre-commit, commit <code>feat(executions): operator-facing execution names</code>.</li>
+</ul>
+<hr />
+<h3 id="task-2-prerequisite-lazy-fluxagents__init__-console-import-budget">Task 2: Prerequisite — lazy <code>flux/agents/__init__</code> + console import budget<a class="headerlink" href="#task-2-prerequisite-lazy-fluxagents__init__-console-import-budget" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Modify: <code>flux/agents/__init__.py</code> (eager <code>AgentManager</code> import → module <code>__getattr__</code>, pattern: <code>flux/runners/__init__.py.__getattr__</code> from #237)
+- Test: extend <code>tests/flux/test_startup_import_budget.py</code></p>
+<p><strong>Interfaces:</strong>
+- Produces: <code>from flux.agents import AgentManager</code> still works; <code>import flux.agents.ui.api</code> no longer pulls <code>sqlalchemy</code>/<code>flux.models</code>.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing test:</strong></li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">&quot;module&quot;</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">console_modules</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="k">return</span> <span class="n">_presence</span><span class="p">(</span><span class="s2">&quot;flux.agents.ui.api&quot;</span><span class="p">)</span>  <span class="c1"># existing helper in this file</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">TestConsoleBudget</span><span class="p">:</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">test_console_process_stays_lean</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">console_modules</span><span class="p">):</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        <span class="k">assert</span> <span class="ow">not</span> <span class="n">console_modules</span><span class="p">[</span><span class="s2">&quot;sqlalchemy&quot;</span><span class="p">]</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>        <span class="k">assert</span> <span class="ow">not</span> <span class="n">console_modules</span><span class="p">[</span><span class="s2">&quot;flux.models&quot;</span><span class="p">]</span>
+</code></pre></div>
+<p>Note: <code>flux/agents/__init__.py</code> eagerly imports <code>AgentManager</code>, <code>AgentProcess</code>, and <code>types</code> — all three move behind the module <code>__getattr__</code>.</p>
+<ul>
+<li>[ ] <strong>Step 2: Run — fails</strong> (sqlalchemy present via eager <code>from flux.agents.manager import AgentManager</code>).</li>
+<li>[ ] <strong>Step 3: Lazy <code>__getattr__</code></strong> re-export in <code>flux/agents/__init__.py</code>; chase any remaining edge the test reports (worker_registry-style method-local imports).</li>
+<li>[ ] <strong>Step 4: Green + <code>poetry run pytest tests/flux/ -q</code> (no regressions from lazy init) + commit</strong> <code>perf(agents): lazy AgentManager so UI processes stay lean</code>.</li>
+</ul>
+<hr />
+<h3 id="task-3-emitter-enrichment-plan-and-sub-agent-progress-payloads">Task 3: Emitter enrichment — plan and sub-agent progress payloads<a class="headerlink" href="#task-3-emitter-enrichment-plan-and-sub-agent-progress-payloads" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Modify: <code>flux/tasks/ai/agent_plan.py</code> (after every plan mutation that runs through a plan tool — create/update/complete-step — emit <code>await progress({"type": "plan", "plan": ctx.plan.to_dict()})</code>; the persistence site at ~line 230 marks where revisions settle)
+- Modify: <code>flux/tasks/ai/delegation.py</code> (inside <code>delegate</code> ~line 143: emit <code>{"type": "subagent", "call_id": &lt;task id&gt;, "agent": name, "status": "started", "brief": &lt;input&gt;}</code> on entry, <code>{"type": "subagent", "call_id": ..., "status": "done"|"failed", "result_tail": &lt;last 500 chars&gt;}</code> on exit)
+- Modify: <code>flux/agents/events.py</code> (additive kinds <code>KIND_PLAN = "plan"</code>, <code>KIND_SUBAGENT = "subagent"</code>; branches in <code>parse_event</code>'s progress-frame arm)
+- Test: <code>tests/flux/agents/test_events_console.py</code> + extend <code>tests/flux/tasks/ai/</code> plan/delegation tests</p>
+<p><strong>Interfaces:</strong>
+- Produces: <code>AgentEvent(kind="plan", data={"plan": {...}})</code>; <code>AgentEvent(kind="subagent", data={"call_id", "agent", "status", ...})</code>. Existing kinds untouched.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing parse tests</strong> — progress frame <code>{"type":"TASK_PROGRESS","value":{"type":"plan","plan":{"steps":[]}}}</code> → one <code>KIND_PLAN</code> event; same for <code>subagent</code>; regression: existing frames still parse identically (copy 2-3 cases from existing events tests).</li>
+<li>[ ] <strong>Step 2: fails → Step 3: implement branches → Step 4: green.</strong></li>
+<li>[ ] <strong>Step 5: Emission tests</strong> — drive plan-tool mutation / a delegate call with a stubbed <code>progress</code> collector (existing plan/delegation test fixtures show the harness); assert payload shapes above.</li>
+<li>[ ] <strong>Step 6: Full <code>tests/flux/</code> green, commit</strong> <code>feat(ai): plan and sub-agent progress emissions for live consoles</code>.</li>
+</ul>
+<hr />
+<h3 id="task-4-console-core-consoleservice">Task 4: Console core — <code>ConsoleService</code><a class="headerlink" href="#task-4-console-core-consoleservice" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>flux/agents/console/__init__.py</code>, <code>flux/agents/console/service.py</code>
+- Create: <code>tests/flux/agents/console/__init__.py</code>
+- Test: <code>tests/flux/agents/console/test_service.py</code></p>
+<p><strong>Interfaces:</strong>
+- Consumes: <code>FluxClient</code> (<code>start_agent</code>, <code>resume</code>, <code>stream_execution</code>, <code>get_agent</code>, <code>get_execution</code>, <code>decide_approval</code>), Task 1's rename route.
+- Produces (exact signatures — later tasks depend on these):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">SessionRow</span><span class="p">:</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">;</span> <span class="n">agent_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">;</span> <span class="n">state</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">;</span> <span class="n">started_at</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">;</span> <span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">derived_title</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># display fallback, never persisted</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">class</span><span class="w"> </span><span class="nc">ApprovalRow</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">;</span> <span class="n">task_call_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">;</span> <span class="n">task_name</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">target_value</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">;</span> <span class="n">requested_at</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConsoleService</span><span class="p">:</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">server_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">token</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">):</span> <span class="o">...</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_agents</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>            <span class="c1"># GET /admin/agents</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_sessions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">SessionRow</span><span class="p">]</span>  <span class="c1"># GET /agents/sessions (+name from Task 1)</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_approvals</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">ApprovalRow</span><span class="p">]</span>  <span class="c1"># GET /approvals</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_detail</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span>  <span class="c1"># GET /executions/{id}?detailed=true (redacted log)</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">spawn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">agent_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># returns execution_id; custom-workflow branch!</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">agent_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>  <span class="c1"># resume + stream</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">respond_to_elicitation</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">task_call_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">approve</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>                     <span class="n">always</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">always_for_target</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>  <span class="c1"># &quot;decided&quot; | &quot;already_decided&quot;</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">rename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>  <span class="c1"># PUT /executions/{id}/name</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">namespace</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>  <span class="c1"># GET /workflows/{ns}/{wf}/cancel/{id}</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">aclose</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+<ul>
+<li><strong>FluxClient additive extensions (part of this task — extend, never rebuild):</strong>
+  <code>decide_approval(..., always_for_target: bool = False)</code> (body key mirrors the server's <code>ApprovalDecideRequest</code>);
+  <code>get_execution(execution_id, detailed: bool = False)</code> (adds <code>?detailed=true</code>);
+  <code>start_agent(..., name: str | None = None)</code> (adds the <code>?name=</code> query param from Task 1).</li>
+<li>Spawn rule (spec): read the agent definition; if it declares <code>workflow_file</code>, ensure+run <code>agent_custom_&lt;name&gt;</code> (replicate <code>flux/cli.py:3057-3088</code> decision), else <code>agent_chat</code>. Never unconditionally <code>agent_chat</code>.</li>
+<li><code>send(execution_id, agent_name, workflow_name, text)</code> — takes the session's <code>workflow_name</code> (from <code>SessionRow</code>) so custom-workflow sessions resume <code>agent_custom_&lt;name&gt;</code>, not the default.</li>
+<li><code>respond_to_elicitation(execution_id, workflow_name, payload: dict) -&gt; None</code> — resumes the paused execution with the elicitation response, per-session (the legacy <code>/elicitation</code> route resumes with process-level names and is wrong for picker-spawned sessions).</li>
+<li>Already-decided detection: <code>FluxClient.decide_approval</code> swallows the 409 and returns the body — check <code>body.get("error") == "already_decided"</code>, NOT the status code.</li>
+<li>
+<p><code>derived_title</code>: <code>None</code> here; computed by callers from the log (Task 5 helper).</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Failing tests</strong> using the house HTTP-stub pattern — <code>tests/flux/agents/test_flux_client.py::_patched_async_client</code> (line ~44; monkeypatches <code>httpx.AsyncClient</code> — <code>respx</code> is NOT installed and FluxClient takes no transport parameter): list_sessions maps rows (incl. <code>name</code>); spawn picks <code>agent_custom_x</code> when definition has <code>workflow_file</code> (assert requested workflow name); decide already-decided body → <code>"already_decided"</code>; stop hits the workflow-scoped cancel GET; rename PUTs; send resumes with the given workflow_name.</p>
+</li>
+<li>[ ] <strong>Step 2 fail → 3 implement → 4 green → 5 commit</strong> <code>feat(console): ConsoleService — the single server client for console surfaces</code>.</li>
+</ul>
+<hr />
+<h3 id="task-5-console-core-eventhub-derived-titles">Task 5: Console core — <code>EventHub</code> + derived titles<a class="headerlink" href="#task-5-console-core-eventhub-derived-titles" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>flux/agents/console/hub.py</code>, <code>flux/agents/console/titles.py</code>
+- Test: <code>tests/flux/agents/console/test_hub.py</code>, <code>test_titles.py</code></p>
+<p><strong>Interfaces:</strong>
+- Consumes: <code>parse_event</code>, <code>ConsoleService.send/get_detail</code>.
+- Produces:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConsoleEvent</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">event</span><span class="p">:</span> <span class="n">AgentEvent</span>           <span class="c1"># parse_event vocabulary + plan/subagent (Task 3)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="k">class</span><span class="w"> </span><span class="nc">EventHub</span><span class="p">:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">service</span><span class="p">:</span> <span class="n">ConsoleService</span><span class="p">):</span> <span class="o">...</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">subscribe</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">[</span><span class="n">ConsoleEvent</span><span class="p">]</span>      <span class="c1"># consumers: TUI queue, web SSE pump</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_turn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">agent_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workflow_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>        <span class="c1"># drives service.send, fans parse_event output to subscribers,</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>        <span class="c1"># then emits ConsoleEvent(session_id, AgentEvent(&quot;log_delta&quot;, {&quot;detail&quot;: ...}))</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>        <span class="c1"># from a fresh get_detail — the turn-boundary reconciliation.</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">open_session</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">session_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span>    <span class="c1"># get_detail now; returns detail for initial render</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="k">def</span><span class="w"> </span><span class="nf">derived_title</span><span class="p">(</span><span class="n">detail</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>    <span class="c1"># first USER message text from the execution detail&#39;s event log,</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>    <span class="c1"># stripped, first 48 chars, word-boundary truncation with &#39;…&#39;; None if no user message yet.</span>
+</code></pre></div>
+<ul>
+<li>A stream error mid-turn does NOT raise to subscribers: emit <code>AgentEvent("error", ...)</code> then still run the <code>log_delta</code> reconciliation (the log catches up — spec's loss-tolerance).</li>
+<li>
+<p><code>KIND_LOG_DELTA = "log_delta"</code> added in <code>console/hub.py</code> (console-only kind, not in <code>events.py</code>'s frozen wire contract).</p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Failing tests</strong>: fan-out (two subscribers each get every event with the right session_id); turn ends with exactly one <code>log_delta</code> carrying the get_detail dict; mid-stream exception → <code>error</code> event then <code>log_delta</code> (loss-tolerance contract); <code>derived_title</code> cases (long text truncates on word boundary; no user message → None; deterministic).</p>
+</li>
+<li>[ ] <strong>Step 2 fail → 3 implement → 4 green → 5 commit</strong> <code>feat(console): EventHub — session-enveloped fan-out with turn-boundary log reconciliation</code>.</li>
+</ul>
+<hr />
+<h3 id="task-6-console-app-endpoints-security-hardening-static-mount">Task 6: Console app — endpoints, security hardening, static mount<a class="headerlink" href="#task-6-console-app-endpoints-security-hardening-static-mount" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>flux/agents/console/app.py</code> (builds on <code>ApiUI</code>'s FastAPI app)
+- Modify: <code>flux/agents/ui/api.py</code> (register console routes + the Origin/CSRF dependency on ALL state-changing routes including existing <code>/chat</code>, <code>/approval</code>, <code>/elicitation</code>)
+- Modify: <code>flux/agents/ui/web.py</code> (StaticFiles mount of <code>flux/agents/web/</code>; <code>GET /console/state</code>)
+- Test: <code>tests/flux/agents/console/test_app_security.py</code>, <code>test_app_endpoints.py</code></p>
+<p><strong>Interfaces:</strong>
+- Produces JSON endpoints (all <code>POST</code>/<code>PUT</code> require header <code>X-Flux-Console: 1</code> AND, when an <code>Origin</code> header is present, an allowlist match of the console's own origin — 403 otherwise):
+  - <code>GET  /console/state</code> → <code>{"agent": str | None, "session": str | None, "server_url": str, "can_write": bool}</code> — <code>can_write</code> is the read-only-degradation signal: false when a probe of the operator token lacks write verbs (a 403 from any state-changing call also carries the server's structured <code>missing_permission</code>, which the UI surfaces verbatim)
+  - <code>GET  /console/agents</code>, <code>GET /console/sessions</code>, <code>GET /console/approvals</code>
+  - <code>GET  /console/sessions/{id}/detail</code>
+  - <code>POST /console/sessions</code> <code>{"agent": str, "name": str | None}</code> → <code>{"execution_id"}</code>
+  - <code>POST /console/sessions/{id}/send</code> <code>{"text"}</code> → SSE of hub events (house mechanism — SSE, not WebSocket, per review note)
+  - <code>POST /console/approvals/{execution_id}/{task_call_id:path}</code> (<code>:path</code> like the server's own decide routes) <code>{"approve": bool, "always": bool, "always_for_target": bool}</code> → <code>{"result": "decided"|"already_decided"}</code>
+  - <code>POST /console/sessions/{id}/elicitation</code> <code>{"payload": {...}}</code> → 204 (per-session resume via <code>ConsoleService.respond_to_elicitation</code>)
+  - <code>PUT  /console/sessions/{id}/name</code> <code>{"name"}</code>
+  - <code>POST /console/sessions/{id}/stop</code>
+- <code>api</code> mode serves the same endpoints with its per-request Bearer contract; WebUI keeps the operator-token dependency (unchanged trust model).
+- <strong>Console app constructor</strong>: the app builder gains <code>agent_name: str | None</code> (today <code>ApiUI.__init__</code> requires <code>str</code> — <code>ui/api.py:32-40</code>); when None, legacy single-agent routes (<code>/chat</code>) return 404 with "console runs multi-session — use /console/<em>", and <code>/console/state</code> reports <code>agent: null</code>. <code>flux/agents/process.py</code> (<code>AgentProcess</code>) accepts the optional name in Task 9.
+- </em><em>derived_title in list responses</em>*: computed from a hub-side cache of details seen at open/turn boundaries — NEVER per-row detailed fetches (spec's cheap-list rule). Never-opened sessions report <code>derived_title: null</code> and the UI falls back to <code>"agent · date"</code>.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing security tests</strong> (TestClient): POST <code>/console/sessions</code> without <code>X-Flux-Console</code> → 403; with header + hostile <code>Origin: https://evil.example</code> → 403; with header + own origin → passes auth layer; <strong>regression-hardening</strong>: existing <code>/chat</code> without the header now 403s; GETs unaffected.</li>
+<li>[ ] <strong>Step 2 fail → 3 implement dependency + wire routes to ConsoleService/EventHub → 4 green.</strong></li>
+<li>[ ] <strong>Step 5: Endpoint tests</strong> with a stubbed ConsoleService: sessions list carries <code>name</code> + <code>derived_title</code>; send streams SSE frames; decide returns <code>already_decided</code> on 409 path; static mount serves <code>/static/console.css</code> 200.</li>
+<li>[ ] <strong>Step 6: Commit</strong> <code>feat(console): console endpoints with Origin/CSRF hardening and static bundle mount</code>.</li>
+</ul>
+<hr />
+<h3 id="task-7-web-bundle-rail-stage-led-board">Task 7: Web bundle — Rail + Stage, LED board<a class="headerlink" href="#task-7-web-bundle-rail-stage-led-board" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>flux/agents/web/console.html</code> (shell), <code>flux/agents/web/console.css</code> (tokens + layout), <code>flux/agents/web/console.js</code> (one module)
+- Modify: <code>flux/agents/ui/web.py</code> (<code>GET /</code> serves <code>console.html</code>)
+- Delete: <code>flux/agents/web/index.html</code> (retired in place, per spec)
+- Test: <code>tests/flux/agents/console/test_web_shell.py</code> (served shell references only local assets; token blocks present for both themes)</p>
+<p><strong>Layout/behavior contract (from the confirmed mockups — implement exactly):</strong>
+- Three-region grid: rail 190px, stage flex, context 200px; top bar with running count, <code>⚠ n</code> approvals button → drawer, <code>+ new session</code>.
+- Rail rows: glyph (Global Constraints table) + title (<code>name ?? derived_title ?? "agent · date"</code>) + agent + mono status line; grouped active → idle → done; click opens (fetch detail → render → subscribe SSE).
+- Stage: header (title with pencil → inline input → PUT name; agent; amber mono step figure when latest <code>plan</code> payload exists), chat log (user/agent/tool blocks), <strong>composer pinned via grid row at the bottom</strong> (<code>Enter</code> send / <code>Shift+Enter</code> newline).
+- Context panel: PLAN (hero <code>n/m</code> mono amber + bar + step list; step click toggles <code>.expanded</code> showing full text), ACTIVITY (tool tasks from the log: name, duration; click expands ARGS/OUTPUT pretty-printed, truncated at 2KB with "show full"), SUB-AGENTS (cards from <code>subagent</code> payloads + log).
+- New-session modal: filter input over <code>/console/agents</code> (name · model · description), optional name field with placeholder <code>agent · &lt;local datetime&gt;</code>, Start → POST → open.
+- Approvals drawer: rows from <code>/console/approvals</code> with Approve / Reject / Always / Always-for-target (last only when <code>target_value</code> non-null); 409 result renders "already decided elsewhere".
+- Elicitation events render an inline form in the stage (port the existing <code>index.html</code> elicitation block's behavior).
+- Theme: <code>data-theme</code> on <code>&lt;html&gt;</code>, toggle in top bar, persisted to <code>localStorage</code>; both palettes from Global Constraints; amber glow (<code>text-shadow</code>) on hero figures <strong>dark only</strong>.
+- Empty states verbatim, one per panel: rail "No sessions yet — press + New session"; approvals drawer "No pending approvals"; PLAN "No plan yet"; ACTIVITY "No tool calls yet"; SUB-AGENTS "No sub-agents".
+- Read-only degradation: when <code>/console/state.can_write</code> is false, every state-changing control renders disabled with a tooltip naming the missing permission (from the server's structured 403) — never a silent failure.
+- JS structure: <code>render(state)</code> pure-ish DOM builders + <code>handleEvent(consoleEvent)</code> reducer — the seams named by the spec; no framework.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing shell test</strong> (serves <code>console.html</code>, no external URLs, both token sets present as CSS custom properties).</li>
+<li>[ ] <strong>Step 2 fail → 3 build the bundle → 4 green.</strong></li>
+<li>[ ] <strong>Step 5: Manual smoke against a live stack</strong> (<code>flux agent start --mode web</code> from Task 9's CLI — if Task 9 not yet done, <code>--mode web</code> with a NAME): create, chat, approve, rename, theme toggle. Fix what smoke finds.</li>
+<li>[ ] <strong>Step 6: Commit</strong> <code>feat(console): web mission control — Rail+Stage, LED-board identity, both themes</code>.</li>
+</ul>
+<hr />
+<h3 id="task-8-tui-btop-grammar-on-textual">Task 8: TUI — btop grammar on Textual<a class="headerlink" href="#task-8-tui-btop-grammar-on-textual" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Modify: <code>flux/agents/ui/textual_app.py</code> (grows into the console), <code>flux/agents/ui/textual_widgets.py</code> (new panels), <code>flux/agents/ui/textual_messages.py</code> (extend, don't replace)
+- Create: <code>flux/agents/ui/console_screens.py</code> (new-session + approvals overlays)
+- Test: <code>tests/flux/agents/console/test_tui.py</code> (Textual <code>pilot</code>)</p>
+<p><strong>Behavior contract:</strong>
+- Three panels titled in-border <code>1sessions</code> / <code>2chat</code> / <code>3context</code>; keys <code>1/2/3</code> focus (focused border amber <code>#f0a828</code>); <code>n</code> new-session overlay (filterable agent list + name input), <code>a</code> approvals overlay, <code>r</code> rename (input overlay on highlighted row), <code>Enter</code> opens session / expands focused row (<code>Collapsible</code> for tool/plan/sub-agent items), <code>Ctrl+D</code> quit.
+- Responsive: <code>on_resize</code> — width &lt; 100 hides panels 1/3 (toggle with <code>1</code>/<code>3</code>); &lt; 80 chat-only, status line carries <code>step n/m · ⚠k</code>.
+- Status line (btop footer style): key hints + session state + approvals count.
+- Data: same <code>ConsoleService</code>/<code>EventHub</code> in-process; rail from <code>list_sessions</code> on a 3s timer; open session renders detail then live events.
+- Read-only degradation mirrors the web: disabled bindings shown dimmed in the footer with the missing permission in the status line. Empty states per panel as in Task 7.
+- App class: <code>ConsoleApp(App)</code> in <code>textual_app.py</code>, constructor <code>(service: ConsoleService, hub: EventHub, initial_agent: str | None, initial_session: str | None)</code> — the object Task 9's CLI constructs.
+- Colors: web dark tokens mapped to Textual CSS.</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing pilot tests</strong>: app composes three panels; <code>2</code> focuses chat (border class asserted); <code>n</code> pushes NewSessionScreen; resize(90×30) hides rail; resize(70×30) chat-only; approval overlay lists a stubbed ApprovalRow and <code>Enter</code> on Approve calls the stubbed service with the right ids.</li>
+<li>[ ] <strong>Step 2 fail → 3 implement → 4 green → 5 commit</strong> <code>feat(console): Textual mission control — btop grammar, hotkey panels, overlays</code>.</li>
+</ul>
+<hr />
+<h3 id="task-9-cli-semantics">Task 9: CLI semantics<a class="headerlink" href="#task-9-cli-semantics" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Modify: <code>flux/cli.py</code> (<code>agent start</code>: <code>NAME</code> optional; NAME-less + no TTY + mode≠api → clear error <code>"the console needs a terminal; use --mode api or provide an agent name"</code>; <code>--plain</code> preserved; <code>agent session resume &lt;id&gt;</code> opens the console focused on that session)
+- Modify: <code>flux/agents/process.py</code> (<code>AgentProcess.agent_name</code> becomes <code>str | None</code>; None is only valid for console modes, asserted with a clear error otherwise)
+- Test: extend <code>tests/flux/agents/test_process.py</code> + CliRunner tests</p>
+<ul>
+<li>[ ] <strong>Step 1: Failing tests</strong>: NAME-less terminal invocation on TTY constructs <code>ConsoleApp</code> (Task 8) with <code>initial_agent=None</code> (rail-first); NAME-less non-TTY exits 1 with the message; <code>--plain</code> with NAME still selects the plain REPL (existing test at test_process.py:125 keeps passing); resume path passes session id through.</li>
+<li>[ ] <strong>Step 2 fail → 3 implement → 4 green → 5 commit</strong> <code>feat(cli): flux agent start opens the console; NAME optional</code>.</li>
+</ul>
+<hr />
+<h3 id="task-10-e2e-docs-screenshots-pr">Task 10: E2E, docs, screenshots, PR<a class="headerlink" href="#task-10-e2e-docs-screenshots-pr" title="Permanent link">&para;</a></h3>
+<p><strong>Files:</strong>
+- Create: <code>tests/e2e/test_agent_console.py</code> (module-scoped console-api harness on the pattern of <code>tests/e2e/test_agent_harness_server_modes.py::agent_harness_env</code>, plus the seeding above)
+- Create: <code>tests/flux/agents/console/__init__.py</code> (package-style test tree — created in Task 4, listed here as a guard)
+- Create: <code>docs/advanced-features/agent-console.md</code> + modify <code>docs/advanced-features/agent-harness.md</code> (serving-modes section) — AGENTS.md requires the docs entry
+- Create: <code>docs/images/console-web-dark.png</code>, <code>console-web-light.png</code>, <code>console-tui.svg</code> (+ png)
+- Modify: <code>pyproject.toml</code> (0.82.0)</p>
+<p><strong>Harness seeding (the stock <code>agent_harness_env</code> is NOT enough):</strong> the module fixture must additionally seed via the server API — two agents through <code>POST /admin/agents</code> (one plain, one declaring a <code>workflow_file</code> so the custom-workflow spawn is assertable) and one approval-gated workflow (pattern: <code>tests/e2e/test_approvals.py</code>) so the approval round-trip has a gate to trip.</p>
+<p><strong>E2E flow (api mode drives the console core through a real stack):</strong>
+- [ ] <strong>Step 1: Failing e2e</strong> — spawn console in api mode against the harness env; <code>POST /console/sessions</code> (picker agent) → session appears in <code>GET /console/sessions</code> with derived title after first send; send streams tokens; tool activity appears in <code>/detail</code>; approval round-trip incl. second decide → <code>already_decided</code>; <code>PUT name</code> → rename visible; custom-workflow agent spawns <code>agent_custom_&lt;name&gt;</code> (assert workflow name in the execution row); stop cancels.
+- [ ] <strong>Step 2 red on missing pieces → fix → green.</strong> Run the full gates: <code>poetry run pytest tests/flux/ -q</code>, e2e file, <code>pre-commit run --all-files</code> (cold mypy).
+- [ ] <strong>Step 3: Screenshots</strong> — TUI: pilot script sizes 120×32, opens a seeded session, <code>app.export_screenshot()</code> SVG → save; convert to PNG if a converter is available, else ship SVG. Web: run a live stack + <code>flux agent start --mode web</code>, capture dark and light with the browser tools; save under <code>docs/images/</code>, reference them in <code>agent-console.md</code>.
+- [ ] <strong>Step 4: Docs page</strong> — quick start, layout tour (embedding the screenshots), permissions-per-verb table (from spec Security; rename documents <code>workflow:{ns}:{wf}:run</code> explicitly), the four filed follow-ups referenced. Add the page to <code>mkdocs.yml</code> nav (~lines 87-94 — the nav is explicit; an unlisted page does not render).
+- [ ] <strong>Step 5: Version bump, final full-suite run, commit, push, PR</strong> — PR body: spec + plan links, screenshots inline, verification matrix; merge-order note if other PRs are open. File the four "filed separately" issues from the spec.</p>
+<hr />
+<h2 id="self-review-run-after-writing-fixed-inline">Self-review (run after writing, fixed inline)<a class="headerlink" href="#self-review-run-after-writing-fixed-inline" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Spec coverage: naming→T1, budget prereq→T2, emissions→T3, service→T4, hub/titles→T5, security+endpoints+static→T6, web→T7, TUI→T8, CLI→T9, e2e/docs/screens/PR→T10. Deferred list untouched. ✓</li>
+<li>No placeholders; every task carries real interfaces and first tests. ✓</li>
+<li>Type consistency: <code>SessionRow</code>/<code>ApprovalRow</code>/<code>ConsoleEvent</code> names match across T4–T8. ✓</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/edurdias/flux" target="_blank" rel="noopener" title="Flux on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "toc.follow", "search.suggest", "search.highlight", "content.tabs.link", "content.code.copy"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
