@@ -93,6 +93,7 @@ nav:
       - Task Progress Streaming: advanced-features/task-progress.md
       - Agent Skills: advanced-features/agent-skills.md
       - Agent Harness: advanced-features/agent-harness.md
+      - Agent Console: advanced-features/agent-console.md
       - MCP Client: advanced-features/mcp-client.md
       - AI Memory: advanced-features/ai-memory.md
       - Database Migrations: advanced-features/database-migrations.md
