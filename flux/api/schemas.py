@@ -189,6 +189,13 @@ class ApprovalDecideRequest(BaseModel):
     always_for_target: bool = False
 
 
+class ExecutionRenameRequest(BaseModel):
+    """Body for PUT /executions/{id}/name. Bound and stripped at the route,
+    not here — the model just carries the raw string through."""
+
+    name: str
+
+
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -293,6 +300,7 @@ class AgentSessionSummaryResponse(BaseModel):
     workflow_namespace: str
     workflow_name: str
     current_worker: str | None = None
+    name: str | None = None
 
 
 class AgentSessionListResponse(BaseModel):

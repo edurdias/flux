@@ -650,6 +650,9 @@ class ExecutionContextModel(Base):
     # Set when the execution was dispatched by a schedule; lets schedule
     # history be scoped to the originating schedule rather than the workflow.
     schedule_id = Column(String, nullable=True)
+    # Operator-facing label (issue: agent console); sessions inherit it as
+    # titles.
+    name = Column(String(200), nullable=True)
     # Park TTL (issue #157): when set, an execution still unclaimed (state
     # CREATED) past this instant is failed terminally by the scheduler tick's
     # sweep instead of waiting forever for a matching worker. NULL — the

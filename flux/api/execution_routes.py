@@ -30,6 +30,7 @@ from flux.utils import get_logger
 from flux.api.schemas import (
     _has_any_workflow_read,
     ApprovalDecideRequest,
+    ExecutionRenameRequest,
     ExecutionSummaryResponse,
     ExecutionListResponse,
 )
@@ -290,6 +291,58 @@ class ExecutionRoutesMixin:
                 raise HTTPException(
                     status_code=500,
                     detail=f"Error retrieving execution: {str(e)}",
+                )
+
+        @api.put("/executions/{execution_id}/name")
+        async def execution_rename(
+            execution_id: str,
+            body: ExecutionRenameRequest,
+            identity: FluxIdentity = Depends(get_identity),
+        ):
+            """Set an execution's operator-facing label.
+
+            Same permission as cancel: if you may run/cancel a workflow's
+            execution you may name it too.
+            """
+            try:
+                manager = ContextManager.create()
+                try:
+                    ctx = manager.get(execution_id)
+                except ExecutionContextNotFoundError:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Execution '{execution_id}' not found",
+                    )
+
+                if auth_service is not None and auth_config.enabled:
+                    required = f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}:run"
+                    if not await auth_service.is_authorized(identity, required):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Permission denied: requires '{required}'",
+                        )
+
+                name = body.name.strip()
+                if not name or len(name) > 200:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="name must be non-empty and at most 200 characters",
+                    )
+
+                manager.rename(execution_id, name)
+                return {"execution_id": execution_id, "name": name}
+            except ExecutionContextNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Execution '{execution_id}' not found",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error renaming execution: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error renaming execution: {str(e)}",
                 )
 
         # ===========================================

@@ -464,6 +464,99 @@ class TestExecutionShow:
 
 
 # =============================================================================
+# Workflow Run --name Tests
+# =============================================================================
+
+
+class TestWorkflowRunWithName:
+    """Tests for the --name option on `workflow run`."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_name_passed_as_query_param(self, mock_client_class, runner):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "exec-123", "state": "CREATED"}
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(
+            cli,
+            ["workflow", "run", "test_workflow", '{"key": "value"}', "--name", "fix CI"],
+        )
+
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_client.post.call_args
+        assert call_kwargs[1]["params"]["name"] == "fix CI"
+
+    @patch("flux.cli.httpx.Client")
+    def test_no_name_omits_the_param(self, mock_client_class, runner):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "exec-123", "state": "CREATED"}
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["workflow", "run", "test_workflow", '{"key": "value"}'])
+
+        assert result.exit_code == 0
+        call_kwargs = mock_client.post.call_args
+        assert "name" not in call_kwargs[1]["params"]
+
+
+# =============================================================================
+# Execution Rename Tests
+# =============================================================================
+
+
+class TestExecutionRename:
+    """Tests for `execution rename`."""
+
+    @patch("flux.cli.httpx.Client")
+    def test_rename_success(self, mock_client_class, runner):
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {"execution_id": "exec-123", "name": "renamed"}
+        mock_client.put.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["execution", "rename", "exec-123", "renamed"])
+
+        assert result.exit_code == 0, result.output
+        assert "renamed" in result.output
+        call_args = mock_client.put.call_args
+        assert call_args[0][0].endswith("/executions/exec-123/name")
+        assert call_args[1]["json"] == {"name": "renamed"}
+
+    @patch("flux.cli.httpx.Client")
+    def test_rename_missing_execution(self, mock_client_class, runner):
+        import httpx
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        error = httpx.HTTPStatusError("Not found", request=MagicMock(), response=mock_response)
+        mock_response.raise_for_status.side_effect = error
+        mock_client.put.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_class.return_value = mock_client
+
+        result = runner.invoke(cli, ["execution", "rename", "nope", "x"])
+
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+
+# =============================================================================
 # Worker List Tests
 # =============================================================================
 

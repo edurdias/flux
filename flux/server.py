@@ -490,6 +490,7 @@ class Server(
         required_worker: str | None = None,
         routing_input: dict | None = None,
         park_ttl: int | None = None,
+        name: str | None = None,
     ) -> ExecutionContext:
         workflow = WorkflowCatalog.create().get(namespace, workflow_name, version)
         if not workflow:
@@ -509,6 +510,7 @@ class Server(
             required_worker=required_worker or None,
             routing_input=routing_input or None,
             park_ttl=park_ttl,
+            name=name,
         )
 
         # Every run of a dynamic workflow refreshes its GC clock — this is

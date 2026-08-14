@@ -401,6 +401,11 @@ def list_workflow_versions(
     "dispatch, never delivered to the worker.",
 )
 @click.option(
+    "--name",
+    default=None,
+    help="Operator-facing label for this execution (agent console session title).",
+)
+@click.option(
     "--server-url",
     "-cp-url",
     default=None,
@@ -413,6 +418,7 @@ def run_workflow(
     version: int | None,
     detailed: bool,
     routing_input: tuple[str, ...],
+    name: str | None,
     server_url: str | None,
 ):
     """Run the specified workflow."""
@@ -421,12 +427,14 @@ def run_workflow(
         from flux.utils import parse_value, to_json
 
         base_url = server_url or get_server_url()
-        namespace, name = resolve_workflow_ref(workflow_name)
+        namespace, wf_name = resolve_workflow_ref(workflow_name)
         parsed_input = parse_value(input)
 
         params: dict[str, Any] = {"detailed": detailed}
         if version is not None:
             params["version"] = version
+        if name is not None:
+            params["name"] = name
 
         from flux.routing_input import RoutingInputError, parse_cli_pairs
 
@@ -438,7 +446,7 @@ def run_workflow(
 
         with get_http_client(timeout=60.0) as client:
             response = client.post(
-                f"{base_url}/workflows/{namespace}/{name}/run/{mode}",
+                f"{base_url}/workflows/{namespace}/{wf_name}/run/{mode}",
                 json=parsed_input,
                 params=params,
                 headers=headers,
@@ -1092,6 +1100,35 @@ def execution_reject(
     except Exception as ex:
         click.echo(f"Error rejecting: {str(ex)}", err=True)
         raise click.exceptions.Exit(1)
+
+
+@execution.command("rename")
+@click.argument("execution_id")
+@click.argument("name")
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def execution_rename(execution_id: str, name: str, server_url: str | None):
+    """Set an execution's operator-facing label."""
+    try:
+        base_url = server_url or get_server_url()
+        with get_http_client() as client:
+            response = client.put(
+                f"{base_url}/executions/{execution_id}/name",
+                json={"name": name},
+            )
+            response.raise_for_status()
+            result = response.json()
+        click.echo(f"Execution {result['execution_id']} → {result['name']}")
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            raise click.ClickException(f"Execution '{execution_id}' not found.")
+        raise click.ClickException(f"Error renaming execution: {str(ex)}")
+    except Exception as ex:
+        raise click.ClickException(f"Error renaming execution: {str(ex)}")
 
 
 # =============================================================================
