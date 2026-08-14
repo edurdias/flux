@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from collections.abc import Callable
 
 from flux.task import task
+from flux.tasks.progress import progress
 
 if TYPE_CHECKING:
     from flux.tasks.ai.memory.long_term_memory import LongTermMemory
@@ -226,8 +227,14 @@ async def build_plan_tools(
             ctx.plan = AgentPlan.from_dict(saved)
 
     async def _persist() -> None:
-        if long_term_memory and ctx.plan:
+        # Single settle point for every plan-tool mutation (create/start/done/failed):
+        # persist to LTM when configured, and always surface the new revision to any
+        # live console watching the progress stream.
+        if ctx.plan is None:
+            return
+        if long_term_memory:
             await long_term_memory.memorize("_active_plan", ctx.plan.to_dict())
+        await progress({"type": "plan", "plan": ctx.plan.to_dict()})
 
     @task
     async def create_plan(steps: str) -> dict:

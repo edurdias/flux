@@ -572,3 +572,138 @@ class TestDelegationIntegration:
         assert ctx.output["r2"]["status"] == "completed"
         assert ctx.output["r2"]["output"] == "deployed"
         assert wf_agent.call_count == 2
+
+
+class TestDelegateProgressEmission:
+    def test_emits_started_then_done_on_completion(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        agents = [_FakeAgent("researcher", "Research.")]
+        delegate_tool = build_delegate(agents)
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("researcher", "Find competitor pricing")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        assert mock_progress.await_count == 2
+
+        started = mock_progress.await_args_list[0][0][0]
+        assert started == {
+            "type": "subagent",
+            "call_id": started["call_id"],
+            "agent": "researcher",
+            "status": "started",
+            "brief": "Find competitor pricing",
+        }
+        assert started["call_id"]
+
+        done = mock_progress.await_args_list[1][0][0]
+        assert done["type"] == "subagent"
+        assert done["call_id"] == started["call_id"]
+        assert done["status"] == "done"
+        assert "result from researcher" in done["result_tail"]
+
+    def test_emits_failed_on_exception(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        class FailingAgent:
+            name = "broken"
+            description = "Always fails."
+
+            async def __call__(self, instruction, **kwargs):
+                raise RuntimeError("boom")
+
+        delegate_tool = build_delegate([FailingAgent()])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("broken", "Do something")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        assert ctx.output["status"] == "failed"
+
+        done = mock_progress.await_args_list[-1][0][0]
+        assert done["status"] == "failed"
+        assert "boom" in done["result_tail"]
+
+    def test_emits_done_on_unknown_agent(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        agents = [_FakeAgent("researcher", "Research.")]
+        delegate_tool = build_delegate(agents)
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("nonexistent", "Find info")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        done = mock_progress.await_args_list[-1][0][0]
+        assert done["status"] == "failed"
+        assert "not found" in done["result_tail"]
+
+    def test_result_tail_truncated_to_500_chars(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        class VerboseAgent:
+            name = "verbose"
+            description = "Returns a lot of text."
+
+            async def __call__(self, instruction, **kwargs):
+                return "x" * 600
+
+        delegate_tool = build_delegate([VerboseAgent()])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("verbose", "Go on")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        done = mock_progress.await_args_list[-1][0][0]
+        assert len(done["result_tail"]) == 500
+
+    def test_started_and_done_share_call_id_across_two_delegations(self):
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        agents = [_FakeAgent("researcher", "Research.")]
+        delegate_tool = build_delegate(agents)
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            r1 = await delegate_tool("researcher", "First")
+            r2 = await delegate_tool("researcher", "Second")
+            return {"r1": r1, "r2": r2}
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        assert mock_progress.await_count == 4
+        first_started, first_done, second_started, second_done = (
+            c[0][0] for c in mock_progress.await_args_list
+        )
+        assert first_started["call_id"] == first_done["call_id"]
+        assert second_started["call_id"] == second_done["call_id"]
+        assert first_started["call_id"] != second_started["call_id"]

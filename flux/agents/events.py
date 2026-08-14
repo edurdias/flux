@@ -30,6 +30,8 @@ KIND_REASONING = "reasoning"
 KIND_APPROVAL_REQUIRED = "approval_required"
 KIND_ERROR = "error"
 KIND_END = "end"
+KIND_PLAN = "plan"
+KIND_SUBAGENT = "subagent"
 
 
 @dataclass(frozen=True)
@@ -46,7 +48,10 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
     * Progress frames — ``{"type": "TASK_PROGRESS", "value": {...}, ...}``.
       ``value`` is the dict passed to ``progress()`` inside a task; the agent
       loop emits ``{"token": ...}``, ``{"type": "tool_start", ...}``, or
-      ``{"type": "tool_done", ...}``.
+      ``{"type": "tool_done", ...}``. The plan tools (``agent_plan.py``) emit
+      ``{"type": "plan", ...}`` after each mutation, and ``delegate``
+      (``delegation.py``) emits ``{"type": "subagent", ...}`` around each
+      sub-agent call.
 
     * State frames (``ExecutionContextDTO.summary()``) —
       ``{"execution_id": ..., "state": <ExecutionState>, "output": {...}, ...}``.
@@ -89,6 +94,22 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
             yield AgentEvent(
                 kind=KIND_REASONING,
                 data={"text": value.get("text", "")},
+            )
+        elif value.get("type") == KIND_PLAN:
+            yield AgentEvent(
+                kind=KIND_PLAN,
+                data={"plan": value.get("plan", {})},
+            )
+        elif value.get("type") == KIND_SUBAGENT:
+            yield AgentEvent(
+                kind=KIND_SUBAGENT,
+                data={
+                    "call_id": value.get("call_id", ""),
+                    "agent": value.get("agent", ""),
+                    "status": value.get("status", ""),
+                    "brief": value.get("brief", ""),
+                    "result_tail": value.get("result_tail", ""),
+                },
             )
         return
 
