@@ -11,6 +11,11 @@ from fastapi.testclient import TestClient
 from flux.agents.events import AgentEvent
 from flux.agents.ui.api import ApiUI
 
+# All state-changing routes now require this header (Origin/CSRF hardening);
+# these tests are about downstream behavior, so it's supplied unconditionally
+# except where a test is specifically exercising its absence.
+CSRF_HEADER = {"X-Flux-Console": "1"}
+
 
 @pytest.fixture(autouse=True)
 def _reset_sse_app_status():
@@ -60,7 +65,7 @@ def test_health_endpoint():
 def test_chat_rejects_missing_bearer():
     ui = _make_ui()
     client = TestClient(ui.app)
-    response = client.post("/chat", json={"message": "hi"})
+    response = client.post("/chat", json={"message": "hi"}, headers=CSRF_HEADER)
     assert response.status_code == 401
 
 
@@ -89,7 +94,7 @@ def test_chat_streams_approval_required_event_through_sse():
         response = client.post(
             "/chat",
             json={"message": ""},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
@@ -113,7 +118,7 @@ def test_chat_new_session_streams_sse():
         response = client.post(
             "/chat",
             json={"message": ""},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -136,7 +141,7 @@ def test_chat_resume_session_streams_sse():
         response = client.post(
             "/chat?session=exec-1",
             json={"message": "next"},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
@@ -159,7 +164,7 @@ def test_elicitation_response_streams_sse():
         response = client.post(
             "/elicitation/el-1?session=exec-1",
             json={"elicitation_id": "el-1", "action": "accept"},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     assert "resumed" in response.text
@@ -179,7 +184,7 @@ def test_elicitation_accepts_supported_actions(action):
         response = client.post(
             "/elicitation/el-1?session=exec-1",
             json={"elicitation_id": "el-1", "action": action},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     assert captured["payload"]["elicitation_response"]["action"] == action
@@ -191,7 +196,7 @@ def test_elicitation_rejects_unknown_action():
     response = client.post(
         "/elicitation/el-1?session=exec-1",
         json={"elicitation_id": "el-1", "action": "whatever"},
-        headers={"Authorization": "Bearer t"},
+        headers={"Authorization": "Bearer t", **CSRF_HEADER},
     )
     assert response.status_code == 400
     detail = response.json()["detail"]
@@ -219,7 +224,7 @@ def test_approval_decision_posts_and_streams_resumed_events():
         response = client.post(
             "/approval/deploy_1?session=exec-1",
             json={"execution_id": "exec-1", "approved": True, "reason": "lgtm"},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     assert "resumed-after-approve" in response.text
@@ -247,7 +252,7 @@ def test_approval_reject_passes_decision_through():
         response = client.post(
             "/approval/deploy_1?session=exec-1",
             json={"execution_id": "exec-1", "approved": False},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     assert mock_client.decide_approval.await_args.kwargs["approved"] is False
@@ -259,7 +264,7 @@ def test_approval_rejects_non_boolean_approved():
     response = client.post(
         "/approval/deploy_1?session=exec-1",
         json={"execution_id": "exec-1", "reason": "missing the flag"},
-        headers={"Authorization": "Bearer t"},
+        headers={"Authorization": "Bearer t", **CSRF_HEADER},
     )
     assert response.status_code == 400
     assert "approved" in response.json()["detail"]
@@ -271,6 +276,7 @@ def test_approval_rejects_missing_bearer():
     response = client.post(
         "/approval/deploy_1?session=exec-1",
         json={"execution_id": "exec-1", "approved": True},
+        headers=CSRF_HEADER,
     )
     assert response.status_code == 401
 
@@ -285,7 +291,7 @@ def test_approval_stream_emits_error_on_exception():
         response = client.post(
             "/approval/deploy_1?session=exec-1",
             json={"execution_id": "exec-1", "approved": True},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     payloads = [
@@ -327,7 +333,7 @@ def test_chat_stream_emits_error_on_exception():
         response = client.post(
             "/chat",
             json={"message": ""},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     payloads = [
@@ -352,7 +358,7 @@ def test_elicitation_stream_emits_error_on_exception():
         response = client.post(
             "/elicitation/el-1?session=exec-1",
             json={"elicitation_id": "el-1", "action": "accept"},
-            headers={"Authorization": "Bearer t"},
+            headers={"Authorization": "Bearer t", **CSRF_HEADER},
         )
     assert response.status_code == 200
     payloads = [
@@ -371,6 +377,7 @@ def test_elicitation_rejects_missing_bearer():
     response = client.post(
         "/elicitation/el-1?session=exec-1",
         json={"elicitation_id": "el-1", "action": "accept"},
+        headers=CSRF_HEADER,
     )
     assert response.status_code == 401
 

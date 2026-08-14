@@ -11,6 +11,9 @@ from fastapi.testclient import TestClient
 from flux.agents.events import AgentEvent
 from flux.agents.ui.web import WebUI
 
+# State-changing routes now require this header regardless of auth model.
+CSRF_HEADER = {"X-Flux-Console": "1"}
+
 
 @pytest.fixture(autouse=True)
 def _reset_sse_app_status():
@@ -71,7 +74,7 @@ def test_chat_without_operator_token_passes_through():
     """When no operator token is set, auth is disabled and requests pass through."""
     ui = _make_ui(token=None)
     client = TestClient(ui.app)
-    response = client.post("/chat", json={"message": "hi"})
+    response = client.post("/chat", json={"message": "hi"}, headers=CSRF_HEADER)
     assert response.status_code == 200
 
 
@@ -83,7 +86,7 @@ def test_chat_uses_operator_token_automatically():
     ]
     with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
         client = TestClient(ui.app)
-        response = client.post("/chat", json={"message": ""})
+        response = client.post("/chat", json={"message": ""}, headers=CSRF_HEADER)
     assert response.status_code == 200
     payloads = [
         json.loads(line[len("data: ") :])

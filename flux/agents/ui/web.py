@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import Header
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from flux.agents.ui.api import ApiUI
 
@@ -21,7 +22,7 @@ class WebUI(ApiUI):
     def __init__(
         self,
         server_url: str,
-        agent_name: str,
+        agent_name: str | None,
         operator_token: str | None = None,
         port: int = 8080,
         workflow_name: str = "agent_chat",
@@ -54,11 +55,16 @@ class WebUI(ApiUI):
         web_dir = Path(__file__).parent.parent / "web"
         agent_name = self.agent_name
 
+        # Serves the future console bundle (console.html/.css/.js, Task 7);
+        # today's flux/agents/web/ only holds index.html, so this mount is
+        # dark until that task lands its assets alongside it.
+        self.app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
+
         @self.app.get("/")
         async def index() -> HTMLResponse:
             page = (web_dir / "index.html").read_text()
             page = page.replace(
                 "{{AGENT_NAME_ATTR}}",
-                html.escape(agent_name, quote=True),
+                html.escape(agent_name or "", quote=True),
             )
             return HTMLResponse(page)
