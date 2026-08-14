@@ -3129,9 +3129,12 @@ def start_agent(name, mode, session_id, port, host, allow_origins, allow_remote,
         click.echo("--plain requires an agent name", err=True)
         raise SystemExit(1)
 
-    if not name and mode != "api" and not _console_can_render():
+    if not name and mode == "terminal" and not _console_can_render():
+        # Only the Textual console needs a terminal to draw on; web and api
+        # render in a browser or over HTTP, so they must stay startable from
+        # systemd, Docker and CI.
         click.echo(
-            "the console needs a terminal; use --mode api or provide an agent name",
+            "the console needs a terminal; use --mode web/api or provide an agent name",
             err=True,
         )
         raise SystemExit(1)

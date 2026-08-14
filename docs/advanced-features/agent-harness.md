@@ -11,7 +11,7 @@ A Flux agent is a row in the `agents` table plus a process (`flux agent start`) 
 Capabilities:
 
 - **Declarative agents** — define an agent in YAML, store it in Flux, reuse it anywhere.
-- **Three serving modes** — `terminal` for interactive CLI use, `web` for a local single-user chat page, `api` for headless integration.
+- **Three serving modes** — `terminal` for the interactive console, `web` for the same console in a browser, `api` for headless integration. All three drive one multi-session surface; see [Agent Console](agent-console.md).
 - **Tool integration** — bundled system tools (shell, files, search, directory), individual groups, cherry-picked names, or custom Python `@task` tools from a file.
 - **MCP integration** — connect to any MCP server; URL-based elicitation (auth) is handled across all three serving modes.
 - **Elicitation** — MCP `elicitation/create` requests pause the workflow; the process shows the URL and resumes on completion.
@@ -30,8 +30,8 @@ Capabilities:
 │                                                     │
 │  ┌─────────┐   ┌─────────┐   ┌─────────────────┐    │
 │  │Terminal │   │ Web UI  │   │   API (SSE)     │    │
-│  │         │   │ (chat   │   │                 │    │
-│  │         │   │  page)  │   │  POST /chat     │    │
+│  │ (TUI    │   │ (console│   │                 │    │
+│  │ console)│   │  page)  │   │  /console/*     │    │
 │  └────┬────┘   └────┬────┘   └────────┬────────┘    │
 │       │             │                  │            │
 │       └─────────────┼──────────────────┘            │
@@ -417,63 +417,39 @@ flux agent start coder --mode web --port 8080
 flux agent start coder --mode api --port 8080
 ```
 
-Headless SSE service. Every non-health endpoint requires a Bearer token that is passed through to the Flux server on a per-request basis — the operator token supplied at process start is not used. Every state-changing request must also carry `X-Flux-Console: 1`; without it the request is refused with 403 before auth is consulted.
+Headless SSE service, and the same `/console/*` surface `web` mode serves —
+one contract for both, per session rather than bound to one agent. Every
+non-health endpoint requires a Bearer token, passed through to the Flux server
+per request; the operator token supplied at process start is not used. Every
+state-changing request must also carry `X-Flux-Console: 1`, or it is refused
+with 403 before auth is consulted.
 
-The multi-session surface is `/console/*`, documented in
-[Agent Console](agent-console.md#headless-mode-api). The single-agent routes
-below remain for existing clients and need a `NAME` at process start — with
-`NAME` omitted the console runs multi-session and `/chat` answers 404.
-
-| Method | Path | Body | Notes |
-|--------|------|------|-------|
-| `GET` | `/health` | — | Public. Returns `{"status": "ok"}`. |
-| `POST` | `/chat` | `{"message": "..."}` | Starts a new session. SSE response. First frames include a `session_id` event. |
-| `POST` | `/chat?session=<id>` | `{"message": "..."}` | Resumes an existing session. SSE response. |
-| `POST` | `/elicitation/{elicitation_id}?session=<id>` | `{"elicitation_id": "...", "action": "accept"\|"decline"\|"cancel"}` | Resume the session in response to an elicitation. SSE response. |
-| `GET` | `/session/{id}` | — | Proxy to `GET /executions/{id}` on the Flux server. |
-
-SSE frames are JSON objects with a `type` field matching the event kinds above (except `chat_response` is serialized as `type: response` on the wire, for backward compatibility with the bundled web UI):
-
-```json
-{"type": "session_id", "id": "7f3c2d1a-..."}
-{"type": "token", "text": "Hello"}
-{"type": "tool_start", "name": "shell", "args": {"cmd": "ls"}}
-{"type": "tool_done", "name": "shell", "status": "success"}
-{"type": "response", "content": "Hi! What can I help with?", "turn": 1}
-{"type": "elicitation", "elicitation_id": "el-1", "url": "https://auth...", "message": "Authorize", "server_name": "github", "mode": "url"}
-{"type": "session_end", "reason": "user_exit", "turns": 5}
-{"type": "error", "message": "..."}
-```
-
-Example curl (note `-N` to disable buffering):
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/health` | Public. Returns `{"status": "ok"}`. |
+| — | `/console/*` | The agent API: sessions, approvals, elicitations, rename, stop. Documented in [Agent Console](agent-console.md#headless-mode-api). |
 
 ```bash
-curl -N -X POST http://localhost:8080/chat \
+curl -s -X POST http://localhost:8080/console/sessions \
   -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
   -H "X-Flux-Console: 1" \
   -H "Content-Type: application/json" \
-  -d '{"message": "list the files in /tmp"}'
+  -d '{"agent": "coder"}'
 ```
 
-Resume:
+Then stream a turn (note `-N` to disable buffering):
 
 ```bash
-curl -N -X POST "http://localhost:8080/chat?session=$SESSION_ID" \
+curl -N -X POST "http://localhost:8080/console/sessions/$EXECUTION_ID/send" \
   -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
   -H "X-Flux-Console: 1" \
   -H "Content-Type: application/json" \
-  -d '{"message": "now summarize what you found"}'
+  -d '{"text": "list the files in /tmp"}'
 ```
 
-Respond to an elicitation:
-
-```bash
-curl -N -X POST "http://localhost:8080/elicitation/el-1?session=$SESSION_ID" \
-  -H "Authorization: Bearer $FLUX_AUTH_TOKEN" \
-  -H "X-Flux-Console: 1" \
-  -H "Content-Type: application/json" \
-  -d '{"elicitation_id": "el-1", "action": "accept"}'
-```
+Each SSE frame is `{"session_id": "...", "kind": "...", "data": {...}}`, where
+`kind` is one of the event kinds above plus `log_delta`, which closes every
+turn with a fresh read of the execution log.
 
 ## Tool Configuration
 
@@ -583,9 +559,9 @@ Some MCP servers require user authorization before exposing a tool. The MCP clie
 
 The agent process observes the pause, handles the UX for the current mode, and resumes with an `ElicitationResponse`:
 
-- **Terminal**: prints `[github] Authorize Flux ...`, prompts `Open browser to authorize? [Y/n]`, and on yes calls `webbrowser.open(url)`. Resumes with `action: accept` or `decline`.
+- **Terminal**: the console marks the session and offers the elicitation under `e`; the overlay opens the URL only on an explicit `Open url`, and only for `http(s)`. Resumes with `action: accept`, `decline` or `cancel`.
 - **Web**: renders a clickable link (`Click to authorize`) that opens in a new tab. The operator completes the flow on the provider's site; the page stays open and the agent process resumes when the user submits.
-- **API**: emits a `{"type": "elicitation", ...}` SSE event. The client is responsible for directing the end-user to the URL and then calling `POST /elicitation/{id}?session=<id>` with the chosen action.
+- **API**: emits an `elicitation` SSE frame. The client directs the end-user to the URL and then calls `POST /console/sessions/{execution_id}/elicitation` with the chosen action.
 
 Elicitation is handled in a generic way in the MCP client — any workflow that uses MCP tools can pause with this payload, not just agents.
 
@@ -725,13 +701,15 @@ flux agent start assistant --mode api --port 9100
 Endpoints:
 
 ```
-POST /chat                  Start a new session (SSE response)
-POST /chat?session=<id>     Resume a session (SSE response)
-POST /elicitation/<id>      Respond to an MCP elicitation
-GET  /health                Health check
+POST /console/sessions                       Create a session
+POST /console/sessions/<id>/send             Send a message (SSE response)
+POST /console/sessions/<id>/elicitation      Respond to an MCP elicitation
+POST /console/approvals/<exec>/<task_call>   Approve or reject a gated task
+GET  /console/sessions                       List sessions
+GET  /health                                 Health check
 ```
 
-Every request except `/health` requires `Authorization: Bearer <token>`. See `examples/agents/api_client.py` for a Python client example.
+Every request except `/health` requires `Authorization: Bearer <token>`, and every state-changing one also requires `X-Flux-Console: 1`. The full surface is documented in [Agent Console](agent-console.md#headless-mode-api); see `examples/agents/api_client.py` for a Python client example.
 
 ## Example: A Coding Assistant
 
@@ -823,7 +801,7 @@ This calls the Flux execution cancel endpoint. The next resume will not reattach
 
 **`Error starting agent: ... 401`** — the process could not authenticate to the Flux server. Run `flux auth login`, or set `FLUX_AUTH_TOKEN` to a valid Bearer token. Confirm with `flux auth status`.
 
-**`Missing or invalid Authorization header`** — you hit the API mode `/chat` endpoint without a Bearer token. API mode does **not** fall back to the operator token; every request must carry its own `Authorization: Bearer ...` header.
+**`Missing or invalid Authorization header`** — you hit an API mode `/console/*` endpoint without a Bearer token. API mode does **not** fall back to the operator token; every request must carry its own `Authorization: Bearer ...` header.
 
 **`Agent process started without a token`** — web mode was started without a way to resolve the operator token. Run `flux auth login` first, or launch with `FLUX_AUTH_TOKEN` set in the environment.
 

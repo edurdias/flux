@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from flux.agents.events import AgentEvent
+from flux.agents.console.app import _ScopedConsoleService
 from flux.agents.ui.web import WebUI
 
 # State-changing routes now require this header regardless of auth model.
@@ -28,6 +27,24 @@ def _reset_sse_app_status():
     AppStatus.should_exit_event = None
     yield
     AppStatus.should_exit_event = None
+
+
+class _FakeConsoleService(_ScopedConsoleService):
+    """Records the token each request resolved to, so the operator-token
+    override is observable without touching the network. Subclasses the
+    *scoped* service so `.token` still resolves from the request contextvar
+    the dependency sets."""
+
+    def __init__(self, server_url="http://flux.test"):
+        super().__init__(server_url)
+        self.tokens_seen: list[str | None] = []
+
+    async def list_sessions(self, agent=None):
+        self.tokens_seen.append(self.token)
+        return []
+
+    async def aclose(self) -> None:
+        return None
 
 
 def _make_ui(token="op-token"):
@@ -73,31 +90,28 @@ def test_index_never_templates_the_agent_name():
     assert "alert(1)" not in response.text
 
 
-def test_chat_without_operator_token_passes_through():
-    """When no operator token is set, auth is disabled and requests pass through."""
-    ui = _make_ui(token=None)
-    client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
-    response = client.post("/chat", json={"message": "hi"}, headers=CSRF_HEADER)
+def test_console_reads_pass_through_without_an_operator_token():
+    """No operator token means auth is disabled: WebUI overrides the Bearer
+    dependency, so the browser never has to present one."""
+    fake = _FakeConsoleService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        client = TestClient(_make_ui(token=None).app, base_url=CONSOLE_ORIGIN)
+        response = client.get("/console/sessions")
+
     assert response.status_code == 200
 
 
-def test_chat_uses_operator_token_automatically():
-    ui = _make_ui(token="op-token")
-    events = [
-        AgentEvent(kind="session_id", data={"id": "exec-1"}),
-        AgentEvent(kind="chat_response", data={"content": "hi", "turn": 1}),
-    ]
-    with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
-        client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
-        response = client.post("/chat", json={"message": ""}, headers=CSRF_HEADER)
+def test_console_calls_use_the_operator_token_automatically():
+    """The credential lives in the process, not the page -- a browser
+    request carrying no Authorization header still reaches the server as
+    the operator."""
+    fake = _FakeConsoleService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        client = TestClient(_make_ui(token="op-token").app, base_url=CONSOLE_ORIGIN)
+        response = client.get("/console/sessions")
+
     assert response.status_code == 200
-    payloads = [
-        json.loads(line[len("data: ") :])
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    assert any(p.get("type") == "session_id" for p in payloads)
-    assert any(p.get("type") == "response" for p in payloads)
+    assert fake.tokens_seen == ["op-token"]
 
 
 def test_health_ok_without_header():

@@ -1193,16 +1193,18 @@ class TestAgentStartCLI:
 
         assert result.exit_code != 0
         assert (
-            "the console needs a terminal; use --mode api or provide an agent name" in result.output
+            "the console needs a terminal; use --mode web/api or provide an agent name"
+            in result.output
         )
         process_cls.assert_not_called()
 
-    def test_name_less_non_tty_web_mode_still_needs_a_terminal(self, runner):
+    def test_name_less_non_tty_web_mode_starts_headless(self, runner):
+        """A served console renders in a browser, so it must start under
+        systemd/Docker/CI where no terminal exists."""
         result, process_cls = self._invoke(runner, ["--mode", "web"], can_render=False)
 
-        assert result.exit_code != 0
-        assert "the console needs a terminal" in result.output
-        process_cls.assert_not_called()
+        assert result.exit_code == 0, result.output
+        assert process_cls.call_args.kwargs["mode"] == "web"
 
     def test_name_less_non_tty_api_mode_is_exempt(self, runner):
         result, process_cls = self._invoke(runner, ["--mode", "api"], can_render=False)
@@ -1285,7 +1287,8 @@ class TestAgentStartCLI:
 
         assert result.exit_code != 0
         assert (
-            "the console needs a terminal; use --mode api or provide an agent name" in result.output
+            "the console needs a terminal; use --mode web/api or provide an agent name"
+            in result.output
         )
 
     def test_agent_process_failure_exits_nonzero_not_silently_swallowed(self, runner):

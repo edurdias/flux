@@ -762,14 +762,6 @@ def test_console_state_reports_agent_and_server_url():
 # ---------------------------------------------------------------------------
 
 
-def test_chat_returns_404_when_agent_name_none():
-    ui = _make_ui(agent_name=None)
-    client = TestClient(ui.app)
-    response = client.post("/chat", json={"message": "hi"}, headers=HEADERS)
-    assert response.status_code == 404
-    assert "console runs multi-session" in response.json()["detail"]
-
-
 def test_console_state_reports_agent_none_when_no_bound_agent():
     fake = _FakeService()
     with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):

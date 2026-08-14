@@ -1,27 +1,8 @@
 from __future__ import annotations
 
-import json
-from collections.abc import AsyncIterator
-
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
-from sse_starlette.sse import EventSourceResponse
+from fastapi import FastAPI, Header, HTTPException
 
 from flux.agents.console.app import mount_console_routes
-from flux.agents.events import AgentEvent
-from flux.agents.flux_client import FluxClient
-from flux.agents.session import AgentSession
-
-# console runs multi-session; legacy single-agent routes need a concrete name.
-_NO_AGENT_DETAIL = "console runs multi-session — use /console/*"
-
-
-def _event_to_sse_payload(event: AgentEvent) -> dict:
-    """Map AgentEvent to the SSE shape the web/client expects."""
-    if event.kind == "chat_response":
-        return {"type": "response", **event.data}
-    if event.kind == "session_id":
-        return {"type": "session_id", **event.data}
-    return {"type": event.kind, **event.data}
 
 
 class ApiUI:
@@ -76,9 +57,6 @@ class ApiUI:
         if not token:
             raise HTTPException(status_code=401, detail="Empty Bearer token")
         return token
-
-    def _make_client(self, token: str | None) -> FluxClient:
-        return FluxClient(server_url=self.server_url, token=token)
 
     def _get_token_dependency(self):
         """Overridable hook for subclasses (WebUI) to change auth behavior."""
@@ -136,136 +114,9 @@ class ApiUI:
         async def health() -> dict:
             return {"status": "ok"}
 
-        token_dep = self._get_token_dependency()
-        csrf_dep = self._csrf_dependency()
-
-        @self.app.post("/chat", dependencies=[Depends(csrf_dep)])
-        async def chat(
-            body: dict = Body(default_factory=dict),
-            session: str | None = Query(default=None),
-            token: str = Depends(token_dep),
-        ):
-            agent_name = self.agent_name
-            if agent_name is None:
-                raise HTTPException(status_code=404, detail=_NO_AGENT_DETAIL)
-            message = body.get("message", "")
-            client = self._make_client(token)
-            agent_session = AgentSession(
-                client=client,
-                agent_name=agent_name,
-                session_id=session,
-                workflow_name=self.workflow_name,
-            )
-
-            async def event_stream() -> AsyncIterator[dict]:
-                try:
-                    if session is None:
-                        async for event in agent_session.start():
-                            yield {"data": json.dumps(_event_to_sse_payload(event))}
-                        if message:
-                            async for event in agent_session.send(message):
-                                yield {"data": json.dumps(_event_to_sse_payload(event))}
-                    else:
-                        async for event in agent_session.send(message):
-                            yield {"data": json.dumps(_event_to_sse_payload(event))}
-                except Exception as exc:  # noqa: BLE001
-                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
-
-            return EventSourceResponse(event_stream())
-
-        @self.app.post("/elicitation/{elicitation_id}", dependencies=[Depends(csrf_dep)])
-        async def elicitation(
-            elicitation_id: str,
-            body: dict = Body(...),
-            session: str = Query(...),
-            token: str = Depends(token_dep),
-        ):
-            client = self._make_client(token)
-            # This route always resumes an already-started session, which
-            # never reads agent_name (only .start() does) -- the "or ''" is
-            # just satisfying AgentSession's str-typed parameter.
-            agent_session = AgentSession(
-                client=client,
-                agent_name=self.agent_name or "",
-                session_id=session,
-                workflow_name=self.workflow_name,
-            )
-            action = body.get("action", "decline")
-            allowed_actions = ("accept", "decline", "cancel")
-            if action not in allowed_actions:
-                supported = ", ".join(allowed_actions)
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid elicitation action: '{action}'. Must be one of: {supported}",
-                )
-            payload = {
-                "elicitation_response": {
-                    "elicitation_id": body.get("elicitation_id", elicitation_id),
-                    "action": action,
-                },
-            }
-
-            async def event_stream() -> AsyncIterator[dict]:
-                try:
-                    async for event in agent_session.respond_to_elicitation(payload):
-                        yield {"data": json.dumps(_event_to_sse_payload(event))}
-                except Exception as exc:  # noqa: BLE001
-                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
-
-            return EventSourceResponse(event_stream())
-
-        @self.app.post("/approval/{task_call_id:path}", dependencies=[Depends(csrf_dep)])
-        async def approval(
-            task_call_id: str,
-            body: dict = Body(...),
-            session: str = Query(...),
-            token: str = Depends(token_dep),
-        ):
-            approved = body.get("approved")
-            if not isinstance(approved, bool):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Approval decision requires a boolean 'approved' field.",
-                )
-            reason = body.get("reason")
-            # The gated task runs inside the agent execution; fall back to the
-            # session id when the client does not echo the event's execution_id.
-            execution_id = body.get("execution_id") or session
-            client = self._make_client(token)
-            # Same as /elicitation: only .start() reads agent_name, and this
-            # route always resumes an already-running session.
-            agent_session = AgentSession(
-                client=client,
-                agent_name=self.agent_name or "",
-                session_id=session,
-                workflow_name=self.workflow_name,
-            )
-
-            async def event_stream() -> AsyncIterator[dict]:
-                try:
-                    await client.decide_approval(
-                        execution_id,
-                        task_call_id,
-                        approved=approved,
-                        reason=reason,
-                    )
-                    # The decide route resumes the workflow without an SSE
-                    # response of its own; re-attach to surface the events
-                    # produced after the decision.
-                    async for event in agent_session.reattach():
-                        yield {"data": json.dumps(_event_to_sse_payload(event))}
-                except Exception as exc:  # noqa: BLE001
-                    yield {"data": json.dumps({"type": "error", "message": str(exc)})}
-
-            return EventSourceResponse(event_stream())
-
-        @self.app.get("/session/{session_id}")
-        async def get_session(
-            session_id: str,
-            token: str = Depends(token_dep),
-        ):
-            client = self._make_client(token)
-            return await client.get_execution(session_id)
+        # The console's /console/* routes (mounted in __init__) are the only
+        # agent API: same contract in web and api mode, per-session rather
+        # than bound to one process-level agent name.
 
     def _startup_banner(self) -> list[str]:
         """Lines printed before the server binds. Nothing was printed

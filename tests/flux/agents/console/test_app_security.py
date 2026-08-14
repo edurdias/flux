@@ -11,7 +11,7 @@ exempt throughout.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -132,72 +132,6 @@ def test_console_sessions_get_unaffected_by_missing_csrf_header():
 
 
 # ---------------------------------------------------------------------------
-# Regression hardening: pre-existing /chat, /approval, /elicitation
-# ---------------------------------------------------------------------------
-
-
-def test_chat_without_csrf_header_now_rejected():
-    ui = _make_api_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/chat",
-        json={"message": "hi"},
-        headers={"Authorization": "Bearer t"},
-    )
-    assert response.status_code == 403
-
-
-def test_chat_with_csrf_header_and_own_origin_clears_security_layer():
-    ui = _make_api_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/chat",
-        json={"message": "hi"},
-        headers={
-            "Authorization": "Bearer t",
-            **CSRF_HEADER,
-            "Origin": "http://127.0.0.1:8080",
-        },
-    )
-    # Cleared the security dependency; whatever happens next is business
-    # logic (streaming against a fake server_url), never a 403.
-    assert response.status_code != 403
-
-
-def test_approval_without_csrf_header_now_rejected():
-    ui = _make_api_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/approval/deploy_1?session=exec-1",
-        json={"execution_id": "exec-1", "approved": True},
-        headers={"Authorization": "Bearer t"},
-    )
-    assert response.status_code == 403
-
-
-def test_elicitation_without_csrf_header_now_rejected():
-    ui = _make_api_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/elicitation/el-1?session=exec-1",
-        json={"elicitation_id": "el-1", "action": "accept"},
-        headers={"Authorization": "Bearer t"},
-    )
-    assert response.status_code == 403
-
-
-def test_session_get_unaffected_by_missing_csrf_header():
-    ui = _make_api_ui()
-    mock_client = AsyncMock()
-    mock_client.get_execution = AsyncMock(return_value={"execution_id": "exec-1"})
-    with patch("flux.agents.ui.api.FluxClient", return_value=mock_client):
-        client = TestClient(ui.app)
-        response = client.get("/session/exec-1", headers={"Authorization": "Bearer t"})
-    # No CSRF gate on GETs; 401/404/whatever downstream, never 403-for-CSRF.
-    assert response.status_code != 403
-
-
-# ---------------------------------------------------------------------------
 # Other /console/* state-changing routes carry the same gate
 # ---------------------------------------------------------------------------
 
@@ -261,10 +195,13 @@ def test_console_stop_without_csrf_header_rejected():
 # ---------------------------------------------------------------------------
 
 
-def test_web_ui_chat_without_csrf_header_rejected():
+def test_web_ui_console_write_without_csrf_header_rejected():
+    """The gate does not depend on the auth model: WebUI resolves the
+    operator token itself, so the header is all that stands between a
+    third-party page and a state-changing call."""
     ui = WebUI(server_url="http://flux.test", agent_name="coder", operator_token="op-token")
     client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
-    response = client.post("/chat", json={"message": "hi"})
+    response = client.post("/console/sessions", json={"agent": "coder"})
     assert response.status_code == 403
 
 

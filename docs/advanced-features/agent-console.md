@@ -33,14 +33,14 @@ REPL, and a NAME-less invocation fails loudly rather than opening a console
 that cannot draw. `--plain` (or `FLUX_PLAIN_TERMINAL=1`) forces that REPL
 explicitly and requires a NAME.
 
-That pre-flight check currently covers `--mode web` too, so a NAME-less
-`flux agent start --mode web` from a service manager or container without a
-TTY exits with *"the console needs a terminal"*. Pass an agent name (the web
-console can still switch agents once it is up) or use `--mode api` there.
+That check applies to terminal mode only: `web` and `api` render in a browser
+or over HTTP, so they start fine from a service manager, container or CI with
+no TTY attached.
 
 Options: `--mode terminal|web|api`, `--port`, `--host` (default `127.0.0.1`),
-`--server`, `--session <id>`, `--plain`. The token comes from
-`$FLUX_AUTH_TOKEN`, else the credentials stored by `flux auth login`.
+`--allow-remote`, `--allow-origin`, `--server`, `--session <id>`, `--plain`.
+The token comes from `$FLUX_AUTH_TOKEN`, else the credentials stored by
+`flux auth login`.
 
 ## The layout
 
@@ -255,9 +255,10 @@ Pre-existing issues found while building the console, tracked separately:
    agent-process import budget survives. Fixed on this branch (the package
    imports lazily now), noted here because released versions still carry it.
 4. **`/chat`, `/approval` and `/elicitation` were drive-by callable.** The
-   pre-console web UI accepted cross-site POSTs on those routes. The
-   `X-Flux-Console` + Origin check described above now covers them too; noted
-   for awareness of released versions.
+   pre-console web UI accepted cross-site POSTs on those routes. They are
+   removed on this branch — the console's per-session `/console/*` routes
+   replace them, behind the `X-Flux-Console` + Origin check described above —
+   noted for awareness of released versions.
 
 ## See also
 

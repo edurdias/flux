@@ -1,31 +1,23 @@
-"""Integration tests for ApiUI HTTP endpoints."""
+"""Integration tests for ApiUI.
+
+ApiUI's own surface is now just `/health` plus the per-request Bearer
+contract; the agent API itself is the console's `/console/*` routes, mounted
+identically in web and api mode (see tests/flux/agents/console/). The
+single-agent `/chat`, `/elicitation`, `/approval` and `/session` routes were
+removed with the console: they carried process-level agent and workflow
+names, which are wrong for any session spawned from the picker.
+"""
 
 from __future__ import annotations
-
-import json
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from flux.agents.events import AgentEvent
 from flux.agents.ui.api import ApiUI
 
-# All state-changing routes now require this header (Origin/CSRF hardening);
-# these tests are about downstream behavior, so it's supplied unconditionally
-# except where a test is specifically exercising its absence.
+# All state-changing routes require this header (Origin/CSRF hardening);
+# supplied unconditionally except where a test exercises its absence.
 CSRF_HEADER = {"X-Flux-Console": "1"}
-
-
-@pytest.fixture(autouse=True)
-def _reset_sse_app_status():
-    """sse_starlette caches an anyio.Event on the first event loop it sees;
-    TestClient creates a fresh loop per test, so we reset between tests."""
-    from sse_starlette.sse import AppStatus
-
-    AppStatus.should_exit_event = None
-    yield
-    AppStatus.should_exit_event = None
 
 
 def _make_ui():
@@ -37,23 +29,6 @@ def _make_ui():
     )
 
 
-def _mock_session_start(events):
-    async def _start(self):
-        self.session_id = "exec-1"
-        for event in events:
-            yield event
-
-    return _start
-
-
-def _mock_session_send(events):
-    async def _send(self, message):
-        for event in events:
-            yield event
-
-    return _send
-
-
 def test_health_endpoint():
     ui = _make_ui()
     client = TestClient(ui.app)
@@ -62,335 +37,48 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok"}
 
 
-def test_chat_rejects_missing_bearer():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.post("/chat", json={"message": "hi"}, headers=CSRF_HEADER)
-    assert response.status_code == 401
+def test_health_needs_no_bearer():
+    """Readiness probes must work without a credential."""
+    client = TestClient(_make_ui().app)
+
+    assert client.get("/health").status_code == 200
 
 
-def test_chat_streams_approval_required_event_through_sse():
-    """When the workflow pauses for approval, the API SSE stream surfaces
-    the approval_required event so the JS client can render a prompt and
-    POST a decision via the Flux server's /executions/{id}/approvals routes."""
-    ui = _make_ui()
-    events = [
-        AgentEvent(kind="session_id", data={"id": "exec-app-1"}),
-        AgentEvent(
-            kind="approval_required",
-            data={
-                "execution_id": "exec-app-1",
-                "task_call_id": "deploy_1",
-                "task_name": "deploy",
-                "workflow_namespace": "default",
-                "workflow_name": "release",
-                "approval_id": "appr-1",
-                "requested_at": "2026-05-07T10:00:00",
-            },
-        ),
-    ]
-    with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/chat",
-            json={"message": ""},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
-    payloads = [json.loads(line[len("data: ") :]) for line in lines]
-    appr = next((p for p in payloads if p.get("type") == "approval_required"), None)
-    assert appr is not None
-    assert appr["task_call_id"] == "deploy_1"
-    assert appr["task_name"] == "deploy"
+@pytest.mark.parametrize(
+    "path",
+    ["/console/state", "/console/agents", "/console/sessions", "/console/approvals"],
+)
+def test_console_reads_reject_a_missing_bearer(path):
+    """api mode's defining contract: every request carries its own token."""
+    client = TestClient(_make_ui().app)
+
+    assert client.get(path).status_code == 401
 
 
-def test_chat_new_session_streams_sse():
-    ui = _make_ui()
-    events = [
-        AgentEvent(kind="session_id", data={"id": "exec-1"}),
-        AgentEvent(kind="token", data={"text": "hel"}),
-        AgentEvent(kind="token", data={"text": "lo"}),
-        AgentEvent(kind="chat_response", data={"content": "hello", "turn": 1}),
-    ]
-    with patch("flux.agents.session.AgentSession.start", _mock_session_start(events)):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/chat",
-            json={"message": ""},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
-    payloads = [json.loads(line[len("data: ") :]) for line in lines]
-    kinds = [p.get("type") or p.get("kind") for p in payloads]
-    assert "session_id" in kinds
-    assert "token" in kinds
-    assert "response" in kinds
+def test_console_writes_reject_a_missing_bearer():
+    client = TestClient(_make_ui().app)
 
+    response = client.post("/console/sessions", json={"agent": "coder"}, headers=CSRF_HEADER)
 
-def test_chat_resume_session_streams_sse():
-    ui = _make_ui()
-    events = [
-        AgentEvent(kind="token", data={"text": "ok"}),
-        AgentEvent(kind="chat_response", data={"content": "done", "turn": 2}),
-    ]
-    with patch("flux.agents.session.AgentSession.send", _mock_session_send(events)):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/chat?session=exec-1",
-            json={"message": "next"},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    lines = [line for line in response.text.splitlines() if line.startswith("data: ")]
-    payloads = [json.loads(line[len("data: ") :]) for line in lines]
-    kinds = [p.get("type") for p in payloads]
-    assert "token" in kinds
-    assert "response" in kinds
-
-
-def test_elicitation_response_streams_sse():
-    ui = _make_ui()
-    events = [AgentEvent(kind="token", data={"text": "resumed"})]
-
-    async def _respond(self, payload):
-        for event in events:
-            yield event
-
-    with patch("flux.agents.session.AgentSession.respond_to_elicitation", _respond):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/elicitation/el-1?session=exec-1",
-            json={"elicitation_id": "el-1", "action": "accept"},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    assert "resumed" in response.text
-
-
-@pytest.mark.parametrize("action", ["accept", "decline", "cancel"])
-def test_elicitation_accepts_supported_actions(action):
-    ui = _make_ui()
-    captured: dict = {}
-
-    async def _respond(self, payload):
-        captured["payload"] = payload
-        yield AgentEvent(kind="token", data={"text": "ok"})
-
-    with patch("flux.agents.session.AgentSession.respond_to_elicitation", _respond):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/elicitation/el-1?session=exec-1",
-            json={"elicitation_id": "el-1", "action": action},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    assert captured["payload"]["elicitation_response"]["action"] == action
-
-
-def test_elicitation_rejects_unknown_action():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/elicitation/el-1?session=exec-1",
-        json={"elicitation_id": "el-1", "action": "whatever"},
-        headers={"Authorization": "Bearer t", **CSRF_HEADER},
-    )
-    assert response.status_code == 400
-    detail = response.json()["detail"]
-    assert "accept" in detail and "decline" in detail and "cancel" in detail
-
-
-def test_approval_decision_posts_and_streams_resumed_events():
-    """POST /approval decides the approval against the Flux server, then
-    re-attaches to the execution stream so post-resume events are delivered."""
-    ui = _make_ui()
-    resumed = [AgentEvent(kind="token", data={"text": "resumed-after-approve"})]
-
-    async def _reattach(self):
-        for event in resumed:
-            yield event
-
-    mock_client = AsyncMock()
-    mock_client.decide_approval = AsyncMock(return_value={"status": "approved"})
-
-    with (
-        patch("flux.agents.ui.api.FluxClient", return_value=mock_client),
-        patch("flux.agents.session.AgentSession.reattach", _reattach),
-    ):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/approval/deploy_1?session=exec-1",
-            json={"execution_id": "exec-1", "approved": True, "reason": "lgtm"},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    assert "resumed-after-approve" in response.text
-    mock_client.decide_approval.assert_awaited_once()
-    call = mock_client.decide_approval.await_args
-    assert call.args == ("exec-1", "deploy_1")
-    assert call.kwargs["approved"] is True
-    assert call.kwargs["reason"] == "lgtm"
-
-
-def test_approval_reject_passes_decision_through():
-    ui = _make_ui()
-
-    async def _reattach(self):
-        yield AgentEvent(kind="token", data={"text": "ok"})
-
-    mock_client = AsyncMock()
-    mock_client.decide_approval = AsyncMock(return_value={"status": "rejected"})
-
-    with (
-        patch("flux.agents.ui.api.FluxClient", return_value=mock_client),
-        patch("flux.agents.session.AgentSession.reattach", _reattach),
-    ):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/approval/deploy_1?session=exec-1",
-            json={"execution_id": "exec-1", "approved": False},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    assert mock_client.decide_approval.await_args.kwargs["approved"] is False
-
-
-def test_approval_rejects_non_boolean_approved():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/approval/deploy_1?session=exec-1",
-        json={"execution_id": "exec-1", "reason": "missing the flag"},
-        headers={"Authorization": "Bearer t", **CSRF_HEADER},
-    )
-    assert response.status_code == 400
-    assert "approved" in response.json()["detail"]
-
-
-def test_approval_rejects_missing_bearer():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/approval/deploy_1?session=exec-1",
-        json={"execution_id": "exec-1", "approved": True},
-        headers=CSRF_HEADER,
-    )
-    assert response.status_code == 401
-
-
-def test_approval_stream_emits_error_on_exception():
-    ui = _make_ui()
-    mock_client = AsyncMock()
-    mock_client.decide_approval = AsyncMock(side_effect=RuntimeError("decide failed"))
-
-    with patch("flux.agents.ui.api.FluxClient", return_value=mock_client):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/approval/deploy_1?session=exec-1",
-            json={"execution_id": "exec-1", "approved": True},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    payloads = [
-        json.loads(line[len("data: ") :])
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    error_frames = [p for p in payloads if p.get("type") == "error"]
-    assert len(error_frames) == 1
-    assert "decide failed" in error_frames[0]["message"]
-
-
-def test_get_session_returns_execution_state():
-    ui = _make_ui()
-    mock_client = AsyncMock()
-    mock_client.get_execution = AsyncMock(
-        return_value={"execution_id": "exec-1", "state": "PAUSED"},
-    )
-
-    with patch("flux.agents.ui.api.FluxClient", return_value=mock_client):
-        client = TestClient(ui.app)
-        response = client.get(
-            "/session/exec-1",
-            headers={"Authorization": "Bearer t"},
-        )
-    assert response.status_code == 200
-    assert response.json()["state"] == "PAUSED"
-
-
-def test_chat_stream_emits_error_on_exception():
-    ui = _make_ui()
-
-    async def _boom(self):
-        raise RuntimeError("flux exploded")
-        yield  # unreachable
-
-    with patch("flux.agents.session.AgentSession.start", _boom):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/chat",
-            json={"message": ""},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    payloads = [
-        json.loads(line[len("data: ") :])
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    error_frames = [p for p in payloads if p.get("type") == "error"]
-    assert len(error_frames) == 1
-    assert "flux exploded" in error_frames[0]["message"]
-
-
-def test_elicitation_stream_emits_error_on_exception():
-    ui = _make_ui()
-
-    async def _boom(self, payload):
-        raise RuntimeError("resume failed")
-        yield  # unreachable
-
-    with patch("flux.agents.session.AgentSession.respond_to_elicitation", _boom):
-        client = TestClient(ui.app)
-        response = client.post(
-            "/elicitation/el-1?session=exec-1",
-            json={"elicitation_id": "el-1", "action": "accept"},
-            headers={"Authorization": "Bearer t", **CSRF_HEADER},
-        )
-    assert response.status_code == 200
-    payloads = [
-        json.loads(line[len("data: ") :])
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    error_frames = [p for p in payloads if p.get("type") == "error"]
-    assert len(error_frames) == 1
-    assert "resume failed" in error_frames[0]["message"]
-
-
-def test_elicitation_rejects_missing_bearer():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.post(
-        "/elicitation/el-1?session=exec-1",
-        json={"elicitation_id": "el-1", "action": "accept"},
-        headers=CSRF_HEADER,
-    )
-    assert response.status_code == 401
-
-
-def test_session_rejects_missing_bearer():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.get("/session/exec-1")
     assert response.status_code == 401
 
 
 def test_empty_bearer_token_rejected():
-    ui = _make_ui()
-    client = TestClient(ui.app)
-    response = client.get("/session/exec-1", headers={"Authorization": "Bearer   "})
+    client = TestClient(_make_ui().app)
+
+    response = client.get("/console/sessions", headers={"Authorization": "Bearer "})
+
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/chat", "/elicitation/el-1", "/approval/task-1", "/session/exec-1"],
+)
+def test_retired_single_agent_routes_are_gone(path):
+    """Their replacements are /console/sessions/{id}/{send,elicitation} and
+    /console/approvals/{execution_id}/{task_call_id}."""
+    client = TestClient(_make_ui().app)
+
+    assert client.get(path).status_code == 404
+    assert client.post(path, json={}, headers=CSRF_HEADER).status_code == 404

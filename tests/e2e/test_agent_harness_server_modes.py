@@ -12,7 +12,6 @@ so these tests do not require Ollama, API keys, or any model provider.
 from __future__ import annotations
 
 import asyncio
-import json
 import socket
 
 import httpx
@@ -113,7 +112,11 @@ async def _cancel_and_wait(task: asyncio.Task) -> None:
 
 
 @pytest.mark.asyncio
-async def test_api_mode_health_chat_and_session(agent_harness_env):
+async def test_api_mode_health_and_console_surface(agent_harness_env):
+    """api mode serves `/health` plus the console's `/console/*` routes --
+    the same surface web mode serves, with a per-request Bearer. The
+    single-agent `/chat`, `/elicitation`, `/approval` and `/session` routes
+    were removed with the console."""
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
 
@@ -128,66 +131,49 @@ async def test_api_mode_health_chat_and_session(agent_harness_env):
 
     try:
         await _wait_ready(f"{base_url}/health")
+        bearer = agent_harness_env["token"]
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(f"{base_url}/health")
             assert resp.status_code == 200
             assert resp.json() == {"status": "ok"}
 
-            # Every state-changing route now takes the console's anti-CSRF
-            # header first, so a bare drive-by POST is refused before auth is
-            # even consulted; a well-formed request without a Bearer token
-            # still gets the 401.
-            resp = await client.post(f"{base_url}/chat", json={"message": ""})
+            for path in ("/chat", "/session/exec-1"):
+                resp = await client.get(f"{base_url}{path}")
+                assert resp.status_code == 404, path
+
+            # A drive-by POST is refused on the anti-CSRF header before auth
+            # is consulted; a well-formed request without a Bearer still 401s.
+            resp = await client.post(
+                f"{base_url}/console/sessions",
+                json={"agent": agent_harness_env["agent_name"]},
+            )
             assert resp.status_code == 403
 
             resp = await client.post(
-                f"{base_url}/chat",
-                json={"message": ""},
+                f"{base_url}/console/sessions",
+                json={"agent": agent_harness_env["agent_name"]},
                 headers={"X-Flux-Console": "1"},
             )
             assert resp.status_code == 401
 
-            session_id: str | None = None
-            events: list[dict] = []
-            bearer = agent_harness_env["token"]
-            async with client.stream(
-                "POST",
-                f"{base_url}/chat",
-                json={"message": ""},
-                headers={"Authorization": f"Bearer {bearer}", "X-Flux-Console": "1"},
-            ) as resp:
-                assert resp.status_code == 200
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    chunk = line[5:]
-                    if chunk.startswith(" "):
-                        chunk = chunk[1:]
-                    if not chunk.strip():
-                        continue
-                    try:
-                        payload = json.loads(chunk)
-                    except json.JSONDecodeError:
-                        continue
-                    events.append(payload)
-                    if payload.get("type") == "session_id" and session_id is None:
-                        session_id = payload.get("id")
-                        break
-                    if payload.get("type") == "error":
-                        break
-
-            assert session_id is not None, f"no session_id seen; events={events}"
-            kinds = [e.get("type") for e in events]
-            assert "session_id" in kinds
-
-            resp = await client.get(
-                f"{base_url}/session/{session_id}",
-                headers={"Authorization": f"Bearer {bearer}"},
-            )
+            headers = {"Authorization": f"Bearer {bearer}", "X-Flux-Console": "1"}
+            resp = await client.get(f"{base_url}/console/sessions", headers=headers)
             assert resp.status_code == 200
-            body = resp.json()
-            assert body.get("execution_id") == session_id or body.get("id") == session_id
+            assert isinstance(resp.json(), list)
+
+            # A bearer that clears auth reaches endpoint logic: this env
+            # registers the chat workflow but no agent row, so the spawn
+            # answers "agent not found" rather than 401/403. The full
+            # spawn/send/approve flow lives in test_agent_console.py, which
+            # seeds agents through the admin API.
+            resp = await client.post(
+                f"{base_url}/console/sessions",
+                json={"agent": agent_harness_env["agent_name"]},
+                headers=headers,
+            )
+            assert resp.status_code == 404, resp.text
+            assert "not found" in resp.text.lower()
     finally:
         await _cancel_and_wait(server_task)
 
