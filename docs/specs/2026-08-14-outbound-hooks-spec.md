@@ -1,20 +1,56 @@
 # Outbound hooks
 
 Design for outbound hooks as a first-class entity: named subscriptions that
-call an external API (Slack, a GMUD system, PagerDuty) or start another
-workflow when engine events matching a selector occur. Outbound only —
-ingress is already covered by resume-with-input, approval decisions, and
+start a workflow when engine events matching a selector occur. Outbound only
+— ingress is already covered by resume-with-input, approval decisions, and
 workflow services, so no inbound hook entity exists.
+
+The single action is **run a workflow**. Calling an external API (Slack, a
+GMUD system, PagerDuty) is what the *target workflow* does, with ordinary
+tasks. This is deliberate — see "Why the only action is a workflow".
 
 Immediate consumers:
 
 - `approval_routing="notify"` (issue #144) — its pending delivery mechanism
   becomes "whatever hooks match the approval event"; the agent loop stays
   transport-agnostic.
-- Chat/ops notification for approval gates (deploy-promotion GMUD flows).
+- Chat/ops notification for approval gates (deploy-promotion GMUD flows),
+  via a notification workflow that POSTs to Slack.
 - Event-driven composition — "on any `release/*` failure, run
   `release/incident_report`" as a stored row instead of code in every
   workflow.
+
+## Why the only action is a workflow
+
+An earlier draft had two actions, `webhook` and `run_workflow`. Direct
+webhook delivery drags in machinery the engine would have to own: HTTP retry
+policy, credential storage and signing (HMAC/bearer), body templating for
+receivers with fixed schemas, and a template-validation surface. Every one
+of those already exists as a workflow feature:
+
+- **Retries** — the notification task's own `retry_max_attempts` /
+  `retry_backoff`, plus fallback and timeout, instead of a parallel
+  hook-level retry policy.
+- **Credentials** — `secret_requests` against the encrypted secret store,
+  instead of a hook-level `secret_ref` and auth-mode field.
+- **Body shaping** — plain Python in the task body, instead of a
+  placeholder-interpolation template language and its injection surface.
+- **Audit and debugging** — the delivery *is* an execution: its events,
+  retries, and failure are inspectable in the console and CLI like any
+  other run, instead of a bespoke deliveries log being the only trace.
+
+"Delivery" collapses from an outbound HTTP call into creating an execution —
+a DB write with no third party on the path. External flakiness becomes the
+child workflow's problem, handled by the error-handling chain built for
+exactly that.
+
+Cost: one execution per fired event, heavier than one POST. Mitigations
+exist today: notification workflows can declare `durability="transient"`
+(only outer lifecycle checkpoints persist) and the retention sweep
+(`flux/retention.py`) bounds accumulation. High-frequency selectors are
+opt-in and visible. A `webhook` action can be added later without schema
+surgery if a no-execution path ever proves necessary; it is out of scope
+now.
 
 ## Problem
 
@@ -71,13 +107,9 @@ migrations contract:
 hooks
   id, name (unique), enabled
   selectors        JSON list of selector strings
-  action           "webhook" | "run_workflow"
-  url              webhook only
-  workflow_ref     run_workflow only ("ns/name")
-  body_template    optional, webhook only (see Templates)
-  auth             "hmac" | "bearer" (webhook only, default "hmac")
-  secret_ref       name of a config-store entry (encrypted at rest)
-  principal_id     run_workflow executes as this principal
+  action           "run_workflow"   # enum; reserved for future variants
+  workflow_ref     target ("ns/name")
+  principal_id     the hook executes the target as this principal
   owner_type       "user" | "workflow" | "agent"
   owner_ref        registering principal / "ns/name" / agent name
   max_attempts, created_by, created_at, updated_at
@@ -85,20 +117,22 @@ hooks
 hook_deliveries
   id, hook_id, event_key, payload, attempts
   status           "pending" | "delivered" | "dead"
+  execution_id     the started execution (the hook→run audit link)
   next_attempt_at, last_error, created_at, delivered_at
 ```
 
-Secrets never live on the row: `secret_ref` points into the existing
-encrypted config store. `auth="hmac"` signs the body
-(`X-Flux-Signature: sha256=<hmac>`); `auth="bearer"` sends the referenced
-secret as `Authorization: Bearer …`. Templates cannot address secrets — auth
-is a typed field, not an interpolation.
+No URL, no secret, no auth mode, no template on the row: everything about
+*how* the external world is reached lives in the target workflow. The hook
+row only says *when* and *what to start, as whom*.
 
 ## Firing: transactional outbox
 
-Delivery must never sit in the checkpoint write path — coupling persistence
-to a third party's uptime is how executions wedge. The enqueue is
-transactional with the event it reports:
+Even with delivery reduced to a local execution insert, it must not run
+inline in the checkpoint write path: creating an execution means a catalog
+lookup, a fire-time permission check, and hop-guard bookkeeping, none of
+which belong inside the hot transaction that persists a state transition.
+The enqueue — a minimal outbox row — is transactional with the event it
+reports:
 
 - Execution state transitions enqueue in the same transaction as the state
   write (`flux/context_managers.py`).
@@ -119,17 +153,22 @@ the worker-registry pattern.
 
 ## Delivery semantics
 
+Delivery means creating an execution of the target workflow with the
+envelope as input, authorized as the hook's `principal_id`.
+
 - **At-least-once.** Exponential backoff between attempts; `dead` after
-  `max_attempts`. Receivers must be idempotent — the discipline the replay
-  model already demands everywhere. `event_key` in the envelope is the dedup
-  handle.
-- **Redaction before egress.** Envelope payloads pass through
-  `flux/security/redaction.py`; `sensitive` task values are already
-  `[REDACTED]` at storage and never reach the wire.
+  `max_attempts`. With no third party on the path, retries only cover
+  transient local failures; the durable failure modes — target workflow
+  deleted, principal disabled or lacking execute permission — dead-letter
+  with the error recorded. Target workflows should be idempotent per
+  `event_key`, the discipline the replay model already demands.
+- **Redaction before hand-off.** Envelope payloads pass through
+  `flux/security/redaction.py` when the envelope is built; `sensitive` task
+  values are already `[REDACTED]` at storage and never reach the envelope.
 - **Hop guard.** The envelope carries a hop count; an execution started by a
-  `run_workflow` hook stamps `hop + 1` onto its own events' envelopes. Past
-  the cap (default 3) the delivery goes straight to `dead` with a loop
-  error. Without this, `execution:*:*:completed → run_workflow` is a fork
+  hook stamps `hop + 1` onto its own events' envelopes. Past the cap
+  (default 3) the delivery goes straight to `dead` with a loop error.
+  Without this, `execution:*:*:completed` targeting any workflow is a fork
   bomb.
 - **No cross-delivery ordering.** Per-execution ordering (serializing the
   drain by `execution_id`) is a possible later addition; promising it in v1
@@ -160,30 +199,14 @@ the worker-registry pattern.
 }
 ```
 
-`run_workflow` actions receive the envelope as the child workflow's input.
-
-## Templates
-
-`body_template` shapes the webhook body for receivers with fixed schemas
-(Slack's `{"text": …}`). It is **placeholder substitution, not a template
-language**: `{{ dotted.path }}` resolved against the redacted envelope. No
-expressions, no conditionals, no loops, no filters — a template engine
-evaluating operator-supplied text server-side is an injection surface this
-feature does not need.
-
-Rules:
-
-- A placeholder that is the *entire* JSON string value substitutes the raw
-  value, preserving type: `"blocks": "{{ event.value }}"` embeds the object.
-  A placeholder inside a longer string stringifies:
-  `"text": "{{ event.workflow_name }} paused"`.
-- Paths are validated against the envelope schema at hook create/update —
-  unknown roots fail loudly, the `routing.py` registration-time precedent.
-- A path that is schema-valid but null at fire time (e.g. `event.state` on a
-  task event) renders JSON `null` (whole-string position) or the empty
-  string (embedded position). Delivery proceeds; templates must not turn a
-  fireable event into a dead letter.
-- No template → the standard envelope is the body.
+The target workflow receives the envelope as its input
+(`ctx: ExecutionContext[dict]`). A notification workflow shapes the Slack
+payload from it in plain Python — no template language exists in this
+design; body shaping happens in task code with full expressiveness and no
+server-side interpolation surface. A small library of notification tasks
+(e.g. a Slack webhook task with `secret_requests` for the token) can ship
+under `flux/tasks/` or `examples/` for ergonomics, but is not part of the
+entity.
 
 ## Declaration paths
 
@@ -199,10 +222,9 @@ selectors wider than the declarer's own scope.
 ```python
 @workflow.with_options(
     hooks=[
-        hook.webhook(
+        hook.run(
             on="task:release:*:promote_prod:awaiting_approval",
-            url="https://hooks.slack.com/…",
-            template={"text": "{{ event.workflow_name }} awaits approval"},
+            workflow="ops/notify_slack",
         ),
     ],
 )
@@ -219,8 +241,8 @@ workflow, the `<workflow>_auto` schedule lifecycle. Two constraints:
 - **Permission escalation:** a registration payload containing hooks
   requires the registrant to hold hook-create permission in addition to
   `workflow:*:register` — the `requires_code_upload_permission` pattern from
-  agent definitions. A hook is an egress channel; `workflow:register` alone
-  must not mint one.
+  agent definitions. A hook feeds event data into another workflow under a
+  stored principal; `workflow:register` alone must not mint one.
 
 **3. Agent-declared:** `AgentDefinition` gains `hooks: list`. Same
 escalation rule (the definition already computes escalation via
@@ -238,8 +260,15 @@ House grammar: `hook:<name>:<verb>` with verbs `create`, `read`, `update`,
 `delete`, plus `hook:deliveries:read` and `hook:deliveries:retry` for the
 ops surface. Built-in roles: `admin` (via `*`), `operator` gets full hook
 management; `viewer` gets `hook:*:read` + `hook:deliveries:read`; `worker`
-gets nothing. Creating a hook routes internal events to an arbitrary URL —
-it is deliberately above `workflow:*:register` in the hierarchy.
+gets nothing.
+
+Because the only action is running a workflow, target authorization rides
+on the existing RBAC rather than a new trust model: at create/update the
+hook's `principal_id` must hold execute permission on `workflow_ref`, and
+the same check applies at fire time — a later permission revocation
+dead-letters deliveries instead of silently bypassing it. Creating a hook
+still observes events and acts under a stored principal, so `hook:*:create`
+sits above `workflow:*:register` in the hierarchy.
 
 ## API and CLI
 
@@ -258,9 +287,10 @@ Routes live in `flux/api/hook_routes.py` as a `HookRoutesMixin`, composed by
 `flux/server.py` like every other domain. CLI: `flux hook
 create|list|get|update|delete|test|deliveries|retry`.
 
-`POST /hooks/{name}/test` renders the template against a synthetic envelope
-and performs one real delivery attempt — template mistakes surface before an
-incident does, not during one.
+`POST /hooks/{name}/test` starts the target workflow with a synthetic
+envelope — a misconfigured target or principal surfaces before an incident
+does, not during one, and the response returns the started `execution_id`
+for inspection.
 
 ## Testing
 
@@ -268,20 +298,24 @@ incident does, not during one.
   pure-function tests against `_wildcard_match` semantics.
 - Outbox transactionality: a rolled-back state write leaves no delivery row;
   a committed one leaves exactly one (SQLite and `postgresql`-marked).
-- Drain: backoff schedule, dead-letter after `max_attempts`, hop-guard
-  cutoff, redaction applied to payloads.
-- Templates: whole-string vs embedded substitution, creation-time path
-  validation failures, null rendering.
+- Drain: backoff schedule, dead-letter after `max_attempts` and on
+  missing-target / revoked-principal, hop-guard cutoff, redaction applied
+  to envelopes, `execution_id` recorded on delivered rows.
 - Declaration paths: scope confinement rejected loudly; registration without
-  hook-create permission rejected; owner lifecycle (replace on
-  re-register, cascade on delete).
-- E2E: a workflow with an approval gate + a webhook hook against a local
-  HTTP sink fixture; assert the awaiting-approval delivery arrives signed.
+  hook-create permission rejected; principal lacking execute on the target
+  rejected at create; owner lifecycle (replace on re-register, cascade on
+  delete).
+- E2E: a workflow with an approval gate + a hook targeting a recorder
+  workflow; assert the awaiting-approval event starts it with the envelope
+  as input, and that the hop guard stops a self-targeting hook.
 
 ## Out of scope
 
 - Inbound hooks — ingress remains resume-with-input, approval decisions, and
   services.
+- A direct `webhook` action and any body-templating language — external
+  calls are the target workflow's job; the `action` enum leaves room if a
+  no-execution path ever proves necessary.
 - Per-execution delivery ordering.
 - An "message agent session" action (post-v1, once the console's session
   surface settles).
