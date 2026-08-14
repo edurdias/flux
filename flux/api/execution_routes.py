@@ -31,6 +31,7 @@ from flux.api.schemas import (
     _has_any_workflow_read,
     ApprovalDecideRequest,
     ExecutionRenameRequest,
+    ExecutionRenameResponse,
     ExecutionSummaryResponse,
     ExecutionListResponse,
 )
@@ -294,7 +295,7 @@ class ExecutionRoutesMixin:
                     detail=f"Error retrieving execution: {str(e)}",
                 )
 
-        @api.put("/executions/{execution_id}/name")
+        @api.put("/executions/{execution_id}/name", response_model=ExecutionRenameResponse)
         async def execution_rename(
             execution_id: str,
             body: ExecutionRenameRequest,
@@ -331,7 +332,7 @@ class ExecutionRoutesMixin:
                     )
 
                 manager.rename(execution_id, name)
-                return {"execution_id": execution_id, "name": name}
+                return ExecutionRenameResponse(execution_id=execution_id, name=name)
             except ExecutionContextNotFoundError:
                 raise HTTPException(
                     status_code=404,

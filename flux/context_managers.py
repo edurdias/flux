@@ -458,8 +458,11 @@ class DatabaseContextManager(ContextManager):
                     if name is not None:
                         # Only ever set, never cleared here — a later
                         # state-update save (no name kwarg) must not erase
-                        # an operator-set name.
+                        # an operator-set name. The in-memory ctx is synced
+                        # alongside the row so a caller serializing the
+                        # returned ctx sees what was just persisted.
                         model.name = name
+                        ctx._name = name
                     if (
                         ctx.state == ExecutionState.RESUMING
                         and model.required_worker
@@ -487,6 +490,7 @@ class DatabaseContextManager(ContextManager):
                     new_model.routing_input = routing_input
                 if name is not None:
                     new_model.name = name
+                    ctx._name = name
                 # Park TTL (issue #157): per-run override wins; otherwise the
                 # config default. 0 / unset means park indefinitely (NULL).
                 # int() + fallback: a mocked/partial Configuration (common in

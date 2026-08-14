@@ -210,7 +210,10 @@ The console is single-operator by design: it binds `127.0.0.1` unless you pass
 `--host`, holds one operator token, and does no authentication of its own —
 authorization is entirely the Flux server's, per call. If you expose `web`
 mode beyond localhost, put it behind a proxy that enforces your own access
-control.
+control, and allowlist the origin browsers will actually present with
+`--allow-origin` (repeatable): a wildcard bind like `0.0.0.0` never appears in
+a browser's `Origin` header, so without an explicit entry every state-changing
+request from a non-loopback hostname is rejected with 403.
 
 ## Known follow-ups
 

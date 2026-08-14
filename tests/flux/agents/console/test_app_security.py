@@ -389,3 +389,34 @@ async def test_send_background_reconciliation_keeps_its_own_requests_token():
     # runs in a detached background task) must have seen only its own token.
     assert seen_tokens
     assert set(seen_tokens) == {"token-A"}
+
+
+def test_wildcard_bind_never_allowlists_itself_and_extras_are_admitted():
+    """`--host 0.0.0.0` means "listen everywhere", not "browsers present
+    Origin http://0.0.0.0" -- no browser ever sends that origin, so
+    allowlisting it is dead weight while the operator's real hostname 403s.
+    External exposure names its origins explicitly via allowed_origins."""
+    ui = _make_api_ui(host="0.0.0.0", allowed_origins=("http://console.internal:8080/",))
+    allowlist = ui._origin_allowlist()
+    assert "http://0.0.0.0:8080" not in allowlist
+    # Loopback stays reachable for a local browser on the same box...
+    assert "http://127.0.0.1:8080" in allowlist
+    # ...and the explicit origin is admitted, trailing slash normalized.
+    assert "http://console.internal:8080" in allowlist
+
+
+def test_allowed_origin_clears_the_security_layer_end_to_end():
+    ui = _make_api_ui(host="0.0.0.0", allowed_origins=("http://console.internal:8080",))
+    client = TestClient(ui.app)
+    response = client.post(
+        "/console/sessions",
+        json={},
+        headers={
+            "Authorization": "Bearer t",
+            **CSRF_HEADER,
+            "Origin": "http://console.internal:8080",
+        },
+    )
+    # 400 is this route's own body validation (missing 'agent') -- the
+    # request cleared CSRF/Origin, which would have been a 403.
+    assert response.status_code == 400

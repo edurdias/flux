@@ -505,6 +505,7 @@ class Server(
                 workflow_name=workflow.name,
                 input=input_data,
                 requests=workflow.requests,
+                name=name,
             ),
             preferred_worker=preferred_worker or None,
             required_worker=required_worker or None,

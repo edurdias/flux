@@ -3078,7 +3078,20 @@ def delete_agent(name, format, server_url):
 @click.option(
     "--host",
     default="127.0.0.1",
-    help="Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose externally)",
+    help=(
+        "Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose "
+        "externally — then browsers reach the console under a real hostname, so "
+        "state-changing requests also need that origin allowlisted via --allow-origin)"
+    ),
+)
+@click.option(
+    "--allow-origin",
+    "allow_origins",
+    multiple=True,
+    help=(
+        "Extra browser origin allowed on state-changing console requests, e.g. "
+        "http://console.internal:8080 (repeatable; loopback origins are always allowed)"
+    ),
 )
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
 @click.option(
@@ -3086,7 +3099,7 @@ def delete_agent(name, format, server_url):
     is_flag=True,
     help="Use the plain single-agent ANSI REPL instead of the console; requires NAME",
 )
-def start_agent(name, mode, session_id, port, host, server, plain):
+def start_agent(name, mode, session_id, port, host, allow_origins, server, plain):
     """Start an agent, or the multi-session console, in the given mode.
 
     NAME is optional. Omitted, terminal mode opens the console rail-first
@@ -3172,6 +3185,7 @@ def start_agent(name, mode, session_id, port, host, server, plain):
             port=port,
             host=host,
             workflow_name=workflow_name,
+            allowed_origins=tuple(allow_origins),
         )
         asyncio.run(process.run())
     except KeyboardInterrupt:

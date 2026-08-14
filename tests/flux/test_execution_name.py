@@ -79,6 +79,18 @@ class TestExecutionName:
         with pytest.raises(ExecutionContextNotFoundError):
             manager.rename("nope", "x")
 
+    def test_save_syncs_name_onto_the_returned_context(self, manager):
+        """The ctx handed back from save must serialize consistently with the
+        row it just wrote -- run endpoints respond from this same object
+        without a reload (PR #246 review)."""
+        ctx = _make_ctx(manager)
+        manager.save(ctx, name="fix CI")
+        assert ctx.name == "fix CI"
+
+        ctx.start("w1")
+        manager.save(ctx, name="renamed inline")
+        assert ctx.name == "renamed inline"
+
     def test_name_survives_state_updates(self, manager):
         ctx = _make_ctx(manager)
         manager.save(ctx, name="keep me")

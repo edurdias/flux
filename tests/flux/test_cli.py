@@ -1136,6 +1136,17 @@ class TestAgentStartCLI:
                 result = runner.invoke(cli, ["agent", "start", *args])
         return result, process_cls
 
+    def test_allow_origin_threads_into_the_agent_process(self, runner):
+        result, process_cls = self._invoke(
+            runner,
+            ["--mode", "web", "--allow-origin", "http://console.internal:8080"],
+            can_render=True,
+        )
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["allowed_origins"] == ("http://console.internal:8080",)
+
     def test_name_less_tty_opens_console_with_no_initial_agent(self, runner):
         result, process_cls = self._invoke(runner, [], can_render=True)
 

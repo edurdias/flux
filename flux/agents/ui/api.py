@@ -41,6 +41,7 @@ class ApiUI:
         port: int = 8080,
         workflow_name: str = "agent_chat",
         host: str = "127.0.0.1",
+        allowed_origins: tuple[str, ...] = (),
     ) -> None:
         self.server_url = server_url
         self.agent_name = agent_name
@@ -48,6 +49,7 @@ class ApiUI:
         self.host = host
         self.port = port
         self.workflow_name = workflow_name
+        self.allowed_origins = allowed_origins
         self.app = FastAPI(title="Flux Agent API")
         self._setup_routes()
         mount_console_routes(
@@ -87,10 +89,16 @@ class ApiUI:
         Built from the bind host/port (not hardcoded) so a non-default
         --host still gets a working allowlist; 127.0.0.1/localhost are
         always included since browsers treat a loopback server as
-        reachable under either name interchangeably.
+        reachable under either name interchangeably. Wildcard binds
+        (0.0.0.0 / ::) never appear in a browser's Origin header, so they
+        contribute nothing — an externally exposed console must name the
+        origins operators will actually use via ``allowed_origins``
+        (`flux agent start --allow-origin`).
         """
-        hosts = {self.host, "127.0.0.1", "localhost"}
-        return {f"http://{host}:{self.port}" for host in hosts}
+        hosts = {self.host, "127.0.0.1", "localhost"} - {"0.0.0.0", "::", "[::]"}
+        origins = {f"http://{host}:{self.port}" for host in hosts}
+        origins.update(origin.rstrip("/") for origin in self.allowed_origins)
+        return origins
 
     def _csrf_dependency(self):
         """Origin/CSRF defense for state-changing routes.

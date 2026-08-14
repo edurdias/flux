@@ -196,6 +196,11 @@ class ExecutionRenameRequest(BaseModel):
     name: str
 
 
+class ExecutionRenameResponse(BaseModel):
+    execution_id: str
+    name: str
+
+
 class APIKeyRequest(BaseModel):
     name: str
     expires_in_days: int | None = None
