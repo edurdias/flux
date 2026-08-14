@@ -727,14 +727,11 @@ class task:
         full_name: str,
         args: tuple,
         kwargs: dict,
-    ) -> bool:
+    ) -> None:
         """Run the approval gate for one task attempt identified by ``call_id``.
 
-        Returns ``True`` when the gate consumed a resume transition for this
-        task (an approval decided while the execution was suspended), so the
-        caller knows to still emit ``TASK_STARTED`` for the gated task even
-        though ``ctx`` is no longer ``is_resuming``. Returns ``False`` when
-        approved without resuming or when no approval is required. Raises
+        Returns nothing: the gate either lets the call proceed or raises.
+        Raises
         ``ApprovalRejected`` on rejection, ``asyncio.CancelledError`` on
         cancellation, and ``PauseRequested`` (via ``ctx._await_approval``)
         while waiting for a decision. An unexpected gate failure — a
@@ -749,7 +746,7 @@ class task:
         every attempt is independently re-gated.
         """
         if self.requires_approval is False:
-            return False
+            return
 
         if ctx.is_transient:
             # The gate's verdict lives in a durable row another process
@@ -776,7 +773,7 @@ class task:
                 verdict_required = await self._evaluate_approval_predicate(args, kwargs)
 
             if not verdict_required:
-                return False
+                return
 
             if existing is None:
                 target_value = self._resolve_approval_target(args, kwargs)
@@ -836,12 +833,10 @@ class task:
 
         # Approved. If this gate is the point a paused workflow resumed from,
         # transition the context back to RUNNING — mirroring the pause()
-        # primitive — so subsequent task calls no longer see the execution as
-        # resuming and emit their TASK_STARTED events.
+        # primitive — so the rest of the run sees a running execution rather
+        # than a resuming one.
         if ctx.is_resuming:
             ctx.resume()
-            return True
-        return False
 
     async def _record_gate_failure(
         self,

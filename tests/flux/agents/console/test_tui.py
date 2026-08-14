@@ -1008,11 +1008,10 @@ def test_derive_blocks_mirrors_the_web_log_semantics():
     assert tools["call-1"].status == "success"
 
 
-def test_derive_blocks_recovers_a_tool_that_only_logged_its_completion():
-    """The engine records no TASK_STARTED for a task that begins in a resumed
-    run — which is every tool an agent calls after the first turn — so a bare
-    completion has to render, or the transcript loses tool activity at each
-    turn boundary."""
+def test_derive_blocks_ignores_a_terminal_event_with_no_start():
+    """Since #244 the engine records a start for every call, including calls
+    that begin in a resumed run, so a terminal event with no start is an
+    engine bug rather than a shape to reconstruct a tool from."""
     detail = {
         "execution_id": "exec-1",
         "events": [
@@ -1024,9 +1023,6 @@ def test_derive_blocks_recovers_a_tool_that_only_logged_its_completion():
             },
             {
                 "type": "TASK_COMPLETED",
-                # The real log shape: an output-storage envelope, not the
-                # return value (verified against a live stack in
-                # tests/e2e/test_agent_console.py).
                 "value": {
                     "storage_type": "inline",
                     "reference_id": "search_docs_1",
@@ -1036,28 +1032,56 @@ def test_derive_blocks_recovers_a_tool_that_only_logged_its_completion():
                 "name": "search_docs",
                 "source_id": "call-9",
             },
+        ],
+    }
+
+    _blocks, tools, _title = derive_blocks(detail)
+
+    assert tools == {}
+
+
+def test_derive_blocks_pairs_a_start_with_its_completion_after_a_resume():
+    """The shape the engine actually produces now: both halves, joinable by
+    source_id, so the panel has a name, args, output and a duration."""
+    detail = {
+        "execution_id": "exec-1",
+        "events": [
+            {
+                "type": "WORKFLOW_RESUMED",
+                "value": {"message": "search the docs"},
+                "time": "2026-08-14T10:00:00",
+                "name": "w",
+            },
+            {
+                "type": "TASK_STARTED",
+                "value": {"query": "schedules"},
+                "time": "2026-08-14T10:00:02",
+                "name": "search_docs",
+                "source_id": "call-9",
+            },
             {
                 "type": "TASK_COMPLETED",
-                "value": None,
-                "time": "2026-08-14T10:00:05",
-                "name": "pause",
-                "source_id": "call-pause",
+                "value": {
+                    "storage_type": "inline",
+                    "reference_id": "search_docs_1",
+                    "metadata": {"value": "3 hits"},
+                },
+                "time": "2026-08-14T10:00:04",
+                "name": "search_docs",
+                "source_id": "call-9",
             },
         ],
     }
-    blocks, tools, _ = derive_blocks(detail)
 
-    assert [block.kind for block in blocks] == ["user", "tool"]
-    # Internal machinery stays filtered out on this path too.
+    _blocks, tools, _title = derive_blocks(detail)
+
     assert list(tools) == ["call-9"]
     tool = tools["call-9"]
     assert tool.name == "search_docs"
-    assert tool.status == "success"
-    # Unwrapped: operators see what the tool returned, not storage bookkeeping.
+    assert tool.args == {"query": "schedules"}
     assert tool.output == "3 hits"
-    # No start event means no duration to show, rather than a fabricated one.
-    assert tool.started is None
-    assert tool.ended is not None
+    assert tool.status == "success"
+    assert tool.started is not None and tool.ended is not None
 
 
 def test_unwrap_output_names_an_externally_stored_value():

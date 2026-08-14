@@ -285,27 +285,13 @@ def derive_blocks(
             blocks.append(ChatBlock("tool", tool=tool, time=when))
 
         elif event_type in ("TASK_COMPLETED", "TASK_FAILED", "TASK_CANCELLED"):
+            # Every terminal event has a start: the engine records one per
+            # call, including calls that begin in a resumed run (#244). An
+            # unmatched terminal event is an internal task filtered above,
+            # or an engine bug -- not a shape to reconstruct from.
             started_tool = tools.get(str(event.get("source_id")))
             if started_tool is None:
-                # A completion with no start: every task begun in a resumed
-                # run looked like this until #244 (task.py suppressed
-                # TASK_STARTED for the whole resumed run), which is every
-                # tool call after a session's first turn. Executions logged
-                # before that fix still read back this way, so the recovery
-                # stays — dropping these would blank tool activity from an
-                # existing transcript at every turn boundary.
-                name = event.get("name") or ""
-                if INTERNAL_TASK.match(name):
-                    continue
-                started_tool = ToolCall(
-                    id=str(event.get("source_id") or name),
-                    name=name,
-                    # No start event means no start time; leave it unset so
-                    # the duration is omitted rather than invented.
-                    started=None,
-                )
-                tools[started_tool.id] = started_tool
-                blocks.append(ChatBlock("tool", tool=started_tool, time=when))
+                continue
             started_tool.status = {
                 "TASK_COMPLETED": "success",
                 "TASK_FAILED": "failed",

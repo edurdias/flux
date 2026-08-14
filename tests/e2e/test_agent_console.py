@@ -387,16 +387,21 @@ def test_session_flow_spawn_send_rename_stop(console):
     tool_start = next(f for f in frames if f["kind"] == "tool_start")
     assert tool_start["data"]["name"] == "search_docs"
 
-    # ...and durably, in the log the detail endpoint returns. Since #244 the
-    # log carries both halves for a tool called after a resume; renderers
-    # still rebuild from a lone completion for executions logged before that
-    # fix (see derive_blocks / applyDetail).
+    # ...and durably, in the log the detail endpoint returns. Both halves are
+    # there for a tool called after a resume (#244), which is what gives the
+    # activity panel a duration.
     detail = console.json(f"/console/sessions/{session_id}/detail")
     events = detail["events"]
     completed = [
         e for e in events if e["type"] == "TASK_COMPLETED" and e.get("name") == "search_docs"
     ]
     assert completed, f"search_docs missing from the log: {[e['type'] for e in events]}"
+    # The tool ran on a resumed run (every turn after the first is one), and
+    # its start is in the log paired to the same call -- the invariant #244
+    # restored, proven against a real stack rather than a fixture.
+    started = [e for e in events if e["type"] == "TASK_STARTED" and e.get("name") == "search_docs"]
+    assert started, f"search_docs start missing: {[e['type'] for e in events]}"
+    assert started[0]["source_id"] == completed[0]["source_id"]
     # Task outputs are logged as output-storage envelopes, never bare values;
     # both renderers unwrap them (unwrap_output / unwrapOutput) so the panel
     # shows the tool's result instead of storage bookkeeping.
