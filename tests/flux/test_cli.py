@@ -1350,6 +1350,17 @@ class TestAgentSessionResumeCLI:
         assert "Error resuming session: boom" in result.output
 
 
+def _status_error(status: int, url: str):
+    """An `httpx.HTTPStatusError` shaped like the one `raise_for_status()`
+    raises -- carrying its originating request, so handlers can inspect the
+    failing URL."""
+    import httpx
+
+    request = httpx.Request("GET", url)
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError(f"{status}", request=request, response=response)
+
+
 class TestAgentStop:
     """`flux agent stop` cancels through the workflow-scoped route.
 
@@ -1358,7 +1369,7 @@ class TestAgentStop:
     reporting the failure with exit code 0.
     """
 
-    def _client(self, execution=None, cancel_status=200):
+    def _client(self, execution=None, cancel_error=None):
         client = MagicMock()
         lookup = MagicMock()
         lookup.json.return_value = execution or {
@@ -1367,6 +1378,8 @@ class TestAgentStop:
             "workflow_name": "agent_chat",
         }
         cancel = MagicMock()
+        if cancel_error is not None:
+            cancel.raise_for_status.side_effect = cancel_error
         client.get.side_effect = [lookup, cancel]
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)
@@ -1406,11 +1419,8 @@ class TestAgentStop:
         )
 
     def test_unknown_session_reports_clearly_and_exits_nonzero(self, runner):
-        import httpx
-
         client = MagicMock()
-        response = httpx.Response(404, request=httpx.Request("GET", "http://s/executions/nope"))
-        client.get.side_effect = httpx.HTTPStatusError("404", request=None, response=response)
+        client.get.side_effect = _status_error(404, "http://s/executions/nope")
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)
 
@@ -1419,6 +1429,20 @@ class TestAgentStop:
 
         assert result.exit_code == 1
         assert "not found" in result.output
+
+    def test_a_404_from_the_cancel_is_not_reported_as_a_missing_session(self, runner):
+        """Only the lookup can establish that a session does not exist; a 404
+        from the cancel means something else (workflow mismatch, route
+        change) and saying "not found" would point at the wrong cause."""
+        client = self._client(
+            cancel_error=_status_error(404, "http://s/workflows/agents/agent_chat/cancel/exec-1"),
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(cli, ["agent", "stop", "exec-1"])
+
+        assert result.exit_code == 1
+        assert "not found" not in result.output
+        assert "Error stopping session" in result.output
 
     def test_cancel_failure_exits_nonzero(self, runner):
         """A printed error with exit 0 reads as success to a script."""
