@@ -3228,31 +3228,40 @@ def start_agent(name, mode, session_id, port, host, allow_origins, allow_remote,
 
 @agent.command("stop")
 @click.argument("session_id")
-def stop_agent(session_id):
+@click.option("--server-url", "server_url", default=None, help="Flux server URL")
+def stop_agent(session_id, server_url):
     """Stop a running agent session."""
-    import httpx
-
-    from flux.config import Configuration
-
     click.echo(f"Stopping session {session_id}...")
 
     try:
-        settings = Configuration.get().settings
-        server_url = f"http://{settings.server_host}:{settings.server_port}"
-        token = _get_auth_token()
+        base_url = server_url or get_server_url()
 
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        with get_http_client() as client:
+            # Cancellation is workflow-scoped (same route `flux workflow
+            # cancel` uses); there is no /executions/{id}/cancel. A session is
+            # an execution, so its workflow comes from the execution itself
+            # rather than from the caller.
+            lookup = client.get(f"{base_url}/executions/{session_id}")
+            lookup.raise_for_status()
+            execution = lookup.json()
+            namespace = execution["workflow_namespace"]
+            workflow_name = execution["workflow_name"]
 
-        response = httpx.post(
-            f"{server_url}/executions/{session_id}/cancel",
-            headers=headers,
-        )
-        response.raise_for_status()
+            response = client.get(
+                f"{base_url}/workflows/{namespace}/{workflow_name}/cancel/{session_id}",
+            )
+            response.raise_for_status()
+
         click.echo(f"Session {session_id} stopped.")
+    except httpx.HTTPStatusError as ex:
+        if ex.response.status_code == 404:
+            click.echo(f"Session '{session_id}' not found.", err=True)
+        else:
+            click.echo(f"Error stopping session: {str(ex)}", err=True)
+        raise SystemExit(1) from None
     except Exception as ex:
         click.echo(f"Error stopping session: {str(ex)}", err=True)
+        raise SystemExit(1) from None
 
 
 @agent.group("session")
