@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from flux.agents.events import AgentEvent
 from flux.agents.flux_client import FluxClient
@@ -9,34 +8,29 @@ from flux.agents.session import AgentSession
 from flux.agents.ui import UI
 from flux.agents.ui.terminal import TerminalUI
 
-logger = logging.getLogger("flux.agents")
-
-
 VALID_MODES = ("terminal", "web", "api")
 
 
-def _make_terminal_ui():
+def _make_terminal_ui() -> UI | None:
+    """Decide between the plain single-agent REPL and the multi-session console.
+
+    Returns ``None`` to mean "use the console" -- the console is a full
+    Textual app that needs a real terminal, so an explicit ``--plain``
+    (``FLUX_PLAIN_TERMINAL``) or stdout not being a tty both force the old
+    plain REPL instead.
+    """
     import os
     import sys
 
     if os.environ.get("FLUX_PLAIN_TERMINAL") or not sys.stdout.isatty():
         return TerminalUI()
-    try:
-        from flux.agents.ui.textual_ui import TextualUI
-
-        return TextualUI()
-    except Exception:
-        logger.debug(
-            "Failed to initialize TextualUI, falling back to plain terminal",
-            exc_info=True,
-        )
-        return TerminalUI()
+    return None
 
 
 class AgentProcess:
     def __init__(
         self,
-        agent_name: str,
+        agent_name: str | None,
         server_url: str,
         mode: str = "terminal",
         session_id: str | None = None,
@@ -59,6 +53,16 @@ class AgentProcess:
         self.client = FluxClient(server_url=server_url, token=token)
         self.ui: UI | None = _make_terminal_ui() if mode == "terminal" else None
 
+        # `agent_name=None` is only meaningful for the modes that route
+        # through the multi-session console (terminal without --plain, web,
+        # api) -- the plain REPL and the legacy /chat route both need one
+        # concrete agent to start or resume a session against.
+        if agent_name is None and self.ui is not None:
+            raise ValueError(
+                "agent_name is required for the plain terminal UI; "
+                "omit --plain (or provide an agent name) to use the console",
+            )
+
     async def run(self) -> None:
         await self.client.ensure_workflow_registered(
             workflow_name=self.workflow_name,
@@ -69,17 +73,17 @@ class AgentProcess:
             await self._run_server()
 
     async def _run_terminal(self) -> None:
-        assert self.ui is not None
-
-        from flux.agents.ui.textual_ui import TextualUI
-
-        if isinstance(self.ui, TextualUI):
-            await self._run_textual_terminal()
-        else:
+        if self.ui is not None:
             await self._run_plain_terminal()
+        else:
+            await self._run_console()
 
     async def _run_plain_terminal(self) -> None:
         assert self.ui is not None
+        # Guaranteed by __init__ (agent_name=None raises unless self.ui is
+        # None, i.e. console mode) -- narrows the type for AgentSession and
+        # display_session_info below, both of which require a concrete name.
+        assert self.agent_name is not None
         session = AgentSession(
             client=self.client,
             agent_name=self.agent_name,
@@ -130,80 +134,36 @@ class AgentProcess:
 
         print(f"\n\033[2m  session {self.session_id}\033[0m")
 
-    async def _run_textual_terminal(self) -> None:
-        import asyncio
+    async def _run_console(self) -> None:
+        """Boot the multi-session console (Task 8's ``ConsoleApp``).
 
-        from flux.agents.ui.textual_ui import TextualUI
-
-        assert isinstance(self.ui, TextualUI)
-        ui: TextualUI = self.ui
+        ``agent_name`` becomes the rail's initial agent filter (``None`` for
+        the rail-first, every-agent view); ``session_id`` -- when set, e.g.
+        by ``agent session resume`` -- opens straight into that session.
+        Unlike the plain REPL, the console owns its own server calls through
+        ``ConsoleService``/``EventHub``, so there is no ``AgentSession`` or
+        ``self._dispatch`` in this path.
+        """
+        from flux.agents.console.hub import EventHub
+        from flux.agents.console.service import ConsoleService
+        from flux.agents.ui.textual_app import ConsoleApp
 
         # Suppress Textual's internal logging so it doesn't bleed to stderr.
         logging.getLogger("textual").setLevel(logging.CRITICAL)
         logging.getLogger("textual.css").setLevel(logging.CRITICAL)
 
-        async def session_loop() -> None:
-            try:
-                session = AgentSession(
-                    client=self.client,
-                    agent_name=self.agent_name,
-                    session_id=self.session_id,
-                    workflow_name=self.workflow_name,
-                )
-
-                if self.session_id is None:
-                    await ui.begin_reply()
-                    async for event in session.start():
-                        await self._dispatch(event, session)
-                    await ui.end_reply()
-
-                self.session_id = session.session_id
-                assert self.session_id is not None
-
-                await ui.display_session_info(self.session_id, self.agent_name)
-
-                try:
-                    while True:
-                        try:
-                            user_input = await ui.prompt_user()
-                        except EOFError:
-                            break
-
-                        if user_input == "\x04":
-                            break
-                        if not user_input.strip():
-                            continue
-
-                        await ui.begin_reply()
-                        async for event in session.send(user_input):
-                            await self._dispatch(event, session)
-                        await ui.end_reply()
-                except KeyboardInterrupt:
-                    pass
-
-            # Redirect stderr before exit() so Textual's teardown messages
-            # ("Unmount()", "focus was removed") are suppressed.
-            finally:
-                self._saved_stderr_fd = os.dup(2)
-                _devnull = os.open(os.devnull, os.O_WRONLY)
-                os.dup2(_devnull, 2)
-                os.close(_devnull)
-
-            ui.app.exit()
-
+        service = ConsoleService(self.server_url, self.token)
+        hub = EventHub(service)
+        app = ConsoleApp(
+            service,
+            hub,
+            initial_agent=self.agent_name,
+            initial_session=self.session_id,
+        )
         try:
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(ui.app.run_async())
-                tg.create_task(session_loop())
+            await app.run_async()
         finally:
-            # Restore stderr after Textual's teardown is complete, even if
-            # the TaskGroup propagated an exception.
-            saved = getattr(self, "_saved_stderr_fd", None)
-            if saved is not None:
-                os.dup2(saved, 2)
-                os.close(saved)
-                if hasattr(self, "_saved_stderr_fd"):
-                    delattr(self, "_saved_stderr_fd")
+            await service.aclose()
 
     async def _dispatch(self, event: AgentEvent, session: AgentSession) -> None:
         assert self.ui is not None

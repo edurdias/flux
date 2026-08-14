@@ -11,7 +11,6 @@ import pytest
 from flux.agents.events import AgentEvent
 from flux.agents.process import AgentProcess
 from flux.agents.ui.terminal import TerminalUI
-from flux.agents.ui.textual_ui import TextualUI
 
 
 def test_process_init():
@@ -110,7 +109,10 @@ async def test_terminal_mode_dispatches_session_end():
     assert call_arg.turns == 5
 
 
-def test_process_creates_textual_ui_by_default():
+def test_process_uses_console_by_default_on_tty():
+    """Terminal mode with a real terminal opens the console, not the old
+    single-session TextualUI/AgentApp chat (Task 9: NAME + terminal mode
+    without --plain opens the console focused on that agent)."""
     with mock_patch("sys.stdout") as mock_stdout:
         mock_stdout.isatty.return_value = True
         proc = AgentProcess(
@@ -118,7 +120,49 @@ def test_process_creates_textual_ui_by_default():
             server_url="http://localhost:8000",
             mode="terminal",
         )
-        assert isinstance(proc.ui, TextualUI)
+        assert proc.ui is None
+
+
+def test_process_agent_name_optional_for_console():
+    """NAME-less is only valid for the console -- there is no agent to
+    resolve a plain single-session REPL against."""
+    with mock_patch("sys.stdout") as mock_stdout:
+        mock_stdout.isatty.return_value = True
+        proc = AgentProcess(
+            agent_name=None,
+            server_url="http://localhost:8000",
+            mode="terminal",
+        )
+        assert proc.agent_name is None
+        assert proc.ui is None
+
+
+def test_process_agent_name_required_for_plain_terminal():
+    with mock_patch.dict(os.environ, {"FLUX_PLAIN_TERMINAL": "1"}):
+        with pytest.raises(ValueError, match="agent_name"):
+            AgentProcess(
+                agent_name=None,
+                server_url="http://localhost:8000",
+                mode="terminal",
+            )
+
+
+def test_process_agent_name_optional_for_web_mode():
+    process = AgentProcess(
+        agent_name=None,
+        server_url="http://localhost:8000",
+        mode="web",
+    )
+    assert process.agent_name is None
+
+
+def test_process_agent_name_optional_for_api_mode():
+    process = AgentProcess(
+        agent_name=None,
+        server_url="http://localhost:8000",
+        mode="api",
+    )
+    assert process.agent_name is None
 
 
 def test_process_creates_plain_terminal_when_env_set():
@@ -170,3 +214,73 @@ async def test_plain_terminal_dispatches_quit():
         await proc.run()
 
     proc.ui.display_response.assert_any_call(None)
+
+
+# =============================================================================
+# Console wiring (Task 9): terminal mode without --plain constructs
+# flux.agents.ui.textual_app.ConsoleApp instead of running the plain REPL.
+# =============================================================================
+
+
+def _tty_process(**kwargs) -> AgentProcess:
+    with mock_patch("sys.stdout") as mock_stdout:
+        mock_stdout.isatty.return_value = True
+        return AgentProcess(server_url="http://x", mode="terminal", **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_console_mode_opens_with_no_initial_agent_when_name_omitted():
+    proc = _tty_process(agent_name=None)
+    proc.client.ensure_workflow_registered = AsyncMock()
+
+    with patch("flux.agents.ui.textual_app.ConsoleApp") as console_app_cls:
+        console_app_cls.return_value.run_async = AsyncMock()
+        await proc.run()
+
+    kwargs = console_app_cls.call_args.kwargs
+    assert kwargs["initial_agent"] is None
+    assert kwargs["initial_session"] is None
+
+
+@pytest.mark.asyncio
+async def test_console_mode_filters_rail_to_named_agent():
+    proc = _tty_process(agent_name="coder")
+    proc.client.ensure_workflow_registered = AsyncMock()
+
+    with patch("flux.agents.ui.textual_app.ConsoleApp") as console_app_cls:
+        console_app_cls.return_value.run_async = AsyncMock()
+        await proc.run()
+
+    kwargs = console_app_cls.call_args.kwargs
+    assert kwargs["initial_agent"] == "coder"
+    assert kwargs["initial_session"] is None
+
+
+@pytest.mark.asyncio
+async def test_console_mode_opens_initial_session_directly():
+    proc = _tty_process(agent_name=None, session_id="exec-42")
+    proc.client.ensure_workflow_registered = AsyncMock()
+
+    with patch("flux.agents.ui.textual_app.ConsoleApp") as console_app_cls:
+        console_app_cls.return_value.run_async = AsyncMock()
+        await proc.run()
+
+    kwargs = console_app_cls.call_args.kwargs
+    assert kwargs["initial_session"] == "exec-42"
+
+
+@pytest.mark.asyncio
+async def test_console_mode_closes_service_even_on_error():
+    proc = _tty_process(agent_name=None)
+    proc.client.ensure_workflow_registered = AsyncMock()
+
+    with (
+        patch("flux.agents.ui.textual_app.ConsoleApp") as console_app_cls,
+        patch("flux.agents.console.service.ConsoleService.aclose") as aclose,
+    ):
+        console_app_cls.return_value.run_async = AsyncMock(side_effect=RuntimeError("boom"))
+        aclose.return_value = None
+        with pytest.raises(RuntimeError, match="boom"):
+            await proc.run()
+
+    aclose.assert_called_once()

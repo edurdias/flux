@@ -3060,7 +3060,7 @@ def delete_agent(name, format, server_url):
 
 
 @agent.command("start")
-@click.argument("name")
+@click.argument("name", required=False)
 @click.option(
     "--mode",
     "-m",
@@ -3076,13 +3076,39 @@ def delete_agent(name, format, server_url):
     help="Host to bind web/api mode (default: 127.0.0.1; use 0.0.0.0 to expose externally)",
 )
 @click.option("--server", default=None, help="Flux server URL (default: from config)")
-@click.option("--plain", is_flag=True, help="Use plain ANSI terminal (no TUI)")
+@click.option(
+    "--plain",
+    is_flag=True,
+    help="Use the plain single-agent ANSI REPL instead of the console; requires NAME",
+)
 def start_agent(name, mode, session_id, port, host, server, plain):
-    """Start an agent in the specified mode."""
+    """Start an agent, or the multi-session console, in the given mode.
+
+    NAME is optional. Omitted, terminal mode opens the console rail-first
+    (every agent's sessions visible) — this needs an interactive terminal
+    unless --mode api. Given, terminal mode opens the console filtered to
+    that agent instead of starting a session for it directly; --plain keeps
+    the old single-agent REPL and requires NAME. web/api modes always accept
+    a missing NAME (the console serves with no agent preselected).
+
+    In the console, press 2 to focus the chat transcript — enter steps into
+    the composer, escape steps back out.
+    """
     import asyncio
 
     from flux.agents.process import AgentProcess
     from flux.config import Configuration
+
+    if plain and not name:
+        click.echo("--plain requires an agent name", err=True)
+        raise SystemExit(1)
+
+    if not name and mode != "api" and not _stdin_is_tty():
+        click.echo(
+            "the console needs a terminal; use --mode api or provide an agent name",
+            err=True,
+        )
+        raise SystemExit(1)
 
     try:
         if server is None:
@@ -3092,37 +3118,40 @@ def start_agent(name, mode, session_id, port, host, server, plain):
         token = _get_auth_token()
 
         workflow_name = "agent_chat"
-        try:
-            with get_http_client() as client:
-                resp = client.get(f"{server}/admin/agents/{name}")
-                if resp.status_code == 200:
-                    agent_def = resp.json()
-                    if agent_def.get("workflow_file"):
-                        click.echo("Custom workflow detected. Registering...")
-                        custom_name = f"agent_custom_{name}"
-                        source = agent_def["workflow_file"]
-                        if isinstance(source, str):
-                            source = source.encode("utf-8")
-                        reg_resp = client.post(
-                            f"{server}/workflows",
-                            files={"file": (f"{custom_name}.py", source)},
-                        )
-                        if reg_resp.status_code == 200:
-                            workflow_name = custom_name
-                            click.echo(f"Custom workflow registered as '{custom_name}'.")
-                        else:
-                            click.echo(
-                                f"Warning: failed to register custom workflow: {reg_resp.text}",
-                                err=True,
+        # No single agent to look up when NAME is omitted — every session the
+        # console spawns resolves its own workflow via ConsoleService.spawn.
+        if name:
+            try:
+                with get_http_client() as client:
+                    resp = client.get(f"{server}/admin/agents/{name}")
+                    if resp.status_code == 200:
+                        agent_def = resp.json()
+                        if agent_def.get("workflow_file"):
+                            click.echo("Custom workflow detected. Registering...")
+                            custom_name = f"agent_custom_{name}"
+                            source = agent_def["workflow_file"]
+                            if isinstance(source, str):
+                                source = source.encode("utf-8")
+                            reg_resp = client.post(
+                                f"{server}/workflows",
+                                files={"file": (f"{custom_name}.py", source)},
                             )
-        except Exception as ex:
-            # Falling back to the default workflow silently would run the wrong
-            # thing — surface the failure so the operator can see why.
-            click.echo(
-                f"Warning: custom workflow lookup/registration raised {type(ex).__name__}: {ex}; "
-                f"falling back to default 'agent_chat'.",
-                err=True,
-            )
+                            if reg_resp.status_code == 200:
+                                workflow_name = custom_name
+                                click.echo(f"Custom workflow registered as '{custom_name}'.")
+                            else:
+                                click.echo(
+                                    f"Warning: failed to register custom workflow: {reg_resp.text}",
+                                    err=True,
+                                )
+            except Exception as ex:
+                # Falling back to the default workflow silently would run the wrong
+                # thing — surface the failure so the operator can see why.
+                click.echo(
+                    f"Warning: custom workflow lookup/registration raised {type(ex).__name__}: {ex}; "
+                    f"falling back to default 'agent_chat'.",
+                    err=True,
+                )
 
         if plain:
             import os
@@ -3266,7 +3295,7 @@ def show_session(session_id, format, server_url):
 @agent_session.command("resume")
 @click.argument("session_id")
 def resume_session(session_id):
-    """Resume a session in terminal mode (shortcut for start --session)."""
+    """Resume a session: opens the console focused on that session."""
     import asyncio
 
     from flux.agents.process import AgentProcess
@@ -3278,7 +3307,7 @@ def resume_session(session_id):
         token = _get_auth_token()
 
         process = AgentProcess(
-            agent_name="",
+            agent_name=None,
             server_url=server,
             mode="terminal",
             session_id=session_id,
@@ -3289,6 +3318,20 @@ def resume_session(session_id):
         pass
     except Exception as ex:
         click.echo(f"Error resuming session: {str(ex)}", err=True)
+
+
+def _stdin_is_tty() -> bool:
+    """Whether stdin is an interactive terminal.
+
+    Indirected behind a function (rather than a bare ``sys.stdin.isatty()``
+    call in ``start_agent``) because Click's ``CliRunner`` replaces
+    ``sys.stdin`` with its own captured stream during ``invoke()`` --
+    patching the real ``sys.stdin`` from a test does not survive that
+    isolation, but patching this function does.
+    """
+    import sys
+
+    return sys.stdin.isatty()
 
 
 def _get_auth_token() -> str | None:

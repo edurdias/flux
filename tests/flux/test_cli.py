@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -1053,3 +1054,126 @@ class TestWorkerLabelSources:
             worker_cls.assert_not_called()
         finally:
             Configuration.get().override(workers={"labels": {}})
+
+
+# =============================================================================
+# Agent Start / Resume CLI Semantics (agent-console Task 9)
+# =============================================================================
+
+
+def _no_custom_workflow_client():
+    """An httpx.Client double for the `agent start` custom-workflow lookup
+    that reports "no such agent def" (404), so `workflow_name` stays the
+    default `agent_chat` — irrelevant to these tests, but the lookup runs
+    whenever NAME is given and needs a client to not blow up."""
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_client.get.return_value = mock_response
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    return mock_client
+
+
+class TestAgentStartCLI:
+    """`flux agent start`: NAME is optional, terminal mode opens the console
+    (NAME becomes its initial-agent filter), --plain keeps the old
+    single-agent REPL, and a NAME-less non-interactive invocation fails
+    clearly instead of hanging on a console that needs a terminal."""
+
+    def _invoke(self, runner, args, *, stdin_isatty=True):
+        with patch("flux.agents.process.AgentProcess") as process_cls:
+            process_cls.return_value.run = AsyncMock()
+            with patch("flux.cli._stdin_is_tty", return_value=stdin_isatty):
+                result = runner.invoke(cli, ["agent", "start", *args])
+        return result, process_cls
+
+    def test_name_less_tty_opens_console_with_no_initial_agent(self, runner):
+        result, process_cls = self._invoke(runner, [], stdin_isatty=True)
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["agent_name"] is None
+        assert kwargs["mode"] == "terminal"
+
+    def test_name_less_non_tty_exits_with_clear_error(self, runner):
+        result, process_cls = self._invoke(runner, [], stdin_isatty=False)
+
+        assert result.exit_code == 1
+        assert (
+            "the console needs a terminal; use --mode api or provide an agent name" in result.output
+        )
+        process_cls.assert_not_called()
+
+    def test_name_less_non_tty_web_mode_still_needs_a_terminal(self, runner):
+        result, process_cls = self._invoke(runner, ["--mode", "web"], stdin_isatty=False)
+
+        assert result.exit_code == 1
+        assert "the console needs a terminal" in result.output
+        process_cls.assert_not_called()
+
+    def test_name_less_non_tty_api_mode_is_exempt(self, runner):
+        result, process_cls = self._invoke(runner, ["--mode", "api"], stdin_isatty=False)
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["agent_name"] is None
+        assert kwargs["mode"] == "api"
+
+    def test_plain_without_name_errors_clearly(self, runner):
+        result, process_cls = self._invoke(runner, ["--plain"], stdin_isatty=True)
+
+        assert result.exit_code == 1
+        assert "--plain requires an agent name" in result.output
+        process_cls.assert_not_called()
+
+    def test_plain_with_name_selects_the_plain_repl(self, runner, monkeypatch):
+        # The command sets this env var itself (not via monkeypatch), but
+        # starting from a known-clean state and letting monkeypatch's own
+        # teardown restore it keeps this test from leaking into others.
+        monkeypatch.delenv("FLUX_PLAIN_TERMINAL", raising=False)
+        with patch("flux.cli.get_http_client", return_value=_no_custom_workflow_client()):
+            result, process_cls = self._invoke(runner, ["coder", "--plain"], stdin_isatty=True)
+
+        assert result.exit_code == 0, result.output
+        assert os.environ.get("FLUX_PLAIN_TERMINAL") == "1"
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["agent_name"] == "coder"
+
+    def test_name_terminal_mode_opens_console_focused_on_agent(self, runner, monkeypatch):
+        monkeypatch.delenv("FLUX_PLAIN_TERMINAL", raising=False)
+        with patch("flux.cli.get_http_client", return_value=_no_custom_workflow_client()):
+            result, process_cls = self._invoke(runner, ["coder"], stdin_isatty=True)
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["agent_name"] == "coder"
+        assert kwargs["mode"] == "terminal"
+        assert "FLUX_PLAIN_TERMINAL" not in os.environ
+
+    def test_session_option_reaches_agent_process(self, runner):
+        result, process_cls = self._invoke(
+            runner,
+            ["--mode", "api", "--session", "exec-1"],
+            stdin_isatty=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["session_id"] == "exec-1"
+
+
+class TestAgentSessionResumeCLI:
+    """`flux agent session resume <id>` opens the console focused on that
+    session (agent-console Task 9)."""
+
+    def test_resume_opens_console_focused_on_session(self, runner):
+        with patch("flux.agents.process.AgentProcess") as process_cls:
+            process_cls.return_value.run = AsyncMock()
+            result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
+
+        assert result.exit_code == 0, result.output
+        kwargs = process_cls.call_args.kwargs
+        assert kwargs["agent_name"] is None
+        assert kwargs["session_id"] == "exec-123"
+        assert kwargs["mode"] == "terminal"
