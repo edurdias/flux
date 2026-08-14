@@ -119,14 +119,13 @@ overlay on top of it.
   appear on the open session. This is a deliberate v1 limit — no per-row
   detail fetches.
 
-Tool calls are ordinary Flux tasks, so the log carries their real names,
-outputs and durations. Two shapes are worth knowing about because the console
-handles them for you: executions logged before the engine recorded starts in
-resumed runs carry a completion with no matching start, and task outputs are
-stored as output-storage envelopes rather than bare values. The
-console reconstructs the call from its completion event and unwraps inline
-outputs; a value kept outside the log (e.g. `local_file` storage) is named
-rather than dumped.
+Tool calls are ordinary Flux tasks, so the log carries their real names, args
+and outputs, and a duration for every call whose start and terminal events are
+both present — which the engine records per call, including calls that begin
+in a resumed run. One shape is worth knowing about because the console handles
+it for you: task outputs are stored as output-storage envelopes rather than
+bare values, so the console unwraps inline outputs and names a value kept
+outside the log (e.g. `local_file` storage) rather than dumping it.
 
 ## Permissions
 

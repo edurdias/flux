@@ -112,12 +112,11 @@ def test_failed_sessions_are_never_bucketed_with_done():
     assert "failed" not in row_class.group(0)
 
 
-def test_tool_activity_survives_a_missing_task_started():
-    """Another source-level guard: the engine logs no TASK_STARTED for a task
-    that begins in a resumed run (every tool call after an agent's first
-    turn), so `applyDetail` must build the tool from its completion event
-    instead of dropping it — the same recovery `derive_blocks` does for the
-    TUI."""
+def test_completions_are_paired_with_their_start_not_reconstructed():
+    """Source-level guard mirroring derive_blocks: since #244 the engine
+    records a start for every call, including calls that begin in a resumed
+    run, so `applyDetail` pairs a terminal event with its start instead of
+    inventing a tool from the completion alone."""
     script = (WEB_DIR / "console.js").read_text()
     branch = re.search(
         r'case "TASK_COMPLETED":.*?case "TASK_AWAITING_APPROVAL"',
@@ -126,12 +125,11 @@ def test_tool_activity_survives_a_missing_task_started():
     )
     assert branch, "applyDetail must handle task completion events"
     body = branch.group(0)
-    assert "tools.set(event.source_id" in body, "a completion with no start must create the tool"
-    assert "if (!tool) break;" not in body, "a completion with no start must not be dropped"
-    assert "INTERNAL_TASK.test" in body, "the recovery path must keep filtering internal tasks"
+    assert "if (!tool) break;" in body, "an unmatched terminal event must not invent a tool"
+    assert "tools.set(event.source_id" not in body, "the completion branch must not create tools"
     # The log stores outputs as OutputStorageReference envelopes; the panel
-    # must show what the tool returned, not the storage bookkeeping.
-    assert "unwrapOutput(value)" in body, "tool output must be unwrapped for display"
+    # shows the value, not the storage bookkeeping.
+    assert "unwrapOutput" in body
 
 
 def test_reducer_drops_frames_addressed_to_another_session():

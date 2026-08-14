@@ -480,28 +480,12 @@ function applyDetail(detail) {
       case "TASK_COMPLETED":
       case "TASK_FAILED":
       case "TASK_CANCELLED": {
-        let tool = tools.get(event.source_id);
-        if (!tool) {
-          // A completion with no start: every task begun in a resumed run
-          // looked like this until #244 (the engine suppressed TASK_STARTED
-          // for the whole resumed run), which is every tool an agent called
-          // after its first turn. Executions logged before that fix still
-          // read back this way, so render from the completion alone.
-          if (INTERNAL_TASK.test(event.name || "")) break;
-          tool = {
-            id: event.source_id,
-            name: event.name,
-            args: undefined,
-            output: undefined,
-            status: "running",
-            // No start event means no start time; leave it null so the
-            // duration is omitted rather than invented.
-            started: null,
-            ended: null,
-          };
-          tools.set(event.source_id, tool);
-          blocks.push({ kind: "tool", tool });
-        }
+        // Every terminal event has a start: the engine records one per call,
+        // including calls that begin in a resumed run (#244). An unmatched
+        // terminal event is an internal task filtered above, or an engine
+        // bug -- not a shape to reconstruct from.
+        const tool = tools.get(event.source_id);
+        if (!tool) break;
         tool.status =
           event.type === "TASK_COMPLETED"
             ? "success"
