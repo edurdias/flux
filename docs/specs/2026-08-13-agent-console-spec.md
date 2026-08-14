@@ -1,205 +1,276 @@
 # Agent console — mission control for the web and terminal UIs
 
-**Status:** design approved, awaiting implementation plan
+**Status:** design v2 (rewritten after adversarial review), awaiting approval
 **Surfaces:** web (`--mode web`) and terminal (`--mode terminal`), equal investment
 **Reference points:** Cursor's agent product (dashboard/plan/approval patterns); visual
 references supplied by the operator (LED-board web identity; btop terminal grammar)
 
 ## Problem
 
-The engine already has sessions, plans (`agent_plan`), approvals with standing
-grants, delegation/sub-agents, pause/resume, and progress streaming — and the
-UIs show almost none of it. Both current surfaces are chat transcripts: the web
-is one 748-line `index.html` with a single pane and one session; the terminal
-has two parallel implementations (a plain ANSI REPL and a Textual TUI). An
-operator cannot see what their agents are doing without scrolling chat, cannot
-see two sessions at once, and finds approvals only by luck.
+The engine has sessions, plans, approvals with standing grants, delegation,
+pause/resume, and progress streaming — and the UIs show almost none of it.
+Both surfaces are chat transcripts: the web is one 748-line `index.html` with
+a single pane and session; the terminal has two parallel implementations. An
+operator cannot see what agents are doing without scrolling chat, cannot see
+two sessions at once, and finds approvals only by luck.
 
-## Decisions (settled during design)
+## Decisions
 
-1. **Goal: surface the engine.** The UIs become windows onto work-in-progress;
-   chat remains, but stops being the whole UI.
-2. **Equal investment** in web and terminal, driven by one shared data layer.
-3. **Home: `flux agent start`.** The console stays a per-process client of the
-   Flux server (no server-embedded UI). From inside it the operator sees
-   active sessions across agents, opens/resumes them, and starts new sessions
-   for any catalog agent.
+1. **Goal: surface the engine.** Chat remains, but stops being the whole UI.
+2. **Equal investment** in web and terminal, one shared console core.
+3. **Home: `flux agent start`.** The console is a per-process client of the
+   Flux server. No server-embedded UI.
 4. **V1 capabilities:** session dashboard, live plan & progress, approvals
-   queue, sub-agent visibility. All four exist in the engine; this is
-   presentation work plus one thin aggregation layer.
-5. **Terminal consolidates on Textual.** The plain REPL survives only as a
-   non-TTY fallback (auto-selected when stdout is not a TTY).
-6. **Trust model: single operator.** Localhost by default, process token backs
-   all calls (unchanged from today). Fleet visibility is whatever that token's
-   RBAC allows.
-7. **Out of scope for v1:** diff/artifact review (Cursor's centerpiece — Flux
-   agents are not primarily code editors yet); chat filtered by plan step
-   (needs step-tagged tool events the engine does not emit); multi-operator
-   auth (the console API calls are structured so a per-request token can slot
-   in later).
+   queue, sub-agent visibility.
+5. **Terminal consolidates on Textual.** The plain REPL remains reachable two
+   ways, exactly as today: automatically when stdout is not a TTY, and
+   explicitly via `--plain` / `FLUX_PLAIN_TERMINAL` (the escape hatch for
+   terminals where Textual misrenders).
+6. **Trust model: single operator**, localhost by default, process token —
+   with the console's own HTTP surface hardened (see Security).
+7. **Engine changes: none, with one deliberate exception** — execution
+   naming (below), a general capability the console inherits. Everything
+   else renders from data the engine already persists or emits; where live
+   detail is missing, the **AI-task library** (agent loop, plan, delegation)
+   emits richer `progress()` payloads — library code, not server, transport,
+   or schema.
+
+## Data model — the event log is the truth; streams are an overlay
+
+The v1 architecture rests on one verified fact: **agent tool calls are Flux
+`@task` invocations** (`tool_executor.py` — "each invocation produces task
+events"). Therefore the persisted execution event log already carries, with
+server timestamps and through the **redacted** REST read path:
+
+- every tool call's name, arguments, output, and real duration;
+- every plan revision (plan mutations happen through plan tools → task
+  events whose payloads are the plan state);
+- every delegation's brief and result (delegation tools → task events).
+
+**Rendering model:**
+- The console renders session detail from the event log: fetched when a
+  session is opened and re-read at turn boundaries.
+- During an active turn, the existing per-turn SSE stream overlays live
+  tokens, reasoning, and tool start/done ticks. Streams ending at `PAUSED`
+  (the steady state between turns) is *normal*, not a fault: the stream is
+  per-turn by design, and the log catches up whatever the stream missed.
+  This makes the console loss-tolerant by construction — the destructive
+  single-consumer progress queue and absent replay are tolerable because
+  nothing rendered from the stream is load-bearing.
+- **Emitter-side enrichment** (in `flux/tasks/ai/`, allowed): `agent_plan`
+  emits a `plan` progress payload on each revision; `delegation` emits
+  sub-agent lifecycle/output-tail payloads attributed by call id. These
+  improve *liveness* only; on (re)open the same facts come from the log.
+- Rail rows for **non-open** sessions show only what cheap existing reads
+  carry: `GET /agents/sessions` (state, agent, started) and
+  `GET /approvals` (pending flags). No per-row detailed fetches — step
+  counts appear on the open session only. This is a deliberate v1 limit.
+
+## Engine addition — execution naming
+
+The one engine change, useful well beyond the console:
+
+- `executions.name` — nullable string column, Alembic migration (next in
+  sequence; parity-test HEADs updated in both files per repo convention).
+- Settable at submission (optional `name` on the run request) and via a
+  small rename endpoint; surfaced in execution/session list responses
+  (`GET /agents/sessions` joins executions — the name rides along).
+- CLI: `--name` on run; `flux execution rename <id> <name>`.
+
+Titles in the console: **persisted names come only from explicit acts**
+(new-session modal's name field, rename). Unnamed sessions display a
+*derived* title — deterministic truncation of the first user message, read
+from the log — identical across consoles, never written anywhere. No
+auto-title writes, therefore no rename/auto-title races.
 
 ## Architecture — one console core, two renderers
 
-New package `flux/agents/console/` with three units:
+New package `flux/agents/console/`:
 
 ### `ConsoleService`
-The single client of the Flux server for console purposes. Wraps existing HTTP
-APIs only: agent catalog (config mirror `agent:<name>`), per-agent session
-lists, the cross-execution approvals listing (`GET /approvals`) and the
-per-execution decide endpoints, session spawn (runs `agent_chat` exactly as
-`process.py` does), session stop. Holds the operator token. No UI knowledge,
-no new server routes, no new persistence.
+The single server client for console purposes, **built on the existing
+`FluxClient`** (which already owns multi-line SSE buffering and the
+409-decide handling — it is reused, not rebuilt). Wraps existing APIs:
+agent catalog (`GET /admin/agents`), session lists (`GET /agents/sessions`),
+cross-execution approvals (`GET /approvals`, which carries `target_value`),
+per-execution approval decides, execution detail reads, session spawn, and
+cancel via the real route (`GET /workflows/{ns}/{wf}/cancel/{id}`).
+Spawn honors the **custom-workflow branch**: agents with a `workflow_file`
+run `agent_custom_<name>`, exactly as `flux/cli.py` decides today — the
+picker must not spawn `agent_chat` unconditionally.
 
 ### `EventHub`
-Fan-in of live data. Holds one SSE subscription per **open** session and
-normalizes wire frames into a typed feed with a session envelope:
-
-```
-{session_id, event}
-event ∈ token | reasoning | tool_start | tool_done | plan_updated | progress
-        | approval_pending | approval_resolved | subagent_spawned
-        | subagent_done | session_state
-```
-
-Sessions visible in the rail but not open are refreshed by polling the cheap
-session-list endpoint on an interval; opening a session upgrades it to live.
-Consumers: the web page over **one WebSocket** multiplexing the envelope; the
-TUI over an asyncio queue. Identical semantics on both.
-
-The normalization contract is the key test surface: every wire frame type maps
-to exactly one hub event.
+Fan-in and normalization, **layered on `flux/agents/events.py::parse_event`**
+— the existing frozen contract ("UIs depend on these strings"), which is
+one-to-many (a PAUSED-with-approval frame fans out to state + approval
+events). The hub adds only the session envelope `{session_id, event}` and
+the log-refresh events (`log_delta` on turn boundaries). The vocabulary is
+`parse_event`'s — including `elicitation` (MCP OAuth flows must not hang)
+and `chat_response` (the only reply carrier for non-streaming agents) —
+plus the new library-emitted `plan` and `subagent` progress payloads.
+There is no `approval_resolved` wire event; resolution is observed via the
+decide response and the next log read.
 
 ### `Commands`
-The verb set both surfaces call: `open_session`, `new_session(agent, name?)`,
-`send(session, text)`, `approve/reject(approval, always?)`, `rename(session,
-name)`, `stop_session`. Thin methods on `ConsoleService`. The TUI calls them
-in-process; the web calls small JSON endpoints added to the console's existing
-FastAPI app (`ApiUI`). Anything the console can do, headless `api` users can
-do through the same endpoints.
+`open_session`, `new_session(agent, name?)`, `send(session, text)`,
+`approve/reject(approval, always?, always_for_target?)`,
+`respond_to_elicitation(...)`, `rename(execution, name)`, `stop_session`
+(via the cancel route). Decide calls treat HTTP 409 as *already decided*
+(the server is not idempotent; the client is graceful — the pattern
+`FluxClient` already implements). TUI calls in-process; web calls JSON
+endpoints on the console's FastAPI app; `api` mode serves the same
+endpoints headlessly, preserving its **per-request Bearer** contract
+(WebUI remains the process-token exception, as today).
 
-### Session names
-Executions have no title field. Names live in the existing config store under
-`agent-session-title:<execution_id>` — written on create/rename, read in bulk
-for the rail. No schema change; rename is a config write. Unnamed sessions
-auto-title from the first user message (client-derived, then persisted through
-the same key).
+## Security (console-side; in scope)
+
+- **Origin/CSRF defense on the console app**: all state-changing endpoints
+  require a custom header (`X-Flux-Console: 1`) — which forces a CORS
+  preflight — plus an Origin allowlist (the console's own origin). This
+  also retro-hardens the existing `/chat`, `/approval`, `/elicitation`
+  endpoints, which are drive-by-callable today. Without this, a malicious
+  webpage could invoke approve-with-`always` under the operator token —
+  one forged click becoming a durable standing grant.
+- **Secrets**: tool ARGS/OUTPUT render from the event log via the redacted
+  REST path — never from raw progress frames. (The server-side gap —
+  progress SSE bypassing redaction — is filed as a separate security issue;
+  it is pre-existing and not console-specific.)
+- **Permissions are documented per verb** (approve needs
+  `workflow:<ns>:<wf>:task:<task>:approve`, stop needs `...:run`, rename
+  needs the execution-rename permission introduced with the endpoint).
+  A token lacking write verbs degrades the console to read-only: buttons
+  disabled with the missing permission named, never a silent 403.
 
 ## Web surface
 
-### Layout — Rail + Stage
-- **Left rail**: sessions across agents, grouped active → paused → done. Each
-  row: status dot (● running, ◐ paused, ○ done), name, agent, compact
-  mono status (`3/5 · 02:14`, `⚠ approval · 08:02`). `+ new session` at the
-  bottom. Sectioned small-cap labels.
-- **Center stage**: the focused session. Header: name (pencil-on-hover rename),
-  agent, live `step n/m`. Chat scrolls; **composer is a footer-pinned
-  full-width input** (`Enter` sends, `Shift+Enter` newline) that never scrolls
-  away.
-- **Right context panel**: PLAN (hero mono figure `3/5` + progress bar + step
-  list), ACTIVITY (running/recent tool calls), SUB-AGENTS. Small-cap labels.
-- **Top bar**: running count, approvals badge (`⚠ 2`) opening the approvals
-  drawer, + new session.
+### Layout — Rail + Stage (unchanged from v1 design, confirmed via mockups)
+- **Left rail**: sessions grouped active → idle → done. Row: status glyph,
+  title (name or derived), agent, compact mono status. `+ new session`.
+- **Status glyphs are honest about the 12-state enum**: `●` running (green),
+  `◔` waiting on approval (amber), `◐` idle/paused between turns (slate —
+  the *normal* state of a healthy chat session), `○` completed (muted),
+  `✗` failed/cancelled (red — never bucketed with done).
+- **Center stage**: focused session. Header: title (pencil rename), agent,
+  live step figure when a plan exists. Chat scrolls; **composer pinned to
+  the footer** (`Enter` sends, `Shift+Enter` newline).
+- **Right context panel**: PLAN (mono hero figure + bar + steps), ACTIVITY
+  (tool calls), SUB-AGENTS. Small-cap labels.
+- **Top bar**: running count, approvals badge → drawer, + new session.
 
-### Interactions (all confirmed via mockups)
-- **Plan step click** → expands in place: full step text, status,
-  started/finished timestamps, live elapsed on the running step.
-- **Tool call click** (chat block or ACTIVITY row — same object; expanding one
-  highlights the other) → ARGS pretty-printed, OUTPUT (truncated with "show
-  full"), duration, status. Running calls show ARGS + ticking elapsed; OUTPUT
-  streams in on completion.
-- **Sub-agent click** → card: brief, live status, streamed output tail, error
-  if failed. No full transcript drill-in in v1 (delegations stream through the
-  parent; the card is the honest unit).
+### Interactions (confirmed via mockups)
+- **Plan step click** → expands: full step text, status; timestamps/elapsed
+  shown when derivable from surrounding task events (plan steps carry no
+  native timestamps — derived, or omitted, never invented).
+- **Tool call click** (chat block ≡ ACTIVITY row) → ARGS pretty-printed,
+  OUTPUT (truncated, "show full"), duration — all from the redacted log.
+  Running calls show ARGS + elapsed ticking from the live overlay.
+- **Sub-agent click** → card: brief, status, output tail (live via the new
+  delegation progress payloads; brief/result from the log).
 - **New session** → modal: searchable agent picker (name · model ·
-  description), optional name field (placeholder shows the default
-  `agent · date, time`; hint explains auto-titling), Start.
-- **Approvals drawer** → each pending approval: session, task, target value,
-  Approve / Reject / Always (and Always-for-target when the task declares a
-  target). Actions are idempotent server-side.
+  description from the catalog), optional name (persisted as the execution
+  name), Start. Custom-workflow agents spawn their declared workflow.
+- **Approvals drawer** → per approval: session, task, target value,
+  Approve / Reject / Always / Always-for-target (when a target is bound).
+  409 renders as "already decided elsewhere".
+- **Elicitation** → inline prompt in the stage (as today's UIs do), so MCP
+  auth flows complete.
 
-### Visual identity — the LED board (both themes required)
-Live figures (step counts, timers, durations) are **always monospace, always
-amber-weighted** — the console reads like an instrument panel. That is the
-signature; everything around it stays quiet.
+### Visual identity — the LED board (both themes; confirmed via mockups)
+Live figures (step counts, timers, durations) are **always monospace,
+always amber-weighted**; everything else stays quiet.
 
-Dark tokens: ink `#0b111c`, panel `#0e1524`, line `#1c2536`, text `#c9d2e0`,
-muted `#8b96a8`, amber `#f0a828` (glow allowed: subtle text-shadow on hero
-figures), ok-green `#4ade80`.
-
-Light tokens (warm and formal — the glow is a dark-only effect and is dropped;
-amber deepens so the identity survives the ground change): ground `#f2f0ec`,
-panel `#faf8f5`, line `#ddd8d0`, text `#3a4150`, muted `#7a7468`, amber
-`#b45309`, ok-green `#15803d`.
-
-Type: system UI face for prose; `ui-monospace` stack for every live figure,
-status, and code; 9px letter-spaced small caps for section labels.
+Dark: ink `#0b111c`, panel `#0e1524`, line `#1c2536`, text `#c9d2e0`, muted
+`#8b96a8`, amber `#f0a828` (subtle glow allowed on hero figures), ok
+`#4ade80`, danger `#f87171`.
+Light (warm, formal; glow dropped, amber deepened): ground `#f2f0ec`, panel
+`#faf8f5`, line `#ddd8d0`, text `#3a4150`, muted `#7a7468`, amber
+`#b45309`, ok `#15803d`, danger `#b91c1c`.
+Type: system UI for prose; `ui-monospace` for every live figure/status/code;
+letter-spaced small caps for section labels.
 
 ### Web implementation shape
-The single-file `index.html` is retired in favor of a small static bundle
-(`flux/agents/web/`: one HTML shell, one CSS file carrying the token system as
-custom properties with `data-theme` switching, one JS module). No framework,
-no build step — the constraint that kept the current page maintainable stays.
-The JS module's seams (event-in → DOM-out) are the unit-test surface.
+`flux/agents/web/` becomes a small static bundle **replacing the current
+`index.html` in place**: one HTML shell, one CSS file (tokens as custom
+properties, `data-theme` switch), one JS module. No framework, no build
+step. Served via a FastAPI `StaticFiles` mount on the console app (today
+only `/` is hardcoded — the mount is part of this work); the shell receives
+its boot context (agent name, session) from a small `GET /console/state`
+JSON call instead of the retired `{{AGENT_NAME_ATTR}}` substitution.
 
 ## Terminal surface
 
-Layout A (mirror of the web: rail / chat / context) wearing **btop's
-grammar**:
-
-- Panel titles embedded in the top border with a number that is the hotkey:
-  `┌1sessions─┐ ┌2chat─┐ ┌3context─┐`. Pressing `1/2/3` focuses the panel;
-  the focused border takes the amber accent.
-- Responsive collapse: below ~100 columns panels 1 and 3 become toggles;
-  below ~80 the app is chat-only with the status line carrying
-  `step 3/5 · ⚠2`.
-- Keyboard-first mirror of the web interactions: `Enter` opens a session row,
-  `r` renames, `n` new-session overlay (same picker + name), `a` approvals
-  overlay, `Enter`/`Space` expands plan steps / tool calls / sub-agent cards
-  in place (Textual `Collapsible`). Composer footer-pinned. Footer border
-  carries key hints btop-style.
-- Colors map 1:1 from the web dark tokens.
-
-`textual_app.py` grows into this. `terminal.py` shrinks to the non-TTY
-fallback: plain line output, no panels, selected automatically.
+Layout A in **btop's grammar** (unchanged from v1 design):
+- Border-embedded, number-prefixed panel titles as hotkeys:
+  `┌1sessions─┐ ┌2chat─┐ ┌3context─┐`; focused border takes amber.
+- Collapse below ~100 cols (panels 1/3 become toggles); chat-only below
+  ~80 with the status line carrying the figures.
+- Keys: `Enter` open, `r` rename, `n` new-session overlay, `a` approvals
+  overlay, `Enter`/`Space` expand in place; composer footer-pinned; footer
+  border carries key hints.
+- Colors map 1:1 from the web dark tokens. `textual_app.py` grows into
+  this; existing `textual_messages.py` widgets are extended, not replaced.
 
 ## CLI semantics
 
-`flux agent start [NAME] --mode terminal|web|api`:
-- `NAME` becomes **optional**. With it: console opens focused on a new (or
-  `--session`-attached) session of that agent — today's behavior preserved.
-- Without it: console opens on the session rail with the new-session picker.
-- `api` mode is unchanged apart from gaining the console JSON endpoints
-  (sessions/approvals/rename), which it serves headlessly.
+`flux agent start [NAME] --mode terminal|web|api [--plain] [--session ID]`:
+- With NAME: console opens focused on a new (or attached) session of that
+  agent — today's behavior, including the custom-workflow branch.
+- Without NAME: console opens on the rail with the picker. Without NAME
+  **and** without a TTY (and no `--mode api`): exit with a clear error —
+  the plain fallback is a single-session chat loop and cannot host the
+  rail; scripting belongs to `api` mode.
+- `flux agent session resume <id>` keeps its exact semantics: console
+  opens focused on that session (agent resolved from the session row).
+- `flux execution rename <id> <name>` and `--name` on run (engine
+  addition).
 
 ## Error handling
 
-- Server connection lost → status-bar banner, rail grays out, auto-reconnect
-  with jittered backoff. The console never exits on connection loss.
-- One session's SSE dropping does not affect others; its row shows
-  `reconnecting…` and the hub resubscribes.
-- Approval actions are idempotent; repeated clicks are safe.
-- Every panel has a directive empty state ("No sessions yet — press n /
-  + New session"; "No pending approvals").
+- Server connection lost → status-bar banner, rail grays, jittered-backoff
+  reconnect; the console never exits on connection loss.
+- A turn-stream ending at `PAUSED` is not an error (steady state). A
+  stream dropping mid-turn shows `reconnecting…` on that session; the next
+  log read reconciles whatever was missed.
+- Decide 409 → "already decided elsewhere", row clears on next refresh.
+- Every panel has a directive empty state.
 
 ## Testing
 
-- **Unit — console core:** `ConsoleService` and `EventHub` against a mocked
-  server API. The normalization contract (each wire frame type → exactly one
-  hub event) is exhaustively covered; command methods verify request shapes.
-- **Unit — TUI:** Textual `pilot` tests for focus hotkeys, expand/collapse,
-  overlays (new session, approvals), responsive collapse breakpoints.
-- **Unit — web:** the JS module's event-in/DOM-out seams; token/theme switch
-  sanity.
-- **E2E:** a real console process against the existing agent e2e stack:
-  create session → stream tokens → tool activity appears → approval round-trip
-  → rename → resume after console restart.
-- **Import budget:** the console process must not pull the server graph beyond
-  what `ApiUI` already does (guarded in the existing import-budget suite).
+- **Console core**: unit tests against a mocked server; the normalization
+  layer is tested as *an extension of* `parse_event`'s contract (including
+  the one-to-many fan-outs, elicitation, chat_response); command methods
+  verify request shapes and the 409 path.
+- **TUI**: Textual `pilot` tests for hotkeys, expand/collapse, overlays,
+  collapse breakpoints. E2E cannot exercise Textual (no TTY in the e2e
+  harness — the fallback would be selected); TUI coverage is pilot-based
+  by design, stated openly.
+- **Web**: JS module seams (event-in → DOM-out); theme/token sanity.
+- **E2E** (drives `api`/plain surfaces + the console core through a real
+  stack): spawn via picker flow (including a custom-workflow agent) →
+  stream → tool activity from the log → approval round-trip incl. 409 →
+  rename → resume.
+- **Import budget**: a console budget entry is added; prerequisite: fix
+  `flux/agents/__init__.py`'s eager `AgentManager` import (pulls
+  sqlalchemy/fastapi into any agent-UI process today — same lazy-import
+  class as #241).
+
+## Filed separately (pre-existing, discovered during review)
+
+1. Progress SSE bypasses secret redaction (server-side).
+2. `flux agent stop` POSTs to a route that does not exist (404s today).
+3. Eager `AgentManager` import in `flux/agents/__init__.py` blows any
+   honest agent-process import budget.
+4. `/chat`, `/approval`, `/elicitation` on the current web console are
+   drive-by callable (fixed here for the new app; filed for awareness of
+   released versions).
 
 ## Later (explicitly deferred)
 
 - Diff/artifact review panel.
-- Chat filtered by plan step (requires step-tagged tool events in the engine).
+- Chat filtered by plan step (needs step-tagged tool events).
 - Multi-operator auth on the web console.
-- Sub-agent full-transcript drill-in (requires delegations as first-class
-  sessions).
+- Sub-agent full-transcript drill-in (needs delegations as sessions).
+- Step counts on non-open rail rows (needs a cheap change-signal endpoint,
+  e.g. exposing `last_event_ordinal`).
+- Docs: `docs/advanced-features/` console page + `agent-harness.md` update
+  ship with implementation (AGENTS.md requirement), not with this spec.
