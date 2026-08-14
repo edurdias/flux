@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 from pathlib import Path
 
 from fastapi import Header
@@ -53,18 +52,15 @@ class WebUI(ApiUI):
 
     def _setup_web_routes(self) -> None:
         web_dir = Path(__file__).parent.parent / "web"
-        agent_name = self.agent_name
 
-        # Serves the future console bundle (console.html/.css/.js, Task 7);
-        # today's flux/agents/web/ only holds index.html, so this mount is
-        # dark until that task lands its assets alongside it.
+        # console.html pulls console.css/console.js from here; the bundle
+        # references no other origin.
         self.app.mount("/static", StaticFiles(directory=str(web_dir)), name="static")
 
         @self.app.get("/")
         async def index() -> HTMLResponse:
-            page = (web_dir / "index.html").read_text()
-            page = page.replace(
-                "{{AGENT_NAME_ATTR}}",
-                html.escape(agent_name or "", quote=True),
-            )
-            return HTMLResponse(page)
+            # Served verbatim. The console learns the bound agent (and
+            # everything else) from GET /console/state, so nothing is
+            # templated into the shell -- there is no injection surface here
+            # to escape, unlike the retired single-agent page.
+            return HTMLResponse((web_dir / "console.html").read_text())

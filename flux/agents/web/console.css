@@ -1,0 +1,894 @@
+/* Flux console — LED-board identity.
+ *
+ * Quiet chrome (ink ground, hairline rules, small letter-spaced labels) with
+ * exactly one signature: live figures — step counts, timers, durations — are
+ * always monospace and amber-weighted, glowing in the dark theme only. Both
+ * palettes are declared as custom properties on the two blocks below; nothing
+ * else in this file hardcodes a color.
+ */
+
+:root {
+  --ink: #0b111c;
+  --panel: #0e1524;
+  --line: #1c2536;
+  --text: #c9d2e0;
+  --muted: #8b96a8;
+  --amber: #f0a828;
+  --ok: #4ade80;
+  --bright: #e8edf5;
+  --dim: #5c6778;
+  --edge: #2a3650;
+  --sel: #131c30;
+  --fail: #f87171;
+  --on-amber: #0b111c;
+  --stage: #0b111c;
+  --glow: 0 0 12px #f0a82855;
+}
+
+[data-theme="light"] {
+  --ink: #f2f0ec;
+  --panel: #faf8f5;
+  --line: #ddd8d0;
+  --text: #3a4150;
+  --muted: #7a7468;
+  --amber: #b45309;
+  --ok: #15803d;
+  --bright: #1f2530;
+  --dim: #9a938a;
+  --edge: #cfc8bc;
+  --sel: #f0ece4;
+  --fail: #b91c1c;
+  --on-amber: #faf8f5;
+  /* Light lifts the stage a shade above the warm ground; dark keeps the
+     stage on the ink itself, exactly as the confirmed mockups do. */
+  --stage: #fdfcfa;
+  --glow: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--amber);
+  color: var(--on-amber);
+}
+
+/* ── shared vocabulary ─────────────────────────────────────────────── */
+
+.label {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mono,
+.figure {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The signature: a live figure reads as an instrument-panel readout. */
+.figure {
+  color: var(--amber);
+  text-shadow: var(--glow);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.dim {
+  color: var(--dim);
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.fail {
+  color: var(--fail);
+}
+
+.empty {
+  color: var(--dim);
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.btn {
+  background: transparent;
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--amber);
+  color: var(--bright);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.btn-accent {
+  color: var(--amber);
+}
+
+.btn-solid {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--on-amber);
+  font-weight: 600;
+}
+
+.btn-solid:hover:not(:disabled) {
+  color: var(--on-amber);
+}
+
+.btn-quiet {
+  border-color: transparent;
+  color: var(--muted);
+  padding: 2px 6px;
+}
+
+.btn-icon {
+  padding: 2px 7px;
+}
+
+.btn-alert {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* ── frame ─────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 200px;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  padding: 7px 12px;
+}
+
+.brand {
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: var(--muted);
+}
+
+.topbar-stat {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+.topbar-meta {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+.rail {
+  grid-column: 1;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 10px 8px 12px;
+}
+
+.stage {
+  grid-column: 2;
+  background: var(--stage);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+
+.context {
+  grid-column: 3;
+  background: var(--panel);
+  overflow-y: auto;
+  padding: 10px;
+}
+
+/* ── rail ──────────────────────────────────────────────────────────── */
+
+.rail-group {
+  margin: 10px 0 4px;
+}
+
+.rail-group:first-child {
+  margin-top: 0;
+}
+
+.rail-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  margin: 2px 0;
+}
+
+.rail-row:hover {
+  background: var(--sel);
+}
+
+.rail-row.selected {
+  border-left-color: var(--amber);
+  background: var(--sel);
+}
+
+.rail-row.done .rail-title {
+  color: var(--dim);
+}
+
+.rail-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-sub {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-sub.waiting {
+  color: var(--amber);
+}
+
+.rail-agent {
+  color: var(--dim);
+}
+
+.rail-new {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* ── stage ─────────────────────────────────────────────────────────── */
+
+.stage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 14px;
+}
+
+.stage-title {
+  color: var(--bright);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-meta {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rename-input {
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 2px 6px;
+  min-width: 220px;
+}
+
+.chat {
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  color: var(--dim);
+  margin: auto;
+  text-align: center;
+}
+
+.msg-user {
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-user .who {
+  color: var(--dim);
+}
+
+.msg-agent {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-agent code,
+.msg-user code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--amber);
+}
+
+.msg-agent pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  margin: 6px 0;
+  overflow-x: auto;
+  padding: 8px;
+  white-space: pre;
+}
+
+.msg-system {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.msg-error {
+  color: var(--fail);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.caret {
+  color: var(--amber);
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ── tool call block (chat) ────────────────────────────────────────── */
+
+.tool {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.tool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.tool.expanded .tool-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.tool-name {
+  color: var(--text);
+}
+
+.tool-args-inline {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tool-duration {
+  color: var(--bright);
+}
+
+.tool-time {
+  color: var(--dim);
+}
+
+.tool-body {
+  padding: 6px 8px;
+  color: var(--muted);
+}
+
+.tool-body pre {
+  margin: 2px 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.show-full {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* ── inline prompts (approval, elicitation) ────────────────────────── */
+
+.prompt {
+  border: 1px solid var(--amber);
+  border-radius: 3px;
+  padding: 8px;
+}
+
+.prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.prompt a {
+  color: var(--amber);
+}
+
+.prompt-note {
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.reasoning {
+  font-size: 11px;
+}
+
+.reasoning-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 0;
+}
+
+.reasoning-body {
+  color: var(--muted);
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-left: 14px;
+  white-space: pre-wrap;
+}
+
+/* ── composer ──────────────────────────────────────────────────────── */
+
+.composer {
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 8px 14px 10px;
+}
+
+.composer textarea {
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  flex: 1;
+  max-height: 140px;
+  padding: 7px 10px;
+  resize: none;
+}
+
+.composer textarea::placeholder {
+  color: var(--dim);
+}
+
+.composer textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.composer-hint {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--dim);
+  padding-bottom: 8px;
+  white-space: nowrap;
+}
+
+/* ── context panel ─────────────────────────────────────────────────── */
+
+.panel-section + .panel-section {
+  margin-top: 16px;
+}
+
+.hero {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--amber);
+  text-shadow: var(--glow);
+}
+
+.hero-total {
+  color: var(--dim);
+  font-size: 14px;
+  text-shadow: none;
+}
+
+.bar {
+  background: var(--line);
+  height: 3px;
+  margin: 4px 0 8px;
+}
+
+.bar-fill {
+  background: var(--amber);
+  height: 3px;
+}
+
+.step {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  padding: 0 6px;
+  text-align: left;
+}
+
+.step.active {
+  color: var(--bright);
+}
+
+.step.done {
+  color: var(--muted);
+}
+
+.step.pending {
+  color: var(--dim);
+}
+
+.step.expanded {
+  background: var(--sel);
+  border-left-color: var(--amber);
+  margin: 4px -6px;
+  padding: 6px 8px;
+}
+
+.step-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.step.expanded .step-text {
+  white-space: normal;
+}
+
+.step-detail {
+  color: var(--muted);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+
+.step-status {
+  color: var(--dim);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.activity-row {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 1px 0;
+  text-align: left;
+}
+
+.activity-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
+  margin-bottom: 6px;
+  padding: 8px;
+}
+
+.subagent-head {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  padding: 0;
+  text-align: left;
+}
+
+.subagent-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-body {
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.subagent-tail {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ── approvals drawer ──────────────────────────────────────────────── */
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 92vw;
+  background: var(--panel);
+  border-left: 1px solid var(--edge);
+  box-shadow: -12px 0 24px rgb(0 0 0 / 22%);
+  overflow-y: auto;
+  padding: 12px;
+  z-index: 20;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.approval {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  margin-bottom: 8px;
+  padding: 8px;
+}
+
+.approval-task {
+  color: var(--bright);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.approval-meta {
+  color: var(--dim);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.approval-target {
+  color: var(--amber);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+/* ── new-session modal ─────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 45%);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: 30;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 16px;
+  width: 340px;
+  max-width: 92vw;
+}
+
+.field {
+  background: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 3px;
+  padding: 5px 8px;
+  width: 100%;
+}
+
+.field::placeholder {
+  color: var(--dim);
+}
+
+.agent-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 8px 0;
+}
+
+.agent-row {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: inherit;
+  cursor: pointer;
+  margin: 2px 0;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.agent-row.selected {
+  background: var(--sel);
+  border-left-color: var(--amber);
+}
+
+.agent-row b {
+  color: var(--bright);
+}
+
+.agent-model {
+  color: var(--dim);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+}
+
+.agent-desc {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.modal-note {
+  color: var(--dim);
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+/* ── degradation ───────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+  .app {
+    grid-template-columns: 168px minmax(0, 1fr) 184px;
+  }
+}
+
+@media (max-width: 940px) {
+  /* Stage keeps priority: the context panel folds away before the chat does. */
+  .app {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+
+  .context {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .caret {
+    animation: none;
+  }
+}

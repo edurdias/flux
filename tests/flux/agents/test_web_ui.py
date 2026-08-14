@@ -44,17 +44,19 @@ def _mock_session_start(events):
     return _start
 
 
-def test_index_served_at_root():
+def test_console_shell_served_at_root():
     ui = _make_ui()
     client = TestClient(ui.app)
     response = client.get("/")
     assert response.status_code == 200
-    assert "Flux Agent" in response.text
+    assert "Flux Console" in response.text
     assert "</html>" in response.text
-    assert '<body data-agent-name="coder">' in response.text
 
 
-def test_index_escapes_agent_name_to_prevent_xss():
+def test_index_never_templates_the_agent_name():
+    """The retired single-agent page interpolated (and had to escape) the
+    agent name; the console shell is a static file and reads the agent from
+    /console/state, so no agent-controlled string reaches the served HTML."""
     ui = WebUI(
         server_url="http://flux.test",
         agent_name='"><script>alert(1)</script>',
@@ -64,10 +66,7 @@ def test_index_escapes_agent_name_to_prevent_xss():
     client = TestClient(ui.app)
     response = client.get("/")
     assert response.status_code == 200
-    assert "<script>alert(1)</script>" not in response.text
-    assert (
-        '<body data-agent-name="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">' in response.text
-    )
+    assert "alert(1)" not in response.text
 
 
 def test_chat_without_operator_token_passes_through():

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flux Console</title>
+<link rel="stylesheet" href="/static/console.css">
+<script>
+// Theme is applied before first paint so a light-theme operator never gets a
+// flash of the ink-dark chrome. Everything else lives in console.js.
+(function () {
+  try {
+    var stored = localStorage.getItem('flux.console.theme');
+    if (stored !== 'dark' && stored !== 'light') {
+      stored = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', stored);
+  } catch (e) {
+    /* private mode / storage denied — the dark default in the markup stands */
+  }
+})();
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <span class="brand">⚡ FLUX CONSOLE</span>
+    <span class="topbar-stat" id="running-stat"></span>
+    <button type="button" class="btn" id="approvals-btn" aria-expanded="false">⚠ 0 approvals</button>
+    <button type="button" class="btn btn-accent" id="new-session-btn">+ new session</button>
+    <span class="topbar-spacer"></span>
+    <span class="topbar-meta" id="server-label"></span>
+    <button type="button" class="btn btn-icon" id="theme-btn" aria-label="Toggle theme" title="Toggle theme">◐</button>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Sessions"></nav>
+
+  <main class="stage">
+    <div class="stage-head" id="stage-head"></div>
+    <div class="chat" id="chat" aria-live="polite"></div>
+    <div class="composer">
+      <textarea id="composer-input" rows="1" placeholder="Message…" aria-label="Message"></textarea>
+      <span class="composer-hint">Enter ↵ · Shift+Enter ⏎</span>
+    </div>
+  </main>
+
+  <aside class="context" id="context" aria-label="Session context"></aside>
+</div>
+
+<div class="drawer" id="drawer" hidden aria-label="Pending approvals"></div>
+<div class="modal-backdrop" id="modal" hidden></div>
+
+<script type="module" src="/static/console.js"></script>
+</body>
+</html>
