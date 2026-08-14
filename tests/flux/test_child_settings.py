@@ -103,6 +103,29 @@ class TestSnapshotSecrecy:
             shim.override(workers={})
         with pytest.raises(RuntimeError, match="read-only snapshot"):
             shim.reset()
+        with pytest.raises(RuntimeError, match="read-only snapshot"):
+            shim.reload()
+
+    def test_other_config_symbols_fail_with_a_named_reason(self):
+        """`from flux.config import FluxConfig` in sandboxed user code should
+        say why it cannot work, not raise a bare ImportError."""
+        code = (
+            "from flux.runners.child_settings import install_from_env\n"
+            "assert install_from_env()\n"
+            "import flux.config\n"
+            "try:\n"
+            "    flux.config.FluxConfig\n"
+            "except AttributeError as e:\n"
+            "    print('runner child' in str(e))\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env={**__import__("os").environ, CHILD_SETTINGS_ENV: snapshot()},
+        )
+        assert out.returncode == 0, out.stderr
+        assert out.stdout.strip().splitlines()[-1] == "True"
 
 
 class TestInstall:

@@ -100,7 +100,11 @@ class _Shim:
 
     @classmethod
     def get(cls) -> _Shim:
-        assert cls._instance is not None
+        if cls._instance is None:
+            raise RuntimeError(
+                "child settings shim installed but never initialized — "
+                "install_from_env() is the only supported entry point",
+            )
         return cls._instance
 
     def override(self, **kwargs):
@@ -112,6 +116,12 @@ class _Shim:
     def reset(self):
         raise RuntimeError(
             "Configuration.reset() is unavailable in a runner child: its "
+            "settings are a read-only snapshot provided by the worker",
+        )
+
+    def reload(self):
+        raise RuntimeError(
+            "Configuration.reload() is unavailable in a runner child: its "
             "settings are a read-only snapshot provided by the worker",
         )
 
@@ -133,5 +143,20 @@ def install_from_env() -> bool:
     _Shim._instance = shim
     module = types.ModuleType("flux.config")
     module.Configuration = _Shim  # type: ignore[attr-defined]
+
+    def _missing(name: str):
+        raise AttributeError(
+            f"flux.config.{name} is unavailable in a runner child: the "
+            "sandbox sees a parent-provided settings snapshot, not the "
+            "config machinery (issue #241)",
+        )
+
+    module.__getattr__ = _missing  # type: ignore[attr-defined]
     sys.modules["flux.config"] = module
+    # Bind the parent-package attribute the way a real import would, so
+    # attribute-style access (flux.config.X) reaches the shim instead of
+    # falling into the flux package's lazy-resolution machinery.
+    flux_pkg = sys.modules.get("flux")
+    if flux_pkg is not None:
+        flux_pkg.config = module  # type: ignore[attr-defined]
     return True
