@@ -417,6 +417,30 @@ def test_session_flow_spawn_send_rename_stop(console):
     console.wait_for_state(session_id, "CANCELLED")
 
 
+def test_cli_agent_stop_cancels_a_live_session(console, cli):
+    """`flux agent stop` against a real server (issue #243).
+
+    The command used to POST /executions/{id}/cancel -- a route the server
+    does not serve -- so it 404'd on every invocation while still exiting 0.
+    Only a real stack catches a missing route, which is why this lives here
+    rather than in the CliRunner tests.
+    """
+    session_id = console.create_session(PLAIN_AGENT)
+
+    result = cli._run(["agent", "stop", session_id])
+
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "stopped" in result.stdout
+    console.wait_for_state(session_id, "CANCELLED")
+
+
+def test_cli_agent_stop_reports_an_unknown_session(console, cli):
+    result = cli._run(["agent", "stop", "does-not-exist"])
+
+    assert result.returncode == 1
+    assert "not found" in (result.stdout + result.stderr)
+
+
 def test_custom_workflow_agent_runs_its_own_workflow(console):
     """An agent shipping a ``workflow_file`` gets its own registered workflow."""
     session_id = console.create_session(CUSTOM_AGENT, name="custom session")

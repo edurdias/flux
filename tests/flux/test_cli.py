@@ -1348,3 +1348,87 @@ class TestAgentSessionResumeCLI:
 
         assert result.exit_code != 0
         assert "Error resuming session: boom" in result.output
+
+
+class TestAgentStop:
+    """`flux agent stop` cancels through the workflow-scoped route.
+
+    There is no ``POST /executions/{id}/cancel`` on the server (issue #243) --
+    the command used to post to it and 404 on every invocation, while
+    reporting the failure with exit code 0.
+    """
+
+    def _client(self, execution=None, cancel_status=200):
+        client = MagicMock()
+        lookup = MagicMock()
+        lookup.json.return_value = execution or {
+            "execution_id": "exec-1",
+            "workflow_namespace": "agents",
+            "workflow_name": "agent_chat",
+        }
+        cancel = MagicMock()
+        client.get.side_effect = [lookup, cancel]
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+        return client
+
+    def test_stop_cancels_through_the_execution_s_own_workflow(self, runner):
+        client = self._client()
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(cli, ["agent", "stop", "exec-1"])
+
+        assert result.exit_code == 0, result.output
+        urls = [call.args[0] for call in client.get.call_args_list]
+        assert urls[0].endswith("/executions/exec-1")
+        assert urls[1].endswith("/workflows/agents/agent_chat/cancel/exec-1")
+        assert "stopped" in result.output
+
+    def test_custom_workflow_session_cancels_under_its_own_workflow(self, runner):
+        """An agent shipping a workflow_file runs as agent_custom_<name>, so
+        the workflow cannot be assumed."""
+        client = self._client(
+            execution={
+                "execution_id": "exec-2",
+                "workflow_namespace": "agents",
+                "workflow_name": "agent_custom_reviewer",
+            },
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(cli, ["agent", "stop", "exec-2"])
+
+        assert result.exit_code == 0, result.output
+        assert (
+            client.get.call_args_list[1]
+            .args[0]
+            .endswith(
+                "/workflows/agents/agent_custom_reviewer/cancel/exec-2",
+            )
+        )
+
+    def test_unknown_session_reports_clearly_and_exits_nonzero(self, runner):
+        import httpx
+
+        client = MagicMock()
+        response = httpx.Response(404, request=httpx.Request("GET", "http://s/executions/nope"))
+        client.get.side_effect = httpx.HTTPStatusError("404", request=None, response=response)
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(cli, ["agent", "stop", "nope"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    def test_cancel_failure_exits_nonzero(self, runner):
+        """A printed error with exit 0 reads as success to a script."""
+        client = MagicMock()
+        client.get.side_effect = RuntimeError("boom")
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(cli, ["agent", "stop", "exec-1"])
+
+        assert result.exit_code == 1
+        assert "Error stopping session" in result.output
