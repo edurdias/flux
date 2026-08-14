@@ -134,6 +134,77 @@ def test_tool_activity_survives_a_missing_task_started():
     assert "unwrapOutput(value)" in body, "tool output must be unwrapped for display"
 
 
+def test_reducer_drops_frames_addressed_to_another_session():
+    """The critical one (this repo runs no JS test runner, so it is pinned at
+    the source): `handleEvent` is the only path live frames take into
+    `state`, and a turn keeps streaming after the operator switches sessions.
+    Without the guard, session A's tokens append to B's transcript and A's
+    `log_delta` replaces B's blocks wholesale — permanently, since the
+    reducer is what the poll reconciles against."""
+    script = (WEB_DIR / "console.js").read_text()
+    reducer = re.search(r"function handleEvent\(consoleEvent\) \{(.*?)\n\}", script, re.DOTALL)
+    assert reducer, "console.js must define the handleEvent reducer"
+    guard = reducer.group(1).lstrip().splitlines()[0]
+    assert "consoleEvent.session_id !== state.activeId" in guard, (
+        "the first thing handleEvent does must be to drop foreign frames"
+    )
+    assert "return" in guard
+
+
+def test_a_turn_is_scoped_to_the_session_it_was_sent_to():
+    """`state.activeId` can move under a running turn. Every step after the
+    fetch must name the session the turn was sent to, and switching away must
+    abort the stream rather than leave it pumping into another session."""
+    script = (WEB_DIR / "console.js").read_text()
+    send = re.search(r"async function sendMessage\(text\) \{(.*?)\n\}", script, re.DOTALL)
+    assert send, "console.js must define sendMessage"
+    body = send.group(1)
+    assert "const turnId = state.activeId;" in body, "the turn must capture its session id"
+    assert "new AbortController()" in body, "the turn must be abortable"
+    assert "encodeURIComponent(turnId)" in body, "the turn must POST to its own session"
+    assert "state.activeId === turnId" in body, "post-turn writes must check the session"
+
+    open_session = re.search(r"async function openSession\(id\) \{(.*?)\n\}", script, re.DOTALL)
+    assert open_session, "console.js must define openSession"
+    switched = open_session.group(1)
+    assert "inflightTurn.controller.abort()" in switched, "switching must abort the live turn"
+    assert "state.busy = false" not in switched, (
+        "openSession must not clear busy mid-turn — the turn's own finalizer owns it"
+    )
+
+
+def test_elicitation_replies_target_the_block_own_session():
+    """Same class as the frame guard: a prompt is answered against the
+    execution that raised it, not whichever session happens to be open."""
+    script = (WEB_DIR / "console.js").read_text()
+    respond = re.search(
+        r"async function respondToElicitation\(block, action\) \{(.*?)\n\}",
+        script,
+        re.DOTALL,
+    )
+    assert respond, "console.js must define respondToElicitation"
+    body = respond.group(1)
+    assert "block.sessionId" in body, "the reply must use the block's own session id"
+    assert "api.elicitation(sessionId" in body
+
+
+def test_stage_header_offers_a_stop_control():
+    """`POST /console/sessions/{id}/stop` exists and the spec lists
+    stop_session under Commands; the web console must actually expose it —
+    guarded (read-only disables it) and confirmed (a cancel is not undoable)."""
+    script = (WEB_DIR / "console.js").read_text()
+    assert "stop: (id) =>" in script, "the api surface must include stop"
+    assert "/stop`" in script
+    stop = re.search(r"async function stopSession\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert stop, "console.js must define stopSession"
+    body = stop.group(1)
+    assert "state.stopConfirm" in body, "stop must be confirmed before it fires"
+    assert "isStoppable(row)" in body, "a terminal session has nothing to stop"
+    head = re.search(r"function buildStageHead\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert head and "stopSession()" in head.group(1), "the stage header must carry the control"
+    assert "guard(" in head.group(1), "the control must be disabled for a read-only token"
+
+
 def test_dark_palette_defined_as_custom_properties(stylesheet: str):
     block = _root_block(stylesheet)
     for token, value in DARK_TOKENS.items():

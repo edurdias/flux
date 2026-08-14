@@ -316,7 +316,21 @@ def mount_console_routes(
     async def console_agents(
         service: ConsoleService = Depends(_service_dependency),
     ) -> list[dict]:
-        return await _call(write_state, service.list_agents())
+        rows = await _call(write_state, service.list_agents())
+        # Projected, never relayed verbatim: /admin/agents returns the whole
+        # definition, including workflow_file/tools_file source and
+        # mcp_servers blocks that can carry credentials. The pickers on both
+        # surfaces show name · model · description and nothing else, so
+        # that is all that reaches a browser.
+        return [
+            {
+                "name": row.get("name"),
+                "model": row.get("model"),
+                "description": row.get("description"),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
 
     @app.get("/console/sessions")
     async def console_sessions(
@@ -409,7 +423,17 @@ def mount_console_routes(
                         continue
                     yield {
                         "data": json.dumps(
-                            {"kind": envelope.event.kind, "data": envelope.event.data},
+                            {
+                                # The session id rides on every frame, not
+                                # just the stream's subscription: a browser
+                                # that switched sessions mid-turn is still
+                                # draining this response, and without it the
+                                # reducer cannot tell a straggler frame from
+                                # one belonging to the session now on screen.
+                                "session_id": envelope.session_id,
+                                "kind": envelope.event.kind,
+                                "data": envelope.event.data,
+                            },
                         ),
                     }
                     if envelope.event.kind == KIND_LOG_DELTA:

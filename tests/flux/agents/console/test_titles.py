@@ -26,6 +26,29 @@ def test_strips_surrounding_whitespace():
     assert derived_title(detail) == "Fix the flaky test"
 
 
+def test_collapses_internal_newlines_into_single_spaces():
+    """A title is drawn on one line -- the TUI rail gives it exactly one row,
+    and a wrapped row reads as two sessions. A pasted multi-line first
+    message must therefore come back single-line."""
+    detail = {"events": [_resumed("Fix the build\nthen ship it")]}
+    title = derived_title(detail)
+    assert title == "Fix the build then ship it"
+    assert "\n" not in title
+
+
+def test_collapses_runs_of_whitespace_including_tabs():
+    detail = {"events": [_resumed("  Fix\t\tthe   build \r\n now  ")]}
+    assert derived_title(detail) == "Fix the build now"
+
+
+def test_truncation_measures_the_collapsed_text():
+    """Collapsing happens before truncation, so the 48-char budget is spent
+    on words, not on the whitespace that separated them."""
+    text = "Investigate the flaky test suite\n\n\n\nfailures in CI before shipping"
+    detail = {"events": [_resumed(text)]}
+    assert derived_title(detail) == "Investigate the flaky test suite failures in CI…"
+
+
 def test_truncates_on_clean_word_boundary():
     text = "Investigate the flaky test suite failures in CI before shipping the release tomorrow"
     detail = {"events": [_resumed(text)]}

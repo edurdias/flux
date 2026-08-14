@@ -236,6 +236,42 @@ def test_console_approvals_lists_rows():
 
 
 # ---------------------------------------------------------------------------
+# GET /console/agents -- projected, never the whole definition
+# ---------------------------------------------------------------------------
+
+
+def test_console_agents_projects_only_what_the_pickers_show():
+    """/admin/agents returns the whole agent definition -- workflow_file and
+    tools_file *source*, and mcp_servers blocks that can carry credentials.
+    Both pickers render name · model · description, so that is all the
+    console hands a browser."""
+    fake = _FakeService(
+        agents=[
+            {
+                "name": "coder",
+                "model": "anthropic/claude",
+                "description": "writes code",
+                "workflow_file": "import flux\n# secret-bearing source",
+                "tools_file": "def tool(): ...",
+                "mcp_servers": {"github": {"env": {"GITHUB_TOKEN": "ghp_supersecret"}}},
+                "system_prompt": "you are…",
+            },
+        ],
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get("/console/agents", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"name": "coder", "model": "anthropic/claude", "description": "writes code"},
+    ]
+    assert "ghp_supersecret" not in response.text
+    assert "secret-bearing source" not in response.text
+
+
+# ---------------------------------------------------------------------------
 # POST /console/sessions/{id}/send -- SSE stream ending at this session's log_delta
 # ---------------------------------------------------------------------------
 
@@ -260,6 +296,33 @@ def test_console_send_streams_sse_frames_ending_at_log_delta():
     kinds = [p["kind"] for p in payloads]
     assert kinds == ["token", "session_id", "chat_response", "log_delta"]
     assert payloads[-1]["data"] == {"detail": fake._detail}
+
+
+def test_console_send_frames_are_addressed_to_their_session():
+    """Every frame names the session it belongs to.
+
+    The hub multiplexes every session this console process watches, and a
+    turn keeps streaming after the operator switches to another session --
+    without the envelope's session_id on the wire, the browser's reducer
+    cannot tell a straggler from a frame for the session now on screen, and
+    appends one session's reply into another's transcript.
+    """
+    fake = _FakeService(
+        send_frames=[TOKEN_FRAME, PAUSED_CHAT_FRAME],
+        detail={"execution_id": "exec-1", "workflow_name": "agent_chat", "events": []},
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.post(
+            "/console/sessions/exec-1/send",
+            json={"text": "hi"},
+            headers=HEADERS,
+        )
+
+    payloads = _sse_payloads(response)
+    assert payloads, "the turn must stream at least its log_delta"
+    assert [p.get("session_id") for p in payloads] == ["exec-1"] * len(payloads)
 
 
 # ---------------------------------------------------------------------------

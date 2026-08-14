@@ -45,6 +45,8 @@ const GLYPH = {
 // documented cost of the log having no "this was a tool" marker.
 const INTERNAL_TASK = /^(pause$|get_config|get_secret|agent_|llm_|wm_)/;
 
+const TERMINAL_STATES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+
 const RUNNING_STATES = new Set([
   "CREATED",
   "SCHEDULED",
@@ -97,6 +99,7 @@ const state = {
   expandedSteps: new Set(),
   expandedSubagents: new Set(),
   renaming: false,
+  stopConfirm: false, // stop is two-click: cancelling a session is not undoable
   drawerOpen: false,
   modalOpen: false,
   agents: [],
@@ -353,6 +356,11 @@ const api = {
       headers: WRITE_HEADERS,
       body: JSON.stringify({ payload }),
     }),
+  stop: (id) =>
+    request(`/console/sessions/${encodeURIComponent(id)}/stop`, {
+      method: "POST",
+      headers: WRITE_HEADERS,
+    }),
 };
 
 function errorText(err) {
@@ -386,6 +394,9 @@ function applyDetail(detail) {
   const tools = new Map();
   const approvals = new Map();
   let firstMessage = null;
+  // Prompts answer against the execution they were raised in, never against
+  // whatever happens to be open when the operator gets round to them.
+  const sessionId = detail.execution_id || state.activeId;
 
   for (const event of detail.events || []) {
     const value = event.value;
@@ -405,7 +416,13 @@ function applyDetail(detail) {
         if (output.type === "chat_response" && output.content) {
           blocks.push({ kind: "agent", text: String(output.content), time });
         } else if (output.type === "elicitation") {
-          blocks.push({ kind: "elicitation", data: output, time, answered: false });
+          blocks.push({
+            kind: "elicitation",
+            data: output,
+            time,
+            answered: false,
+            sessionId,
+          });
         } else if (output.type === "session_end") {
           blocks.push({
             kind: "system",
@@ -510,10 +527,19 @@ function applyDetail(detail) {
 
 /* ── the reducer ───────────────────────────────────────────────────── */
 
-/** The single entry point for live events; every kind lands here. */
+/**
+ * The single entry point for live events; every kind lands here.
+ *
+ * Frames are addressed: the hub multiplexes every session this console
+ * process watches, and a turn keeps streaming after the operator switches
+ * away from the session that started it. Anything not addressed to the open
+ * session is dropped here — appending it would write one session's tokens
+ * into another's transcript, and a `log_delta` would replace it wholesale.
+ */
 function handleEvent(consoleEvent) {
-  const kind = consoleEvent && consoleEvent.kind;
-  const data = (consoleEvent && consoleEvent.data) || {};
+  if (!consoleEvent || consoleEvent.session_id !== state.activeId) return;
+  const kind = consoleEvent.kind;
+  const data = consoleEvent.data || {};
 
   switch (kind) {
     case "token":
@@ -580,7 +606,13 @@ function handleEvent(consoleEvent) {
     }
 
     case "elicitation":
-      pushBlock({ kind: "elicitation", data, time: null, answered: false });
+      pushBlock({
+        kind: "elicitation",
+        data,
+        time: null,
+        answered: false,
+        sessionId: consoleEvent.session_id,
+      });
       break;
 
     case "plan":
@@ -875,11 +907,25 @@ function renderStageHead() {
       state.renaming,
       state.canWrite,
       state.missingPermission,
+      state.stopConfirm,
+      row ? row.state : null,
       counts.done,
       counts.total,
     ],
     buildStageHead,
   );
+}
+
+/**
+ * Whether a session can still be stopped.
+ *
+ * Non-terminal, not merely running: a PAUSED session is the normal state of a
+ * healthy chat waiting on its next turn, and ending one is exactly what the
+ * control is for. Only an execution that already reached an end state has
+ * nothing left to cancel.
+ */
+function isStoppable(row) {
+  return Boolean(row) && !TERMINAL_STATES.has(String(row.state || "").toUpperCase());
 }
 
 function buildStageHead() {
@@ -936,6 +982,22 @@ function buildStageHead() {
             },
           }),
         ),
+        " ",
+        isStoppable(row)
+          ? guard(
+              el("button", {
+                type: "button",
+                class: `btn btn-quiet${state.stopConfirm ? " fail" : ""}`,
+                // Two clicks, not a modal: cancelling a session cannot be
+                // undone, and a header button is one stray click away from
+                // the rename pencil beside it.
+                text: state.stopConfirm ? "stop — sure?" : "◼ stop",
+                "aria-label": "Stop session",
+                title: state.canWrite ? "Cancel this session's execution" : "",
+                onclick: () => stopSession(),
+              }),
+            )
+          : null,
       ),
     );
   }
@@ -1653,6 +1715,11 @@ async function refreshAgents() {
 
 async function openSession(id) {
   if (state.activeId !== id) {
+    // Stop pumping the session being left. The turn itself keeps running
+    // server-side (other subscribers still need its log_delta) — this only
+    // detaches *this* browser from a stream it is about to ignore, and the
+    // turn's own finalizer clears `busy` when the abort lands.
+    if (inflightTurn) inflightTurn.controller.abort();
     // A different session shares none of the previous one's overlay state.
     state.activeId = id;
     state.blocks = [];
@@ -1662,7 +1729,7 @@ async function openSession(id) {
     state.stream = "";
     state.reasoning = null;
     state.localTitle = null;
-    state.busy = false;
+    state.stopConfirm = false;
     state.chatVersion += 1;
   }
   scheduleRender();
@@ -1683,6 +1750,26 @@ async function refreshDetail() {
   } catch (err) {
     /* transient; the next tick retries */
   }
+}
+
+async function stopSession() {
+  const row = activeRow();
+  if (!state.activeId || !state.canWrite || !isStoppable(row)) return;
+  if (!state.stopConfirm) {
+    state.stopConfirm = true;
+    scheduleRender();
+    return;
+  }
+  state.stopConfirm = false;
+  const target = state.activeId;
+  try {
+    await api.stop(target);
+  } catch (err) {
+    state.notice = `stop: ${errorText(err)}`;
+  }
+  await refreshSessions();
+  if (state.activeId === target) await refreshDetail();
+  scheduleRender();
 }
 
 async function commitRename(value) {
@@ -1742,14 +1829,17 @@ async function decideApproval(executionId, callId, decision) {
 
 async function respondToElicitation(block, action) {
   const data = block.data || {};
-  if (!state.activeId) return;
+  // The block's own session, not whichever one is open: an operator can
+  // answer a prompt, switch sessions, and land the reply either way.
+  const sessionId = block.sessionId || state.activeId;
+  if (!sessionId) return;
   block.answered = action;
   state.chatVersion += 1;
   scheduleRender();
   try {
     // Same payload shape the legacy single-agent page used, resumed against
     // this session's own execution rather than the process-level one.
-    await api.elicitation(state.activeId, {
+    await api.elicitation(sessionId, {
       elicitation_response: {
         elicitation_id: data.elicitation_id || "",
         action,
@@ -1786,20 +1876,33 @@ async function consumeStream(response, onFrame) {
   }
 }
 
+// The turn this browser is currently streaming, if any: {id, controller}.
+// One at a time — the composer is disabled while `state.busy` — and it is
+// tracked outside `state` because only `openSession` (to abort it) and the
+// turn's own finalizer (to retire it) ever touch it.
+let inflightTurn = null;
+
 async function sendMessage(text) {
   if (!state.activeId || !text.trim() || state.busy || !state.canWrite) return;
+  // Every later step names the session this turn was sent to. `state.activeId`
+  // can move under a running turn (the operator clicks another rail row), and
+  // a reply appended to whatever is open by then lands in the wrong session.
+  const turnId = state.activeId;
   const message = text;
+  const controller = new AbortController();
   pushBlock({ kind: "user", text: message, time: new Date().toISOString() });
   state.busy = true;
   state.stream = "";
   state.reasoning = null;
+  inflightTurn = { id: turnId, controller };
   scheduleRender();
 
   try {
-    const response = await fetch(`/console/sessions/${encodeURIComponent(state.activeId)}/send`, {
+    const response = await fetch(`/console/sessions/${encodeURIComponent(turnId)}/send`, {
       method: "POST",
       headers: WRITE_HEADERS,
       body: JSON.stringify({ text: message }),
+      signal: controller.signal,
     });
     if (!response.ok) {
       let body = null;
@@ -1809,21 +1912,33 @@ async function sendMessage(text) {
         body = null;
       }
       noteFailure(response.status, body, true);
-      pushBlock({ kind: "error", text: errorText(new HttpError(response.status, body)) });
+      if (state.activeId === turnId) {
+        pushBlock({ kind: "error", text: errorText(new HttpError(response.status, body)) });
+      }
     } else {
       await consumeStream(response, handleEvent);
     }
   } catch (err) {
-    pushBlock({ kind: "error", text: `Connection error: ${errorText(err)}` });
+    // An abort is this console's own doing (the operator switched sessions),
+    // not a failure worth reporting in the transcript it switched to.
+    if (state.activeId === turnId && !controller.signal.aborted) {
+      pushBlock({ kind: "error", text: `Connection error: ${errorText(err)}` });
+    }
   }
 
-  state.busy = false;
-  state.stream = "";
+  // Only retire the turn still on record: an aborted turn's finalizer can run
+  // after the operator already started a new one, and must not steal its
+  // `busy` (which would re-enable the composer mid-turn).
+  if (inflightTurn && inflightTurn.controller === controller) {
+    inflightTurn = null;
+    state.busy = false;
+    state.stream = "";
+  }
   scheduleRender();
   refreshSessions();
   // The composer was disabled for the turn, which drops focus; give it back
   // so the next message needs no click.
-  if (state.canWrite) requestAnimationFrame(() => dom.input.focus());
+  if (state.canWrite && !state.busy) requestAnimationFrame(() => dom.input.focus());
 }
 
 /* ── wiring ────────────────────────────────────────────────────────── */
@@ -1851,6 +1966,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (state.modalOpen) closeModal();
   else if (state.drawerOpen) closeDrawer();
+  else if (state.stopConfirm) {
+    // Escape disarms a stop the operator thought better of.
+    state.stopConfirm = false;
+    scheduleRender();
+  }
 });
 
 dom.modal.addEventListener("click", (event) => {

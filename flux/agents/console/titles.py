@@ -33,7 +33,11 @@ def derived_title(detail: dict) -> str | None:
             continue
         message = value.get("message")
         if isinstance(message, str) and message.strip():
-            return _truncate(message.strip())
+            # Collapse *internal* whitespace too, not just the ends: a title
+            # is drawn on one line (the TUI rail gives it exactly one row),
+            # and a pasted multi-line first message would otherwise wrap the
+            # row and read as two sessions.
+            return _truncate(" ".join(message.split()))
     return None
 
 
