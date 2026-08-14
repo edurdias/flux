@@ -10,10 +10,15 @@ exempt throughout.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
+from flux.agents.console.app import _request_token
+from flux.agents.console.service import ConsoleService
 from flux.agents.ui.api import ApiUI
 from flux.agents.ui.web import WebUI
 
@@ -274,3 +279,113 @@ def test_web_ui_console_sessions_honors_own_origin_allowlist():
         headers={**CSRF_HEADER, "Origin": "http://127.0.0.1:9090"},
     )
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# api-mode per-request Bearer isolation: two overlapping requests bearing
+# different tokens must never observe each other's credentials, and a
+# /send turn's detached background reconciliation must keep the token of
+# the request that started it even after a later, unrelated request runs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_with_different_tokens_never_cross_contaminate():
+    """Regression test for a real cross-request leak: interleaving two
+    requests bearing different Bearer tokens against the shared console
+    service must never let one observe the other's token."""
+    seen: list[tuple[str | None, str | None]] = []
+
+    class _SlowFakeService(ConsoleService):
+        def __init__(self):
+            super().__init__(server_url="http://test", token=None)
+
+        async def list_sessions(self, agent=None):
+            before = _request_token.get()
+            # Yields control back to the event loop -- exactly the window a
+            # shared mutable service.token (the pre-fix design) could be
+            # clobbered by an overlapping request's own dependency.
+            await asyncio.sleep(0.05)
+            after = _request_token.get()
+            seen.append((before, after))
+            return []
+
+    fake = _SlowFakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_api_ui()
+        transport = httpx.ASGITransport(app=ui.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            results = await asyncio.gather(
+                client.get(
+                    "/console/sessions",
+                    headers={"Authorization": "Bearer token-A", **CSRF_HEADER},
+                ),
+                client.get(
+                    "/console/sessions",
+                    headers={"Authorization": "Bearer token-B", **CSRF_HEADER},
+                ),
+            )
+
+    assert [r.status_code for r in results] == [200, 200]
+    assert len(seen) == 2
+    # Each call's own view of the token must stay stable across its own
+    # await point (no request ever reads a token other than its own)...
+    for before, after in seen:
+        assert before == after
+    # ...and the two overlapping calls really did carry different tokens.
+    assert {pair[0] for pair in seen} == {"token-A", "token-B"}
+
+
+@pytest.mark.asyncio
+async def test_send_background_reconciliation_keeps_its_own_requests_token():
+    """EventHub.run_turn's end-of-turn get_detail call runs inside a
+    detached background task that can execute after unrelated requests have
+    already changed the shared service's effective token -- it must keep
+    using the token that was active when the turn itself was created."""
+    seen_tokens: list[str | None] = []
+
+    class _TrackingFakeService(ConsoleService):
+        def __init__(self):
+            super().__init__(server_url="http://test", token=None)
+
+        async def list_sessions(self, agent=None):
+            return []
+
+        async def send(self, execution_id, agent_name, workflow_name, text):
+            return
+            yield  # pragma: no cover -- makes this an async generator
+
+        async def get_detail(self, execution_id):
+            await asyncio.sleep(0.08)
+            seen_tokens.append(_request_token.get())
+            return {"execution_id": execution_id, "workflow_name": "agent_chat", "events": []}
+
+    fake = _TrackingFakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_api_ui()
+        transport = httpx.ASGITransport(app=ui.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            send_task = asyncio.ensure_future(
+                client.post(
+                    "/console/sessions/exec-1/send",
+                    json={"text": "hi"},
+                    headers={"Authorization": "Bearer token-A", **CSRF_HEADER},
+                ),
+            )
+            # Give request A's own get_detail (workflow_name resolution) a
+            # head start, then fire a second, unrelated request under a
+            # *different* token while A's turn is still in flight.
+            await asyncio.sleep(0.02)
+            other_response = await client.get(
+                "/console/sessions",
+                headers={"Authorization": "Bearer token-B", **CSRF_HEADER},
+            )
+            send_response = await send_task
+
+    assert send_response.status_code == 200
+    assert other_response.status_code == 200
+    # Both of request A's get_detail calls (the direct one resolving
+    # workflow_name, and run_turn's own end-of-turn reconciliation, which
+    # runs in a detached background task) must have seen only its own token.
+    assert seen_tokens
+    assert set(seen_tokens) == {"token-A"}

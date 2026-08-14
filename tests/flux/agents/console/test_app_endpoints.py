@@ -3,7 +3,7 @@
 Follows the house pattern from test_hub.py: a ``ConsoleService`` subclass
 stands in for the real HTTP-backed one so ``EventHub`` (title cache,
 fan-out, turn reconciliation) is exercised for real, without touching the
-network. ``flux.agents.console.app.ConsoleService`` -- the one name
+network. ``flux.agents.console.app._ScopedConsoleService`` -- the one name
 ``mount_console_routes`` actually constructs -- is patched to return it.
 """
 
@@ -17,6 +17,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from flux.agents.console.app import _request_token
 from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
 from flux.agents.ui.api import ApiUI
 from flux.agents.ui.web import WebUI
@@ -49,6 +50,7 @@ class _FakeService(ConsoleService):
         spawn_execution_id="exec-new",
         spawn_error=None,
         rename_error=None,
+        forbidden_tokens=None,
     ):
         super().__init__(server_url="http://test", token=None)
         self._sessions = sessions if sessions is not None else []
@@ -60,6 +62,12 @@ class _FakeService(ConsoleService):
         self._spawn_execution_id = spawn_execution_id
         self._spawn_error = spawn_error
         self._rename_error = rename_error
+        # Tokens that should fail authorization on a write attempt --
+        # ConsoleWriteState's can_write probe (GET /console/state) drives
+        # `stop()` against a fake execution id, so this is what makes that
+        # probe token-aware in tests, mirroring the real server's per-token
+        # authorization boundary.
+        self._forbidden_tokens = frozenset(forbidden_tokens or ())
         self.decide_calls: list[tuple] = []
         self.rename_calls: list[tuple] = []
         self.stop_calls: list[tuple] = []
@@ -106,6 +114,13 @@ class _FakeService(ConsoleService):
         self.rename_calls.append((execution_id, name))
 
     async def stop(self, execution_id, namespace, workflow_name):
+        if _request_token.get() in self._forbidden_tokens:
+            raise _forbidden(
+                {
+                    "error": "forbidden",
+                    "missing_permission": f"workflow:{namespace}:{workflow_name}:run",
+                },
+            )
         self.stop_calls.append((execution_id, namespace, workflow_name))
 
 
@@ -173,7 +188,7 @@ def test_console_sessions_carries_name_and_derived_title_from_hub_cache():
             ],
         },
     )
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         # Warm the hub's title cache the way the UI does: open the session.
@@ -203,7 +218,7 @@ def test_console_approvals_lists_rows():
             ),
         ],
     )
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.get("/console/approvals", headers=HEADERS)
@@ -230,7 +245,7 @@ def test_console_send_streams_sse_frames_ending_at_log_delta():
         send_frames=[TOKEN_FRAME, PAUSED_CHAT_FRAME],
         detail={"execution_id": "exec-1", "workflow_name": "agent_chat", "events": []},
     )
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.post(
@@ -254,7 +269,7 @@ def test_console_send_streams_sse_frames_ending_at_log_delta():
 
 def test_console_decide_returns_already_decided():
     fake = _FakeService(decide_result="already_decided")
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.post(
@@ -270,7 +285,7 @@ def test_console_decide_returns_already_decided():
 
 def test_console_decide_requires_boolean_approve():
     fake = _FakeService()
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.post(
@@ -289,7 +304,7 @@ def test_console_decide_requires_boolean_approve():
 
 def test_console_create_session_returns_execution_id():
     fake = _FakeService(spawn_execution_id="exec-brand-new")
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.post(
@@ -308,7 +323,7 @@ def test_console_create_session_translates_spawn_runtime_error_to_clean_502():
     review note) -- this must reach the client as a clean HTTPException, not
     an unhandled-exception 500 traceback."""
     fake = _FakeService(spawn_error=RuntimeError("spawn: server never reported an execution_id"))
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
         response = client.post(
@@ -332,7 +347,7 @@ def test_console_state_can_write_flips_false_and_403_body_surfaces_verbatim():
             {"error": "forbidden", "missing_permission": "workflow:agents:agent_chat:run"},
         ),
     )
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui()
         client = TestClient(ui.app)
 
@@ -355,9 +370,71 @@ def test_console_state_can_write_flips_false_and_403_body_surfaces_verbatim():
     assert after.json()["can_write"] is False
 
 
+def test_console_state_can_write_false_on_first_read_for_read_only_token():
+    """A real probe, not a wait-for-a-real-write-to-fail heuristic: a
+    read-only token must see can_write: false on its very first
+    /console/state call, before it has attempted any write at all."""
+    fake = _FakeService(forbidden_tokens={"readonly-token"})
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer readonly-token", **CSRF},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["can_write"] is False
+    # The probe itself must be a real dry-run write attempt, not inference
+    # from some other read -- the fake's stop() is what raises the 403.
+    assert fake.stop_calls == []
+
+
+def test_console_state_can_write_true_on_first_read_for_writer_token():
+    fake = _FakeService(forbidden_tokens=set())
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer writer-token", **CSRF},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["can_write"] is True
+
+
+def test_console_state_can_write_is_per_token_not_global():
+    """A 403 observed for one token must never degrade the console for a
+    different token -- ConsoleWriteState keys its cache by token."""
+    fake = _FakeService(forbidden_tokens={"readonly-token"})
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+
+        readonly_response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer readonly-token", **CSRF},
+        )
+        writer_response = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer writer-token", **CSRF},
+        )
+        # Re-check the read-only token stays cached false, unaffected by the
+        # writer token's call in between.
+        readonly_again = client.get(
+            "/console/state",
+            headers={"Authorization": "Bearer readonly-token", **CSRF},
+        )
+
+    assert readonly_response.json()["can_write"] is False
+    assert writer_response.json()["can_write"] is True
+    assert readonly_again.json()["can_write"] is False
+
+
 def test_console_state_reports_agent_and_server_url():
     fake = _FakeService()
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui(agent_name="coder")
         client = TestClient(ui.app)
         response = client.get("/console/state", headers=HEADERS)
@@ -385,7 +462,7 @@ def test_chat_returns_404_when_agent_name_none():
 
 def test_console_state_reports_agent_none_when_no_bound_agent():
     fake = _FakeService()
-    with patch("flux.agents.console.app.ConsoleService", return_value=fake):
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
         ui = _make_ui(agent_name=None)
         client = TestClient(ui.app)
         response = client.get("/console/state", headers=HEADERS)

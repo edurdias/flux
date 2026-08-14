@@ -9,20 +9,33 @@ dependency to the pre-existing ``/chat``, ``/approval``, ``/elicitation``
 routes it defines. This module only knows how to wire ``ConsoleService`` and
 ``EventHub`` to HTTP.
 
-One ``ConsoleService``/``EventHub`` pair is built once per app (not once per
-request) so the hub's title cache and subscriber fan-out survive across
+One ``EventHub`` (and its wrapped service) is built once per app (not once
+per request) so the hub's title cache and subscriber fan-out survive across
 requests -- both are meaningless if rebuilt every call. In ``api`` mode the
-Bearer token varies per request, so ``_service_dependency`` re-points the
-shared service's ``token``/``client`` at the *current* request's token before
-each call. This is a deliberate trade against the spec's stated trust model
-(single operator, localhost by default): truly concurrent requests bearing
-*different* tokens could race on which token a given call uses, but that
-scenario is out of scope for a single-operator console.
+Bearer token varies per request, though, and that token *is* the
+authorization boundary -- a naive shared, mutable ``service.token`` re-pointed
+per request is a real cross-request leak, not a theoretical one: FastAPI runs
+a sync dependency via a threadpool, which always yields to the event loop
+between "set the token" and "the endpoint body reads it," so two overlapping
+requests can interleave and read each other's credentials; a ``/send``
+turn's background reconciliation (``EventHub.run_turn``'s ``finally``) makes
+it worse, since it can execute long after its own request returned, using
+whatever token the most recently *unrelated* request happened to install.
+``_ScopedConsoleService`` below fixes this with a ``contextvars.ContextVar``
+instead of a mutable attribute: it is set by an ``async def`` dependency
+(never a sync one -- sync dependencies run in a threadpool copy of the
+context, so a `.set()` there would never be visible back in the endpoint;
+verified empirically before relying on it) so the value lives in the same
+context the endpoint body runs in, and ``asyncio.create_task`` copies the
+current context at creation time, so a turn's background task keeps the
+token that was active when *it* was created for its whole lifetime,
+regardless of what any later request does to the same shared service object.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
@@ -41,20 +54,54 @@ _T = TypeVar("_T")
 # hardcode it too) -- there is no per-session namespace to look up.
 _NAMESPACE = "agents"
 
+# The current request's (or, for a detached /send turn, the request that
+# spawned it) Bearer token -- see the module docstring for why this has to
+# be a contextvar rather than a mutable attribute on a shared service.
+_request_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "console_request_token",
+    default=None,
+)
 
-class ConsoleWriteState:
-    """Tracks whether the current operator token can write.
 
-    Starts optimistic (most operator tokens can write) and flips to False
-    the first time a state-changing call comes back with the server's
-    structured 403 -- a cheap, no-extra-request probe ("catch the 403 shape
-    at first write", per the task brief) rather than a dedicated permissions
-    round-trip at startup. Sticky: it does not flip back, matching the
-    console's single-process, single-operator lifetime.
+class _ScopedConsoleService(ConsoleService):
+    """A ``ConsoleService`` whose ``token``/``client`` resolve from
+    ``_request_token`` instead of being fixed at construction or mutated in
+    place, so the one shared instance a console app builds is safe to use
+    concurrently across requests bearing different Bearer tokens.
     """
 
-    def __init__(self) -> None:
-        self.can_write = True
+    def __init__(self, server_url: str) -> None:
+        # Deliberately not calling super().__init__(): it assigns
+        # self.token/self.client as plain instance attributes, which would
+        # shadow the properties below.
+        self.server_url = server_url.rstrip("/")
+        self._http: httpx.AsyncClient | None = None
+
+    @property
+    def token(self) -> str | None:
+        return _request_token.get()
+
+    @token.setter
+    def token(self, value: str | None) -> None:
+        # Setters exist only so this stays a writable property in mypy's eyes
+        # (matching ConsoleService's plain attribute) -- nothing should ever
+        # call this; direct assignment would silently defeat the whole point
+        # of resolving the token from request context, so fail loudly.
+        raise AttributeError(
+            "_ScopedConsoleService.token is derived from _request_token; "
+            "set _request_token instead of assigning to .token",
+        )
+
+    @property
+    def client(self) -> FluxClient:
+        return FluxClient(self.server_url, self.token)
+
+    @client.setter
+    def client(self, value: FluxClient) -> None:
+        raise AttributeError(
+            "_ScopedConsoleService.client is derived from _request_token; "
+            "set _request_token instead of assigning to .client",
+        )
 
 
 def _error_detail(exc: httpx.HTTPStatusError):
@@ -67,6 +114,66 @@ def _error_detail(exc: httpx.HTTPStatusError):
         return exc.response.json()
     except ValueError:
         return exc.response.text or str(exc)
+
+
+class ConsoleWriteState:
+    """Tracks, per Bearer token, whether that token can write.
+
+    Keyed by token (never a single process-global flag): in ``api`` mode
+    different requests can carry genuinely different tokens, and a 403
+    observed under one must never degrade the console for another. Each
+    token's answer is resolved once -- via a real probe on first use (see
+    ``_probe_can_write``), not merely by waiting for a real write to fail --
+    then updated reactively (never back to True) if a later write for that
+    same token is denied, e.g. because a standing grant was revoked
+    mid-session.
+    """
+
+    def __init__(self) -> None:
+        self._per_token: dict[str | None, bool] = {}
+
+    def mark_forbidden(self, token: str | None) -> None:
+        self._per_token[token] = False
+
+    async def resolve(self, token: str | None, service: ConsoleService) -> bool:
+        if token not in self._per_token:
+            self._per_token[token] = await _probe_can_write(service)
+        return self._per_token[token]
+
+
+async def _probe_can_write(service: ConsoleService) -> bool:
+    """Cheap, deterministic, side-effect-free probe of write authorization.
+
+    ``GET /workflows/{namespace}/{workflow_name}/cancel/{execution_id}``
+    (which ``ConsoleService.stop`` wraps) checks the caller's
+    ``workflow:{namespace}:{workflow_name}:run`` permission *before* looking
+    up whether ``execution_id`` exists (verified by reading
+    ``flux/api/workflow_routes.py``'s cancel route: the authorization check
+    precedes ``ContextManager.get``). So a "cancel" against a
+    guaranteed-nonexistent execution id, under the namespace/workflow every
+    console session runs in, is a real dry run of write authorization with
+    no side effects: a structured 403 means the token lacks ``:run``;
+    anything else (a 404 "not found" is what an authorized caller gets,
+    since the fake id never exists) means it has at least this write grant.
+    """
+    try:
+        await service.stop("__console_can_write_probe__", _NAMESPACE, "agent_chat")
+    except httpx.HTTPStatusError as exc:
+        # 403 is the permission-denied shape this probe targets; 401 means
+        # the token isn't even authenticated, which is no more "can write"
+        # than a bare permission gap -- everything else (404 "not found" is
+        # the expected shape for an authorized caller here) means the write
+        # check passed.
+        return exc.response.status_code not in (401, 403)
+    except Exception:
+        # A network/etc. failure here shouldn't paint the console read-only
+        # for an unrelated outage -- a real write attempt still gets the
+        # correct, authoritative answer via `_call`.
+        return True
+    else:
+        # Cancelling a fake execution id cannot genuinely succeed; treat an
+        # unexpected 2xx defensively as "can write" (authorization clearly passed).
+        return True
 
 
 async def _call(
@@ -87,14 +194,15 @@ async def _call(
     unhandled exception. ``is_write`` scopes the read-only-degradation
     signal to actual write attempts, so a 403 on a plain list/read call
     (a workflow-read gap, a different permission entirely) never falsely
-    flips ``can_write``.
+    flips ``can_write`` -- and it is recorded against the *current request's*
+    token, never every token.
     """
     try:
         return await coro
     except httpx.HTTPStatusError as exc:
         detail = _error_detail(exc)
         if is_write and exc.response.status_code == 403:
-            write_state.can_write = False
+            write_state.mark_forbidden(_request_token.get())
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
     except HTTPException:
         raise
@@ -117,7 +225,7 @@ def mount_console_routes(
     behavior is identical between the legacy single-agent routes and the
     console surface.
     """
-    service = ConsoleService(server_url, token=None)
+    service = _ScopedConsoleService(server_url)
     hub = EventHub(service)
     write_state = ConsoleWriteState()
     # asyncio only weakly references a bare create_task() result; a detached
@@ -125,18 +233,24 @@ def mount_console_routes(
     # somewhere outside the generator frame or it can be GC'd mid-run.
     background_turns: set[asyncio.Task] = set()
 
-    def _service_dependency(token: str | None = Depends(token_dependency)) -> ConsoleService:
-        service.token = token
-        service.client = FluxClient(service.server_url, token)
+    async def _service_dependency(token: str | None = Depends(token_dependency)) -> ConsoleService:
+        # Must be `async def`: FastAPI dispatches sync dependencies through a
+        # threadpool, which runs against a *copy* of the current context, so
+        # a plain `def` here would set the contextvar somewhere the endpoint
+        # body (and any hub-driven background task) never sees.
+        _request_token.set(token)
         return service
 
     @app.get("/console/state")
-    async def console_state(token: str | None = Depends(token_dependency)) -> dict:
+    async def console_state(
+        token: str | None = Depends(token_dependency),
+        service: ConsoleService = Depends(_service_dependency),
+    ) -> dict:
         return {
             "agent": agent_name,
             "session": None,
             "server_url": server_url,
-            "can_write": write_state.can_write,
+            "can_write": await write_state.resolve(token, service),
         }
 
     @app.get("/console/agents")
