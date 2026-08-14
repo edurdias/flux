@@ -205,6 +205,30 @@ def test_stage_header_offers_a_stop_control():
     assert "guard(" in head.group(1), "the control must be disabled for a read-only token"
 
 
+def test_a_background_refresh_cannot_erase_an_action_error():
+    """A failed stop must be reported *somewhere*.
+
+    The topbar carries one notice line for both background failures and the
+    outcome of an operator action, and `stopSession` refreshes the session
+    list the moment its POST returns. A refresh that cleared the line
+    wholesale on success wiped the 403 the catch had just written, so the
+    operator saw the confirm state reset and nothing else. Notices are owned:
+    a poller clears only its own.
+    """
+    script = (WEB_DIR / "console.js").read_text()
+    refresh = re.search(r"async function refreshSessions\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert refresh, "console.js must define refreshSessions"
+    body = refresh.group(1)
+    assert "state.notice = null" not in body, (
+        "a background refresh must not clear notices it does not own"
+    )
+    assert 'clearNotice("sessions")' in body
+
+    stop = re.search(r"async function stopSession\(\) \{(.*?)\n\}", script, re.DOTALL)
+    assert stop, "console.js must define stopSession"
+    assert 'setNotice("stop"' in stop.group(1), "a failed stop must own its notice"
+
+
 def test_dark_palette_defined_as_custom_properties(stylesheet: str):
     block = _root_block(stylesheet)
     for token, value in DARK_TOKENS.items():

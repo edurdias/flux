@@ -79,6 +79,7 @@ const state = {
   canWrite: true,
   missingPermission: null,
   notice: null,
+  noticeOwner: null, // who wrote the notice — see setNotice
 
   sessions: [],
   approvals: [],
@@ -362,6 +363,35 @@ const api = {
       headers: WRITE_HEADERS,
     }),
 };
+
+/**
+ * Notices are owned by whatever wrote them.
+ *
+ * The topbar has one line for both background failures ("sessions: ...") and
+ * the outcome of an operator action ("stop: 403 ..."). Every action refreshes
+ * the listings right after it lands, so a refresh that cleared the line on
+ * success erased the error the action had just reported — a stop the token
+ * cannot cancel was reported nowhere at all. Pollers now clear only their own
+ * notice; an action clears the line as it starts, so what stays on it is that
+ * action's own outcome.
+ */
+function setNotice(owner, text) {
+  state.notice = text;
+  state.noticeOwner = owner;
+}
+
+function clearNotice(owner) {
+  if (state.noticeOwner === owner) {
+    state.notice = null;
+    state.noticeOwner = null;
+  }
+}
+
+/** Start an operator action: its outcome supersedes whatever is on the line. */
+function beginAction() {
+  state.notice = null;
+  state.noticeOwner = null;
+}
 
 function errorText(err) {
   if (err instanceof HttpError) {
@@ -1686,9 +1716,9 @@ function closeDrawer() {
 async function refreshSessions() {
   try {
     state.sessions = await api.sessions();
-    state.notice = null;
+    clearNotice("sessions");
   } catch (err) {
-    state.notice = `sessions: ${errorText(err)}`;
+    setNotice("sessions", `sessions: ${errorText(err)}`);
   }
   scheduleRender();
 }
@@ -1696,8 +1726,9 @@ async function refreshSessions() {
 async function refreshApprovals() {
   try {
     state.approvals = await api.approvals();
+    clearNotice("approvals");
   } catch (err) {
-    state.notice = `approvals: ${errorText(err)}`;
+    setNotice("approvals", `approvals: ${errorText(err)}`);
   }
   scheduleRender();
 }
@@ -1705,9 +1736,10 @@ async function refreshApprovals() {
 async function refreshAgents() {
   try {
     state.agents = await api.agents();
+    clearNotice("agents");
   } catch (err) {
     state.agents = [];
-    state.notice = `agents: ${errorText(err)}`;
+    setNotice("agents", `agents: ${errorText(err)}`);
   }
   renderAgentList();
   scheduleRender();
@@ -1761,11 +1793,12 @@ async function stopSession() {
     return;
   }
   state.stopConfirm = false;
+  beginAction();
   const target = state.activeId;
   try {
     await api.stop(target);
   } catch (err) {
-    state.notice = `stop: ${errorText(err)}`;
+    setNotice("stop", `stop: ${errorText(err)}`);
   }
   await refreshSessions();
   if (state.activeId === target) await refreshDetail();
@@ -1779,11 +1812,12 @@ async function commitRename(value) {
     scheduleRender();
     return;
   }
+  beginAction();
   try {
     await api.rename(state.activeId, name);
     await refreshSessions();
   } catch (err) {
-    state.notice = `rename: ${errorText(err)}`;
+    setNotice("rename", `rename: ${errorText(err)}`);
   }
   scheduleRender();
 }
@@ -1792,13 +1826,14 @@ async function startSession() {
   if (!state.agentSelected || !state.canWrite) return;
   const name = modalShell ? modalShell.nameInput.value.trim() : "";
   if (modalShell) modalShell.startBtn.disabled = true;
+  beginAction();
   try {
     const created = await api.create(state.agentSelected, name);
     closeModal();
     await refreshSessions();
     if (created && created.execution_id) await openSession(created.execution_id);
   } catch (err) {
-    state.notice = `new session: ${errorText(err)}`;
+    setNotice("new session", `new session: ${errorText(err)}`);
     if (modalShell) modalShell.startBtn.disabled = false;
     scheduleRender();
   }
@@ -1834,6 +1869,7 @@ async function respondToElicitation(block, action) {
   const sessionId = block.sessionId || state.activeId;
   if (!sessionId) return;
   block.answered = action;
+  beginAction();
   state.chatVersion += 1;
   scheduleRender();
   try {
@@ -1849,7 +1885,7 @@ async function respondToElicitation(block, action) {
   } catch (err) {
     block.answered = false;
     state.chatVersion += 1;
-    state.notice = `elicitation: ${errorText(err)}`;
+    setNotice("elicitation", `elicitation: ${errorText(err)}`);
   }
   scheduleRender();
 }
@@ -2004,7 +2040,7 @@ async function boot() {
     if (consoleState.missing_permission) state.missingPermission = consoleState.missing_permission;
     if (consoleState.session) state.activeId = consoleState.session;
   } catch (err) {
-    state.notice = `console: ${errorText(err)}`;
+    setNotice("console", `console: ${errorText(err)}`);
   }
   await Promise.all([refreshSessions(), refreshApprovals()]);
   const target = state.activeId || (state.sessions.length ? state.sessions[0].execution_id : null);
