@@ -83,15 +83,18 @@ class FluxClient:
         agent_name: str,
         namespace: str = "agents",
         workflow_name: str = "agent_chat",
+        name: str | None = None,
     ) -> AsyncIterator[tuple[str | None, dict]]:
         url = self._start_url(namespace, workflow_name)
         body: dict[str, Any] = {"agent": agent_name}
+        params = {"name": name} if name is not None else None
 
         async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
             async with client.stream(
                 "POST",
                 url,
                 json=body,
+                params=params,
                 headers=self._build_headers(),
             ) as response:
                 response.raise_for_status()
@@ -195,10 +198,11 @@ class FluxClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_execution(self, execution_id: str) -> dict:
+    async def get_execution(self, execution_id: str, detailed: bool = False) -> dict:
         url = f"{self.server_url}/executions/{execution_id}"
+        params = {"detailed": "true"} if detailed else None
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=self._build_headers())
+            response = await client.get(url, params=params, headers=self._build_headers())
             response.raise_for_status()
             return response.json()
 
@@ -210,6 +214,7 @@ class FluxClient:
         approved: bool,
         reason: str | None = None,
         always: bool = False,
+        always_for_target: bool = False,
     ) -> dict:
         """POST a decision to the Flux approval routes.
 
@@ -225,8 +230,12 @@ class FluxClient:
         body: dict = {}
         if reason:
             body["reason"] = reason
+        # Mirrors ApprovalDecideRequest: both flags are approve-only scoping
+        # grants and mutually exclusive server-side (issue #143).
         if always and approved:
             body["always"] = True
+        if always_for_target and approved:
+            body["always_for_target"] = True
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
