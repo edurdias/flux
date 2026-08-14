@@ -79,6 +79,10 @@ class SubprocessRunner(Runner):
         self._execution_timeout = execution_timeout
 
     async def _spawn(self, request: WorkflowExecutionRequest):
+        from flux.runners.child_settings import CHILD_SETTINGS_ENV, snapshot
+
+        env = child_environment()
+        env[CHILD_SETTINGS_ENV] = snapshot()
         return await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
@@ -87,7 +91,7 @@ class SubprocessRunner(Runner):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=_STREAM_LIMIT,
-            env=child_environment(),
+            env=env,
             preexec_fn=self._build_preexec(),
         )
 

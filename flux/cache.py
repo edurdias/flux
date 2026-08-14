@@ -5,7 +5,6 @@ from typing import Any
 
 import dill
 
-from flux.config import Configuration
 from flux.security.integrity import IntegrityError, sign, verify
 
 
@@ -31,6 +30,8 @@ class CacheManager:
 
     @staticmethod
     def _get_file_name(key):
+        from flux.config import Configuration
+
         settings = Configuration.get().settings
         cache_path = Path(settings.home) / settings.cache_path
         cache_path.mkdir(parents=True, exist_ok=True)

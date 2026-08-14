@@ -20,6 +20,6 @@ def test_user_code_runs_without_the_persistence_graph(cli):
 
     assert result["state"] == "COMPLETED"
     loaded = result["output"]
-    assert loaded == {"sqlalchemy": False, "flux_models": False}, (
-        f"the child carried the persistence graph into user code: {loaded}"
+    assert loaded == {"sqlalchemy": False, "flux_models": False, "pydantic": False}, (
+        f"the child carried heavyweight machinery into user code: {loaded}"
     )

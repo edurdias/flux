@@ -43,15 +43,14 @@ wall time hides it in runner noise.
 
 ## Improvement areas, in value order
 
-1. **Child `_run`-path config load (~196 ms): pydantic via `flux.config`.**
-   The child's module level is already lean (65 ms, no pydantic — see the
-   manifest above); the config graph loads inside `_run`, where the child
-   reads Configuration for loader cache settings and runner knobs — a
-   handful of scalars. A config-light child (parent passes the needed
-   values over the frame protocol, as it already does for secrets/configs)
-   would cut most of that deferred load and drop pydantic from the sandbox
-   entirely. Medium effort; per-execution payoff for container runners
-   only.
+1. **Child `_run`-path config load: done (issue #241).** The parent now
+   snapshots an allowlisted, secret-free slice of its settings into the
+   child environment, and the child installs a plain-namespace stand-in as
+   `flux.config` before anything resolves it — every runtime read (logging
+   setup, the per-task auth gate, cache/storage paths) works unmodified
+   and pydantic never loads. Total child import work: ~670 ms pre-#233 →
+   260 ms post-#233 → **167 ms**, asserted end-to-end by the leanness
+   probes (subprocess and container tiers).
 2. **Worker residual (~333 ms): pydantic (~160 ms) + httpx (~110 ms).** Both
    genuinely used at startup (config, HTTP client). No cheap cut; a lazy
    `pydantic_settings` import inside `Configuration.load` would help only

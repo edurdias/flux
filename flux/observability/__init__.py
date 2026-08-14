@@ -2,7 +2,25 @@
 
 from __future__ import annotations
 
-from flux.observability.config import ObservabilityConfig
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Imported lazily at runtime: ObservabilityConfig is a pydantic model,
+    # and task.py imports this package on every task call for get_metrics —
+    # a top-level import dragged pydantic into runner children whose config
+    # arrives as a plain snapshot (issue #241).
+    from flux.observability.config import ObservabilityConfig
+
+
+def __getattr__(name: str):
+    # Lazy re-export: the class stays importable from this package without
+    # the package init paying for pydantic (issue #241).
+    if name == "ObservabilityConfig":
+        from flux.observability.config import ObservabilityConfig
+
+        return ObservabilityConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _enabled = False
 

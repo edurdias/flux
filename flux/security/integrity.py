@@ -20,7 +20,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-from flux.config import Configuration
 
 # Magic prefix identifying a signed blob: 8-byte tag + 32-byte HMAC follow.
 _MAGIC = b"FLUXSIG1"
@@ -33,6 +32,11 @@ class IntegrityError(Exception):
 
 def _key() -> bytes | None:
     """Derive the HMAC key from the configured encryption key, or None."""
+    # Imported per call, not at module top: output_storage pulls this module
+    # into the domain-core import path, and a top-level Configuration import
+    # dragged pydantic into every runner child (issue #241).
+    from flux.config import Configuration
+
     raw = Configuration.get().settings.security.encryption.encryption_key
     # Guard against non-str values (e.g. MagicMock configs in tests): only a
     # real, non-empty string activates integrity protection.
