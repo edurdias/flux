@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
-from textual.widgets import Collapsible, Markdown, Static
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Collapsible, Input, Markdown, OptionList, Static
 
 
 class StreamBlock(Vertical):
@@ -203,6 +203,34 @@ class SpinnerBlock(Static):
         if self._timer is not None:
             self._timer.stop()
             self._timer = None
+
+
+class SessionRail(OptionList):
+    """Console panel 1 — the session rail.
+
+    An ``OptionList`` rather than a hand-rolled list because the rail needs
+    exactly what it already gives: a moving highlight (which `r` renames and
+    `enter` opens) and group headings, which ride along as disabled options
+    so cursor movement skips them.
+    """
+
+    BORDER_TITLE = "1sessions"
+
+
+class ChatPanel(Vertical):
+    """Console panel 2 — transcript above, composer docked below."""
+
+    BORDER_TITLE = "2chat"
+
+    def compose(self) -> ComposeResult:
+        yield VerticalScroll(id="chat-log")
+        yield Input(placeholder="Message…", id="chat-input")
+
+
+class ContextPanel(VerticalScroll):
+    """Console panel 3 — plan, activity, sub-agents."""
+
+    BORDER_TITLE = "3context"
 
 
 class ElicitationPrompt(Static):
