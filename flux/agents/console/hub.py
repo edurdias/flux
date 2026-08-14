@@ -102,7 +102,18 @@ class EventHub:
         exactly one ``log_delta`` event carrying a fresh ``get_detail`` read
         -- the turn-boundary reconciliation subscribers rely on to catch up
         with what actually got persisted.
+
+        The reconciliation read can fail too -- often the very same
+        server/network hiccup that broke the stream also breaks the
+        follow-up ``get_detail`` call. That failure is degraded, never
+        raised: subscribers still get exactly one ``log_delta``, shaped as
+        ``{"detail": None, "error": <reason>}`` so a renderer can tell
+        "fresh detail" apart from "reconciliation failed, keep whatever you
+        last had" instead of getting no event -- or an unhandled exception
+        -- for the turn. An ``error`` event precedes it unless the stream
+        already emitted one for this turn (no point doubling up).
         """
+        stream_failed = False
         try:
             async for raw in self.service.send(session_id, agent_name, workflow_name, text):
                 for event in parse_event(raw):
@@ -111,6 +122,7 @@ class EventHub:
             # Loss-tolerant by design: the stream is only an overlay, so a
             # broken connection is reported to subscribers as data, not
             # raised -- the log_delta below still runs and catches them up.
+            stream_failed = True
             logger.warning(
                 "run_turn: stream failed for session %s",
                 session_id,
@@ -118,9 +130,32 @@ class EventHub:
             )
             self._publish(session_id, AgentEvent(kind=KIND_ERROR, data={"message": str(exc)}))
         finally:
-            detail = await self.service.get_detail(session_id)
-            self._cache_title(session_id, detail)
-            self._publish(session_id, AgentEvent(kind=KIND_LOG_DELTA, data={"detail": detail}))
+            try:
+                detail = await self.service.get_detail(session_id)
+            except Exception as exc:
+                logger.warning(
+                    "run_turn: reconciliation get_detail failed for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+                if not stream_failed:
+                    self._publish(
+                        session_id,
+                        AgentEvent(kind=KIND_ERROR, data={"message": str(exc)}),
+                    )
+                self._publish(
+                    session_id,
+                    AgentEvent(
+                        kind=KIND_LOG_DELTA,
+                        data={"detail": None, "error": str(exc)},
+                    ),
+                )
+            else:
+                self._cache_title(session_id, detail)
+                self._publish(
+                    session_id,
+                    AgentEvent(kind=KIND_LOG_DELTA, data={"detail": detail}),
+                )
 
     async def open_session(self, session_id: str) -> dict:
         """Fetch a session's current detail for initial render, and cache its title."""

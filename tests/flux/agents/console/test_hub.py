@@ -25,11 +25,18 @@ class _FakeService(ConsoleService):
     hub is exercised against the declared ``ConsoleService`` contract.
     """
 
-    def __init__(self, frames, detail, error_after: int | None = None):
+    def __init__(
+        self,
+        frames,
+        detail,
+        error_after: int | None = None,
+        detail_raises: bool = False,
+    ):
         super().__init__(server_url="http://test", token=None)
         self._frames = frames
         self._detail = detail
         self._error_after = error_after
+        self._detail_raises = detail_raises
         self.detail_calls = 0
         self.detail_requested_for: list[str] = []
 
@@ -42,6 +49,8 @@ class _FakeService(ConsoleService):
     async def get_detail(self, execution_id):
         self.detail_calls += 1
         self.detail_requested_for.append(execution_id)
+        if self._detail_raises:
+            raise RuntimeError("get_detail exploded")
         return self._detail
 
 
@@ -104,6 +113,47 @@ async def test_run_turn_mid_stream_exception_emits_error_then_log_delta_and_does
     kinds = [e.event.kind for e in events]
     assert kinds == ["token", "error", "log_delta"]
     assert service.detail_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_turn_reconciliation_failure_after_clean_stream_degrades_not_raises():
+    """Stream succeeds, but the follow-up get_detail explodes -- the same
+    server/network hiccup that could break a stream can just as easily break
+    the reconciliation call right after it. Subscribers must still get
+    exactly one log_delta (degraded), not zero events and not an exception
+    out of run_turn."""
+    service = _FakeService([TOKEN_FRAME], DETAIL, detail_raises=True)
+    hub = EventHub(service)
+    sub = hub.subscribe()
+
+    await hub.run_turn("exec-1", "coder", "agent_chat", "hi")
+
+    events = await _drain(sub)
+    kinds = [e.event.kind for e in events]
+    assert kinds == ["token", "error", "log_delta"]
+    log_delta = events[-1].event
+    assert log_delta.data["detail"] is None
+    assert "get_detail exploded" in log_delta.data["error"]
+    assert service.detail_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_turn_stream_and_reconciliation_both_fail_emits_one_error_and_degraded_log_delta():
+    """When the stream itself failed, its error event already covers the
+    turn -- reconciliation failing too must not double up on error events,
+    but must still close with a degraded log_delta rather than raising."""
+    service = _FakeService([TOKEN_FRAME, PAUSED_FRAME], DETAIL, error_after=1, detail_raises=True)
+    hub = EventHub(service)
+    sub = hub.subscribe()
+
+    await hub.run_turn("exec-1", "coder", "agent_chat", "hi")
+
+    events = await _drain(sub)
+    kinds = [e.event.kind for e in events]
+    assert kinds == ["token", "error", "log_delta"]
+    log_delta = events[-1].event
+    assert log_delta.data["detail"] is None
+    assert "get_detail exploded" in log_delta.data["error"]
 
 
 @pytest.mark.asyncio
