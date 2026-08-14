@@ -9,7 +9,7 @@ from unittest.mock import patch as mock_patch
 import pytest
 
 from flux.agents.events import AgentEvent
-from flux.agents.process import AgentProcess
+from flux.agents.process import AgentProcess, wants_plain_terminal
 from flux.agents.ui.terminal import TerminalUI
 
 
@@ -187,6 +187,27 @@ def test_process_creates_plain_terminal_when_not_tty():
                 mode="terminal",
             )
             assert isinstance(proc.ui, TerminalUI)
+
+
+def test_wants_plain_terminal_is_gated_on_stdout_not_stdin():
+    """`wants_plain_terminal` is the single source of truth `_make_terminal_ui`
+    and the CLI's pre-flight guard (`flux.cli._console_can_render`) both
+    call -- an interactive stdin must not mask a non-interactive stdout
+    (e.g. `flux agent start | tee log`), since a Textual app renders to
+    stdout. Fix for a review finding: the CLI used to check `sys.stdin`
+    independently, which could disagree with this stdout-based check and
+    let a startup failure slip through the CLI's guard."""
+    env = os.environ.copy()
+    env.pop("FLUX_PLAIN_TERMINAL", None)
+    with mock_patch.dict(os.environ, env, clear=True):
+        with mock_patch("sys.stdin") as mock_stdin, mock_patch("sys.stdout") as mock_stdout:
+            mock_stdin.isatty.return_value = True
+            mock_stdout.isatty.return_value = False
+            assert wants_plain_terminal() is True
+
+            mock_stdout.isatty.return_value = True
+            mock_stdin.isatty.return_value = False
+            assert wants_plain_terminal() is False
 
 
 @pytest.mark.asyncio

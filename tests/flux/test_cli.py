@@ -1079,17 +1079,24 @@ class TestAgentStartCLI:
     """`flux agent start`: NAME is optional, terminal mode opens the console
     (NAME becomes its initial-agent filter), --plain keeps the old
     single-agent REPL, and a NAME-less non-interactive invocation fails
-    clearly instead of hanging on a console that needs a terminal."""
+    clearly instead of hanging on a console that needs a terminal.
 
-    def _invoke(self, runner, args, *, stdin_isatty=True):
+    ``_console_can_render`` (patched below as ``can_render``) is the single
+    signal both this CLI guard and ``AgentProcess`` itself consult (via
+    ``flux.agents.process.wants_plain_terminal``) -- see
+    ``test_console_can_render_is_gated_on_stdout_not_stdin`` for the
+    regression this replaced (the CLI used to check ``sys.stdin`` while
+    ``AgentProcess`` checked ``sys.stdout``)."""
+
+    def _invoke(self, runner, args, *, can_render=True):
         with patch("flux.agents.process.AgentProcess") as process_cls:
             process_cls.return_value.run = AsyncMock()
-            with patch("flux.cli._stdin_is_tty", return_value=stdin_isatty):
+            with patch("flux.cli._console_can_render", return_value=can_render):
                 result = runner.invoke(cli, ["agent", "start", *args])
         return result, process_cls
 
     def test_name_less_tty_opens_console_with_no_initial_agent(self, runner):
-        result, process_cls = self._invoke(runner, [], stdin_isatty=True)
+        result, process_cls = self._invoke(runner, [], can_render=True)
 
         assert result.exit_code == 0, result.output
         kwargs = process_cls.call_args.kwargs
@@ -1097,23 +1104,23 @@ class TestAgentStartCLI:
         assert kwargs["mode"] == "terminal"
 
     def test_name_less_non_tty_exits_with_clear_error(self, runner):
-        result, process_cls = self._invoke(runner, [], stdin_isatty=False)
+        result, process_cls = self._invoke(runner, [], can_render=False)
 
-        assert result.exit_code == 1
+        assert result.exit_code != 0
         assert (
             "the console needs a terminal; use --mode api or provide an agent name" in result.output
         )
         process_cls.assert_not_called()
 
     def test_name_less_non_tty_web_mode_still_needs_a_terminal(self, runner):
-        result, process_cls = self._invoke(runner, ["--mode", "web"], stdin_isatty=False)
+        result, process_cls = self._invoke(runner, ["--mode", "web"], can_render=False)
 
-        assert result.exit_code == 1
+        assert result.exit_code != 0
         assert "the console needs a terminal" in result.output
         process_cls.assert_not_called()
 
     def test_name_less_non_tty_api_mode_is_exempt(self, runner):
-        result, process_cls = self._invoke(runner, ["--mode", "api"], stdin_isatty=False)
+        result, process_cls = self._invoke(runner, ["--mode", "api"], can_render=False)
 
         assert result.exit_code == 0, result.output
         kwargs = process_cls.call_args.kwargs
@@ -1121,9 +1128,9 @@ class TestAgentStartCLI:
         assert kwargs["mode"] == "api"
 
     def test_plain_without_name_errors_clearly(self, runner):
-        result, process_cls = self._invoke(runner, ["--plain"], stdin_isatty=True)
+        result, process_cls = self._invoke(runner, ["--plain"], can_render=True)
 
-        assert result.exit_code == 1
+        assert result.exit_code != 0
         assert "--plain requires an agent name" in result.output
         process_cls.assert_not_called()
 
@@ -1133,7 +1140,7 @@ class TestAgentStartCLI:
         # teardown restore it keeps this test from leaking into others.
         monkeypatch.delenv("FLUX_PLAIN_TERMINAL", raising=False)
         with patch("flux.cli.get_http_client", return_value=_no_custom_workflow_client()):
-            result, process_cls = self._invoke(runner, ["coder", "--plain"], stdin_isatty=True)
+            result, process_cls = self._invoke(runner, ["coder", "--plain"], can_render=True)
 
         assert result.exit_code == 0, result.output
         assert os.environ.get("FLUX_PLAIN_TERMINAL") == "1"
@@ -1143,7 +1150,7 @@ class TestAgentStartCLI:
     def test_name_terminal_mode_opens_console_focused_on_agent(self, runner, monkeypatch):
         monkeypatch.delenv("FLUX_PLAIN_TERMINAL", raising=False)
         with patch("flux.cli.get_http_client", return_value=_no_custom_workflow_client()):
-            result, process_cls = self._invoke(runner, ["coder"], stdin_isatty=True)
+            result, process_cls = self._invoke(runner, ["coder"], can_render=True)
 
         assert result.exit_code == 0, result.output
         kwargs = process_cls.call_args.kwargs
@@ -1155,25 +1162,101 @@ class TestAgentStartCLI:
         result, process_cls = self._invoke(
             runner,
             ["--mode", "api", "--session", "exec-1"],
-            stdin_isatty=False,
+            can_render=False,
         )
 
         assert result.exit_code == 0, result.output
         kwargs = process_cls.call_args.kwargs
         assert kwargs["session_id"] == "exec-1"
 
+    # --- Fix: composite-signal drift (review finding) --------------------
+
+    def test_console_can_render_is_gated_on_stdout_not_stdin(self):
+        """The exact composition the review reproduced: `flux agent start |
+        tee log` has an interactive stdin but a redirected stdout. The CLI
+        guard must agree with `AgentProcess`'s own decision (stdout-based),
+        so an interactive stdin alone must not report "can render".
+
+        Calls `_console_can_render` directly rather than through
+        `CliRunner.invoke` -- Click's isolation replaces both `sys.stdin`
+        and `sys.stdout` with its own non-tty streams for the duration of
+        `invoke()`, so patching the real streams around an `invoke()` call
+        would silently test Click's fakes instead of this composition.
+        """
+        from flux.cli import _console_can_render
+
+        with patch("sys.stdin") as mock_stdin, patch("sys.stdout") as mock_stdout:
+            mock_stdin.isatty.return_value = True
+            mock_stdout.isatty.return_value = False
+            assert _console_can_render() is False
+
+    def test_name_less_real_environment_exits_nonzero_without_mocking(self, runner):
+        """No TTY mocking at all: pytest/CliRunner's default streams are
+        never a real terminal, so this reproduces the guard firing from the
+        exact signal `AgentProcess` itself would consult, with nothing
+        faked -- proving the CLI guard and `AgentProcess` cannot disagree
+        because there is only one implementation of the check now."""
+        result = runner.invoke(cli, ["agent", "start"])
+
+        assert result.exit_code != 0
+        assert (
+            "the console needs a terminal; use --mode api or provide an agent name" in result.output
+        )
+
+    def test_agent_process_failure_exits_nonzero_not_silently_swallowed(self, runner):
+        """Any startup failure (not just the TTY-composite one) must set a
+        non-zero exit code -- the bare `except Exception` used to just
+        print the message and return, which Click reports as a clean exit
+        0, indistinguishable from success to a script or CI caller."""
+        with patch("flux.agents.process.AgentProcess", side_effect=RuntimeError("boom")):
+            result = runner.invoke(cli, ["agent", "start", "--mode", "api"])
+
+        assert result.exit_code != 0
+        assert "Error starting agent: boom" in result.output
+
 
 class TestAgentSessionResumeCLI:
     """`flux agent session resume <id>` opens the console focused on that
-    session (agent-console Task 9)."""
+    session (agent-console Task 9), gated by the same `_console_can_render`
+    check `agent start` uses -- unguarded, a non-interactive resume
+    (piped/scripted/CI) used to hit `AgentProcess`'s `ValueError` (whose
+    message references `--plain`, a flag resume doesn't have) and exit 0."""
 
     def test_resume_opens_console_focused_on_session(self, runner):
         with patch("flux.agents.process.AgentProcess") as process_cls:
             process_cls.return_value.run = AsyncMock()
-            result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
+            with patch("flux.cli._console_can_render", return_value=True):
+                result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
 
         assert result.exit_code == 0, result.output
         kwargs = process_cls.call_args.kwargs
         assert kwargs["agent_name"] is None
         assert kwargs["session_id"] == "exec-123"
         assert kwargs["mode"] == "terminal"
+
+    def test_resume_non_interactive_exits_with_clear_error(self, runner):
+        with patch("flux.agents.process.AgentProcess") as process_cls:
+            with patch("flux.cli._console_can_render", return_value=False):
+                result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
+
+        assert result.exit_code != 0
+        assert "the console needs a terminal to resume a session" in result.output
+        assert "--plain" not in result.output
+        process_cls.assert_not_called()
+
+    def test_resume_real_environment_exits_nonzero_without_mocking(self, runner):
+        """No mocking at all -- pytest/CliRunner's default streams are
+        never a real terminal, reproducing the review's "non-interactive
+        resume" scenario with nothing faked."""
+        result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
+
+        assert result.exit_code != 0
+        assert "the console needs a terminal to resume a session" in result.output
+
+    def test_resume_process_failure_exits_nonzero_not_silently_swallowed(self, runner):
+        with patch("flux.agents.process.AgentProcess", side_effect=RuntimeError("boom")):
+            with patch("flux.cli._console_can_render", return_value=True):
+                result = runner.invoke(cli, ["agent", "session", "resume", "exec-123"])
+
+        assert result.exit_code != 0
+        assert "Error resuming session: boom" in result.output

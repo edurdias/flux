@@ -11,18 +11,37 @@ from flux.agents.ui.terminal import TerminalUI
 VALID_MODES = ("terminal", "web", "api")
 
 
-def _make_terminal_ui() -> UI | None:
-    """Decide between the plain single-agent REPL and the multi-session console.
+def wants_plain_terminal() -> bool:
+    """True when the environment forces (or cannot avoid) the plain ANSI
+    REPL instead of the multi-session console: an explicit ``--plain``
+    (``FLUX_PLAIN_TERMINAL``), or stdout not being a real terminal (a
+    Textual app cannot render there).
 
-    Returns ``None`` to mean "use the console" -- the console is a full
-    Textual app that needs a real terminal, so an explicit ``--plain``
-    (``FLUX_PLAIN_TERMINAL``) or stdout not being a tty both force the old
-    plain REPL instead.
+    This is the single source of truth for "plain vs console" -- both
+    ``_make_terminal_ui`` (below) and the CLI's pre-flight guards
+    (``flux/cli.py::start_agent``, ``resume_session``) call this rather than
+    each rolling their own check. They used to disagree (the CLI checked
+    ``sys.stdin``, this checked ``sys.stdout``), which let a NAME-less
+    invocation with an interactive stdin but a redirected stdout (e.g.
+    ``flux agent start | tee log``) pass the CLI's guard and still fail once
+    ``AgentProcess`` decided plain mode was required -- and *that* failure
+    was silent, since a bare ``except Exception`` printed the message
+    without ever setting a non-zero exit code. Fixed by sharing this check
+    instead of letting the two drift.
     """
     import os
     import sys
 
-    if os.environ.get("FLUX_PLAIN_TERMINAL") or not sys.stdout.isatty():
+    return bool(os.environ.get("FLUX_PLAIN_TERMINAL")) or not sys.stdout.isatty()
+
+
+def _make_terminal_ui() -> UI | None:
+    """Decide between the plain single-agent REPL and the multi-session console.
+
+    Returns ``None`` to mean "use the console" -- the console is a full
+    Textual app that needs a real terminal.
+    """
+    if wants_plain_terminal():
         return TerminalUI()
     return None
 

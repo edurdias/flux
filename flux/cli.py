@@ -3103,7 +3103,7 @@ def start_agent(name, mode, session_id, port, host, server, plain):
         click.echo("--plain requires an agent name", err=True)
         raise SystemExit(1)
 
-    if not name and mode != "api" and not _stdin_is_tty():
+    if not name and mode != "api" and not _console_can_render():
         click.echo(
             "the console needs a terminal; use --mode api or provide an agent name",
             err=True,
@@ -3173,6 +3173,10 @@ def start_agent(name, mode, session_id, port, host, server, plain):
         pass
     except Exception as ex:
         click.echo(f"Error starting agent: {str(ex)}", err=True)
+        # A startup failure printed but not surfaced as a real exit code is
+        # worse than a traceback -- a script/CI caller would read this as
+        # success. See the Task 9 fix report for the reproduction.
+        raise SystemExit(1) from None
 
 
 @agent.command("stop")
@@ -3301,6 +3305,15 @@ def resume_session(session_id):
     from flux.agents.process import AgentProcess
     from flux.config import Configuration
 
+    # Resume always opens the console (no --plain path exists here), so it
+    # needs the same pre-flight check `start_agent` uses -- unguarded, a
+    # non-interactive resume (piped, scripted, CI) would hit AgentProcess's
+    # ValueError with a message that references --plain, a flag resume
+    # doesn't even have.
+    if not _console_can_render():
+        click.echo("the console needs a terminal to resume a session", err=True)
+        raise SystemExit(1)
+
     try:
         settings = Configuration.get().settings
         server = f"http://{settings.server_host}:{settings.server_port}"
@@ -3318,20 +3331,33 @@ def resume_session(session_id):
         pass
     except Exception as ex:
         click.echo(f"Error resuming session: {str(ex)}", err=True)
+        raise SystemExit(1) from None
 
 
-def _stdin_is_tty() -> bool:
-    """Whether stdin is an interactive terminal.
+def _console_can_render() -> bool:
+    """Whether `agent start`/`agent session resume` can actually open the
+    multi-session console here.
 
-    Indirected behind a function (rather than a bare ``sys.stdin.isatty()``
-    call in ``start_agent``) because Click's ``CliRunner`` replaces
-    ``sys.stdin`` with its own captured stream during ``invoke()`` --
-    patching the real ``sys.stdin`` from a test does not survive that
-    isolation, but patching this function does.
+    Delegates to ``flux.agents.process.wants_plain_terminal`` -- the exact
+    check ``AgentProcess`` itself uses to decide plain vs. console -- so
+    this pre-flight guard can never drift from what would actually happen
+    once ``AgentProcess`` is constructed. An earlier version checked
+    ``sys.stdin`` here while ``AgentProcess`` checked ``sys.stdout``, which
+    let some invocations (e.g. ``flux agent start | tee log``: stdin is a
+    tty, stdout isn't) pass this guard and still fail downstream -- silently,
+    since the resulting error was swallowed by a bare ``except Exception``
+    with no non-zero exit.
+
+    Indirected behind a function (rather than importing and calling
+    ``wants_plain_terminal`` inline at each call site) so tests can patch one
+    name; this also sidesteps Click's ``CliRunner`` replacing ``sys.stdout``
+    (and ``sys.stdin``) with its own captured streams during ``invoke()`` --
+    patching the real stream from a test does not survive that isolation,
+    but patching this function does.
     """
-    import sys
+    from flux.agents.process import wants_plain_terminal
 
-    return sys.stdin.isatty()
+    return not wants_plain_terminal()
 
 
 def _get_auth_token() -> str | None:
