@@ -107,6 +107,27 @@ class TestExecutionName:
         ctx = _make_ctx(manager)
         assert manager.get(ctx.execution_id).name is None
 
+    def test_a_checkpoint_body_cannot_set_the_name(self, manager):
+        """``name`` is operator-owned: a worker must never write one back.
+
+        The checkpoint route body is a whole ``ExecutionContextDTO``, and
+        that DTO does carry ``name`` on the way *out* (the read paths need
+        it), so the guarantee rests entirely on the write side —
+        ``ContextManager.update`` writing state/output/events and nothing
+        else. Pinned here because nothing else fails if that changes.
+        """
+        from flux.servers.models import ExecutionContext as ExecutionContextDTO
+
+        ctx = _make_ctx(manager)
+        manager.rename(ctx.execution_id, "operator name")
+
+        hostile = ExecutionContextDTO.from_domain(manager.get(ctx.execution_id)).model_copy(
+            update={"name": "worker name"},
+        )
+        manager.update(hostile.to_domain())
+
+        assert _row(manager, ctx.execution_id).name == "operator name"
+
     def test_get_summary_carries_the_name(self, manager):
         """Summary parity with the detailed DTO: the status-poll fast path
         reads columns directly, so it has to select the name too."""
@@ -152,6 +173,37 @@ class TestRenameRoute:
         resp = test_client.put("/executions/nope/name", json={"name": "x"})
 
         assert resp.status_code == 404
+
+    def test_rename_reads_the_summary_not_the_event_log(
+        self,
+        test_client,
+        manager,
+        monkeypatch,
+    ):
+        """The permission check needs two columns, not the whole log.
+
+        A long-running agent session has tens of thousands of event rows;
+        hydrating them to authorize a single-column UPDATE is the difference
+        between a cheap rename and a multi-second one.
+        """
+        ctx = _make_ctx(manager)
+        hydrated: list[str] = []
+        original_get = type(manager).get
+
+        def _spy(self, execution_id):
+            hydrated.append(execution_id)
+            return original_get(self, execution_id)
+
+        monkeypatch.setattr(type(manager), "get", _spy)
+
+        resp = test_client.put(
+            f"/executions/{ctx.execution_id}/name",
+            json={"name": "cheap rename"},
+        )
+
+        assert resp.status_code == 200
+        assert hydrated == []
+        assert _row(manager, ctx.execution_id).name == "cheap rename"
 
     def test_rename_empty_name_is_400(self, test_client, manager):
         ctx = _make_ctx(manager)

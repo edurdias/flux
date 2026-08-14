@@ -309,7 +309,11 @@ class ExecutionRoutesMixin:
             try:
                 manager = ContextManager.create()
                 try:
-                    ctx = manager.get(execution_id)
+                    # Summary, not get(): the check needs two columns, and
+                    # hydrating an agent session's whole event log to
+                    # authorize a single-column UPDATE is what makes a
+                    # rename cost seconds on a long-running execution.
+                    summary = manager.get_summary(execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -317,7 +321,9 @@ class ExecutionRoutesMixin:
                     )
 
                 if auth_service is not None and auth_config.enabled:
-                    required = f"workflow:{ctx.workflow_namespace}:{ctx.workflow_name}:run"
+                    required = (
+                        f"workflow:{summary['workflow_namespace']}:{summary['workflow_name']}:run"
+                    )
                     if not await auth_service.is_authorized(identity, required):
                         raise HTTPException(
                             status_code=403,
