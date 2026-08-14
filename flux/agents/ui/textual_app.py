@@ -287,15 +287,13 @@ def derive_blocks(
         elif event_type in ("TASK_COMPLETED", "TASK_FAILED", "TASK_CANCELLED"):
             started_tool = tools.get(str(event.get("source_id")))
             if started_tool is None:
-                # A completion with no start is the normal shape for every
-                # task that begins in a *resumed* run: task.py suppresses
-                # TASK_STARTED while `ctx.has_resumed`, and that stays true
-                # for the whole resumed run (it reads the last *workflow*
-                # event, which remains WORKFLOW_RESUMED until the next
-                # pause). Since an agent's tool calls all happen after the
-                # session's first resume, dropping these would blank tool
-                # activity from the transcript at every turn boundary.
-                # Verified end to end in tests/e2e/test_agent_console.py.
+                # A completion with no start: every task begun in a resumed
+                # run looked like this until #244 (task.py suppressed
+                # TASK_STARTED for the whole resumed run), which is every
+                # tool call after a session's first turn. Executions logged
+                # before that fix still read back this way, so the recovery
+                # stays — dropping these would blank tool activity from an
+                # existing transcript at every turn boundary.
                 name = event.get("name") or ""
                 if INTERNAL_TASK.match(name):
                     continue

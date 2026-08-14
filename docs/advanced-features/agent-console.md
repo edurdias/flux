@@ -121,9 +121,9 @@ overlay on top of it.
 
 Tool calls are ordinary Flux tasks, so the log carries their real names,
 outputs and durations. Two shapes are worth knowing about because the console
-handles them for you: a task that starts in a *resumed* run records no
-`TASK_STARTED` event (every tool call after a session's first turn), and task
-outputs are stored as output-storage envelopes rather than bare values. The
+handles them for you: executions logged before the engine recorded starts in
+resumed runs carry a completion with no matching start, and task outputs are
+stored as output-storage envelopes rather than bare values. The
 console reconstructs the call from its completion event and unwraps inline
 outputs; a value kept outside the log (e.g. `local_file` storage) is named
 rather than dumped.
