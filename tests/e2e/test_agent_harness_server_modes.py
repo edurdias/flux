@@ -134,7 +134,18 @@ async def test_api_mode_health_chat_and_session(agent_harness_env):
             assert resp.status_code == 200
             assert resp.json() == {"status": "ok"}
 
+            # Every state-changing route now takes the console's anti-CSRF
+            # header first, so a bare drive-by POST is refused before auth is
+            # even consulted; a well-formed request without a Bearer token
+            # still gets the 401.
             resp = await client.post(f"{base_url}/chat", json={"message": ""})
+            assert resp.status_code == 403
+
+            resp = await client.post(
+                f"{base_url}/chat",
+                json={"message": ""},
+                headers={"X-Flux-Console": "1"},
+            )
             assert resp.status_code == 401
 
             session_id: str | None = None
@@ -144,7 +155,7 @@ async def test_api_mode_health_chat_and_session(agent_harness_env):
                 "POST",
                 f"{base_url}/chat",
                 json={"message": ""},
-                headers={"Authorization": f"Bearer {bearer}"},
+                headers={"Authorization": f"Bearer {bearer}", "X-Flux-Console": "1"},
             ) as resp:
                 assert resp.status_code == 200
                 async for line in resp.aiter_lines():
@@ -201,7 +212,9 @@ async def test_web_mode_serves_index_and_public_health(agent_harness_env):
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{base_url}/")
             assert resp.status_code == 200
-            assert "Flux Agent" in resp.text
+            # web mode serves the multi-session console shell (the old
+            # single-agent "Flux Agent" page is gone).
+            assert "Flux Console" in resp.text
             assert "</html>" in resp.text.lower()
 
             resp = await client.get(f"{base_url}/health")
