@@ -305,3 +305,23 @@ async def test_console_mode_closes_service_even_on_error():
             await proc.run()
 
     aclose.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_web_mode_forwards_the_initial_session():
+    """`--session <id>` means the same thing in every mode: the served
+    consoles report it through GET /console/state, which is the only way the
+    page can open on it rather than on whatever session sorts first."""
+    proc = AgentProcess(
+        agent_name="coder",
+        server_url="http://x",
+        mode="web",
+        session_id="exec-42",
+    )
+    proc.client.ensure_workflow_registered = AsyncMock()
+
+    with patch("flux.agents.ui.web.WebUI") as web_cls:
+        web_cls.return_value.serve = AsyncMock()
+        await proc.run()
+
+    assert web_cls.call_args.kwargs["session_id"] == "exec-42"

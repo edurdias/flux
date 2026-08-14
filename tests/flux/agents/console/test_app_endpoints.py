@@ -72,6 +72,7 @@ class _FakeService(ConsoleService):
         self.rename_calls: list[tuple] = []
         self.stop_calls: list[tuple] = []
         self.respond_calls: list[tuple] = []
+        self.closed = False
 
     async def list_agents(self):
         return self._agents
@@ -122,6 +123,9 @@ class _FakeService(ConsoleService):
                 },
             )
         self.stop_calls.append((execution_id, namespace, workflow_name))
+
+    async def aclose(self):
+        self.closed = True
 
 
 def _forbidden(detail: dict) -> httpx.HTTPStatusError:
@@ -574,10 +578,71 @@ def test_console_state_names_the_permission_learned_from_a_denied_write():
     assert after.json()["missing_permission"] == "workflow:agents:agent_chat:run"
 
 
+def test_console_state_names_the_permission_from_the_run_routes_plural_body():
+    """A denied session spawn is a denied ``/workflows/.../run/stream``, and
+    that route answers with ``missing_permissions`` (plural, a list) --
+    workflow_routes.py's shape. Missing it degrades the console to read-only
+    without ever naming what it is missing, and because every write control
+    is then disabled no later 403 can arrive to name it."""
+    fake = _FakeService(
+        spawn_error=_forbidden(
+            {
+                "message": "Authorization denied",
+                "missing_permissions": ["workflow:agents:agent_chat:run"],
+            },
+        ),
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        create = client.post("/console/sessions", json={"agent": "coder"}, headers=HEADERS)
+        assert create.status_code == 403
+        state = client.get("/console/state", headers=HEADERS)
+
+    body = state.json()
+    assert body["can_write"] is False
+    assert body["missing_permission"] == "workflow:agents:agent_chat:run"
+
+
+def test_console_state_does_not_cache_a_transient_probe_failure():
+    """Degrade-open, but never cached: a network blip during the write probe
+    must not leave a genuinely read-only token seeing every write control
+    enabled for the rest of the process's life."""
+
+    class _FlakyService(_FakeService):
+        def __init__(self):
+            super().__init__()
+            self.probes = 0
+
+        async def stop(self, execution_id, namespace, workflow_name):
+            self.probes += 1
+            if self.probes == 1:
+                raise httpx.ConnectError("connection refused")
+            raise _forbidden(
+                {"error": "forbidden", "missing_permission": "workflow:agents:agent_chat:run"},
+            )
+
+    fake = _FlakyService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        first = client.get("/console/state", headers=HEADERS)
+        second = client.get("/console/state", headers=HEADERS)
+
+    assert first.json()["can_write"] is True
+    assert second.json()["can_write"] is False
+    assert second.json()["missing_permission"] == "workflow:agents:agent_chat:run"
+    assert fake.probes == 2
+
+
 @pytest.mark.parametrize(
     ("detail", "expected"),
     [
         ({"missing_permission": "workflow:a:b:run"}, "workflow:a:b:run"),
+        (
+            {"detail": {"message": "denied", "missing_permissions": ["workflow:a:b:run"]}},
+            "workflow:a:b:run",
+        ),
         ({"detail": {"error": "forbidden", "missing_permission": "x:y:z"}}, "x:y:z"),
         ({"detail": "Permission denied: requires 'agent:*:read'"}, "agent:*:read"),
         ("Permission denied: requires 'execution:*:read'", "execution:*:read"),
@@ -590,6 +655,87 @@ def test_missing_permission_of_reads_both_denial_shapes(detail, expected):
     from flux.agents.console.app import missing_permission_of
 
     assert missing_permission_of(detail) == expected
+
+
+def test_console_state_reports_the_initial_session():
+    """``flux agent start --session <id> --mode web`` must open on that
+    session: ``/console/state`` is the only place the page can learn it, and
+    console.js falls back to sessions[0] whenever the field is null."""
+    fake = _FakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui(session_id="exec-42")
+        client = TestClient(ui.app)
+        response = client.get("/console/state", headers=HEADERS)
+
+    assert response.json()["session"] == "exec-42"
+
+
+@pytest.mark.asyncio
+async def test_console_send_subscribes_only_once_its_stream_is_read():
+    """The unsubscribe lives in the generator's ``finally``, so a
+    subscription taken in the endpoint body leaks whenever the client hangs
+    up before the generator is first resumed -- a queue nobody drains that
+    every later session's events keep growing."""
+    from flux.agents.console import app as console_app
+    from flux.agents.console.hub import EventHub
+
+    hubs: list[EventHub] = []
+
+    class _WatchedHub(EventHub):
+        def __init__(self, service):
+            super().__init__(service)
+            hubs.append(self)
+
+    fake = _FakeService(detail={"execution_id": "exec-1", "workflow_name": "agent_chat"})
+    with (
+        patch.object(console_app, "_ScopedConsoleService", return_value=fake),
+        patch.object(console_app, "EventHub", _WatchedHub),
+    ):
+        ui = _make_ui()
+        endpoint = next(
+            route.endpoint
+            for route in ui.app.routes
+            if getattr(route, "path", None) == "/console/sessions/{session_id}/send"
+        )
+        # Exactly the "generator never entered" case: the response object is
+        # built and dropped without anything iterating its body.
+        await endpoint("exec-1", {"text": "hi"}, fake)
+
+    assert hubs[0]._subscribers == []
+
+
+def test_console_service_is_closed_when_the_app_shuts_down():
+    """The TUI path closes its ConsoleService; the web/api path builds one
+    per app and must close it too, or the connection pool outlives the
+    server."""
+    fake = _FakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        with TestClient(ui.app) as client:
+            assert client.get("/console/state", headers=HEADERS).status_code == 200
+
+    assert fake.closed is True
+
+
+@pytest.mark.asyncio
+async def test_scoped_service_reuses_one_client_per_token():
+    """One ``spawn`` reads ``.client`` several times; rebuilding a FluxClient
+    per read is waste. The cache is keyed by the request's own token so it
+    can never hand one request's credentials to another."""
+    from flux.agents.console.app import _ScopedConsoleService
+
+    service = _ScopedConsoleService("http://flux.test")
+
+    reset = _request_token.set("token-a")
+    first = service.client
+    assert service.client is first
+    assert first._token == "token-a"
+
+    _request_token.reset(reset)
+    _request_token.set("token-b")
+    second = service.client
+    assert second is not first
+    assert second._token == "token-b"
 
 
 def test_console_state_reports_agent_and_server_url():

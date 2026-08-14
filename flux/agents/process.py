@@ -267,5 +267,8 @@ class AgentProcess:
             workflow_name=self.workflow_name,
             host=self.host or "127.0.0.1",
             allowed_origins=self.allowed_origins,
+            # `--session <id>` means "open on this session" in every mode;
+            # the served consoles learn it from GET /console/state.
+            session_id=self.session_id,
         )
         await server.serve()

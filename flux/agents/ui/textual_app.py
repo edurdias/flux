@@ -26,6 +26,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
+from flux.agents.console.errors import error_detail, missing_permission_of
 from flux.agents.console.hub import KIND_LOG_DELTA, ConsoleEvent, EventHub
 from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
 from flux.agents.events import (
@@ -205,50 +206,6 @@ def unwrap_output(value: Any) -> Any:
     if value.get("storage_type") == "inline" and isinstance(metadata, dict):
         return metadata.get("value")
     return f"[stored in {value.get('storage_type')}: {value.get('reference_id')}]"
-
-
-def _error_detail(exc: Exception) -> Any:
-    """The server's error body, if this exception carries one."""
-    response = getattr(exc, "response", None)
-    if response is None:
-        return None
-    try:
-        return response.json()
-    except Exception:
-        return getattr(response, "text", None)
-
-
-def missing_permission_of(detail: Any, depth: int = 0) -> str | None:
-    """Pull the missing permission out of a 403 body.
-
-    The server returns it in two shapes -- the structured
-    ``{"error": "forbidden", "missing_permission": ...}`` dict and plain
-    prose from the generic permission dependency ("Permission denied:
-    requires 'x'") -- and either can arrive nested inside ``detail``. Same
-    two-shape search the web console does.
-    """
-    if detail is None or depth > 6:
-        return None
-    if isinstance(detail, str):
-        match = re.search(r"requires '([^']+)'", detail)
-        return match.group(1) if match else None
-    if isinstance(detail, dict):
-        permission = detail.get("missing_permission")
-        if isinstance(permission, str):
-            return permission
-        permissions = detail.get("missing_permissions")
-        if isinstance(permissions, list) and permissions:
-            return str(permissions[0])
-        for value in detail.values():
-            found = missing_permission_of(value, depth + 1)
-            if found:
-                return found
-    elif isinstance(detail, list):
-        for value in detail:
-            found = missing_permission_of(value, depth + 1)
-            if found:
-                return found
-    return None
 
 
 def derive_blocks(
@@ -675,7 +632,7 @@ class ConsoleApp(App):
     def _note_failure(self, exc: Exception, label: str, is_write: bool) -> None:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status == 403:
-            permission = missing_permission_of(_error_detail(exc))
+            permission = missing_permission_of(error_detail(exc))
             if permission:
                 self.missing_permission = permission
             # Only a denied *write* means read-only; a 403 on a listing is a

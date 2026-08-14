@@ -42,10 +42,12 @@ class ApiUI:
         workflow_name: str = "agent_chat",
         host: str = "127.0.0.1",
         allowed_origins: tuple[str, ...] = (),
+        session_id: str | None = None,
     ) -> None:
         self.server_url = server_url
         self.agent_name = agent_name
         self.operator_token = operator_token
+        self.session_id = session_id
         self.host = host
         self.port = port
         self.workflow_name = workflow_name
@@ -58,6 +60,7 @@ class ApiUI:
             agent_name=self.agent_name,
             token_dependency=self._get_token_dependency(),
             csrf_dependency=self._csrf_dependency(),
+            session_id=self.session_id,
         )
 
     def _extract_token(self, authorization: str | None) -> str:

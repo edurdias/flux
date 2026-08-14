@@ -35,19 +35,22 @@ regardless of what any later request does to the same shared service object.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import json
-import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TypeVar
 
 import httpx
 from fastapi import Body, Depends, FastAPI, HTTPException, Response
 from sse_starlette.sse import EventSourceResponse
 
+from flux.agents.console.errors import error_detail, missing_permission_of
 from flux.agents.console.hub import KIND_LOG_DELTA, EventHub
 from flux.agents.console.service import ConsoleService
 from flux.agents.flux_client import FluxClient
+
+__all__ = ["ConsoleWriteState", "missing_permission_of", "mount_console_routes"]
 
 _T = TypeVar("_T")
 
@@ -61,6 +64,15 @@ _NAMESPACE = "agents"
 _request_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "console_request_token",
     default=None,
+)
+
+# The FluxClient built for the token above, cached for the life of the
+# context that built it (one request, or one detached turn) so a call
+# reading ``.client`` several times does not build several. Stored with its
+# own token so a context that never set one of its own -- or that outlives a
+# token change -- can never be handed another request's client.
+_request_client: contextvars.ContextVar[tuple[str | None, FluxClient] | None] = (
+    contextvars.ContextVar("console_request_client", default=None)
 )
 
 
@@ -95,7 +107,13 @@ class _ScopedConsoleService(ConsoleService):
 
     @property
     def client(self) -> FluxClient:
-        return FluxClient(self.server_url, self.token)
+        token = self.token
+        cached = _request_client.get()
+        if cached is not None and cached[0] == token:
+            return cached[1]
+        client = FluxClient(self.server_url, token)
+        _request_client.set((token, client))
+        return client
 
     @client.setter
     def client(self, value: FluxClient) -> None:
@@ -103,50 +121,6 @@ class _ScopedConsoleService(ConsoleService):
             "_ScopedConsoleService.client is derived from _request_token; "
             "set _request_token instead of assigning to .client",
         )
-
-
-def _error_detail(exc: httpx.HTTPStatusError):
-    """Recover the server's structured error body, verbatim, for the client.
-
-    Falls back to the raw text when the upstream response was not JSON, so
-    the client always gets *something* for the detail field.
-    """
-    try:
-        return exc.response.json()
-    except ValueError:
-        return exc.response.text or str(exc)
-
-
-def missing_permission_of(detail, depth: int = 0) -> str | None:
-    """The permission named by a denial body, in either shape the server uses.
-
-    Flux answers a denied request two ways: the structured
-    ``{"error": "forbidden", "missing_permission": ...}`` dict (the execution
-    read/approve routes) and prose -- ``Permission denied: requires 'x'`` --
-    from the generic permission dependency and the cancel route this module
-    probes. Both are unwrapped from FastAPI's ``{"detail": ...}`` envelope,
-    which can nest once more when the console re-raises an upstream body
-    verbatim, so this walks rather than indexes.
-    """
-    if detail is None or depth > 6:
-        return None
-    if isinstance(detail, str):
-        match = re.search(r"requires '([^']+)'", detail)
-        return match.group(1) if match else None
-    if isinstance(detail, dict):
-        permission = detail.get("missing_permission")
-        if isinstance(permission, str):
-            return permission
-        values = list(detail.values())
-    elif isinstance(detail, list):
-        values = list(detail)
-    else:
-        return None
-    for value in values:
-        found = missing_permission_of(value, depth + 1)
-        if found is not None:
-            return found
-    return None
 
 
 class ConsoleWriteState:
@@ -179,23 +153,31 @@ class ConsoleWriteState:
             self._missing[token] = permission
 
     async def resolve(self, token: str | None, service: ConsoleService) -> bool:
-        if token not in self._per_token:
-            can_write, permission = await _probe_can_write(service)
+        if token in self._per_token:
+            return self._per_token[token]
+        can_write, permission, answered = await _probe_can_write(service)
+        # A probe that never reached the server answers nothing: caching its
+        # degrade-open "yes" would leave a genuinely read-only operator
+        # looking at enabled write controls for the life of the process,
+        # since nothing ever re-probes. Retried on the next read instead.
+        if answered:
             self._per_token[token] = can_write
             self._missing[token] = None if can_write else permission
-        return self._per_token[token]
+        return can_write
 
     def missing_permission(self, token: str | None) -> str | None:
         return self._missing.get(token)
 
 
-async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None]:
+async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None, bool]:
     """Cheap, deterministic, side-effect-free probe of write authorization.
 
-    Returns ``(can_write, missing_permission)`` -- the second element is the
-    permission the denial named, which the console surfaces so a read-only
-    session can say *what* it is missing instead of merely that it is
-    read-only.
+    Returns ``(can_write, missing_permission, answered)``. The second element
+    is the permission the denial named, which the console surfaces so a
+    read-only session can say *what* it is missing instead of merely that it
+    is read-only. The third says whether the server actually answered: a
+    probe that failed in transit degrades open but must not be remembered
+    (see ``ConsoleWriteState.resolve``).
 
     ``GET /workflows/{namespace}/{workflow_name}/cancel/{execution_id}``
     (which ``ConsoleService.stop`` wraps) checks the caller's
@@ -218,17 +200,17 @@ async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None]:
         # the expected shape for an authorized caller here) means the write
         # check passed.
         if exc.response.status_code not in (401, 403):
-            return True, None
-        return False, missing_permission_of(_error_detail(exc))
+            return True, None, True
+        return False, missing_permission_of(error_detail(exc)), True
     except Exception:
         # A network/etc. failure here shouldn't paint the console read-only
         # for an unrelated outage -- a real write attempt still gets the
         # correct, authoritative answer via `_call`.
-        return True, None
+        return True, None, False
     else:
         # Cancelling a fake execution id cannot genuinely succeed; treat an
         # unexpected 2xx defensively as "can write" (authorization clearly passed).
-        return True, None
+        return True, None, True
 
 
 async def _call(
@@ -255,7 +237,7 @@ async def _call(
     try:
         return await coro
     except httpx.HTTPStatusError as exc:
-        detail = _error_detail(exc)
+        detail = error_detail(exc)
         if is_write and exc.response.status_code == 403:
             write_state.mark_forbidden(_request_token.get(), missing_permission_of(detail))
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
@@ -272,17 +254,36 @@ def mount_console_routes(
     agent_name: str | None,
     token_dependency: Callable[..., str | None],
     csrf_dependency: Callable[..., None],
+    session_id: str | None = None,
 ) -> None:
     """Register the /console/* routes on ``app``.
 
     ``token_dependency``/``csrf_dependency`` are the same dependency
     callables the caller (ApiUI) applies to its own routes, so auth and CSRF
     behavior is identical between the legacy single-agent routes and the
-    console surface.
+    console surface. ``session_id`` is the session the process was started
+    on (``flux agent start --session <id>``), reported by ``/console/state``
+    because the page has nowhere else to learn it.
     """
     service = _ScopedConsoleService(server_url)
     hub = EventHub(service)
     write_state = ConsoleWriteState()
+
+    # The service owns a pooled httpx client; the TUI path closes it in its
+    # own `finally`, so the served path has to close it too. Wrapping the
+    # router's lifespan (rather than the removed on_event/add_event_handler
+    # hooks) keeps whatever lifespan the app already had.
+    previous_lifespan = app.router.lifespan_context
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+        async with previous_lifespan(app):
+            try:
+                yield
+            finally:
+                await service.aclose()
+
+    app.router.lifespan_context = _lifespan
     # asyncio only weakly references a bare create_task() result; a detached
     # turn (client disconnected before log_delta) needs a strong reference
     # somewhere outside the generator frame or it can be GC'd mid-run.
@@ -304,7 +305,7 @@ def mount_console_routes(
         can_write = await write_state.resolve(token, service)
         return {
             "agent": agent_name,
-            "session": None,
+            "session": session_id,
             "server_url": server_url,
             "can_write": can_write,
             # Named here or nowhere: a read-only console disables every write
@@ -404,9 +405,14 @@ def mount_console_routes(
         text = body.get("text", "")
         detail = await _call(write_state, hub.open_session(session_id))
         workflow_name = detail.get("workflow_name") or "agent_chat"
-        queue = hub.subscribe()
 
         async def _frames():
+            # Subscribed here rather than in the endpoint body: the matching
+            # unsubscribe lives in this generator's `finally`, so a client
+            # that hangs up before the generator is ever resumed would leave
+            # a queue in the hub that nobody drains and every session's
+            # events keep filling.
+            queue = hub.subscribe()
             # agent_name is accepted by ConsoleService.send/EventHub.run_turn
             # for signature parity only -- neither actually reads it (see
             # ConsoleService.send's docstring) -- so there is nothing worth

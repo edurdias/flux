@@ -27,6 +27,7 @@ class WebUI(ApiUI):
         workflow_name: str = "agent_chat",
         host: str = "127.0.0.1",
         allowed_origins: tuple[str, ...] = (),
+        session_id: str | None = None,
     ) -> None:
         super().__init__(
             server_url=server_url,
@@ -36,6 +37,7 @@ class WebUI(ApiUI):
             workflow_name=workflow_name,
             host=host,
             allowed_origins=allowed_origins,
+            session_id=session_id,
         )
         self._setup_web_routes()
 
