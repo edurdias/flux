@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from flux import ExecutionContext
 from flux.domain import ExecutionState
 from flux.errors import ExecutionContextNotFoundError, ExecutionError, StaleClaimError
+from flux.hooks.outbox import enqueue
 from flux.models import ExecutionEventModel
 from flux.models import ExecutionContextModel
 from flux.models import RepositoryFactory
@@ -474,7 +475,9 @@ class DatabaseContextManager(ContextManager):
                         # would otherwise be long expired by the time it wakes
                         # and would fail it on arrival.
                         self._stamp_park_deadline(model)
-                    session.add_all(self._get_additional_events(ctx, session))
+                    new_events = self._get_additional_events(ctx, session)
+                    session.add_all(new_events)
+                    enqueue(session, ctx, new_events)
             else:
                 accepted = True
                 new_model = ExecutionContextModel.from_plain(ctx)
@@ -497,6 +500,11 @@ class DatabaseContextManager(ContextManager):
                 # tests) must degrade to "no deadline", never break a save.
                 self._stamp_park_deadline(new_model, park_ttl)
                 session.add(new_model)
+                # The insert carries its events through the relationship
+                # rather than _get_additional_events, and every one of them
+                # is new — an execution paused (or failed) on its very first
+                # save reaches the hooks only from here.
+                enqueue(session, ctx, ctx.events)
             if manage_transaction:
                 session.commit()
             return accepted
@@ -555,7 +563,12 @@ class DatabaseContextManager(ContextManager):
                 model.state = ctx.state
                 model.output = ctx.output
                 self._sync_wake_columns(model, ctx)
-                session.add_all(self._get_additional_events(ctx, session))
+                new_events = self._get_additional_events(ctx, session)
+                session.add_all(new_events)
+                # The distributed checkpoint path lands here, not in save():
+                # most engine events a hook can subscribe to arrive through
+                # this call.
+                enqueue(session, ctx, new_events)
             session.commit()
             return ctx
 

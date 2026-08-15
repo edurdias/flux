@@ -563,11 +563,29 @@ class SchedulingConfig(BaseConfig):
 class HooksConfig(BaseConfig):
     """Configuration for outbound hooks.
 
-    Slice 1 only needs the snapshot TTL; ``enabled``, ``hop_limit``, and
-    ``drain_batch_size`` (the enqueue/drain settings) land with the delivery
-    pipeline.
+    ``drain_batch_size`` lands with the drain side of the pipeline.
     """
 
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch for outbound hooks. When false the outbox enqueue "
+            "returns before matching anything, so no delivery is written for "
+            "any event — existing hook rows stay untouched, they simply stop "
+            "firing."
+        ),
+    )
+    hop_limit: int = Field(
+        default=3,
+        ge=0,
+        description=(
+            "How far a chain of hook-started executions may go. A delivery "
+            "records the hop it was enqueued at (its parent's hop + 1, or 0 "
+            "when the event came from an execution no hook started); the "
+            "drain drops a delivery whose hop exceeds this, bounding a hook "
+            "whose target workflow re-triggers it."
+        ),
+    )
     snapshot_ttl_seconds: float = Field(
         default=5.0,
         ge=0,
