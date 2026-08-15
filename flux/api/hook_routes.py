@@ -185,6 +185,40 @@ class HookRoutesMixin:
             except WorkflowNotFoundError:
                 raise HTTPException(status_code=status_code, detail=detail)
 
+        def _principal_subject(principal_id: str) -> str:
+            """The bound principal's subject, for the impersonation grammar.
+
+            ``principal:<subject>:impersonate`` is keyed on the subject while
+            a hook row stores an id, so binding one has to resolve it first —
+            and a reference to a principal that does not exist is refused
+            here rather than stored for the drain to trip over.
+            """
+            principal = principal_registry.get(principal_id) if principal_registry else None
+            if principal is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Principal '{principal_id}' not found",
+                )
+            return principal.subject
+
+        async def _require_impersonation(identity: FluxIdentity, principal_id: str) -> None:
+            """Binding a hook to a principal is impersonation.
+
+            Every delivery starts the target under that principal's roles and
+            with an execution token minted for it, so ``hook:*:create`` alone
+            must not choose which identity a hook fires as — otherwise an
+            operator borrows an admin service account by naming it. Same
+            grammar and same rule as binding a schedule's service account.
+            """
+            if not auth_config.enabled or auth_service is None:
+                return
+            required = f"principal:{_principal_subject(principal_id)}:impersonate"
+            if not await auth_service.is_authorized(identity, required):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Permission denied: requires '{required}'",
+                )
+
         async def _require_principal_can_run(
             principal_id: str,
             namespace: str,
@@ -226,6 +260,10 @@ class HookRoutesMixin:
             logger.info(f"Creating hook '{request.name}' targeting '{request.workflow_ref}'")
 
             _validate_selectors(request.selectors)
+            # Whose rights the hook fires under is settled before anything is
+            # asked about the target: a caller who may not borrow this
+            # principal learns nothing about the catalog from trying.
+            await _require_impersonation(identity, request.principal_id)
             await _require_runnable_target(request.principal_id, request.workflow_ref)
 
             try:
@@ -292,6 +330,12 @@ class HookRoutesMixin:
             # for when a hook is misbehaving — precisely when the stored
             # principal has lost the permission, which is one of the reasons
             # they are reaching for it.
+            # Only an actual rebind is impersonation. A client sending a full
+            # representation re-sends the current principal, and must not need
+            # the grant to change max_attempts.
+            if "principal_id" in fields and fields["principal_id"] != hook.principal_id:
+                await _require_impersonation(identity, fields["principal_id"])
+
             if "workflow_ref" in fields or "principal_id" in fields:
                 await _require_runnable_target(
                     fields.get("principal_id", hook.principal_id),

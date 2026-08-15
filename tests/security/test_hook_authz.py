@@ -116,8 +116,8 @@ def _seed_workflow(namespace: str, name: str) -> str:
     return workflow_id
 
 
-def _seed_principal(role: str) -> str:
-    """A service-account principal holding ``role``; returns its id."""
+def _seed_principal(role: str):
+    """A service-account principal holding ``role``; returns the row."""
     from flux.models import RepositoryFactory
     from flux.security.principals import PrincipalRegistry
 
@@ -129,7 +129,30 @@ def _seed_principal(role: str) -> str:
         external_issuer="flux",
     )
     registry.assign_role(principal.id, role)
-    return principal.id
+    return principal
+
+
+def _seed_role(name: str, permissions: list[str]) -> str:
+    from flux.models import RepositoryFactory
+    from flux.security.models import RoleModel
+
+    repo = RepositoryFactory.create_repository()
+    with repo.session() as session:
+        session.add(RoleModel(name=name, permissions=permissions))
+        session.commit()
+    return name
+
+
+def _may_impersonate(subject: str) -> FluxIdentity:
+    """An operator who also holds the grant to bind ``subject``."""
+    role = _seed_role(
+        f"hook_imp_{uuid.uuid4().hex[:6]}",
+        [f"principal:{subject}:impersonate"],
+    )
+    return FluxIdentity(
+        subject=f"operator-{uuid.uuid4().hex[:6]}",
+        roles=frozenset({"operator", role}),
+    )
 
 
 def _seed_hook(name: str, principal_id: str, workflow_ref: str = "ops/incident"):
@@ -163,12 +186,17 @@ def _seed_dead_delivery(hook_id: str) -> str:
 
 
 @pytest.fixture
-def hook(client):
-    """A hook whose principal may run its (registered) target."""
+def hook_principal(client):
+    """The principal a seeded hook runs its (registered) target as."""
     _seed_workflow("ops", "incident")
-    principal_id = _seed_principal("operator")
+    return _seed_principal("operator")
+
+
+@pytest.fixture
+def hook(client, hook_principal):
+    """A hook whose principal may run its (registered) target."""
     name = f"hook-{uuid.uuid4().hex[:6]}"
-    return _seed_hook(name, principal_id)
+    return _seed_hook(name, hook_principal.id)
 
 
 def _create_body(name: str, principal_id: str) -> dict:
@@ -241,11 +269,11 @@ class TestWorker:
 
 
 class TestOperator:
-    def test_operator_manages_hooks_end_to_end(self, client, hook):
+    def test_operator_manages_hooks_end_to_end(self, client, hook, hook_principal):
         name = f"ops-hook-{uuid.uuid4().hex[:6]}"
         delivery_id = _seed_dead_delivery(hook.id)
 
-        with _auth_as(_as("operator")):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
             created = client.post(
                 "/hooks",
                 headers=_headers(),
@@ -275,11 +303,11 @@ class TestHookPrincipalMustRunTheTarget:
         _seed_workflow("ops", "incident")
         powerless = _seed_principal("viewer")
 
-        with _auth_as(_as("operator")):
+        with _auth_as(_may_impersonate(powerless.subject)):
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("doomed", powerless),
+                json=_create_body("doomed", powerless.id),
             )
             listed = client.get("/hooks", headers=_headers())
 
@@ -290,11 +318,11 @@ class TestHookPrincipalMustRunTheTarget:
     def test_update_denies_rebinding_to_a_principal_that_cannot_run(self, client, hook):
         powerless = _seed_principal("viewer")
 
-        with _auth_as(_as("operator")):
+        with _auth_as(_may_impersonate(powerless.subject)):
             resp = client.put(
                 f"/hooks/{hook.name}",
                 headers=_headers(),
-                json={"principal_id": powerless},
+                json={"principal_id": powerless.id},
             )
             got = client.get(f"/hooks/{hook.name}", headers=_headers())
 
@@ -324,15 +352,113 @@ class TestHookPrincipalMustRunTheTarget:
         from flux.security.principals import PrincipalRegistry
 
         _seed_workflow("ops", "incident")
-        principal_id = _seed_principal("operator")
+        principal = _seed_principal("operator")
         repo = RepositoryFactory.create_repository()
-        PrincipalRegistry(session_factory=lambda: repo.session()).set_enabled(principal_id, False)
+        PrincipalRegistry(session_factory=lambda: repo.session()).set_enabled(principal.id, False)
+
+        with _auth_as(_may_impersonate(principal.subject)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("disabled-principal", principal.id),
+            )
+
+        assert resp.status_code == 403, resp.text
+
+
+class TestBindingAPrincipalIsImpersonation:
+    """A hook fires its target under the bound principal's roles, so choosing
+    that principal is impersonation — ``hook:*:create`` alone must not let an
+    operator borrow an admin service account and run workflows as it."""
+
+    def test_create_denies_binding_without_the_grant(self, client, hook_principal):
+        with _auth_as(_as("operator")):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("borrowed", hook_principal.id),
+            )
+            listed = client.get("/hooks", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        assert listed.json()["total"] == 0
+
+    def test_create_allows_the_holder_of_the_grant(self, client, hook_principal):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("granted", hook_principal.id),
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["principal_id"] == hook_principal.id
+
+    def test_the_grant_is_per_subject(self, client, hook_principal):
+        """A grant for one principal must not authorize binding another."""
+        other = _seed_principal("operator")
+
+        with _auth_as(_may_impersonate(other.subject)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("wrong-grant", hook_principal.id),
+            )
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+
+    def test_update_rebind_requires_the_grant(self, client, hook):
+        target = _seed_principal("operator")
+
+        with _auth_as(_as("operator")):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"principal_id": target.id},
+            )
+            got = client.get(f"/hooks/{hook.name}", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{target.subject}:impersonate" in resp.text
+        assert got.json()["principal_id"] == hook.principal_id
+
+    def test_update_rebind_succeeds_with_the_grant(self, client, hook):
+        target = _seed_principal("operator")
+
+        with _auth_as(_may_impersonate(target.subject)):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"principal_id": target.id},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["principal_id"] == target.id
+
+    def test_resending_the_same_principal_is_not_a_rebind(self, client, hook):
+        """A client sending the hook's current principal back is not choosing
+        an identity, so it must not need the grant."""
+        with _auth_as(_as("operator")):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"principal_id": hook.principal_id, "max_attempts": 3},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["max_attempts"] == 3
+
+    def test_binding_an_unknown_principal_is_refused(self, client):
+        _seed_workflow("ops", "incident")
 
         with _auth_as(_as("operator")):
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("disabled-principal", principal_id),
+                json=_create_body("ghost-principal", "no-such-principal"),
             )
 
-        assert resp.status_code == 403, resp.text
+        assert resp.status_code == 400, resp.text
+        assert "no-such-principal" in resp.text
