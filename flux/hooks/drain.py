@@ -1,0 +1,220 @@
+"""The drain: turn a pending delivery row into a running workflow.
+
+The outbox writes an obligation in the transaction that records the event;
+this is where the obligation is met. It runs on the scheduler tick, under
+the same cross-replica dispatch lock as the other sweeps, so a delivery is
+made once even with several servers up -- ``SKIP LOCKED`` is the second
+belt, for the window where a lock changes hands.
+
+Three refusals are as much the point as the delivery itself:
+
+* **The hop guard** runs before anything else is authorized or created. A
+  hook selecting ``execution:*:*:completed`` whose target is itself a
+  workflow is a fork bomb, and the only cheap place to stop it is here,
+  before the fan-out exists.
+* **Authorization is re-checked at fire time.** A hook outlives the grant
+  it was created under; a principal whose rights were revoked in between
+  must not keep firing. That denial is terminal, not retried -- a revoked
+  permission does not grant itself back, and retrying only buries the
+  audit trail.
+* **A missing target is terminal too.** Everything else (a busy database, a
+  transient catalog read) retries with exponential backoff until the hook's
+  ``max_attempts`` is spent.
+
+``create_execution`` and ``authorize`` arrive as arguments rather than being
+reached for: the drain is a scheduler concern, the server owns both, and
+injecting them is what lets this be tested without one.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+from flux.catalogs import resolve_workflow_ref
+from flux.errors import WorkflowNotFoundError
+from flux.models import HookDeliveryModel, HookModel, RepositoryFactory
+from flux.utils import get_logger
+
+logger = get_logger(__name__)
+
+CreateExecution = Callable[..., Awaitable[str]]
+Authorize = Callable[[str, str], Awaitable[bool]]
+
+_BACKOFF_CAP_SECONDS = 300
+# 2 ** 9 already exceeds the cap, and `max_attempts` is operator-set: clamp
+# the exponent rather than only its result, so a wild value cannot make the
+# engine compute a colossal integer before min() discards it.
+_MAX_BACKOFF_EXPONENT = 9
+
+
+async def drain_once(
+    create_execution: CreateExecution,
+    *,
+    now: datetime,
+    batch_size: int,
+    hop_limit: int,
+    authorize: Authorize,
+) -> int:
+    """Settle one batch of due deliveries. Returns how many were handled.
+
+    "Handled" means the row was decided -- delivered, scheduled for another
+    attempt, or dead-lettered -- not that a workflow started. A row that is
+    not yet due is not handled, and a failure against one delivery never
+    stops the batch: each is caught and recorded on its own row.
+    """
+    if batch_size <= 0:
+        return 0
+
+    handled = 0
+    with RepositoryFactory.create_repository().session() as session:
+        for delivery, hook in _claim(session, now, batch_size):
+            await _deliver(
+                delivery,
+                hook,
+                create_execution=create_execution,
+                authorize=authorize,
+                now=now,
+                hop_limit=hop_limit,
+            )
+            handled += 1
+        session.commit()
+    return handled
+
+
+def _claim(session: Session, now: datetime, batch_size: int) -> list[tuple[Any, Any]]:
+    """Lock up to ``batch_size`` due deliveries, oldest first.
+
+    ``next_attempt_at`` is NULL on a delivery that has never been tried (the
+    enqueue leaves it so), which is due now. ``skip_locked`` is a no-op on
+    SQLite and the cross-replica guard on PostgreSQL: a row another
+    dispatcher already holds is passed over rather than waited on.
+    """
+    return (
+        session.query(HookDeliveryModel, HookModel)
+        .join(HookModel, HookDeliveryModel.hook_id == HookModel.id)
+        .filter(
+            HookDeliveryModel.status == "pending",
+            or_(
+                HookDeliveryModel.next_attempt_at.is_(None),
+                HookDeliveryModel.next_attempt_at <= now,
+            ),
+        )
+        .order_by(HookDeliveryModel.created_at)
+        .with_for_update(skip_locked=True, of=HookDeliveryModel)
+        .limit(batch_size)
+        .all()
+    )
+
+
+async def _deliver(
+    delivery: HookDeliveryModel,
+    hook: HookModel,
+    *,
+    create_execution: CreateExecution,
+    authorize: Authorize,
+    now: datetime,
+    hop_limit: int,
+) -> None:
+    payload = dict(delivery.payload or {})
+
+    hop = _hop_of(payload)
+    if hop >= hop_limit:
+        # Deliberately before authorization and before the row is counted as
+        # attempted: a chain that has run its length costs one UPDATE.
+        _dead_letter(
+            delivery,
+            hook,
+            f"hop limit reached: delivery is at hop {hop} of a maximum {hop_limit}",
+        )
+        return
+
+    try:
+        namespace, workflow_name = resolve_workflow_ref(hook.workflow_ref)
+    except ValueError as ex:
+        _dead_letter(delivery, hook, f"invalid workflow reference '{hook.workflow_ref}': {ex}")
+        return
+
+    # The stored envelope is re-read verbatim -- its event data was redacted
+    # at enqueue and is never rebuilt -- and only `attempt` is refreshed to
+    # name the delivery about to be made.
+    payload["attempt"] = delivery.attempts + 1
+    delivery.attempts += 1
+
+    permission = f"workflow:{namespace}:{workflow_name}:run"
+    try:
+        if not await authorize(hook.principal_id, permission):
+            _dead_letter(
+                delivery,
+                hook,
+                f"principal '{hook.principal_id}' lacks permission '{permission}'",
+            )
+            return
+        execution_id = await create_execution(namespace, workflow_name, payload)
+    except WorkflowNotFoundError as ex:
+        # The target is gone. Retrying re-reads the same empty catalog.
+        _dead_letter(delivery, hook, f"target workflow '{hook.workflow_ref}' not found: {ex}")
+        return
+    except Exception as ex:
+        _retry_or_give_up(delivery, hook, now, ex)
+        return
+
+    delivery.status = "delivered"
+    delivery.execution_id = execution_id
+    delivery.delivered_at = now
+    delivery.next_attempt_at = None
+    delivery.last_error = None
+    logger.info(
+        f"Hook '{hook.name}' fired {hook.workflow_ref} as execution {execution_id} "
+        f"(delivery {delivery.id})",
+    )
+
+
+def _hop_of(payload: dict) -> int:
+    """The envelope's ``hop``, or 0 when it carries nothing usable.
+
+    A payload written by an older enqueue, or by hand, must fire as a
+    first-generation delivery rather than break the drain -- so the fallback
+    is the most permissive value the guard still bounds. ``bool`` is excluded
+    for being an ``int`` subclass.
+    """
+    hop = payload.get("hop")
+    if not isinstance(hop, int) or isinstance(hop, bool):
+        return 0
+    return hop
+
+
+def _retry_or_give_up(
+    delivery: HookDeliveryModel,
+    hook: HookModel,
+    now: datetime,
+    error: Exception,
+) -> None:
+    if delivery.attempts >= hook.max_attempts:
+        _dead_letter(
+            delivery,
+            hook,
+            f"gave up after {delivery.attempts} attempt(s): {error}",
+        )
+        return
+
+    delay = min(2 ** min(delivery.attempts, _MAX_BACKOFF_EXPONENT), _BACKOFF_CAP_SECONDS)
+    delivery.next_attempt_at = now + timedelta(seconds=delay)
+    delivery.last_error = str(error)
+    logger.warning(
+        f"Hook '{hook.name}' delivery {delivery.id} failed "
+        f"(attempt {delivery.attempts}/{hook.max_attempts}), retrying in {delay}s: {error}",
+    )
+
+
+def _dead_letter(delivery: HookDeliveryModel, hook: HookModel, reason: str) -> None:
+    delivery.status = "dead"
+    delivery.last_error = reason
+    # Nothing will pick this row up again; leaving a due time on it would
+    # only read as a retry that never comes.
+    delivery.next_attempt_at = None
+    logger.warning(f"Hook '{hook.name}' delivery {delivery.id} dead-lettered: {reason}")

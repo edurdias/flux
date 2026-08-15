@@ -22,6 +22,7 @@ from flux.config import Configuration
 from flux.workflow import workflow
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
+from flux.hooks.drain import drain_once
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
 from flux.servers.models import redacted_response
@@ -1161,6 +1162,28 @@ class Server(
                         except Exception:
                             logger.error("Pause-wake pass failed", exc_info=True)
 
+                        # Hook-delivery drain: the outbox recorded an
+                        # obligation in the transaction that persisted the
+                        # event; this is where it becomes an execution.
+                        # Same lock as the sweeps above, so one replica
+                        # fires each delivery, and batch-bounded so a
+                        # backlog is drained over several ticks instead of
+                        # holding the lock through one long pass.
+                        try:
+                            hooks_cfg = Configuration.get().settings.hooks
+                            if hooks_cfg.enabled:
+                                settled = await drain_once(
+                                    self._create_hook_execution,
+                                    now=current_time,
+                                    batch_size=hooks_cfg.drain_batch_size,
+                                    hop_limit=hooks_cfg.hop_limit,
+                                    authorize=self._authorize_hook,
+                                )
+                                if settled:
+                                    logger.info(f"Settled {settled} hook delivery(ies)")
+                        except Exception:
+                            logger.error("Hook-delivery drain failed", exc_info=True)
+
                         # Join-token reaping (issue #197 follow-up): minting
                         # had no inverse, so dead rows accumulated forever.
                         # Same lock, so one replica reaps.
@@ -1355,6 +1378,62 @@ class Server(
                 m.record_schedule_trigger(schedule.name, "failure")
 
             raise
+
+    async def _create_hook_execution(
+        self,
+        namespace: str,
+        workflow_name: str,
+        input_data: Any,
+    ) -> str:
+        """Start a hook's target workflow, for the drain.
+
+        The drain deals in execution ids and awaits its creator, so this
+        adapts the server's own creation path to that shape rather than
+        letting the drain reach into the server.
+        """
+        ctx = self._create_execution(namespace, workflow_name, input_data)
+        return ctx.execution_id
+
+    async def _authorize_hook(self, principal_id: str, permission: str) -> bool:
+        """Re-check a hook's principal at fire time, for the drain.
+
+        A hook outlives the grant it was created under: the principal may
+        have been disabled, banned, or had the role carrying this permission
+        revoked since, so roles are read fresh here. With auth off there is
+        nothing to check and everything is permitted, as everywhere else in
+        the server.
+        """
+        auth_config = Configuration.get().settings.security.auth
+        if not auth_config.enabled:
+            return True
+
+        from flux.security.principals import PrincipalRegistry
+
+        registry = PrincipalRegistry(session_factory=self._get_db_session)
+        principal = registry.get(principal_id)
+        if principal is None or not principal.enabled or principal.banned:
+            logger.warning(
+                f"Hook principal '{principal_id}' is missing, disabled or banned; "
+                "refusing delivery",
+            )
+            return False
+
+        identity = FluxIdentity(
+            subject=principal.subject,
+            roles=frozenset(registry.get_roles(principal.id)),
+            metadata={
+                "token_type": "service_account",
+                "issuer": principal.external_issuer,
+                "principal_id": principal.id,
+                "via": "hook",
+            },
+        )
+        auth_service = AuthService(
+            config=auth_config,
+            session_factory=self._get_db_session,
+            registry=registry,
+        )
+        return await auth_service.is_authorized(identity, permission)
 
     # ===========================================
     # End Scheduler Methods
