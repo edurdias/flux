@@ -11,9 +11,6 @@ tasks. This is deliberate — see "Why the only action is a workflow".
 
 Immediate consumers:
 
-- `approval_routing="notify"` (issue #144) — its pending delivery mechanism
-  becomes "whatever hooks match the approval event"; the agent loop stays
-  transport-agnostic.
 - Chat/ops notification for approval gates (deploy-promotion GMUD flows),
   via a notification workflow that POSTs to Slack.
 - Event-driven composition — "on any `release/*` failure, run
@@ -58,8 +55,7 @@ The engine records every state transition and task event durably, but nothing
 *pushes* them out. A paused approval gate is discoverable only by polling
 (`GET /approvals`, the console inbox, the CLI). External systems that must
 react to executions — chat channels, ticketing, downstream pipelines — have
-no subscription surface, and `approval_routing="notify"` is declared but
-mechanism-less (`flux/tasks/ai/approval_policy.py`).
+no subscription surface.
 
 ## Selector grammar
 
@@ -84,7 +80,7 @@ Examples:
 execution:*                                     # every state transition
 execution:*:*:failed                            # any workflow fails
 execution:release:*:paused                      # anything in release/ pauses
-task:release:*:promote_prod:awaiting_approval   # the #144 selector
+task:release:*:promote_prod:awaiting_approval   # notify ops when this gate fires
 task:release:*:*:rejected                       # any rejection in release/
 ```
 
