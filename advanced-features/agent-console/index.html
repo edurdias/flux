@@ -1774,14 +1774,13 @@ overlay on top of it.</p>
   appear on the open session. This is a deliberate v1 limit — no per-row
   detail fetches.</li>
 </ul>
-<p>Tool calls are ordinary Flux tasks, so the log carries their real names,
-outputs and durations. Two shapes are worth knowing about because the console
-handles them for you: a task that starts in a <em>resumed</em> run records no
-<code>TASK_STARTED</code> event (every tool call after a session's first turn), and task
-outputs are stored as output-storage envelopes rather than bare values. The
-console reconstructs the call from its completion event and unwraps inline
-outputs; a value kept outside the log (e.g. <code>local_file</code> storage) is named
-rather than dumped.</p>
+<p>Tool calls are ordinary Flux tasks, so the log carries their real names, args
+and outputs, and a duration for every call whose start and terminal events are
+both present — which the engine records per call, including calls that begin
+in a resumed run. One shape is worth knowing about because the console handles
+it for you: task outputs are stored as output-storage envelopes rather than
+bare values, so the console unwraps inline outputs and names a value kept
+outside the log (e.g. <code>local_file</code> storage) rather than dumping it.</p>
 <h2 id="permissions">Permissions<a class="headerlink" href="#permissions" title="Permanent link">&para;</a></h2>
 <p>The console never holds authority of its own — every action is the
 corresponding server call, made with your token.</p>
