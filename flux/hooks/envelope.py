@@ -96,19 +96,30 @@ def build_envelope(
     return _redact(_json_safe(envelope))
 
 
+# The keys every envelope this module builds carries, and that nothing but
+# a delivery has a reason to. A bare `hop` is not enough of a marker: it is
+# a plausible key in an ordinary workflow's input, and treating it as one
+# lets anyone who can start an execution with a chosen input claim any place
+# in a chain -- in either direction.
+_ENVELOPE_MARKERS = ("delivery_id", "event_key")
+
+
 def parent_hop(execution_input: Any) -> int:
     """The ``hop`` of a hook-started execution's input, else ``-1``.
 
     A first-generation delivery then computes ``parent_hop(...) + 1 == 0``.
     ``execution_input`` can be any type an ordinary workflow was started
-    with, so this must never raise -- a dict that merely happens to carry an
-    unrelated ``hop`` key (wrong type, or a bool masquerading as one since
-    ``bool`` is an ``int`` subclass) is an ordinary execution, not a
-    hook-started one.
+    with, so this must never raise -- and an input that does not carry the
+    whole envelope shape is an ordinary execution however its keys are
+    named. The result is floored at ``-1`` because ``hop`` arrives from
+    stored input a caller may have chosen: a negative one is a forgery
+    buying generations under the drain's guard, not a chain with room left.
     """
     if not isinstance(execution_input, dict):
+        return -1
+    if not all(isinstance(execution_input.get(key), str) for key in _ENVELOPE_MARKERS):
         return -1
     hop = execution_input.get("hop")
     if not isinstance(hop, int) or isinstance(hop, bool):
         return -1
-    return hop
+    return max(hop, -1)

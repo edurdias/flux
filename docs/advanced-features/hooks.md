@@ -174,6 +174,13 @@ delivery that has *reached* the limit is dead-lettered with a loop error.
 Without it, `execution:*:*:completed` targeting any workflow is a fork bomb —
 each completion starts an execution whose completion starts another.
 
+An execution counts as hook-started only when its input carries the whole
+envelope shape (`delivery_id` and `event_key` alongside `hop`), and a `hop`
+below zero is read as zero. Neither is cosmetic: a workflow whose ordinary
+input happens to have a `hop` key would otherwise have its first deliveries
+dead-lettered as a loop, and anyone able to start an execution with a chosen
+input could hand themselves a chain of a thousand generations.
+
 ### Inline executions
 
 `wf.run(...)` — the inline path used by scripts and `tests/examples/` —

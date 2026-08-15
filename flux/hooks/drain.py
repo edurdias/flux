@@ -224,11 +224,15 @@ def _hop_of(payload: dict) -> int:
     first-generation delivery rather than break the drain -- so the fallback
     is the most permissive value the guard still bounds. ``bool`` is excluded
     for being an ``int`` subclass.
+
+    Floored at 0 for the same reason: a negative hop is not a chain with
+    room left, it is a stored value that makes ``hop >= hop_limit`` answer
+    False for as many generations as it is far below zero.
     """
     hop = payload.get("hop")
     if not isinstance(hop, int) or isinstance(hop, bool):
         return 0
-    return hop
+    return max(hop, 0)
 
 
 def _retry_or_give_up(

@@ -216,12 +216,45 @@ class TestOutbox:
         manager.save(_paused_execution())
         manager.save(
             _paused_execution(
-                execution_input={"hook": "notify", "hop": 0},
+                execution_input={
+                    "hook": "notify",
+                    "delivery_id": "d-1",
+                    "event_key": "exec-1:ev-1",
+                    "hop": 0,
+                },
                 reason="started-by-a-hook",
             ),
         )
 
         assert sorted(row.payload["hop"] for row in _deliveries()) == [0, 1]
+
+    def test_an_input_that_merely_carries_hop_starts_a_chain_at_zero(self, isolated_db):
+        """An ordinary workflow started with a dict carrying ``hop`` is not
+        hook-started: its deliveries are first-generation, not dead-lettered
+        at the guard for a chain that never happened."""
+        _hook(selectors=["execution:*"], workflow_ref="ops/notify")
+
+        ContextManager.create().save(_paused_execution(execution_input={"env": "prod", "hop": 7}))
+
+        assert [row.payload["hop"] for row in _deliveries()] == [0]
+
+    def test_a_forged_negative_hop_cannot_buy_extra_generations(self, isolated_db):
+        """Starting an execution with a chosen input is not a way to reset the
+        fork-bomb guard: the hop of a delivery is never below the first."""
+        _hook(selectors=["execution:*"], workflow_ref="ops/notify")
+
+        ContextManager.create().save(
+            _paused_execution(
+                execution_input={
+                    "hook": "notify",
+                    "delivery_id": "d-1",
+                    "event_key": "exec-1:ev-1",
+                    "hop": -1000,
+                },
+            ),
+        )
+
+        assert [row.payload["hop"] for row in _deliveries()] == [0]
 
     def test_disabled_by_config_enqueues_nothing(self, isolated_db):
         _hook(selectors=["execution:*"], workflow_ref="ops/notify")

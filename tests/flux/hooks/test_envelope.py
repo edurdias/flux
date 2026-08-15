@@ -200,7 +200,9 @@ async def test_redaction_still_applies_from_inside_a_running_event_loop(isolated
 
 
 def test_parent_hop_reads_a_hook_started_execution():
-    assert parent_hop({"hook": "h", "hop": 2, "event": {}}) == 2
+    assert (
+        parent_hop({"hook": "h", "delivery_id": "d-1", "event_key": "exec-1:ev-1", "hop": 2}) == 2
+    )
 
 
 @pytest.mark.parametrize("value", [None, "text", {"anything": "else"}, [1, 2]])
@@ -211,3 +213,28 @@ def test_parent_hop_of_an_ordinary_execution_is_minus_one(value):
 def test_parent_hop_is_defensive_against_a_wrong_typed_hop_key():
     assert parent_hop({"hop": "not-an-int"}) == -1
     assert parent_hop({"hop": None}) == -1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"hop": 3},
+        {"hop": 3, "delivery_id": "d-1"},
+        {"hop": 3, "event_key": "exec-1:ev-1"},
+        {"hop": 3, "delivery_id": 7, "event_key": "exec-1:ev-1"},
+    ],
+)
+def test_an_input_that_merely_carries_hop_is_not_a_hook_started_one(value):
+    """A bare ``hop`` key is not the marker. A workflow whose ordinary input
+    happens to carry one would otherwise have its first-generation deliveries
+    dead-lettered as "hop limit reached", and anyone able to start an
+    execution with a chosen input could claim any place in a chain."""
+    assert parent_hop(value) == -1
+
+
+def test_a_forged_negative_hop_buys_no_extra_generations():
+    """``{"hop": -1000}`` on a started execution would otherwise mint a chain
+    of a thousand generations under the guard."""
+    forged = {"delivery_id": "d-1", "event_key": "exec-1:ev-1", "hop": -1000}
+
+    assert parent_hop(forged) == -1

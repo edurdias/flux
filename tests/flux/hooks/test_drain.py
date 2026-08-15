@@ -302,6 +302,23 @@ class TestDrain:
 
         assert _deliveries()[0].status == "delivered"
 
+    async def test_a_negative_hop_in_the_payload_counts_as_the_first(self, isolated_db):
+        """A stored hop below zero is a forgery, not a chain with room left:
+        floored here so `-999 >= hop_limit` cannot answer False forever."""
+        _pending(hook=_hook(), event_key="ev-1", payload_hop=-999)
+
+        await drain_once(
+            _creator(returns="x"),
+            now=_now(),
+            batch_size=10,
+            hop_limit=0,
+            authorize=_allow,
+        )
+
+        [row] = _deliveries()
+        assert row.status == "dead"
+        assert "hop" in row.last_error.lower()
+
     async def test_the_envelope_carries_the_attempt_being_made(self, isolated_db):
         """The drain re-reads the stored envelope and refreshes only `attempt`:
         the event data inside it was redacted at enqueue and is never rebuilt."""
