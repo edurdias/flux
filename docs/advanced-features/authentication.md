@@ -106,8 +106,8 @@ Flux enforces RBAC at API and task level. Roles are collections of permissions.
 | Role | Permissions |
 |------|-------------|
 | `admin` | `*` — full access |
-| `operator` | Run and manage workflows, schedules, executions |
-| `viewer` | Read-only access |
+| `operator` | Run and manage workflows, schedules, executions, agents, hooks |
+| `viewer` | Read-only access (including hooks and their deliveries) |
 | `worker` | Worker endpoints, read configs/secrets/executions |
 
 ### Permission format
@@ -129,6 +129,10 @@ Other resources remain 3-segment (`resource:name:action`).
 | `schedule:*:manage` | Create, update, delete any schedule |
 | `principal:payroll-sa:impersonate` | Bind a schedule to the `payroll-sa` service account |
 | `principal:*:impersonate` | Bind a schedule to any service account |
+| `hook:*:create` | Create any outbound hook |
+| `hook:notify-approvals:update` | Update (and test-fire) the `notify-approvals` hook |
+| `hook:deliveries:read` | Read any hook's delivery history |
+| `hook:deliveries:retry` | Hand a dead-lettered delivery back to the drain |
 | `admin:secrets:manage` | Create and delete secrets |
 | `admin:roles:manage` | Manage roles |
 | `admin:principals:manage` | Manage principals and API keys |
@@ -149,6 +153,19 @@ Grant `principal:*:impersonate` to allow any service account. No built-in role
 carries it except `admin` (through its `*`), so an `operator` upgrading from
 before this was enforced must be granted it explicitly before it can create or
 rebind schedules.
+
+### Running a hook's target as a principal
+
+An [outbound hook](hooks.md) stores the `principal_id` it starts its target
+workflow as, and that principal must hold run permission on the target. The
+check runs at create/update **and** again at fire time, so a role revoked
+after the hook was created dead-letters its deliveries rather than silently
+bypassing RBAC.
+
+`hook:*:create` therefore sits above `workflow:*:register`: a hook feeds
+engine events into another workflow under a stored principal, so
+`workflow:register` alone must not mint one. `operator` carries the full
+hook surface; `viewer` can read hooks and their deliveries.
 
 **Wildcard rules:**
 
@@ -384,6 +401,14 @@ flux principals revoke-key <subject> --key-name <name>
 | `POST` | `/schedules` | `schedule:*:manage` + `principal:{sa}:impersonate` |
 | `PUT` | `/schedules/{id_or_name}` | `schedule:*:manage` (+ `principal:{sa}:impersonate` to rebind) |
 | `DELETE` | `/schedules/{id_or_name}` | `schedule:*:manage` |
+| `POST` | `/hooks` | `hook:*:create` |
+| `GET` | `/hooks` | `hook:*:read` |
+| `GET` | `/hooks/{name}` | `hook:{name}:read` |
+| `PUT` | `/hooks/{name}` | `hook:{name}:update` |
+| `DELETE` | `/hooks/{name}` | `hook:{name}:delete` |
+| `POST` | `/hooks/{name}/test` | `hook:{name}:update` |
+| `GET` | `/hooks/{name}/deliveries` | `hook:deliveries:read` |
+| `POST` | `/hooks/{name}/deliveries/{id}/retry` | `hook:deliveries:retry` |
 | `GET` | `/admin/secrets` | `admin:secrets:manage` |
 | `PUT` | `/admin/secrets/{name}` | `admin:secrets:manage` |
 | `DELETE` | `/admin/secrets/{name}` | `admin:secrets:manage` |

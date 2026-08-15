@@ -73,6 +73,14 @@ join_token_retention = 86400                                # Seconds past expir
 # execution_token_ttl = 604800
 # execution_token_secret = "<generate with openssl rand -hex 32>"
 
+[flux.hooks]
+# Outbound hooks: named subscriptions that start a workflow when an engine
+# event matches a selector. Manage them with 'flux hook ...'.
+enabled = true              # Master switch. false stops the outbox before it matches anything (hook rows stay, they just don't fire)
+hop_limit = 3               # Links a chain of hook-started executions may have: hops 0, 1 and 2 fire, a delivery reaching this is dead-lettered
+drain_batch_size = 20       # Due deliveries the scheduler tick settles per cycle (it shares the tick's dispatch lock)
+snapshot_ttl_seconds = 5.0  # Max age of a replica's cached enabled-hook index; bounds how long it can keep matching a hook another replica changed (0 = no cache)
+
 [flux.mcp]
 name = "flux-workflows"                 # Name for the MCP server
 host = "localhost"                      # Host to bind the MCP server to
