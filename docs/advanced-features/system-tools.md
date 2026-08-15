@@ -109,7 +109,7 @@ workers that run agents:
 [flux.workers]
 runners = ["subprocess", "docker"]
 default_runner = "docker"
-docker_image = "my-registry/flux:1.2.3"
+docker_image = "edurdias/flux:1.2.3-slim"   # the child needs no extras
 ```
 
 The container runners set `FLUX_RUNNER_SANDBOXED=1` in the child; the tool reads

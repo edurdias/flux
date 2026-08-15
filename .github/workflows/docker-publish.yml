@@ -9,6 +9,11 @@ on:
   push:
     tags: [ 'v*' ]
   workflow_dispatch:  # Allow manual triggering
+    inputs:
+      push:
+        description: "Push the images (uncheck to build and verify only)"
+        type: boolean
+        default: true
 
 env:
   REGISTRY: docker.io
@@ -18,6 +23,24 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if the previous workflow completed successfully, or if triggered by tag/manual dispatch
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # One Dockerfile, three roles. `extras` feeds the FLUX_EXTRAS build
+        # arg the Dockerfile already accepts; `suffix` is appended to every
+        # tag, so each variant gets the full X.Y.Z / X.Y / latest set. The
+        # unsuffixed variant owns the bare tags and stays the everything
+        # image (issue #247, docs/specs/2026-08-14-role-scoped-images.md).
+        variant:
+          - name: full
+            suffix: ""
+            extras: postgresql,observability,ai
+          - name: slim
+            suffix: "-slim"
+            extras: ""
+          - name: server
+            suffix: "-server"
+            extras: postgresql,observability
     permissions:
       contents: read
       packages: write
@@ -53,6 +76,8 @@ jobs:
       uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/flux
+        flavor: |
+          suffix=${{ matrix.variant.suffix }},onlatest=true
         # Version tags come from pyproject.toml (extracted above) rather than
         # the git ref: the main publish path is workflow_run (ref
         # refs/heads/main), where plain type=semver entries would never fire.
@@ -66,21 +91,45 @@ jobs:
           type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
           type=raw,value=latest,enable={{is_default_branch}}
 
+    # Verify before publishing: a dependency promoted from an extra to a base
+    # requirement would otherwise silently refill the sandbox a runner child
+    # runs in. Single-arch and loaded locally; the push below is a cache hit.
+    - name: Build ${{ matrix.variant.name }} for verification
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        platforms: linux/amd64
+        load: true
+        tags: flux-verify:${{ matrix.variant.name }}
+        build-args: |
+          FLUX_VERSION=${{ steps.version.outputs.version }}
+          FLUX_EXTRAS=${{ matrix.variant.extras }}
+        cache-from: type=gha,scope=${{ matrix.variant.name }}
+        cache-to: type=gha,scope=${{ matrix.variant.name }},mode=max
+
+    - name: Verify the ${{ matrix.variant.name }} variant carries what it claims
+      run: |
+        docker run --rm \
+          -v "$PWD/docker/scripts:/scripts:ro" \
+          flux-verify:${{ matrix.variant.name }} \
+          python /scripts/verify_image_variant.py ${{ matrix.variant.name }}
+
     - name: Build and push Docker image
       id: build
       uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64,linux/arm64
-        push: true
+        push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           FLUX_VERSION=${{ steps.version.outputs.version }}
-          FLUX_EXTRAS=postgresql,observability,ai
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+          FLUX_EXTRAS=${{ matrix.variant.extras }}
+        cache-from: type=gha,scope=${{ matrix.variant.name }}
+        cache-to: type=gha,scope=${{ matrix.variant.name }},mode=max
     - name: Generate artifact attestation
+      if: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
       uses: actions/attest-build-provenance@v4
       with:
         subject-name: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/flux

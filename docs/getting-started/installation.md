@@ -41,6 +41,35 @@ poetry add flux-core
 poetry shell
 ```
 
+### Container images
+
+Published images carry the same `flux-core` release, differing only in which
+optional extras are baked in. Pick by role — one image can serve them all, but
+the smaller ones exist so a process only ships what it can use.
+
+| Image | Extras | Use it for |
+|---|---|---|
+| `flux:<version>` | `postgresql`, `observability`, `ai` | anything; the default when you want one image |
+| `flux:<version>-slim` | none | runner children (`docker_image`, `airgapped_image`) |
+| `flux:<version>-server` | `postgresql`, `observability` | servers and workers that never call a hosted model |
+
+Each also publishes `<major>.<minor>` and `latest` forms (`flux:latest-slim`,
+`flux:0.84-server`, …). Pin the full `<version>` for a runner image: the child
+must match its worker's `flux-core`.
+
+```bash
+docker pull edurdias/flux:latest          # everything
+docker pull edurdias/flux:latest-slim     # sandboxed runner children
+```
+
+`-slim` matters most for the docker and airgapped runners. That container is
+rootless, has no network, and reaches its engine only over a granted Unix
+socket, so the LLM SDKs and the Postgres driver in the default image are
+surface it cannot use — roughly 30 packages a sandbox does not need.
+
+Building your own image from these is fine; the runner only requires
+`flux-core` at a worker-compatible version.
+
 ### Installing for Development
 If you're planning to contribute or need development tools:
 ```bash
