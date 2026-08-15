@@ -253,6 +253,26 @@ Because a hook observes events and acts under a stored principal,
 `hook:*:create` sits above `workflow:*:register` in the hierarchy — creating
 one is a privilege decision, not a convenience.
 
+**What the grant does not cover.** It governs *configuring* a hook and
+firing one out of band. It cannot govern the in-band path, because that path
+is the feature: anyone who can run a workflow that emits a matching event
+causes a delivery, and the target then runs under the hook's principal with
+that event's value in its envelope. A wildcard selector like
+`execution:*:*:failed` is therefore reachable by anyone who can make any
+workflow fail — a broader surface than `flux hook test`, which the grant does
+gate. Two consequences worth designing around:
+
+- **Scope selectors as narrowly as the job allows.** Exposure scales with
+  selector breadth, not with who holds `hook:*`.
+- **Treat the envelope as untrusted input.** Its `event.value` is whatever
+  the observed execution produced, and the observed execution may have been
+  started by someone with far less authority than the hook's principal.
+
+What still bounds it: the principal can only run what it may run (checked
+again at fire time), and the hop guard stops a chain from feeding itself.
+Revoking `principal:<subject>:impersonate` stops future *configuration*, not
+firing — to stop a hook, disable or delete it.
+
 ## CLI
 
 ```bash
