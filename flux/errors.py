@@ -173,6 +173,11 @@ class WorkerNotFoundError(ExecutionError):
         super().__init__(message=f"Worker '{name}' not found.")
 
 
+class HookNotFoundError(ExecutionError):
+    def __init__(self, name: str):
+        super().__init__(message=f"Hook '{name}' not found.")
+
+
 class DatabaseConnectionError(Exception):
     """Database connection related errors"""
 
