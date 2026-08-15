@@ -8,15 +8,27 @@ module-level -- not an attribute on ``HookRegistry`` -- because
 a fresh accessor bound to the configured repository each call; sharing the
 snapshot at module scope means every accessor sees the same cache and every
 CRUD write (through any accessor) invalidates it for all of them.
+
+That invalidation is process-local: a peer server replica's create/update/
+delete never reaches this process's cache, since nothing broadcasts across
+replicas. Left unbounded, a stale snapshot could keep firing a hook another
+replica had already disabled or deleted -- a correctness gap, not just a
+performance one, given hooks gate what auto-fires on production events. So
+staleness is bounded by ``[flux.hooks] snapshot_ttl_seconds`` (default 5s):
+``snapshot()`` rebuilds once the cached copy is older than the TTL, on top
+of the immediate CRUD invalidation that keeps a *local* write's own replica
+consistent without waiting out the TTL.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from flux.config import Configuration
 from flux.errors import HookNotFoundError
 from flux.hooks.selectors import HookEvent, selector_matches, validate_selector
 from flux.models import HookModel, RepositoryFactory
@@ -41,6 +53,9 @@ class HookIndexEntry:
 
 _snapshot_lock = threading.Lock()
 _snapshot: tuple[HookIndexEntry, ...] | None = None
+# time.monotonic() timestamp of the last rebuild -- wall-clock-adjustment-proof,
+# unlike time.time(), since it only ever needs to measure elapsed staleness.
+_snapshot_loaded_at: float | None = None
 
 
 class HookRegistry:
@@ -52,10 +67,22 @@ class HookRegistry:
         self._repository = RepositoryFactory.create_repository()
 
     def snapshot(self) -> tuple[HookIndexEntry, ...]:
-        global _snapshot
+        global _snapshot, _snapshot_loaded_at
+        ttl = Configuration.get().settings.hooks.snapshot_ttl_seconds
         with _snapshot_lock:
-            if _snapshot is None:
+            fresh = (
+                _snapshot is not None
+                and _snapshot_loaded_at is not None
+                and ttl > 0
+                and (time.monotonic() - _snapshot_loaded_at) < ttl
+            )
+            if not fresh:
                 _snapshot = self._load_snapshot()
+                _snapshot_loaded_at = time.monotonic()
+            # mypy can't narrow a `global` across the branch above; `fresh`
+            # being True already implies `_snapshot is not None`, and the
+            # branch just set it otherwise.
+            assert _snapshot is not None
             return _snapshot
 
     def _load_snapshot(self) -> tuple[HookIndexEntry, ...]:
@@ -74,9 +101,10 @@ class HookRegistry:
             )
 
     def invalidate(self) -> None:
-        global _snapshot
+        global _snapshot, _snapshot_loaded_at
         with _snapshot_lock:
             _snapshot = None
+            _snapshot_loaded_at = None
 
     def matches(self, event: HookEvent) -> list[HookIndexEntry]:
         # `any(...)` collapses a hook's several selectors into a single

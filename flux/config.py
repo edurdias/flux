@@ -560,6 +560,29 @@ class SchedulingConfig(BaseConfig):
     )
 
 
+class HooksConfig(BaseConfig):
+    """Configuration for outbound hooks.
+
+    Slice 1 only needs the snapshot TTL; ``enabled``, ``hop_limit``, and
+    ``drain_batch_size`` (the enqueue/drain settings) land with the delivery
+    pipeline.
+    """
+
+    snapshot_ttl_seconds: float = Field(
+        default=5.0,
+        ge=0,
+        description=(
+            "Max age in seconds of a replica's cached enabled-hook snapshot "
+            "before HookRegistry.snapshot() rebuilds it from the database. "
+            "Bounds how long a replica can keep matching a hook another "
+            "replica just disabled, updated, or deleted — invalidate() "
+            "still makes a local write's own replica consistent "
+            "immediately, this only covers the cross-replica gap. 0 "
+            "disables the cache: every call rebuilds."
+        ),
+    )
+
+
 class FluxConfig(BaseSettings):
     """Main configuration class for Flux framework."""
 
@@ -660,6 +683,7 @@ class FluxConfig(BaseSettings):
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:
