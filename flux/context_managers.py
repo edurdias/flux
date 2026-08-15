@@ -475,9 +475,7 @@ class DatabaseContextManager(ContextManager):
                         # would otherwise be long expired by the time it wakes
                         # and would fail it on arrival.
                         self._stamp_park_deadline(model)
-                    new_events = self._get_additional_events(ctx, session)
-                    session.add_all(new_events)
-                    enqueue(session, ctx, new_events)
+                    self._persist_events(ctx, session)
             else:
                 accepted = True
                 new_model = ExecutionContextModel.from_plain(ctx)
@@ -500,10 +498,11 @@ class DatabaseContextManager(ContextManager):
                 # tests) must degrade to "no deadline", never break a save.
                 self._stamp_park_deadline(new_model, park_ttl)
                 session.add(new_model)
-                # The insert carries its events through the relationship
-                # rather than _get_additional_events, and every one of them
-                # is new — an execution paused (or failed) on its very first
-                # save reaches the hooks only from here.
+                # The only persist path that cannot use _persist_events: the
+                # insert writes its events through the relationship, so
+                # adding them again would duplicate every row. Every one of
+                # them is new — an execution paused (or failed) on its very
+                # first save reaches the hooks only from here.
                 enqueue(session, ctx, ctx.events)
             if manage_transaction:
                 session.commit()
@@ -563,12 +562,10 @@ class DatabaseContextManager(ContextManager):
                 model.state = ctx.state
                 model.output = ctx.output
                 self._sync_wake_columns(model, ctx)
-                new_events = self._get_additional_events(ctx, session)
-                session.add_all(new_events)
                 # The distributed checkpoint path lands here, not in save():
                 # most engine events a hook can subscribe to arrive through
                 # this call.
-                enqueue(session, ctx, new_events)
+                self._persist_events(ctx, session)
             session.commit()
             return ctx
 
@@ -635,7 +632,7 @@ class DatabaseContextManager(ContextManager):
         )
         model.state = ctx.state
         model.output = ctx.output
-        session.add_all(self._get_additional_events(ctx, session))
+        self._persist_events(ctx, session)
         logger.warning(f"Execution {ctx.execution_id} failed at dispatch: {diagnostic}")
 
     def fail_expired_parked(self, now: datetime | None = None) -> list[str]:
@@ -798,7 +795,7 @@ class DatabaseContextManager(ContextManager):
                 ctx = model.to_plain()
                 ctx.cancel()
                 model.state = ctx.state
-                session.add_all(self._get_additional_events(ctx, session))
+                self._persist_events(ctx, session)
                 owner = model.worker_name or "no worker"
                 logger.warning(
                     f"Execution {model.execution_id} cancellation had no live "
@@ -1027,7 +1024,7 @@ class DatabaseContextManager(ContextManager):
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
                 model.claim_generation = (model.claim_generation or 0) + 1
-                session.add_all(self._get_additional_events(ctx, session))
+                self._persist_events(ctx, session)
                 session.commit()
                 return ctx
 
@@ -1129,7 +1126,7 @@ class DatabaseContextManager(ContextManager):
             model.state = ctx.state
             model.worker_name = ctx.current_worker
             model.claim_generation = (model.claim_generation or 0) + 1
-            session.add_all(self._get_additional_events(ctx, session))
+            self._persist_events(ctx, session)
             session.commit()
 
             from flux.domain.events import ExecutionEventType
@@ -1328,7 +1325,7 @@ class DatabaseContextManager(ContextManager):
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
                 model.claim_generation = (model.claim_generation or 0) + 1
-                session.add_all(self._get_additional_events(ctx, session))
+                self._persist_events(ctx, session)
                 loads[worker.name] = loads.get(worker.name, 0) + 1
                 assignments.append((ctx, worker.name))
             session.commit()
@@ -1380,7 +1377,7 @@ class DatabaseContextManager(ContextManager):
                 model.state = ctx.state
                 model.worker_name = ctx.current_worker
                 model.claim_generation = (model.claim_generation or 0) + 1
-                session.add_all(self._get_additional_events(ctx, session))
+                self._persist_events(ctx, session)
                 loads[worker.name] = loads.get(worker.name, 0) + 1
                 assignments.append((ctx, worker.name))
 
@@ -1473,7 +1470,7 @@ class DatabaseContextManager(ContextManager):
             ctx.claim(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
-            session.add_all(self._get_additional_events(ctx, session))
+            self._persist_events(ctx, session)
             session.commit()
             return ctx
 
@@ -1504,7 +1501,7 @@ class DatabaseContextManager(ContextManager):
             ctx.resume_claim(worker)
             model.state = ctx.state
             model.worker_name = ctx.current_worker
-            session.add_all(self._get_additional_events(ctx, session))
+            self._persist_events(ctx, session)
             session.commit()
 
             from flux.domain.events import ExecutionEventType
@@ -1615,6 +1612,20 @@ class DatabaseContextManager(ContextManager):
                 .all()
             )
             return [m.to_plain() for m in models]
+
+    def _persist_events(self, ctx: ExecutionContext, session: Session) -> None:
+        """The one door for writing an execution's new events.
+
+        Every path that persists events — checkpoints, dispatch, claim,
+        resume, the failure and cancellation sweeps — goes through here, so
+        the outbox cannot silently miss a state transition because a new
+        persist path forgot to enqueue. Routing dispatch through it costs
+        nothing when no hook exists: ``enqueue`` answers from config and a
+        cached index before touching the events or the database.
+        """
+        new_events = self._get_additional_events(ctx, session)
+        session.add_all(new_events)
+        enqueue(session, ctx, new_events)
 
     def _get_additional_events(
         self,

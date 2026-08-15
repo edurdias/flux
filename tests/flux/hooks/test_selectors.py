@@ -6,7 +6,12 @@ import pytest
 
 from flux.domain.events import ExecutionEvent, ExecutionEventType, ExecutionState
 from flux.domain.execution_context import ExecutionContext
-from flux.hooks.selectors import events_from_save, selector_matches, validate_selector
+from flux.hooks.selectors import (
+    _WORKFLOW_EVENT_STATES,
+    events_from_save,
+    selector_matches,
+    validate_selector,
+)
 
 
 def _ctx(
@@ -87,6 +92,43 @@ def test_valid_selectors_are_accepted():
         "task:ns:wf:task_name:awaiting_approval",
     ):
         validate_selector(selector)
+
+
+def test_every_workflow_event_announces_a_real_state():
+    """A ``WORKFLOW_*`` event the table doesn't know is skipped at runtime --
+    deliberately, so a hook derivation never fails a save -- which makes this
+    the only place a newly added workflow event gets noticed. The values are
+    checked against ``ExecutionState`` too, so a typo can't invent a state no
+    selector could ever match."""
+    unmapped = [
+        member.value
+        for member in ExecutionEventType
+        if member.value.startswith("WORKFLOW_") and member.value not in _WORKFLOW_EVENT_STATES
+    ]
+    assert unmapped == []
+    assert set(_WORKFLOW_EVENT_STATES.values()) <= {state.value.lower() for state in ExecutionState}
+
+
+def test_a_workflow_event_keys_on_its_own_state_not_the_contexts():
+    """One save can carry several transitions; each is keyed on the event it
+    came from, not on where the execution has since landed."""
+    ctx = _ctx(
+        namespace="release",
+        name="pipeline",
+        execution_id="exec-1",
+        state=ExecutionState.COMPLETED,
+    )
+    events = [
+        _event(ExecutionEventType.WORKFLOW_STARTED, event_id="ev-1", name="pipeline"),
+        _event(ExecutionEventType.WORKFLOW_COMPLETED, event_id="ev-2", name="pipeline"),
+    ]
+
+    produced = events_from_save(ctx, events)
+
+    assert [e.key for e in produced] == [
+        "execution:release:pipeline:running",
+        "execution:release:pipeline:completed",
+    ]
 
 
 def test_events_from_save_yields_one_event_per_persisted_event():

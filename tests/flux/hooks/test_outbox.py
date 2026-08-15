@@ -20,6 +20,7 @@ from flux.hooks.outbox import enqueue
 from flux.hooks.registry import HookRegistry
 from flux.models import DatabaseRepository, HookDeliveryModel, RepositoryFactory
 from flux.unit_of_work import UnitOfWork
+from flux.worker_registry import WorkerInfo
 
 
 @pytest.fixture
@@ -107,10 +108,16 @@ class TestOutbox:
         assert rows[0].payload["event"]["type"] == "paused"
 
     def test_a_rolled_back_write_leaves_none(self, isolated_db):
-        """The enqueue is in the caller's transaction: no event, no delivery."""
+        """The enqueue is in the caller's transaction: no event, no delivery.
+
+        The row has to be shown to exist *inside* the transaction first,
+        otherwise the assertion after it passes just as well against an
+        enqueue that never ran.
+        """
         _hook(selectors=["execution:*"], workflow_ref="ops/notify")
         with UnitOfWork() as uow:
             ContextManager.create().save(_paused_execution(), uow=uow)
+            assert uow.session.query(HookDeliveryModel).count() == 1
             uow.rollback()
 
         assert _deliveries() == []
@@ -159,6 +166,45 @@ class TestOutbox:
 
         [row] = _deliveries()
         assert row.payload["event"]["task_name"] == "promote_prod"
+
+    def test_each_event_in_a_delta_keys_on_its_own_transition(self, isolated_db):
+        """A checkpoint carries every unacknowledged event, not one
+        transition. Two workflow events in one save are two transitions, and
+        each delivery must describe the event it was made for -- not the
+        state the execution happens to have reached by the time it lands."""
+        _hook(selectors=["execution:*"], workflow_ref="ops/notify")
+        manager = ContextManager.create()
+        ctx = _paused_execution()
+        manager.save(ctx)
+
+        ctx.start(ctx.execution_id)
+        ctx.complete(ctx.execution_id, "done")
+        manager.save(ctx)
+
+        by_type = {row.payload["event"]["type"]: row.payload for row in _deliveries()}
+        assert set(by_type) == {"paused", "running", "completed"}
+        assert by_type["running"]["event"]["state"] == "running"
+        started = next(e for e in ctx.events if e.type == ExecutionEventType.WORKFLOW_STARTED)
+        assert by_type["running"]["event"]["occurred_at"] == started.time.isoformat()
+        assert by_type["running"]["event"]["value"] == started.value
+
+    def test_dispatch_transitions_enqueue_too(self, isolated_db):
+        """Every path that persists events feeds the outbox, not just the
+        checkpoint ones: an `execution:*` hook means every transition, and
+        claim/dispatch write theirs outside save()."""
+        _hook(selectors=["execution:*"], workflow_ref="ops/notify")
+        manager = ContextManager.create()
+        ctx = ExecutionContext(
+            workflow_id="wf-1",
+            workflow_namespace="release",
+            workflow_name="pipeline",
+            input={"env": "prod"},
+        )
+        manager.save(ctx)
+
+        manager.claim(ctx.execution_id, WorkerInfo(name="worker-1"))
+
+        assert [row.payload["event"]["type"] for row in _deliveries()] == ["claimed"]
 
     def test_the_delivery_records_its_place_in_the_chain(self, isolated_db):
         """hop is stamped here, not at drain time: this is where the parent

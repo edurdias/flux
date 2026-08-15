@@ -27,6 +27,27 @@ DOMAINS = ("execution", "task")  # segment counts: 4 and 5
 # Full segment count for each domain, e.g. execution:<ns>:<wf>:<state> == 4.
 _DOMAIN_WIDTHS = {"execution": 4, "task": 5}
 
+# The state each workflow event announces. Spelled out rather than derived by
+# stripping the `WORKFLOW_` prefix because two entries do not match their own
+# name -- both STARTED and RESUMED land the execution in `running` -- and
+# because a checkpoint carries a *delta* of events, so the key has to come
+# from the event rather than from wherever the execution has since arrived:
+# a delta of STARTED + COMPLETED is two transitions, not two completions.
+_WORKFLOW_EVENT_STATES = {
+    "WORKFLOW_SCHEDULED": "scheduled",
+    "WORKFLOW_CLAIMED": "claimed",
+    "WORKFLOW_STARTED": "running",
+    "WORKFLOW_COMPLETED": "completed",
+    "WORKFLOW_FAILED": "failed",
+    "WORKFLOW_PAUSED": "paused",
+    "WORKFLOW_RESUMING": "resuming",
+    "WORKFLOW_RESUMED": "running",
+    "WORKFLOW_RESUME_SCHEDULED": "resume_scheduled",
+    "WORKFLOW_RESUME_CLAIMED": "resume_claimed",
+    "WORKFLOW_CANCELLING": "cancelling",
+    "WORKFLOW_CANCELLED": "cancelled",
+}
+
 
 def validate_selector(selector: str) -> None:
     """Raise ``ValueError`` naming the problem if ``selector`` is malformed.
@@ -87,10 +108,11 @@ def events_from_save(
     """Derive the ``HookEvent``s a save is about to persist.
 
     One per event: `WORKFLOW_*` rows produce the `execution` domain keyed on
-    the context's current state; `TASK_*` rows produce the `task` domain
+    the state that event announces; `TASK_*` rows produce the `task` domain
     keyed on the event type with its `TASK_` prefix stripped. Any other
-    event type is skipped rather than raising -- it should not occur, but a
-    hook derivation is not the place to fail a save over it.
+    event type -- and any workflow event with no state of its own -- is
+    skipped rather than raising: it should not occur, but a hook derivation
+    is not the place to fail a save over it.
     """
     produced: list[HookEvent] = []
     for event in new_events:
@@ -102,7 +124,9 @@ def events_from_save(
         )
 
         if type_name.startswith("WORKFLOW_"):
-            state = ctx.state.value.lower()
+            state = _WORKFLOW_EVENT_STATES.get(type_name)
+            if state is None:
+                continue
             produced.append(
                 HookEvent(
                     domain="execution",
