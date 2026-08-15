@@ -4,7 +4,10 @@ Without retention, ``executions`` and ``execution_events`` grow without bound
 — every task of every execution is a persisted event row. When enabled
 (``[flux.retention] enabled = true``), a background sweep deletes terminal
 executions (COMPLETED / FAILED / CANCELLED) whose most recent event is older
-than ``retention_days``, together with their dependent rows.
+than ``retention_days``, together with their dependent rows, plus settled
+hook deliveries (``delivered`` / ``dead``) past the same cutoff — an
+outbound hook on a busy selector writes one row per matching event, so the
+deliveries table grows on the same curve the executions table does.
 
 Cross-replica safety mirrors the scheduler: one sweep at a time fleet-wide via
 a PostgreSQL advisory lock (SQLite is single-node, so the lock is a no-op).
@@ -35,6 +38,10 @@ _TERMINAL_STATES = (
     ExecutionState.FAILED,
     ExecutionState.CANCELLED,
 )
+
+# Hook deliveries the drain is finished with. `pending` is deliberately
+# absent: see _delete_settled_deliveries.
+_SETTLED_DELIVERY_STATUSES = ("delivered", "dead")
 
 
 class RetentionJob:
@@ -70,7 +77,7 @@ class RetentionJob:
             try:
                 deleted = await asyncio.to_thread(self._sweep)
                 if deleted:
-                    logger.info(f"Retention sweep deleted {deleted} execution(s)")
+                    logger.info(f"Retention sweep deleted {deleted} row(s)")
                 # Dynamic-workflow GC rides the same cadence. No advisory
                 # lock needed: the sweep is idempotent and bounded by
                 # max_per_agent x agents, so a rare cross-replica overlap
@@ -87,11 +94,12 @@ class RetentionJob:
             await asyncio.sleep(self._sweep_interval)
 
     def _sweep(self) -> int:
-        """Delete expired terminal executions in batches; returns the count.
+        """Delete expired rows in batches; returns how many were deleted.
 
         Runs entirely in a worker thread. Each batch is one transaction, so a
         crash mid-sweep loses nothing and the next sweep resumes where this
-        one stopped.
+        one stopped. A batch that deleted less than ``batch_size`` had
+        nothing left to take, so the loop stops there.
         """
         from flux.models import RepositoryFactory
 
@@ -120,6 +128,8 @@ class RetentionJob:
         )
 
         with repository.session() as session:
+            deleted = self._delete_settled_deliveries(session, cutoff)
+
             last_event = (
                 session.query(
                     ExecutionEventModel.execution_id.label("execution_id"),
@@ -142,18 +152,56 @@ class RetentionJob:
                 .all()
             )
             ids = [row[0] for row in rows]
-            if not ids:
-                return 0
+            if ids:
+                for model in (ExecutionEventModel, AgentSessionModel, ApprovalRequestModel):
+                    session.query(model).filter(model.execution_id.in_(ids)).delete(
+                        synchronize_session=False,
+                    )
+                session.query(ExecutionContextModel).filter(
+                    ExecutionContextModel.execution_id.in_(ids),
+                ).delete(synchronize_session=False)
+                deleted += len(ids)
 
-            for model in (ExecutionEventModel, AgentSessionModel, ApprovalRequestModel):
-                session.query(model).filter(model.execution_id.in_(ids)).delete(
-                    synchronize_session=False,
-                )
-            session.query(ExecutionContextModel).filter(
-                ExecutionContextModel.execution_id.in_(ids),
-            ).delete(synchronize_session=False)
-            session.commit()
-            return len(ids)
+            if deleted:
+                session.commit()
+            return deleted
+
+    def _delete_settled_deliveries(self, session, cutoff: datetime) -> int:
+        """Prune expired hook deliveries that are done with, and only those.
+
+        A ``pending`` row is an unmet obligation whatever its age — one
+        waiting out a long backoff, or one an operator just handed back with
+        ``hook retry`` — so it is never swept; deleting it would silently
+        drop a delivery instead of dead-lettering it visibly.
+
+        Age is read from ``created_at`` because it is the only stamp every
+        settled row carries: a dead-lettered delivery never gets a
+        ``delivered_at``.
+
+        Deliveries are not dependents of the executions this batch deletes (a
+        delivery's ``execution_id`` names the execution it *started*, not the
+        one whose event it reports), so they are selected on their own — but
+        under the same lock, cutoff and batch bound, in the same transaction.
+        """
+        from flux.models import HookDeliveryModel
+
+        rows = (
+            session.query(HookDeliveryModel.id)
+            .filter(
+                HookDeliveryModel.status.in_(_SETTLED_DELIVERY_STATUSES),
+                HookDeliveryModel.created_at < cutoff,
+            )
+            .limit(self._batch_size)
+            .all()
+        )
+        ids = [row[0] for row in rows]
+        if not ids:
+            return 0
+
+        session.query(HookDeliveryModel).filter(HookDeliveryModel.id.in_(ids)).delete(
+            synchronize_session=False,
+        )
+        return len(ids)
 
     @staticmethod
     @contextmanager
