@@ -212,22 +212,33 @@ hook management (`hook:*`, `hook:deliveries:read`, `hook:deliveries:retry`);
 nothing.
 
 **The hook's principal.** A hook stores the `principal` it runs its target
-as, named by **subject** — `ops-sa`, the same handle `flux principals` and
-the permission grammar use, and the same thing a schedule stores for its
-service account. It is stated explicitly, never inferred from whoever
-created it, since the hook outlives that request; a subject that names no
-principal is refused as "not found" rather than as a permissions problem.
-That principal must hold run permission on the target workflow, and the
+as: a **service account**, named by **subject** — `ops-sa`, the same handle
+`flux principals` and the permission grammar use, and the same thing a
+schedule stores for its service account. It is stated explicitly, never
+inferred from whoever created it, since the hook outlives that request. Each
+way of naming an unusable one gets its own answer rather than a permissions
+error: no such subject, not a service account, disabled, banned. That
+principal must also hold run permission on the target workflow, and *that*
 check runs twice: at create/update, so a misconfiguration fails at the door,
 and again at fire time, so a later revocation dead-letters deliveries
 instead of silently bypassing RBAC.
 
-**Binding one is impersonation.** Every delivery runs the target under that
-principal's roles, with an execution token minted for it, so choosing it
-takes `principal:<subject>:impersonate` on top of `hook:*:create` —
+**Acting through one is impersonation.** Every delivery runs the target
+under that principal's roles, with an execution token minted for it, so it
+takes `principal:<subject>:impersonate` on top of the hook permission —
 otherwise `hook:*` on its own would be a route to anyone else's privileges.
-The grant is required to create a hook and to rebind an existing one;
-re-sending the principal a hook already has is not a rebind.
+Four actions need it:
+
+- **creating** a hook bound to that principal;
+- **rebinding** one (the grant is checked against the incoming principal);
+- **re-aiming** one — changing `--workflow` or `--on` — because pointing an
+  existing hook at another workflow, or at other events, runs the principal
+  it already carries against a target you chose;
+- **test-firing** one, which really does start the target as that principal.
+
+Re-sending the principal a hook already has is not a rebind, and
+`--enable` / `--disable` and `--max-attempts` need no grant: the stop button
+has to work even when the bound identity is the problem.
 
 Because a hook observes events and acts under a stored principal,
 `hook:*:create` sits above `workflow:*:register` in the hierarchy — creating

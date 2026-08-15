@@ -186,30 +186,45 @@ class HookRoutesMixin:
             except WorkflowNotFoundError:
                 raise HTTPException(status_code=status_code, detail=detail)
 
-        def _require_known_principal(principal: str) -> None:
-            """The named principal has to exist before a hook is bound to it.
+        def _require_bindable_principal(principal: str) -> None:
+            """A usable service account, not merely a subject that resolves.
 
             A hook names its principal by *subject*, as a schedule names its
             service account and as the permission grammar and the principals
-            API do. A subject nobody issued is a typo, not a permissions
-            problem, and the two get different answers: reporting a lookup
-            miss as a refusal sends an operator hunting for a grant that was
-            never the issue.
+            API do. Each way of being unusable gets its own answer, because
+            they have different fixes: a subject nobody issued is a typo, a
+            human principal is the wrong kind of identity for unattended
+            work, and a disabled one is a state someone can restore. Reporting
+            any of them as "lacks permission" sends an operator hunting for a
+            grant that was never the issue.
             """
-            if principal_registry is None or principal_registry.find(principal, "flux") is None:
+            found = principal_registry.find(principal, "flux") if principal_registry else None
+            if found is None or getattr(found, "type", None) != "service_account":
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Principal '{principal}' not found",
+                    detail=f"Service account '{principal}' not found",
+                )
+            if not getattr(found, "enabled", True):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service account '{principal}' is disabled",
+                )
+            if getattr(found, "banned", False):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Service account '{principal}' is banned",
                 )
 
         async def _require_impersonation(identity: FluxIdentity, principal: str) -> None:
-            """Binding a hook to a principal is impersonation.
+            """Acting through a hook's principal is impersonation.
 
             Every delivery starts the target under that principal's roles and
-            with an execution token minted for it, so ``hook:*:create`` alone
-            must not choose which identity a hook fires as — otherwise an
-            operator borrows an admin service account by naming it. Same
-            grammar and same rule as binding a schedule's service account.
+            with an execution token minted for it, so ``hook:*`` alone must
+            not decide which identity runs what — otherwise an operator
+            borrows an admin service account. Naming the principal is one way
+            to do that; re-aiming a hook that already carries one, or firing
+            it, are the others, and all three take the grant. Same grammar and
+            same rule as a schedule's service account.
 
             With auth off there is no principal to resolve and nothing ever
             dereferences the stored value, so the whole check stands down —
@@ -217,7 +232,7 @@ class HookRoutesMixin:
             """
             if not auth_config.enabled or auth_service is None:
                 return
-            _require_known_principal(principal)
+            _require_bindable_principal(principal)
             required = f"principal:{principal}:impersonate"
             if not await auth_service.is_authorized(identity, required):
                 raise HTTPException(
@@ -331,16 +346,22 @@ class HookRoutesMixin:
             if "selectors" in fields:
                 _validate_selectors(fields["selectors"])
 
-            # Only a rebind is re-authorized. Re-checking on every update
-            # would jam `enabled=false` — the one control an operator reaches
-            # for when a hook is misbehaving — precisely when the stored
-            # principal has lost the permission, which is one of the reasons
-            # they are reaching for it.
-            # Only an actual rebind is impersonation. A client sending a full
-            # representation re-sends the current principal, and must not need
-            # the grant to change max_attempts.
-            if "principal" in fields and fields["principal"] != hook.principal:
-                await _require_impersonation(identity, fields["principal"])
+            # Impersonation is not only about *which* principal a hook
+            # carries: re-aiming one at another workflow, or at other events,
+            # runs the principal it already carries against a target the
+            # caller chose. Gating only the rebind would leave `hook:*` a
+            # route to any admin-bound hook's privileges — the same reasoning
+            # the schedule path spells out for rewriting a schedule's config.
+            # The principal checked is the one the hook will have afterwards:
+            # a rebind borrows the incoming identity, an edit the stored one.
+            # A client re-sending the current principal is choosing nothing,
+            # and `enabled` / `max_attempts` alone stay ungated — refusing
+            # `enabled=false` because the stored principal's rights moved
+            # would jam the one control an operator reaches for when a hook is
+            # misbehaving, which is often why they are reaching for it.
+            rebound = "principal" in fields and fields["principal"] != hook.principal
+            if rebound or "workflow_ref" in fields or "selectors" in fields:
+                await _require_impersonation(identity, fields.get("principal", hook.principal))
 
             if "workflow_ref" in fields or "principal" in fields:
                 await _require_runnable_target(
@@ -381,9 +402,16 @@ class HookRoutesMixin:
 
             ``enabled`` is not consulted either — a hook is tested precisely
             while it is off, before it is trusted with real events.
+
+            Impersonation is: unlike every other route here this one is not
+            configuration, it starts a real execution as the hook's principal
+            with a token minted for it, and firing someone else's identity is
+            precisely the act the grant governs. Without it, the guards on
+            create and update would be a lock beside an open door.
             """
             await _require_hook_permission(identity, f"hook:{name}:update")
             hook = _get_hook(name)
+            await _require_impersonation(identity, hook.principal)
 
             namespace, workflow_name = _resolve_target(hook.workflow_ref)
             # The hook exists; its target may no longer. A 404 here would read

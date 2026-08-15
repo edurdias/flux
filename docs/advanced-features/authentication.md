@@ -156,16 +156,41 @@ rebind schedules.
 
 ### Running a hook's target as a principal
 
-An [outbound hook](hooks.md) stores the `principal_id` it starts its target
-workflow as, and that principal must hold run permission on the target. The
-check runs at create/update **and** again at fire time, so a role revoked
-after the hook was created dead-letters its deliveries rather than silently
-bypassing RBAC.
+An [outbound hook](hooks.md) stores the `principal` it starts its target
+workflow as — a service account named by **subject**, exactly as a schedule
+names `run_as_service_account`. That principal must hold run permission on
+the target, and the check runs at create/update **and** again at fire time,
+so a role revoked after the hook was created dead-letters its deliveries
+rather than silently bypassing RBAC.
+
+Acting through that principal is impersonation, so it needs
+`principal:{subject}:impersonate` on top of the hook permission — the same
+grant, and the same reasoning, as binding a schedule:
+
+```bash
+flux roles update incident-operator \
+  --add-permissions "principal:ops-sa:impersonate"
+```
+
+It is required for all three ways of acting through a hook's identity:
+
+| Action | Needs |
+|---|---|
+| Create a hook bound to `ops-sa` | `hook:*:create` + `principal:ops-sa:impersonate` |
+| Rebind a hook to another principal | `hook:{name}:update` + impersonate on the **new** principal |
+| Re-aim a hook (`--workflow`, `--on`) | `hook:{name}:update` + impersonate on the principal it already carries |
+| Test-fire a hook | `hook:{name}:update` + impersonate on its principal |
+| `--enable` / `--disable`, `--max-attempts` | `hook:{name}:update` alone |
+
+Re-aiming counts because pointing an existing hook at another workflow runs
+that stored principal against a target the caller chose; the stop button
+deliberately does not, so a misbehaving hook can always be switched off.
 
 `hook:*:create` therefore sits above `workflow:*:register`: a hook feeds
 engine events into another workflow under a stored principal, so
 `workflow:register` alone must not mint one. `operator` carries the full
-hook surface; `viewer` can read hooks and their deliveries.
+hook surface but no impersonate grant, so an operator must be granted one
+explicitly before it can create, re-aim or fire a hook.
 
 **Wildcard rules:**
 

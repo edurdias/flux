@@ -336,23 +336,26 @@ class TestHookPrincipalMustRunTheTarget:
         hook_principal,
     ):
         """The test fire starts a real execution as the hook's principal, so a
-        principal disabled since the hook was created must not get one more
-        run out of it."""
+        principal whose rights were revoked since the hook was created must not
+        get one more run out of it."""
         from flux.models import RepositoryFactory
         from flux.security.principals import PrincipalRegistry
 
         repo = RepositoryFactory.create_repository()
-        PrincipalRegistry(session_factory=lambda: repo.session()).set_enabled(
+        PrincipalRegistry(session_factory=lambda: repo.session()).revoke_role(
             hook_principal.id,
-            False,
+            "operator",
         )
 
-        with _auth_as(_as("operator")):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
             resp = client.post(f"/hooks/{hook.name}/test", headers=_headers())
 
         assert resp.status_code == 403, resp.text
+        assert "workflow:ops:incident:run" in resp.text
 
     def test_create_denies_a_disabled_principal(self, client):
+        """Disabled is a state of the principal, not a missing permission —
+        so it reads as one, the way the schedule path answers it."""
         from flux.models import RepositoryFactory
         from flux.security.principals import PrincipalRegistry
 
@@ -367,8 +370,39 @@ class TestHookPrincipalMustRunTheTarget:
                 headers=_headers(),
                 json=_create_body("disabled-principal", principal.subject),
             )
+            listed = client.get("/hooks", headers=_headers())
 
-        assert resp.status_code == 403, resp.text
+        assert resp.status_code == 400, resp.text
+        assert "disabled" in resp.text.lower()
+        assert "permission" not in resp.text.lower()
+        assert listed.json()["total"] == 0
+
+    def test_create_denies_a_principal_that_is_not_a_service_account(self, client):
+        """A hook runs unattended under the bound identity, so binding a human
+        principal would be honoured at fire time and surprise the operator —
+        the reason the schedule path insists on a service account too."""
+        from flux.models import RepositoryFactory
+        from flux.security.principals import PrincipalRegistry
+
+        _seed_workflow("ops", "incident")
+        repo = RepositoryFactory.create_repository()
+        registry = PrincipalRegistry(session_factory=lambda: repo.session())
+        person = registry.create(
+            type="user",
+            subject=f"person-{uuid.uuid4().hex[:8]}",
+            external_issuer="flux",
+        )
+        registry.assign_role(person.id, "operator")
+
+        with _auth_as(_may_impersonate(person.subject)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("human-principal", person.subject),
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert person.subject in resp.text
 
 
 class TestBindingAPrincipalIsImpersonation:
@@ -471,6 +505,93 @@ class TestBindingAPrincipalIsImpersonation:
         # problems with different fixes, so they do not share a message.
         assert "impersonate" not in resp.text
         assert "permission" not in resp.text.lower()
+
+
+class TestReAimingAHookIsImpersonationToo:
+    """Rebinding is not the only way to borrow a principal: pointing an
+    existing hook at another workflow, or at other events, runs the identity
+    it already carries against a target the caller chose. Without this, an
+    operator holding only ``hook:*`` could take any admin-bound hook, re-aim
+    it and fire it — the escalation the create-time gate closed, by a longer
+    route."""
+
+    def test_re_aiming_the_target_requires_the_grant(self, client, hook, hook_principal):
+        _seed_workflow("ops", "payout")
+
+        with _auth_as(_as("operator")):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"workflow_ref": "ops/payout"},
+            )
+            got = client.get(f"/hooks/{hook.name}", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        assert got.json()["workflow_ref"] == "ops/incident"
+
+    def test_re_aiming_the_selectors_requires_the_grant(self, client, hook, hook_principal):
+        with _auth_as(_as("operator")):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"selectors": ["execution:*:*:completed"]},
+            )
+            got = client.get(f"/hooks/{hook.name}", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        assert got.json()["selectors"] == ["execution:*:*:failed"]
+
+    def test_re_aiming_succeeds_with_the_grant(self, client, hook, hook_principal):
+        _seed_workflow("ops", "payout")
+
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"workflow_ref": "ops/payout", "selectors": ["execution:*:*:completed"]},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["workflow_ref"] == "ops/payout"
+
+    def test_the_stop_button_still_needs_no_grant(self, client, hook):
+        """``enabled=false`` is what an operator reaches for when a hook is
+        misbehaving. Gating it on a grant would jam it exactly then."""
+        with _auth_as(_as("operator")):
+            resp = client.put(f"/hooks/{hook.name}", headers=_headers(), json={"enabled": False})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["enabled"] is False
+
+    def test_the_delivery_budget_still_needs_no_grant(self, client, hook):
+        with _auth_as(_as("operator")):
+            resp = client.put(f"/hooks/{hook.name}", headers=_headers(), json={"max_attempts": 2})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["max_attempts"] == 2
+
+    def test_test_fire_requires_the_grant(self, client, hook, hook_principal):
+        """The test fire is not configuration: it starts the target as the
+        hook's principal, token minted and provenance stamped. Firing someone
+        else's identity is the act the grant governs."""
+        from flux.models import ExecutionContextModel, RepositoryFactory
+
+        with _auth_as(_as("operator")):
+            resp = client.post(f"/hooks/{hook.name}/test", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        with RepositoryFactory.create_repository().session() as session:
+            assert session.query(ExecutionContextModel).count() == 0
+
+    def test_test_fire_succeeds_with_the_grant(self, client, hook, hook_principal):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            resp = client.post(f"/hooks/{hook.name}/test", headers=_headers())
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["execution_id"]
 
 
 class TestPrincipalsAreNamedBySubject:
