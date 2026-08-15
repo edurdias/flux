@@ -26,10 +26,18 @@ verifier = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(verifier)
 
 
+JOB = "build-and-publish"
+
+
 @pytest.fixture(scope="module")
-def matrix() -> list[dict]:
+def job() -> dict:
     workflow = yaml.safe_load(WORKFLOW.read_text())
-    [job] = [job for name, job in workflow["jobs"].items() if "strategy" in job]
+    assert JOB in workflow["jobs"], f"{WORKFLOW.name} has no '{JOB}' job"
+    return workflow["jobs"][JOB]
+
+
+@pytest.fixture(scope="module")
+def matrix(job) -> list[dict]:
     return job["strategy"]["matrix"]["variant"]
 
 
@@ -107,9 +115,33 @@ class TestPublishMatrix:
         assert "postgresql" in extras["server"] and "observability" in extras["server"]
         assert "ai" in extras["full"]
 
-    def test_each_variant_caches_under_its_own_scope(self, matrix):
-        """A shared gha cache scope makes three variants evict each other, so
-        every build would run cold."""
-        scopes = [entry["name"] for entry in matrix]
+    def test_every_build_caches_under_the_variant_s_own_scope(self, job):
+        """A shared gha cache scope makes the variants evict each other, so
+        every build would run cold. Both builds (the verification one and the
+        push) must scope their cache by variant."""
+        builds = [
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("docker/build-push-action")
+        ]
 
-        assert len(set(scopes)) == len(scopes)
+        assert len(builds) == 2, "expected a verification build and a push build"
+        for step in builds:
+            for key in ("cache-from", "cache-to"):
+                assert "scope=${{ matrix.variant.name }}" in step["with"][key], (
+                    f"{step['name']}: {key} must be scoped per variant"
+                )
+
+    def test_the_extras_of_every_build_come_from_the_matrix(self, job):
+        """A hardcoded FLUX_EXTRAS would publish three identical images under
+        three different tags."""
+        builds = [
+            step
+            for step in job["steps"]
+            if str(step.get("uses", "")).startswith("docker/build-push-action")
+        ]
+
+        for step in builds:
+            assert "FLUX_EXTRAS=${{ matrix.variant.extras }}" in step["with"]["build-args"], (
+                f"{step['name']}: build args must take extras from the matrix"
+            )
