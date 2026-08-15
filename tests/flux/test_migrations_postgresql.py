@@ -30,7 +30,7 @@ pytestmark = [
     ),
 ]
 
-HEAD = "0025_execution_name"
+HEAD = "0026_hooks"
 _BACKFILL_INDEX = "ix_executions_workflow_id"
 
 

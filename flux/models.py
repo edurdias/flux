@@ -1061,6 +1061,77 @@ class ScheduleModel(Base):
         self.update_next_run()
 
 
+class HookModel(Base):
+    """A named subscription: when an engine event matches one of ``selectors``,
+    start ``workflow_ref`` as ``principal_id``.
+
+    Nothing about *how* the outside world is reached lives here — no URL, no
+    secret, no template. The target workflow owns all of that, so a hook row
+    only says when to fire, what to start, and as whom.
+    """
+
+    __tablename__ = "hooks"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    name = Column(String, nullable=False, unique=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    selectors = Column(JSON, nullable=False, default=list)
+    # Enum-shaped for a future no-execution variant; "run_workflow" is the
+    # only value slice 1 accepts.
+    action = Column(String, nullable=False, default="run_workflow")
+    workflow_ref = Column(String, nullable=False)
+    principal_id = Column(String, nullable=False)
+    owner_type = Column(String, nullable=False, default="user")
+    owner_ref = Column(String, nullable=False)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    deliveries = relationship(
+        "HookDeliveryModel",
+        back_populates="hook",
+        cascade="all, delete-orphan",
+    )
+
+
+class HookDeliveryModel(Base):
+    """One hook's obligation to react to one event.
+
+    Written in the same transaction as the event it reports (the outbox), and
+    drained later by the scheduler tick — so no delivery blocks a checkpoint
+    and no event is missed.
+    """
+
+    __tablename__ = "hook_deliveries"
+
+    id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
+    hook_id = Column(String, ForeignKey("hooks.id", ondelete="CASCADE"), nullable=False)
+    event_key = Column(String, nullable=False)
+    payload = Column(JSON, nullable=False, default=dict)
+    attempts = Column(Integer, nullable=False, default=0)
+    status = Column(String, nullable=False, default="pending")
+    execution_id = Column(String, nullable=True)
+    next_attempt_at = Column(DateTime, nullable=True)
+    last_error = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    delivered_at = Column(DateTime, nullable=True)
+
+    hook = relationship("HookModel", back_populates="deliveries")
+
+    __table_args__ = (
+        # The enqueue writes blind and lets the constraint dedupe: a replayed
+        # or retried save cannot fan one event into two deliveries.
+        UniqueConstraint("hook_id", "event_key", name="uq_hook_delivery_event"),
+        Index("ix_hook_deliveries_due", "status", "next_attempt_at"),
+    )
+
+
 class ServiceModel(Base):
     __tablename__ = "services"
 
