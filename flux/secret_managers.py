@@ -84,18 +84,26 @@ class DatabaseSecretManager(SecretManager):
                 raise
 
     async def get(self, secret_requests: list[str]) -> dict[str, Any]:
-        def _query() -> dict[str, Any]:
-            from sqlalchemy import select
+        return await asyncio.to_thread(self.get_sync, secret_requests)
 
-            from flux.models import SecretModel
+    def get_sync(self, secret_requests: list[str]) -> dict[str, Any]:
+        """The same read as ``get``, for callers with no loop to await on.
 
-            with self.session() as session:
-                stmt = select(SecretModel.name, SecretModel.value).where(
-                    SecretModel.name.in_(secret_requests),
-                )
-                return {row[0]: row[1] for row in session.execute(stmt)}
+        Reading secrets here is a plain query against the local store, so the
+        async entry point is a thread hop over this and nothing more. Response
+        redaction on a write path (the hook envelope, built inside the
+        caller's open transaction) needs the values without a loop.
+        """
+        from sqlalchemy import select
 
-        result = await asyncio.to_thread(_query)
+        from flux.models import SecretModel
+
+        with self.session() as session:
+            stmt = select(SecretModel.name, SecretModel.value).where(
+                SecretModel.name.in_(secret_requests),
+            )
+            result = {row[0]: row[1] for row in session.execute(stmt)}
+
         if missing := set(secret_requests) - set(result):
             raise ValueError(f"The following secrets were not found: {list(missing)}")
         return result

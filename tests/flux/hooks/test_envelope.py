@@ -183,9 +183,7 @@ async def test_redaction_still_applies_from_inside_a_running_event_loop(isolated
     a worker thread. ``asyncio_mode = "auto"`` (pyproject.toml) means this
     ``async def`` test itself runs inside a running loop, so calling the
     sync ``build_envelope`` from here -- without any extra setup -- exercises
-    the same ``concurrent.futures.ThreadPoolExecutor`` branch of
-    ``envelope._redact`` that caller would hit, instead of only the
-    no-loop-running branch every other test in this file takes."""
+    it exactly as that caller does."""
     assert asyncio.get_running_loop() is not None  # sanity: a loop is live here
 
     SecretManager.current().save("api_key", "s3cr3t-in-loop")
@@ -199,6 +197,59 @@ async def test_redaction_still_applies_from_inside_a_running_event_loop(isolated
     )
 
     assert "s3cr3t-in-loop" not in json.dumps(envelope)
+
+
+async def test_redaction_starts_no_event_loop_of_its_own(isolated_db, monkeypatch):
+    """The enqueue redacts inside the transaction that records the event --
+    at dispatch, while `FOR UPDATE` row locks and the cross-replica dispatch
+    lock are held -- so a delivery must not cost a fresh loop and thread."""
+    SecretManager.current().save("api_key", "s3cr3t-no-loop")
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("building an envelope must not start an event loop")
+
+    monkeypatch.setattr(asyncio, "run", _forbidden)
+    monkeypatch.setattr(asyncio, "new_event_loop", _forbidden)
+
+    envelope = build_envelope(
+        _entry(),
+        selector="execution:*",
+        event=_event_with_value({"token": "s3cr3t-no-loop"}),
+        delivery_id="d-sync",
+        attempt=1,
+        hop=0,
+    )
+
+    assert "s3cr3t-no-loop" not in json.dumps(envelope)
+
+
+async def test_a_secret_manager_without_a_sync_read_is_still_redacted(
+    isolated_db,
+    monkeypatch,
+):
+    """The remote manager a runner child is given offers only the coroutine.
+    Redaction falls back to running it on one long-lived worker thread rather
+    than serving the envelope unredacted."""
+
+    class _CoroutineOnly:
+        def all(self):
+            return ["api_key"]
+
+        async def get(self, names):
+            return {"api_key": "s3cr3t-remote"}
+
+    monkeypatch.setattr(SecretManager, "current", staticmethod(lambda: _CoroutineOnly()))
+
+    envelope = build_envelope(
+        _entry(),
+        selector="execution:*",
+        event=_event_with_value({"token": "s3cr3t-remote"}),
+        delivery_id="d-remote",
+        attempt=1,
+        hop=0,
+    )
+
+    assert "s3cr3t-remote" not in json.dumps(envelope)
 
 
 def test_parent_hop_reads_a_hook_started_execution():

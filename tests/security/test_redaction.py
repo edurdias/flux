@@ -100,6 +100,42 @@ class TestCollectSecretValues:
         manager.get.assert_not_awaited()
 
 
+class TestCollectSecretValuesSync:
+    """The write path (a hook's delivery envelope) redacts inside an open
+    transaction, so it reads the scrub list without a loop."""
+
+    def test_reads_a_manager_that_offers_a_sync_get(self):
+        manager = MagicMock()
+        manager.all.return_value = ["token"]
+        manager.get_sync.return_value = {"token": "sk-live-abcdef123"}
+        manager.get = AsyncMock()
+
+        with patch("flux.secret_managers.SecretManager.current", return_value=manager):
+            assert redaction.collect_secret_values_sync(refresh=True) == ["sk-live-abcdef123"]
+
+        manager.get.assert_not_awaited()
+
+    def test_shares_the_ttl_cache_with_the_async_collector(self):
+        manager = MagicMock()
+        manager.all.return_value = ["token"]
+        manager.get_sync.return_value = {"token": "sk-live-abcdef123"}
+
+        with patch("flux.secret_managers.SecretManager.current", return_value=manager):
+            redaction.collect_secret_values_sync(refresh=True)
+            redaction.collect_secret_values_sync()
+            redaction.collect_secret_values_sync()
+
+        assert manager.get_sync.call_count == 1
+
+    def test_falls_back_to_the_coroutine_when_there_is_no_sync_read(self):
+        manager = MagicMock(spec=["all", "get"])
+        manager.all.return_value = ["token"]
+        manager.get = AsyncMock(return_value={"token": "sk-live-abcdef123"})
+
+        with patch("flux.secret_managers.SecretManager.current", return_value=manager):
+            assert redaction.collect_secret_values_sync(refresh=True) == ["sk-live-abcdef123"]
+
+
 class TestRedactResponse:
     def _manager(self):
         manager = MagicMock()

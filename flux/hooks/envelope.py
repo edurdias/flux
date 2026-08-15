@@ -11,8 +11,6 @@ inside it -- rather than something that merely serializes once.
 
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import json
 from typing import Any
 
@@ -33,28 +31,19 @@ def _json_safe(value: Any) -> Any:
 
 
 def _redact(envelope: dict) -> dict:
-    """Run the redaction module's async entry point from this sync function.
+    """Scrub known secret values, without needing a loop to do it.
 
     ``build_envelope`` must stay synchronous -- its signature and both call
     sites (a sync-looking enqueue path today, an async checkpoint path in
-    practice) are fixed by the Task 4/6 contract -- but the only redaction
-    entry point is async, since it decrypts secrets from the store to build
-    the scrub list. A caller with no loop running gets ``asyncio.run``
-    directly; a caller already inside one (the checkpoint path, since
-    ``ExecutionContext.checkpoint()`` is async and calls into the sync save
-    path directly on the same thread) gets the coroutine run to completion
-    on a dedicated loop in a worker thread, since nesting a loop inside a
-    running one raises.
+    practice) are fixed by the Task 4/6 contract. It also runs where a loop
+    is already turning and a transaction is already open: the enqueue is
+    inside the write that records the event, and two of its call sites hold
+    dispatch row locks. So this takes redaction's synchronous entry point --
+    the scrub itself was always sync, only the secret-value read was not.
     """
-    from flux.security.redaction import redact_response
+    from flux.security.redaction import redact_payload_sync
 
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(redact_response(envelope))
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(asyncio.run, redact_response(envelope)).result()
+    return redact_payload_sync(envelope)
 
 
 def build_envelope(
