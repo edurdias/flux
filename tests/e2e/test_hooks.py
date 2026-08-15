@@ -127,9 +127,14 @@ def test_hook_on_an_approval_gate_starts_the_target_with_the_envelope(cli):
     finally:
         if exec_id:
             # Leave nothing paused behind for later tests sharing the server.
-            pending = _pending_approval(cli, exec_id)
-            cli._server_ok(["execution", "approve", exec_id, pending["task_call_id"]])
-            cli.wait_for_state("hook_gate_e2e", exec_id, "COMPLETED", timeout=60)
+            # Best-effort: when the body already failed, a cleanup that raises
+            # would replace the assertion that explains why.
+            try:
+                pending = _pending_approval(cli, exec_id)
+                cli._server_ok(["execution", "approve", exec_id, pending["task_call_id"]])
+                cli.wait_for_state("hook_gate_e2e", exec_id, "COMPLETED", timeout=60)
+            except Exception as cleanup_error:  # pragma: no cover - diagnostics only
+                print(f"approval cleanup for {exec_id} failed: {cleanup_error}")
         cli.hook_delete("e2e-approval-hook")
 
 
