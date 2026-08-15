@@ -22,9 +22,17 @@ docker build -t flux .
 # Build with specific flux-core version
 docker build --build-arg FLUX_VERSION=0.4.0 -t flux:0.4.0 .
 
-# Build with flux extras baked in (the published image ships
-# postgresql,observability,ai so it works for every role out of the box)
+# Build with flux extras baked in. The published tags are this one arg:
+#   <version>          postgresql,observability,ai  (works for every role)
+#   <version>-slim     (none)                       runner children
+#   <version>-server   postgresql,observability     servers and workers
 docker build --build-arg FLUX_EXTRAS=postgresql,observability,ai -t flux .
+docker build --build-arg FLUX_EXTRAS= -t flux:slim .
+
+# Check an image carries exactly the extras its tag claims (what the publish
+# workflow runs before pushing):
+docker run --rm -v "$PWD/docker/scripts:/scripts:ro" flux:slim \
+    python /scripts/verify_image_variant.py slim
 
 # Build with extra packages (your workflows' dependencies)
 docker build --build-arg EXTRA_PACKAGES="pandas numpy" -t flux-data .

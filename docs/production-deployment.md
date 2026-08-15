@@ -262,7 +262,9 @@ approval rows.
   version — the child entrypoint and context wire format must match. The
   official image works directly (pin its tag to the worker's flux-core
   version; see DOCKER.md), or build on top of it to add workflow
-  dependencies. Optional knobs: `docker_network` / `docker_memory` /
+  dependencies. Prefer the `-slim` variant: the child is sandboxed and
+  network-less, so the LLM SDKs and Postgres driver in the default image are
+  surface it cannot use (see Installation → Container images). Optional knobs: `docker_network` / `docker_memory` /
   `docker_cpus` / `docker_extra_args` (volumes, env, `--user`,
   `--cap-drop`). Use it for untrusted code,
   conflicting dependency sets, or filesystem isolation. Workers advertising

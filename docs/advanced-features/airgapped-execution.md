@@ -45,7 +45,7 @@ runners; the airgapped profile forces the variable empty after operator
 ```toml
 [flux.workers]
 runners = ["docker-airgapped"]
-airgapped_image = "<registry>/flux:<version>"   # falls back to docker_image
+airgapped_image = "edurdias/flux:<version>-slim"  # falls back to docker_image
 
 airgapped_memory = "512m"          # required non-empty
 airgapped_cpus = 1.0
