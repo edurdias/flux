@@ -166,10 +166,12 @@ envelope as input, authorized as the hook's `principal_id`.
   `flux/security/redaction.py` when the envelope is built; `sensitive` task
   values are already `[REDACTED]` at storage and never reach the envelope.
 - **Hop guard.** The envelope carries a hop count; an execution started by a
-  hook stamps `hop + 1` onto its own events' envelopes. Past the cap
-  (default 3) the delivery goes straight to `dead` with a loop error.
-  Without this, `execution:*:*:completed` targeting any workflow is a fork
-  bomb.
+  hook stamps `hop + 1` onto its own events' envelopes. A first-generation
+  delivery — one for an event from an execution no hook started — is hop 0,
+  so the cap (default 3) is the number of links a chain may have: hops 0, 1
+  and 2 fire, and a delivery whose hop has *reached* the cap goes straight
+  to `dead` with a loop error. Without this, `execution:*:*:completed`
+  targeting any workflow is a fork bomb.
 - **No cross-delivery ordering.** Per-execution ordering (serializing the
   drain by `execution_id`) is a possible later addition; promising it in v1
   constrains the drain for a property most receivers do not need.

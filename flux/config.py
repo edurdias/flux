@@ -574,15 +574,17 @@ class HooksConfig(BaseConfig):
     )
     hop_limit: int = Field(
         default=3,
-        ge=0,
+        ge=1,
         description=(
             "How far a chain of hook-started executions may go. A delivery "
             "records the hop it was enqueued at (its parent's hop + 1, or 0 "
             "when the event came from an execution no hook started); the "
             "drain dead-letters a delivery whose hop has reached this, so "
-            "the value is the number of links a chain may have (3 allows "
-            "hops 0, 1 and 2) and 0 stops every hook from firing. Bounds a "
-            "hook whose target workflow re-triggers it."
+            "the value is the number of links a chain may have — 3 allows "
+            "hops 0, 1 and 2, and the minimum of 1 allows only deliveries "
+            "for events from executions no hook started. Bounds a hook "
+            "whose target workflow re-triggers it. Stopping hooks entirely "
+            "is `enabled`, not a limit of 0."
         ),
     )
     drain_batch_size: int = Field(

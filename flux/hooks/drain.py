@@ -6,12 +6,15 @@ the same cross-replica dispatch lock as the other sweeps, so a delivery is
 made once even with several servers up -- ``SKIP LOCKED`` is the second
 belt, for the window where a lock changes hands.
 
-Three refusals are as much the point as the delivery itself:
+Four refusals are as much the point as the delivery itself:
 
-* **The hop guard** runs before anything else is authorized or created. A
-  hook selecting ``execution:*:*:completed`` whose target is itself a
-  workflow is a fork bomb, and the only cheap place to stop it is here,
-  before the fan-out exists.
+* **A disabled hook fires nothing**, not even the backlog enqueued while it
+  was on. ``enabled=false`` is the stop button, and a stop button that lets
+  the queue keep draining is not one.
+* **The hop guard** runs before anything is authorized or created. A hook
+  selecting ``execution:*:*:completed`` whose target is itself a workflow is
+  a fork bomb, and the only cheap place to stop it is here, before the
+  fan-out exists.
 * **Authorization is re-checked at fire time.** A hook outlives the grant
   it was created under; a principal whose rights were revoked in between
   must not keep firing. That denial is terminal, not retried -- a revoked
@@ -23,7 +26,10 @@ Three refusals are as much the point as the delivery itself:
 
 ``create_execution`` and ``authorize`` arrive as arguments rather than being
 reached for: the drain is a scheduler concern, the server owns both, and
-injecting them is what lets this be tested without one.
+injecting them is what lets this be tested without one. Both are trusted to
+answer for the target as a whole -- ``authorize`` may raise
+``WorkflowNotFoundError`` when the target it was asked about is gone, which
+lands on the same terminal branch as a creation that finds nothing.
 """
 
 from __future__ import annotations
@@ -42,7 +48,9 @@ from flux.utils import get_logger
 
 logger = get_logger(__name__)
 
+# (namespace, workflow_name, input_data, *, principal_id, on_behalf_of) -> id
 CreateExecution = Callable[..., Awaitable[str]]
+# (principal_id, permission) -> allowed
 Authorize = Callable[[str, str], Awaitable[bool]]
 
 _BACKOFF_CAP_SECONDS = 300
@@ -73,14 +81,30 @@ async def drain_once(
     handled = 0
     with RepositoryFactory.create_repository().session() as session:
         for delivery, hook in _claim(session, now, batch_size):
-            await _deliver(
-                delivery,
-                hook,
-                create_execution=create_execution,
-                authorize=authorize,
-                now=now,
-                hop_limit=hop_limit,
-            )
+            try:
+                await _deliver(
+                    delivery,
+                    hook,
+                    create_execution=create_execution,
+                    authorize=authorize,
+                    now=now,
+                    hop_limit=hop_limit,
+                )
+            except Exception as ex:
+                # Containment, and the reason this batch is a loop rather
+                # than a transaction of equals: a row the delivery path
+                # cannot even read -- a payload stored as a list, a
+                # workflow_ref that is not a string -- would otherwise
+                # escape past the commit below, discarding the decisions of
+                # every row already settled in this batch while the
+                # executions some of them started stay. `created_at`
+                # ordering would then re-claim the same poison row every
+                # tick, re-firing its predecessors forever.
+                logger.error(
+                    f"Hook delivery {delivery.id} could not be settled: {ex}",
+                    exc_info=True,
+                )
+                _dead_letter(delivery, hook, f"delivery could not be settled: {ex}")
             handled += 1
         session.commit()
     return handled
@@ -120,6 +144,16 @@ async def _deliver(
     now: datetime,
     hop_limit: int,
 ) -> None:
+    if not hook.enabled:
+        # `enabled=false` is the operator's stop button. The registry stops
+        # matching new events on it, but a backlog enqueued before the flip
+        # would otherwise still fire, which is precisely what someone
+        # reaching for the switch is trying to prevent. Dead-lettered rather
+        # than skipped: a skipped row stays pending with nothing to reap it,
+        # while a dead one is visible and can be replayed deliberately.
+        _dead_letter(delivery, hook, f"hook '{hook.name}' is disabled")
+        return
+
     payload = dict(delivery.payload or {})
 
     hop = _hop_of(payload)
@@ -154,7 +188,16 @@ async def _deliver(
                 f"principal '{hook.principal_id}' lacks permission '{permission}'",
             )
             return
-        execution_id = await create_execution(namespace, workflow_name, payload)
+        # The principal travels with the request: the server mints the
+        # started execution's own token from it, so a hook-started workflow
+        # calling back is the hook's principal rather than anonymous.
+        execution_id = await create_execution(
+            namespace,
+            workflow_name,
+            payload,
+            principal_id=hook.principal_id,
+            on_behalf_of=f"hook:{hook.name}",
+        )
     except WorkflowNotFoundError as ex:
         # The target is gone. Retrying re-reads the same empty catalog.
         _dead_letter(delivery, hook, f"target workflow '{hook.workflow_ref}' not found: {ex}")
