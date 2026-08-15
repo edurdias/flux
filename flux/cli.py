@@ -2693,8 +2693,10 @@ def test_hook(name: str, format: str, server_url: str | None):
     "--limit",
     "-l",
     default=50,
-    type=int,
-    help="Number of deliveries to show, newest first (default: 50)",
+    # The same bound the endpoint enforces, so an over-large page is a usage
+    # error here rather than a validation error round trip.
+    type=click.IntRange(1, 200),
+    help="Number of deliveries to show, newest first (default: 50, max: 200)",
 )
 @click.option(
     "--format",

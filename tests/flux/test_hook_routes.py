@@ -347,6 +347,15 @@ class TestDeliveries:
         limited = client.get("/hooks/on-fail/deliveries", params={"limit": 2})
         assert [d["event_key"] for d in limited.json()] == ["ev-2", "ev-1"]
 
+    def test_the_limit_is_bounded(self, client, target_workflow):
+        """Every row carries a whole event payload, so an unbounded limit is a
+        one-request dump of everything a hook has ever seen."""
+        _create(client)
+
+        assert client.get("/hooks/on-fail/deliveries", params={"limit": 100000}).status_code == 422
+        assert client.get("/hooks/on-fail/deliveries", params={"limit": 0}).status_code == 422
+        assert client.get("/hooks/on-fail/deliveries", params={"limit": 200}).status_code == 200
+
     def test_only_this_hooks_deliveries_are_listed(self, client, target_workflow):
         mine = _create(client).json()["id"]
         theirs = _create(client, name="other").json()["id"]

@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
 from sqlalchemy.exc import IntegrityError
 
 from flux.catalogs import WorkflowCatalog, resolve_workflow_ref
@@ -436,7 +437,11 @@ class HookRoutesMixin:
         @api.get("/hooks/{name}/deliveries", response_model=list[HookDeliveryResponse])
         async def list_hook_deliveries(
             name: str,
-            limit: int = 50,
+            # Bounded, as the execution listings are: a delivery row carries a
+            # whole event payload, so an unbounded page turns
+            # `hook:deliveries:read` — a viewer's grant — into a single-request
+            # dump of every event value the hook has ever seen.
+            limit: int = Query(default=50, ge=1, le=200),
             identity: FluxIdentity = Depends(require_permission("hook:deliveries:read")),
         ):
             """List a hook's deliveries, newest first."""

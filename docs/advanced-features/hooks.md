@@ -244,7 +244,7 @@ flux hook update <name> [--on ...] [--workflow ...] [--principal ...] \
                         [--max-attempts N] [--enable | --disable]
 flux hook delete <name> [--yes]
 flux hook test <name>                       # fire once with a synthetic event
-flux hook deliveries <name> [--limit 50]
+flux hook deliveries <name> [--limit 50]     # newest first, max 200
 flux hook retry <name> <delivery_id>        # hand a dead row back to the drain
 ```
 
