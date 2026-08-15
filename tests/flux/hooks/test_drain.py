@@ -344,6 +344,53 @@ class TestDrain:
         assert creator.calls[0][2]["attempt"] == 2
         assert creator.calls[0][2]["event"]["value"] == {"ok": True}
 
+    async def test_the_stored_envelope_records_the_attempt_that_was_made(self, isolated_db):
+        """`GET /hooks/{name}/deliveries` serves the stored payload as "what
+        the target received", so a row reading `attempt: 1` beside `attempts:
+        2` is a lie an operator debugging a retry would act on."""
+        hook = _hook(max_attempts=3)
+        _pending(hook=hook, event_key="ev-1")
+
+        await drain_once(
+            _creator(raises=RuntimeError("boom")),
+            now=_now(),
+            batch_size=10,
+            hop_limit=3,
+            authorize=_allow,
+        )
+        [failed] = _deliveries()
+        assert failed.attempts == 1
+        assert failed.payload["attempt"] == 1
+
+        await drain_once(
+            _creator(returns="exec-2"),
+            now=_now() + timedelta(minutes=10),
+            batch_size=10,
+            hop_limit=3,
+            authorize=_allow,
+        )
+
+        [delivered] = _deliveries()
+        assert delivered.status == "delivered"
+        assert delivered.attempts == 2
+        assert delivered.payload["attempt"] == 2
+
+    async def test_a_dead_lettered_row_keeps_the_attempt_it_died_on(self, isolated_db):
+        _pending(hook=_hook(max_attempts=2), event_key="ev-1")
+
+        for minutes in (0, 10):
+            await drain_once(
+                _creator(raises=RuntimeError("boom")),
+                now=_now() + timedelta(minutes=minutes),
+                batch_size=10,
+                hop_limit=3,
+                authorize=_allow,
+            )
+
+        [row] = _deliveries()
+        assert row.status == "dead"
+        assert row.payload["attempt"] == row.attempts == 2
+
     async def test_a_batch_is_bounded_and_taken_oldest_first(self, isolated_db):
         hook = _hook()
         _pending(hook=hook, event_key="ev-new", created_at=_NOW - timedelta(minutes=1))

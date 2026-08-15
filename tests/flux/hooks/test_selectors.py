@@ -77,6 +77,13 @@ def test_selector_matching(selector, key, expected):
         "execution:a:b",  # too few for the domain
         "execution:a:b:c:d",  # too many
         "task:a:b:c",  # too few for the task domain
+        # A terminal `*` covers the remainder of a key, not more of it: the
+        # segments before it still have to line up with one, so a prefix
+        # longer than the domain ever emits matches nothing at all. Accepting
+        # these creates a hook that can never fire, which is worse than a
+        # refusal at the door.
+        "execution:a:b:c:d:*",
+        "task:a:b:c:d:e:*",
     ],
 )
 def test_invalid_selectors_are_rejected(selector):
@@ -90,6 +97,11 @@ def test_valid_selectors_are_accepted():
         "task:*",
         "execution:ns:wf:paused",
         "task:ns:wf:task_name:awaiting_approval",
+        # Terminal `*` at or inside the domain's width: the prefix still fits
+        # a real key, so these fire.
+        "execution:ns:*",
+        "execution:ns:wf:*",
+        "task:ns:wf:task_name:*",
     ):
         validate_selector(selector)
 

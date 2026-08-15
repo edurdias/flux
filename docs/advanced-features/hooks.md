@@ -42,7 +42,11 @@ and the [retention sweep](#retention) bound what that accumulates.
 
 A selector is a `:`-delimited string naming an engine event. It uses the
 same wildcard rules as permissions: a terminal `*` matches any number of
-remaining segments, a `*` anywhere else matches exactly one.
+remaining segments, a `*` anywhere else matches exactly one. Event keys have
+a fixed width per domain, so a selector is rejected at create time if it is
+the wrong width — including one that is *too long* before a trailing `*`
+(`execution:a:b:c:d:*`), which would otherwise be accepted as a hook that can
+never fire.
 
 ```
 execution:<namespace>:<workflow>:<state>          # ExecutionState transitions

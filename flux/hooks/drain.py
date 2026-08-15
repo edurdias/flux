@@ -178,6 +178,15 @@ async def _deliver(
     # name the delivery about to be made.
     payload["attempt"] = delivery.attempts + 1
     delivery.attempts += 1
+    # Written back before the attempt rather than after it, so every way this
+    # can end -- delivered, retried, dead-lettered -- leaves the row's stored
+    # envelope agreeing with `attempts` and with what the target actually
+    # received. The deliveries endpoint serves this payload as "what was
+    # sent", and a row reading `attempt: 1` beside `attempts: 3` is a lie an
+    # operator debugging a retry would act on. Assigned as a new dict because
+    # the JSON column is not mutation-tracked: an in-place edit of the loaded
+    # value is not seen at flush.
+    delivery.payload = payload
 
     permission = f"workflow:{namespace}:{workflow_name}:run"
     try:

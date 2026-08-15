@@ -68,13 +68,25 @@ def validate_selector(selector: str) -> None:
             f"selector {selector!r} has unknown domain {domain!r}; expected one of {DOMAINS}",
         )
 
+    width = _DOMAIN_WIDTHS[domain]
+
     # A terminal `*` legitimately covers the remainder, so it is exempt from
     # the exact segment-count check (`execution:*` and `task:*` are both
-    # valid, deliberately under-width selectors).
+    # valid, deliberately under-width selectors) -- but it covers the
+    # remainder of a key, it does not extend one. The segments before it
+    # still have to line up with a real event key, so a prefix longer than
+    # the domain ever emits matches nothing, whatever follows it. That is
+    # worse than a malformed selector: the hook is accepted and then simply
+    # never fires.
     if parts[-1] == "*":
+        if len(parts) - 1 > width:
+            raise ValueError(
+                f"selector {selector!r} has {len(parts) - 1} segments before its "
+                f"trailing '*', more than the {width} a {domain!r} event key has; "
+                "it could never match",
+            )
         return
 
-    width = _DOMAIN_WIDTHS[domain]
     if len(parts) != width:
         raise ValueError(
             f"selector {selector!r} has {len(parts)} segments, expected {width} for domain {domain!r}",
