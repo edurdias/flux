@@ -48,9 +48,9 @@ from flux.utils import get_logger
 
 logger = get_logger(__name__)
 
-# (namespace, workflow_name, input_data, *, principal_id, on_behalf_of) -> id
+# (namespace, workflow_name, input_data, *, principal, on_behalf_of) -> id
 CreateExecution = Callable[..., Awaitable[str]]
-# (principal_id, permission) -> allowed
+# (principal, permission) -> allowed
 Authorize = Callable[[str, str], Awaitable[bool]]
 
 _BACKOFF_CAP_SECONDS = 300
@@ -181,11 +181,11 @@ async def _deliver(
 
     permission = f"workflow:{namespace}:{workflow_name}:run"
     try:
-        if not await authorize(hook.principal_id, permission):
+        if not await authorize(hook.principal, permission):
             _dead_letter(
                 delivery,
                 hook,
-                f"principal '{hook.principal_id}' lacks permission '{permission}'",
+                f"principal '{hook.principal}' lacks permission '{permission}'",
             )
             return
         # The principal travels with the request: the server mints the
@@ -195,7 +195,7 @@ async def _deliver(
             namespace,
             workflow_name,
             payload,
-            principal_id=hook.principal_id,
+            principal=hook.principal,
             on_behalf_of=f"hook:{hook.name}",
         )
     except WorkflowNotFoundError as ex:

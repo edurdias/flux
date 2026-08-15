@@ -6,7 +6,7 @@ role -> permission resolution:
 1. The built-in roles per the spec — ``operator`` manages hooks, ``viewer``
    reads hooks and deliveries and nothing else, ``worker`` gets none of it.
 2. The create-time half of fire-time authorization: a hook's stored
-   ``principal_id`` must hold ``workflow:<ns>:<wf>:run`` on its target before
+   ``principal`` must hold ``workflow:<ns>:<wf>:run`` on its target before
    the row is written, so a hook that could only ever dead-letter is refused
    at the door rather than at 3am.
 """
@@ -155,14 +155,14 @@ def _may_impersonate(subject: str) -> FluxIdentity:
     )
 
 
-def _seed_hook(name: str, principal_id: str, workflow_ref: str = "ops/incident"):
+def _seed_hook(name: str, principal: str, workflow_ref: str = "ops/incident"):
     from flux.hooks.registry import HookRegistry
 
     return HookRegistry.create().create_hook(
         name=name,
         selectors=["execution:*:*:failed"],
         workflow_ref=workflow_ref,
-        principal_id=principal_id,
+        principal=principal,
         owner_ref="seed",
     )
 
@@ -196,15 +196,15 @@ def hook_principal(client):
 def hook(client, hook_principal):
     """A hook whose principal may run its (registered) target."""
     name = f"hook-{uuid.uuid4().hex[:6]}"
-    return _seed_hook(name, hook_principal.id)
+    return _seed_hook(name, hook_principal.subject)
 
 
-def _create_body(name: str, principal_id: str) -> dict:
+def _create_body(name: str, principal: str) -> dict:
     return {
         "name": name,
         "selectors": ["execution:*:*:failed"],
         "workflow_ref": "ops/incident",
-        "principal_id": principal_id,
+        "principal": principal,
     }
 
 
@@ -229,7 +229,7 @@ class TestViewer:
             created = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("new-hook", hook.principal_id),
+                json=_create_body("new-hook", hook.principal),
             )
             updated = client.put(
                 f"/hooks/{hook.name}",
@@ -259,7 +259,7 @@ class TestWorker:
             created = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("worker-hook", hook.principal_id),
+                json=_create_body("worker-hook", hook.principal),
             )
 
         assert listed.status_code == 403, listed.text
@@ -277,7 +277,7 @@ class TestOperator:
             created = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body(name, hook.principal_id),
+                json=_create_body(name, hook.principal),
             )
             updated = client.put(f"/hooks/{name}", headers=_headers(), json={"max_attempts": 2})
             tested = client.post(f"/hooks/{name}/test", headers=_headers())
@@ -307,7 +307,7 @@ class TestHookPrincipalMustRunTheTarget:
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("doomed", powerless.id),
+                json=_create_body("doomed", powerless.subject),
             )
             listed = client.get("/hooks", headers=_headers())
 
@@ -322,14 +322,19 @@ class TestHookPrincipalMustRunTheTarget:
             resp = client.put(
                 f"/hooks/{hook.name}",
                 headers=_headers(),
-                json={"principal_id": powerless.id},
+                json={"principal": powerless.subject},
             )
             got = client.get(f"/hooks/{hook.name}", headers=_headers())
 
         assert resp.status_code == 403, resp.text
-        assert got.json()["principal_id"] == hook.principal_id
+        assert got.json()["principal"] == hook.principal
 
-    def test_test_fire_denies_a_principal_revoked_after_creation(self, client, hook):
+    def test_test_fire_denies_a_principal_revoked_after_creation(
+        self,
+        client,
+        hook,
+        hook_principal,
+    ):
         """The test fire starts a real execution as the hook's principal, so a
         principal disabled since the hook was created must not get one more
         run out of it."""
@@ -338,7 +343,7 @@ class TestHookPrincipalMustRunTheTarget:
 
         repo = RepositoryFactory.create_repository()
         PrincipalRegistry(session_factory=lambda: repo.session()).set_enabled(
-            hook.principal_id,
+            hook_principal.id,
             False,
         )
 
@@ -360,7 +365,7 @@ class TestHookPrincipalMustRunTheTarget:
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("disabled-principal", principal.id),
+                json=_create_body("disabled-principal", principal.subject),
             )
 
         assert resp.status_code == 403, resp.text
@@ -376,7 +381,7 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("borrowed", hook_principal.id),
+                json=_create_body("borrowed", hook_principal.subject),
             )
             listed = client.get("/hooks", headers=_headers())
 
@@ -389,11 +394,11 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("granted", hook_principal.id),
+                json=_create_body("granted", hook_principal.subject),
             )
 
         assert resp.status_code == 200, resp.text
-        assert resp.json()["principal_id"] == hook_principal.id
+        assert resp.json()["principal"] == hook_principal.subject
 
     def test_the_grant_is_per_subject(self, client, hook_principal):
         """A grant for one principal must not authorize binding another."""
@@ -403,7 +408,7 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
-                json=_create_body("wrong-grant", hook_principal.id),
+                json=_create_body("wrong-grant", hook_principal.subject),
             )
 
         assert resp.status_code == 403, resp.text
@@ -416,13 +421,13 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.put(
                 f"/hooks/{hook.name}",
                 headers=_headers(),
-                json={"principal_id": target.id},
+                json={"principal": target.subject},
             )
             got = client.get(f"/hooks/{hook.name}", headers=_headers())
 
         assert resp.status_code == 403, resp.text
         assert f"principal:{target.subject}:impersonate" in resp.text
-        assert got.json()["principal_id"] == hook.principal_id
+        assert got.json()["principal"] == hook.principal
 
     def test_update_rebind_succeeds_with_the_grant(self, client, hook):
         target = _seed_principal("operator")
@@ -431,11 +436,11 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.put(
                 f"/hooks/{hook.name}",
                 headers=_headers(),
-                json={"principal_id": target.id},
+                json={"principal": target.subject},
             )
 
         assert resp.status_code == 200, resp.text
-        assert resp.json()["principal_id"] == target.id
+        assert resp.json()["principal"] == target.subject
 
     def test_resending_the_same_principal_is_not_a_rebind(self, client, hook):
         """A client sending the hook's current principal back is not choosing
@@ -444,7 +449,7 @@ class TestBindingAPrincipalIsImpersonation:
             resp = client.put(
                 f"/hooks/{hook.name}",
                 headers=_headers(),
-                json={"principal_id": hook.principal_id, "max_attempts": 3},
+                json={"principal": hook.principal, "max_attempts": 3},
             )
 
         assert resp.status_code == 200, resp.text
@@ -453,7 +458,7 @@ class TestBindingAPrincipalIsImpersonation:
     def test_binding_an_unknown_principal_is_refused(self, client):
         _seed_workflow("ops", "incident")
 
-        with _auth_as(_as("operator")):
+        with _auth_as(_may_impersonate("no-such-principal")):
             resp = client.post(
                 "/hooks",
                 headers=_headers(),
@@ -462,3 +467,38 @@ class TestBindingAPrincipalIsImpersonation:
 
         assert resp.status_code == 400, resp.text
         assert "no-such-principal" in resp.text
+        # A missing principal and an under-privileged one are different
+        # problems with different fixes, so they do not share a message.
+        assert "impersonate" not in resp.text
+        assert "permission" not in resp.text.lower()
+
+
+class TestPrincipalsAreNamedBySubject:
+    """A hook names its principal the way the docs, the CLI and the principals
+    API do — by subject, as a schedule names its service account."""
+
+    def test_a_hook_is_bound_by_subject(self, client, hook_principal):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("by-subject", hook_principal.subject),
+            )
+            got = client.get("/hooks/by-subject", headers=_headers())
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["principal"] == hook_principal.subject
+        assert got.json()["principal"] == hook_principal.subject
+
+    def test_a_principal_id_is_not_a_subject(self, client, hook_principal):
+        """The id used to be accepted, and reported a permissions failure for
+        what was a lookup miss."""
+        with _auth_as(_may_impersonate(hook_principal.id)):
+            resp = client.post(
+                "/hooks",
+                headers=_headers(),
+                json=_create_body("by-id", hook_principal.id),
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert "not found" in resp.text.lower()

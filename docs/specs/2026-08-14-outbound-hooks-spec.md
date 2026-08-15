@@ -109,7 +109,7 @@ hooks
   selectors        JSON list of selector strings
   action           "run_workflow"   # enum; reserved for future variants
   workflow_ref     target ("ns/name")
-  principal_id     the hook executes the target as this principal
+  principal        the hook executes the target as this principal, by subject
   owner_type       "user" | "workflow" | "agent"
   owner_ref        registering principal / "ns/name" / agent name
   max_attempts, created_by, created_at, updated_at
@@ -154,7 +154,7 @@ the worker-registry pattern.
 ## Delivery semantics
 
 Delivery means creating an execution of the target workflow with the
-envelope as input, authorized as the hook's `principal_id`.
+envelope as input, authorized as the hook's `principal`.
 
 - **At-least-once.** Exponential backoff between attempts; `dead` after
   `max_attempts`. With no third party on the path, retries only cover
@@ -266,7 +266,8 @@ gets nothing.
 
 Because the only action is running a workflow, target authorization rides
 on the existing RBAC rather than a new trust model: at create/update the
-hook's `principal_id` must hold execute permission on `workflow_ref`, and
+hook's `principal` must hold execute permission on `workflow_ref` (and the
+caller must hold `principal:<subject>:impersonate` to bind it), and
 the same check applies at fire time — a later permission revocation
 dead-letters deliveries instead of silently bypassing it. Creating a hook
 still observes events and acts under a stored principal, so `hook:*:create`

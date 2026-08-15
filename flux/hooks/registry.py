@@ -37,7 +37,7 @@ from flux.models import HookModel, RepositoryFactory
 # owner_type/owner_ref/created_by/created_at -- identity and provenance are
 # immutable once a hook exists.
 _UPDATABLE_FIELDS = frozenset(
-    {"enabled", "selectors", "workflow_ref", "principal_id", "max_attempts"},
+    {"enabled", "selectors", "workflow_ref", "principal", "max_attempts"},
 )
 
 
@@ -47,7 +47,7 @@ class HookIndexEntry:
     name: str
     selectors: tuple[str, ...]
     workflow_ref: str
-    principal_id: str
+    principal: str
     max_attempts: int
 
 
@@ -94,7 +94,7 @@ class HookRegistry:
                     name=row.name,
                     selectors=tuple(row.selectors or []),
                     workflow_ref=row.workflow_ref,
-                    principal_id=row.principal_id,
+                    principal=row.principal,
                     max_attempts=row.max_attempts,
                 )
                 for row in rows
@@ -124,7 +124,7 @@ class HookRegistry:
         name: str,
         selectors: Sequence[str],
         workflow_ref: str,
-        principal_id: str,
+        principal: str,
         owner_type: str = "user",
         owner_ref: str,
         max_attempts: int = 5,
@@ -140,7 +140,7 @@ class HookRegistry:
                 name=name,
                 selectors=list(selectors),
                 workflow_ref=workflow_ref,
-                principal_id=principal_id,
+                principal=principal,
                 owner_type=owner_type,
                 owner_ref=owner_ref,
                 max_attempts=max_attempts,

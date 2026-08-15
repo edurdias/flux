@@ -38,7 +38,7 @@ def _entry(name: str = "notify-approvals") -> HookIndexEntry:
         name=name,
         selectors=("task:release:*:promote_prod:awaiting_approval",),
         workflow_ref="ops/notify_slack",
-        principal_id="p-1",
+        principal="p-1",
         max_attempts=5,
     )
 

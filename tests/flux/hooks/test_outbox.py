@@ -46,7 +46,7 @@ def _hook(*, selectors: list[str], workflow_ref: str, name: str = "notify"):
         name=name,
         selectors=selectors,
         workflow_ref=workflow_ref,
-        principal_id="p-1",
+        principal="p-1",
         owner_ref="admin",
     )
 

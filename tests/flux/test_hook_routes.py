@@ -65,7 +65,7 @@ def _payload(**overrides):
         "name": "on-fail",
         "selectors": ["execution:*:*:failed"],
         "workflow_ref": "ops/incident",
-        "principal_id": "p-1",
+        "principal": "p-1",
     }
     payload.update(overrides)
     return payload
@@ -108,7 +108,7 @@ class TestCreate:
         assert body["name"] == "on-fail"
         assert body["selectors"] == ["execution:*:*:failed"]
         assert body["workflow_ref"] == "ops/incident"
-        assert body["principal_id"] == "p-1"
+        assert body["principal"] == "p-1"
         assert body["enabled"] is True
         assert body["action"] == "run_workflow"
         assert body["max_attempts"] == 5
@@ -228,10 +228,10 @@ class TestReadUpdateDelete:
         assert _create(client).status_code == 200
 
         with patch.object(server_instance, "_authorize_hook", new=AsyncMock(return_value=False)):
-            resp = client.put("/hooks/on-fail", json={"principal_id": "p-2"})
+            resp = client.put("/hooks/on-fail", json={"principal": "p-2"})
 
         assert resp.status_code == 403, resp.text
-        assert client.get("/hooks/on-fail").json()["principal_id"] == "p-1"
+        assert client.get("/hooks/on-fail").json()["principal"] == "p-1"
 
     def test_disabling_a_hook_does_not_re_check_the_principal(
         self,

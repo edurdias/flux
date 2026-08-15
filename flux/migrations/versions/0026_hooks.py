@@ -1,7 +1,7 @@
 """Add hooks and hook_deliveries: outbound event-driven workflow triggers.
 
 A hook is a named subscription: when an engine event matches one of its
-selectors, it starts workflow_ref as principal_id. A delivery is one hook's
+selectors, it starts workflow_ref as principal. A delivery is one hook's
 obligation to react to one specific event -- written in the same transaction
 as the event it reports (the outbox pattern) and drained later by the
 scheduler tick, so no delivery blocks a checkpoint and no event is missed.
@@ -40,7 +40,8 @@ def upgrade() -> None:
             sa.Column("selectors", sa.JSON(), nullable=False),
             sa.Column("action", sa.String(), nullable=False),
             sa.Column("workflow_ref", sa.String(), nullable=False),
-            sa.Column("principal_id", sa.String(), nullable=False),
+            # The principal's subject, as a schedule stores its SA's.
+            sa.Column("principal", sa.String(), nullable=False),
             sa.Column("owner_type", sa.String(), nullable=False),
             sa.Column("owner_ref", sa.String(), nullable=False),
             sa.Column("max_attempts", sa.Integer(), nullable=False),

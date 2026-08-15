@@ -349,10 +349,11 @@ class HookRequest(BaseModel):
     name: str
     selectors: list[str]
     workflow_ref: str
-    # The principal the hook runs its target as. Named explicitly rather than
-    # defaulted to the caller: the hook outlives the request that created it,
-    # so whose rights it fires under is a decision, not a side effect.
-    principal_id: str
+    # The subject of the principal the hook runs its target as. Named
+    # explicitly rather than defaulted to the caller: the hook outlives the
+    # request that created it, so whose rights it fires under is a decision,
+    # not a side effect.
+    principal: str
     max_attempts: int = Field(default=5, ge=1)
 
 
@@ -366,7 +367,7 @@ class HookUpdateRequest(BaseModel):
     enabled: bool | None = None
     selectors: list[str] | None = None
     workflow_ref: str | None = None
-    principal_id: str | None = None
+    principal: str | None = None
     max_attempts: int | None = Field(default=None, ge=1)
 
 
@@ -379,7 +380,7 @@ class HookResponse(BaseModel):
     selectors: list[str]
     action: str
     workflow_ref: str
-    principal_id: str
+    principal: str
     owner_type: str
     owner_ref: str
     max_attempts: int

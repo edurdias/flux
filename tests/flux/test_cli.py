@@ -1498,7 +1498,7 @@ _HOOK = {
     "selectors": ["task:release:*:promote_prod:awaiting_approval"],
     "action": "run_workflow",
     "workflow_ref": "ops/notify_slack",
-    "principal_id": "ops-sa",
+    "principal": "ops-sa",
     "owner_type": "user",
     "owner_ref": "admin",
     "max_attempts": 5,
@@ -1537,7 +1537,7 @@ class TestHookCreate:
             "name": "notify-approvals",
             "selectors": ["task:release:*:promote_prod:awaiting_approval"],
             "workflow_ref": "ops/notify_slack",
-            "principal_id": "ops-sa",
+            "principal": "ops-sa",
             "max_attempts": 5,
         }
         assert "notify-approvals" in result.output
@@ -1730,7 +1730,7 @@ class TestHookUpdate:
             "enabled": True,
             "selectors": ["execution:*:*:failed"],
             "workflow_ref": "ops/other",
-            "principal_id": "other-sa",
+            "principal": "other-sa",
             "max_attempts": 2,
         }
 

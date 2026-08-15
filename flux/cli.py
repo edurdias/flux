@@ -2377,7 +2377,7 @@ def _echo_hook(hook_data: dict) -> None:
     click.echo(f"ID: {hook_data['id']}")
     click.echo(f"Enabled: {hook_data['enabled']}")
     click.echo(f"Action: {hook_data['action']} -> {hook_data['workflow_ref']}")
-    click.echo(f"Runs as: {hook_data['principal_id']}")
+    click.echo(f"Runs as: {hook_data['principal']}")
     click.echo(f"Owner: {hook_data['owner_type']}:{hook_data['owner_ref']}")
     click.echo(f"Max attempts: {hook_data['max_attempts']}")
     click.echo("Selectors:")
@@ -2408,12 +2408,13 @@ def _echo_hook(hook_data: dict) -> None:
 @click.option(
     "--principal",
     "-p",
-    "principal_id",
+    "principal",
     required=True,
     help=(
-        "Principal the hook runs its target as. The hook outlives the "
-        "request creating it, so this is stated, never inferred from the "
-        "caller."
+        "Subject of the principal the hook runs its target as, e.g. an "
+        "'ops-sa' service account (`flux principals list`). The hook "
+        "outlives the request creating it, so this is stated, never "
+        "inferred from the caller."
     ),
 )
 @click.option(
@@ -2439,7 +2440,7 @@ def create_hook(
     name: str,
     selectors: tuple[str, ...],
     workflow_ref: str,
-    principal_id: str,
+    principal: str,
     max_attempts: int,
     format: str,
     server_url: str | None,
@@ -2453,7 +2454,7 @@ def create_hook(
             "name": name,
             "selectors": list(selectors),
             "workflow_ref": workflow_ref,
-            "principal_id": principal_id,
+            "principal": principal,
             "max_attempts": max_attempts,
         },
     )
@@ -2506,7 +2507,7 @@ def list_hooks(enabled_only: bool, format: str, server_url: str | None):
     for entry in hooks:
         indicator = "✓" if entry["enabled"] else "⏸"
         click.echo(f"{indicator} {entry['name']} -> {entry['workflow_ref']}")
-        click.echo(f"   Runs as: {entry['principal_id']} | Max attempts: {entry['max_attempts']}")
+        click.echo(f"   Runs as: {entry['principal']} | Max attempts: {entry['max_attempts']}")
         for selector in entry.get("selectors", []):
             click.echo(f"   on {selector}")
         click.echo()
@@ -2556,9 +2557,9 @@ def get_hook(name: str, format: str, server_url: str | None):
 @click.option(
     "--principal",
     "-p",
-    "principal_id",
+    "principal",
     default=None,
-    help="Rebind the principal the hook runs its target as",
+    help="Rebind the hook to another principal, by subject",
 )
 @click.option(
     "--max-attempts",
@@ -2589,7 +2590,7 @@ def update_hook(
     name: str,
     selectors: tuple[str, ...],
     workflow_ref: str | None,
-    principal_id: str | None,
+    principal: str | None,
     max_attempts: int | None,
     enabled: bool | None,
     format: str,
@@ -2603,8 +2604,8 @@ def update_hook(
         fields["selectors"] = list(selectors)
     if workflow_ref is not None:
         fields["workflow_ref"] = workflow_ref
-    if principal_id is not None:
-        fields["principal_id"] = principal_id
+    if principal is not None:
+        fields["principal"] = principal
     if max_attempts is not None:
         fields["max_attempts"] = max_attempts
 

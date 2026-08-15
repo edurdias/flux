@@ -43,7 +43,7 @@ def _hook(
     workflow_ref: str = "ops/notify",
     max_attempts: int = 5,
     name: str = "notify",
-    principal_id: str = "p-1",
+    principal: str = "p-1",
     enabled: bool = True,
 ) -> HookModel:
     registry = HookRegistry.create()
@@ -51,7 +51,7 @@ def _hook(
         name=name,
         selectors=["execution:*:*:completed"],
         workflow_ref=workflow_ref,
-        principal_id=principal_id,
+        principal=principal,
         owner_ref="admin",
         max_attempts=max_attempts,
     )
@@ -148,11 +148,11 @@ def _recording_creator() -> _RecordingCreator:
     return _RecordingCreator()
 
 
-async def _allow(principal_id: str, permission: str) -> bool:
+async def _allow(principal: str, permission: str) -> bool:
     return True
 
 
-async def _deny(principal_id: str, permission: str) -> bool:
+async def _deny(principal: str, permission: str) -> bool:
     return False
 
 
@@ -280,7 +280,7 @@ class TestDrain:
         _pending(hook=_hook(), event_key="ev-1", payload_hop=9)
         creator = _recording_creator()
 
-        async def _explode(principal_id: str, permission: str) -> bool:
+        async def _explode(principal: str, permission: str) -> bool:
             raise AssertionError("authorization must not be reached past the hop limit")
 
         await drain_once(creator, now=_now(), batch_size=10, hop_limit=3, authorize=_explode)
@@ -403,7 +403,7 @@ class TestDrain:
                         name="written-mid-drain",
                         selectors=[],
                         workflow_ref="ops/other",
-                        principal_id="p-2",
+                        principal="p-2",
                         owner_ref="admin",
                     ),
                 )
@@ -480,13 +480,13 @@ class TestDrain:
     async def test_the_creator_is_told_which_principal_the_delivery_runs_as(self, isolated_db):
         """The started execution has to carry the hook's identity, so the
         identity has to reach the creator."""
-        _pending(hook=_hook(name="nightly", principal_id="p-42"), event_key="ev-1")
+        _pending(hook=_hook(name="nightly", principal="p-42"), event_key="ev-1")
         creator = _recording_creator()
 
         await drain_once(creator, now=_now(), batch_size=10, hop_limit=3, authorize=_allow)
 
         assert creator.identities[0] == {
-            "principal_id": "p-42",
+            "principal": "p-42",
             "on_behalf_of": "hook:nightly",
         }
 
@@ -658,7 +658,7 @@ class TestSchedulerWiring:
             ["workflow:ops:notify:run", "workflow:ops:notify:task:send:execute"],
         )
 
-        assert await server._authorize_hook(principal.id, "workflow:ops:notify:run") is True
+        assert await server._authorize_hook(principal.subject, "workflow:ops:notify:run") is True
 
     async def test_run_rights_alone_do_not_cover_the_target_s_tasks(self, real_config):
         """The same depth the schedule path applies: two doors into the same
@@ -670,7 +670,7 @@ class TestSchedulerWiring:
         _register_target()
         principal = _principal(server, "hook-sa", ["workflow:ops:notify:run"])
 
-        assert await server._authorize_hook(principal.id, "workflow:ops:notify:run") is False
+        assert await server._authorize_hook(principal.subject, "workflow:ops:notify:run") is False
 
     async def test_a_disabled_or_banned_principal_is_refused(self, real_config):
         from flux.server import Server
@@ -681,8 +681,8 @@ class TestSchedulerWiring:
         disabled = _principal(server, "off-sa", ["*"], enabled=False)
         banned = _principal(server, "banned-sa", ["*"], banned=True)
 
-        assert await server._authorize_hook(disabled.id, "workflow:ops:notify:run") is False
-        assert await server._authorize_hook(banned.id, "workflow:ops:notify:run") is False
+        assert await server._authorize_hook(disabled.subject, "workflow:ops:notify:run") is False
+        assert await server._authorize_hook(banned.subject, "workflow:ops:notify:run") is False
 
     async def test_a_vanished_target_is_not_reported_as_a_permission_problem(self, real_config):
         """The catalog miss propagates, so the drain dead-letters it with the
@@ -694,7 +694,7 @@ class TestSchedulerWiring:
         principal = _principal(server, "hook-sa", ["*"])
 
         with pytest.raises(WorkflowNotFoundError):
-            await server._authorize_hook(principal.id, "workflow:ops:gone:run")
+            await server._authorize_hook(principal.subject, "workflow:ops:gone:run")
 
     async def test_a_started_execution_carries_the_hook_s_identity(self, real_config):
         """Without the token a hook-started workflow calling back is
@@ -713,7 +713,7 @@ class TestSchedulerWiring:
             "ops",
             "notify",
             {"hook": "nightly", "hop": 0},
-            principal_id=principal.id,
+            principal=principal.subject,
             on_behalf_of="hook:nightly",
         )
 
@@ -750,7 +750,7 @@ class TestSchedulerWiring:
                 "ops",
                 "notify",
                 {"hook": "nightly"},
-                principal_id=_principal(server, "hook-sa", ["*"]).id,
+                principal=_principal(server, "hook-sa", ["*"]).subject,
                 on_behalf_of="hook:nightly",
             )
 

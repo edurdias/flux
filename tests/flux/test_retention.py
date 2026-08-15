@@ -172,7 +172,7 @@ def _create_delivery(repo, status, age_days, delivery_id):
                     name="retention-hook",
                     selectors=["execution:*:*:completed"],
                     workflow_ref="default/target",
-                    principal_id="ops-sa",
+                    principal="ops-sa",
                     owner_type="user",
                     owner_ref="admin",
                 ),

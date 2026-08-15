@@ -35,14 +35,14 @@ class TestRegistry:
             name="on-fail",
             selectors=["execution:*:*:failed"],
             workflow_ref="ops/incident",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
         registry.create_hook(
             name="on-pause",
             selectors=["execution:*:*:paused"],
             workflow_ref="ops/nudge",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
 
@@ -58,7 +58,7 @@ class TestRegistry:
             name="broad",
             selectors=["execution:*", "execution:*:*:failed"],
             workflow_ref="ops/incident",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
 
@@ -72,7 +72,7 @@ class TestRegistry:
             name="off",
             selectors=["execution:*"],
             workflow_ref="ops/x",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
         registry.update_hook("off", enabled=False)
@@ -92,7 +92,7 @@ class TestRegistry:
             name="leftover",
             selectors=["execution:*"],
             workflow_ref="ops/x",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
 
@@ -110,7 +110,7 @@ class TestRegistry:
             name="h",
             selectors=["execution:*"],
             workflow_ref="ops/x",
-            principal_id="p",
+            principal="p",
             owner_ref="admin",
         )
 
@@ -136,7 +136,7 @@ class TestRegistry:
                     name="peer-write",
                     selectors=["execution:*"],
                     workflow_ref="ops/x",
-                    principal_id="p",
+                    principal="p",
                     owner_type="user",
                     owner_ref="admin",
                 ),
@@ -157,7 +157,7 @@ class TestRegistry:
                 name="bad",
                 selectors=["nope:*"],
                 workflow_ref="ops/x",
-                principal_id="p",
+                principal="p",
                 owner_ref="admin",
             )
 

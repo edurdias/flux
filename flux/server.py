@@ -1387,7 +1387,7 @@ class Server(
         workflow_name: str,
         input_data: Any,
         *,
-        principal_id: str | None = None,
+        principal: str | None = None,
         on_behalf_of: str | None = None,
     ) -> str:
         """Start a hook's target workflow, for the drain.
@@ -1406,20 +1406,23 @@ class Server(
         ctx = self._create_execution(namespace, workflow_name, input_data)
 
         auth_config = Configuration.get().settings.security.auth
-        if not auth_config.enabled or not principal_id:
+        if not auth_config.enabled or not principal:
             return ctx.execution_id
 
         try:
             from flux.security.execution_token import mint_execution_token
             from flux.security.principals import PrincipalRegistry
 
-            principal = PrincipalRegistry(session_factory=self._get_db_session).get(principal_id)
-            if principal is None:
-                raise ValueError(f"principal '{principal_id}' disappeared after authorization")
+            principal_row = PrincipalRegistry(session_factory=self._get_db_session).find(
+                principal,
+                "flux",
+            )
+            if principal_row is None:
+                raise ValueError(f"principal '{principal}' disappeared after authorization")
 
             exec_token = mint_execution_token(
-                subject=principal.subject,
-                principal_issuer=principal.external_issuer,
+                subject=principal_row.subject,
+                principal_issuer=principal_row.external_issuer,
                 execution_id=ctx.execution_id,
                 on_behalf_of=on_behalf_of or "hook",
             )
@@ -1433,8 +1436,8 @@ class Server(
                 exec_row = session.get(_ECM_HOOK, ctx.execution_id)
                 if exec_row:
                     exec_row.exec_token = exec_token
-                    exec_row.scheduling_subject = principal.subject
-                    exec_row.scheduling_principal_issuer = principal.external_issuer
+                    exec_row.scheduling_subject = principal_row.subject
+                    exec_row.scheduling_principal_issuer = principal_row.external_issuer
                     session.commit()
             finally:
                 session.close()
@@ -1452,7 +1455,7 @@ class Server(
 
         return ctx.execution_id
 
-    async def _authorize_hook(self, principal_id: str, permission: str) -> bool:
+    async def _authorize_hook(self, principal: str, permission: str) -> bool:
         """Re-check a hook's principal at fire time, for the drain.
 
         A hook outlives the grant it was created under: the principal may
@@ -1486,11 +1489,12 @@ class Server(
         from flux.security.principals import PrincipalRegistry
 
         registry = PrincipalRegistry(session_factory=self._get_db_session)
-        principal = registry.get(principal_id)
-        if principal is None or not principal.enabled or principal.banned:
+        # By subject, the way the hook row names it — the same resolution the
+        # schedule path does for its service account.
+        principal_row = registry.find(principal, "flux")
+        if principal_row is None or not principal_row.enabled or principal_row.banned:
             logger.warning(
-                f"Hook principal '{principal_id}' is missing, disabled or banned; "
-                "refusing delivery",
+                f"Hook principal '{principal}' is missing, disabled or banned; refusing delivery",
             )
             return False
 
@@ -1498,12 +1502,12 @@ class Server(
         workflow_metadata = getattr(workflow, "metadata", None) or {}
 
         identity = FluxIdentity(
-            subject=principal.subject,
-            roles=frozenset(registry.get_roles(principal.id)),
+            subject=principal_row.subject,
+            roles=frozenset(registry.get_roles(principal_row.id)),
             metadata={
                 "token_type": "service_account",
-                "issuer": principal.external_issuer,
-                "principal_id": principal.id,
+                "issuer": principal_row.external_issuer,
+                "principal_id": principal_row.id,
                 "via": "hook",
             },
         )
@@ -1520,7 +1524,7 @@ class Server(
         )
         if not result.ok:
             logger.warning(
-                f"Hook principal '{principal.subject}' lacks permissions for "
+                f"Hook principal '{principal_row.subject}' lacks permissions for "
                 f"{namespace}/{workflow_name}: {result.missing_permissions}",
             )
             return False

@@ -1063,7 +1063,7 @@ class ScheduleModel(Base):
 
 class HookModel(Base):
     """A named subscription: when an engine event matches one of ``selectors``,
-    start ``workflow_ref`` as ``principal_id``.
+    start ``workflow_ref`` as ``principal``.
 
     Nothing about *how* the outside world is reached lives here — no URL, no
     secret, no template. The target workflow owns all of that, so a hook row
@@ -1080,7 +1080,11 @@ class HookModel(Base):
     # only value slice 1 accepts.
     action = Column(String, nullable=False, default="run_workflow")
     workflow_ref = Column(String, nullable=False)
-    principal_id = Column(String, nullable=False)
+    # The principal to run the target as, named by *subject* — the handle the
+    # permission grammar, the principals API and the CLI all use, and what a
+    # schedule stores for its service account. Resolved fresh at fire time,
+    # so a rebound or re-created principal is read as it stands then.
+    principal = Column(String, nullable=False)
     owner_type = Column(String, nullable=False, default="user")
     owner_ref = Column(String, nullable=False)
     max_attempts = Column(Integer, nullable=False, default=5)

@@ -211,12 +211,23 @@ hook management (`hook:*`, `hook:deliveries:read`, `hook:deliveries:retry`);
 `viewer` gets `hook:*:read` and `hook:deliveries:read`; `worker` gets
 nothing.
 
-**The hook's principal.** A hook stores the `principal_id` it runs its
-target as — stated explicitly, never inferred from whoever created it, since
-the hook outlives that request. That principal must hold run permission on
-the target workflow, and the check runs twice: at create/update, so a
-misconfiguration fails at the door, and again at fire time, so a later
-revocation dead-letters deliveries instead of silently bypassing RBAC.
+**The hook's principal.** A hook stores the `principal` it runs its target
+as, named by **subject** — `ops-sa`, the same handle `flux principals` and
+the permission grammar use, and the same thing a schedule stores for its
+service account. It is stated explicitly, never inferred from whoever
+created it, since the hook outlives that request; a subject that names no
+principal is refused as "not found" rather than as a permissions problem.
+That principal must hold run permission on the target workflow, and the
+check runs twice: at create/update, so a misconfiguration fails at the door,
+and again at fire time, so a later revocation dead-letters deliveries
+instead of silently bypassing RBAC.
+
+**Binding one is impersonation.** Every delivery runs the target under that
+principal's roles, with an execution token minted for it, so choosing it
+takes `principal:<subject>:impersonate` on top of `hook:*:create` —
+otherwise `hook:*` on its own would be a route to anyone else's privileges.
+The grant is required to create a hook and to rebind an existing one;
+re-sending the principal a hook already has is not a rebind.
 
 Because a hook observes events and acts under a stored principal,
 `hook:*:create` sits above `workflow:*:register` in the hierarchy — creating
