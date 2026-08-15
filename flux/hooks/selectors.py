@@ -93,12 +93,26 @@ class HookEvent:
     execution_id: str
     workflow_namespace: str
     workflow_name: str
-    event_id: str  # the persisted ExecutionEvent id -- also the delivery's event_key
+    event_id: str  # the persisted ExecutionEvent id
     type: str  # lower-cased state or event-type value
     task_name: str | None
     task_call_id: str | None
     value: Any
     occurred_at: str  # ISO-8601
+
+    @property
+    def delivery_key(self) -> str:
+        """This event's identity for a delivery, scoped to its execution.
+
+        ``event_id`` is a hash over (name, type, source_id, value, time) and
+        carries nothing execution-specific: two executions scheduled to the
+        same worker in the same clock tick share one. The engine's own event
+        dedup scopes the id by ``execution_id`` for that reason, and the
+        deliveries' ``(hook_id, event_key)`` constraint has to do the same --
+        unscoped, the second execution's delivery is silently swallowed as a
+        duplicate and its event is missed.
+        """
+        return f"{self.execution_id}:{self.event_id}"
 
 
 def events_from_save(

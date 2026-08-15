@@ -147,7 +147,8 @@ Two consequences worth planning around:
   be idempotent per `event_key`** — the same discipline the replay model
   already demands. Deduplicating on `ctx.input["event_key"]` (or using it as
   an idempotency key against the system being called) is the intended
-  pattern.
+  pattern; the key is `"<execution_id>:<event_id>"`, so it identifies one
+  event of one execution.
 
 Some failures are terminal rather than retried, because retrying only buries
 the audit trail:

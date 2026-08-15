@@ -76,7 +76,9 @@ def build_envelope(
         "hook": hook.name,
         "selector": selector,
         "delivery_id": delivery_id,
-        "event_key": event.event_id,
+        # The delivery row's key, verbatim: the target dedupes on what it
+        # reads here, so the two must be the same string.
+        "event_key": event.delivery_key,
         "attempt": attempt,
         "hop": hop,
         "event": {

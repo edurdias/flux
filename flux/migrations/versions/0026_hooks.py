@@ -54,6 +54,8 @@ def upgrade() -> None:
             _DELIVERIES_TABLE,
             sa.Column("id", sa.String(), primary_key=True, nullable=False),
             sa.Column("hook_id", sa.String(), nullable=False),
+            # "<execution_id>:<event_id>": the engine's event id repeats
+            # across executions, so it is scoped before it keys anything.
             sa.Column("event_key", sa.String(), nullable=False),
             sa.Column("payload", sa.JSON(), nullable=False),
             sa.Column("attempts", sa.Integer(), nullable=False),

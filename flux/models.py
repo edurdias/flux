@@ -1112,6 +1112,9 @@ class HookDeliveryModel(Base):
 
     id = Column(String, primary_key=True, unique=True, nullable=False, default=lambda: uuid4().hex)
     hook_id = Column(String, ForeignKey("hooks.id", ondelete="CASCADE"), nullable=False)
+    # "<execution_id>:<event_id>". The engine's event id alone is a hash over
+    # (name, type, source_id, value, time) and repeats across executions, so
+    # the unique constraint below would swallow a second execution's delivery.
     event_key = Column(String, nullable=False)
     payload = Column(JSON, nullable=False, default=dict)
     attempts = Column(Integer, nullable=False, default=0)

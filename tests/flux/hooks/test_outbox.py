@@ -10,6 +10,8 @@ path that must not touch the database when nothing subscribes.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from flux.config import Configuration
@@ -53,6 +55,7 @@ def _paused_execution(
     *,
     execution_input: dict | None = None,
     reason: str = "gate",
+    event_time: datetime | None = None,
 ) -> ExecutionContext:
     return ExecutionContext(
         workflow_id="wf-1",
@@ -66,6 +69,7 @@ def _paused_execution(
                 source_id="wf-1",
                 name="pipeline",
                 value={"reason": reason},
+                time=event_time,
             ),
         ],
     )
@@ -255,6 +259,31 @@ class TestOutbox:
         )
 
         assert [row.payload["hop"] for row in _deliveries()] == [0]
+
+    def test_two_executions_sharing_a_raw_event_id_both_get_a_delivery(self, isolated_db):
+        """The engine's event id is a hash of (name, type, source_id, value,
+        time) — nothing execution-specific — so two executions really can
+        produce the same one, and the engine's own dedup scopes it by
+        execution for exactly that reason. Keyed on the raw id, the unique
+        constraint silently swallowed the second execution's delivery."""
+        _hook(selectors=["execution:*"], workflow_ref="ops/notify")
+        manager = ContextManager.create()
+        stamped = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
+
+        first = _paused_execution(event_time=stamped)
+        second = _paused_execution(event_time=stamped)
+        # Sanity: the collision this test is about is real, not contrived.
+        assert first.events[0].id == second.events[0].id
+
+        manager.save(first)
+        manager.save(second)
+
+        assert sorted(row.event_key for row in _deliveries()) == sorted(
+            [
+                f"{first.execution_id}:{first.events[0].id}",
+                f"{second.execution_id}:{second.events[0].id}",
+            ],
+        )
 
     def test_disabled_by_config_enqueues_nothing(self, isolated_db):
         _hook(selectors=["execution:*"], workflow_ref="ops/notify")

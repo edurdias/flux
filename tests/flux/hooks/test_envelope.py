@@ -127,7 +127,9 @@ def test_execution_domain_state_mirrors_type_and_task_fields_are_null():
     assert envelope["event"]["task_call_id"] is None
 
 
-def test_event_key_is_the_persisted_event_id():
+def test_event_key_is_the_persisted_event_id_scoped_by_execution():
+    """The raw event id is a hash carrying nothing execution-specific, so the
+    key a target dedupes on names the execution too."""
     envelope = build_envelope(
         _entry(),
         selector="task:release:*:promote_prod:awaiting_approval",
@@ -137,7 +139,7 @@ def test_event_key_is_the_persisted_event_id():
         hop=0,
     )
 
-    assert envelope["event_key"] == "ev-1"
+    assert envelope["event_key"] == "exec-1:ev-1"
 
 
 def test_envelope_is_plain_json_serializable_even_with_an_opaque_value():

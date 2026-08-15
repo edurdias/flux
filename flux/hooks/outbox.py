@@ -105,7 +105,7 @@ def _pending_rows(
                 HookDeliveryModel(
                     id=delivery_id,
                     hook_id=hook.id,
-                    event_key=event.event_id,
+                    event_key=event.delivery_key,
                     # The whole envelope, not the pieces to rebuild one: the
                     # drain re-reads this verbatim and overwrites only
                     # `attempt`. `attempt` is 1 (the delivery about to be
