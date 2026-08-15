@@ -507,13 +507,13 @@ class TestBindingAPrincipalIsImpersonation:
         assert "permission" not in resp.text.lower()
 
 
-class TestReAimingAHookIsImpersonationToo:
-    """Rebinding is not the only way to borrow a principal: pointing an
-    existing hook at another workflow, or at other events, runs the identity
-    it already carries against a target the caller chose. Without this, an
-    operator holding only ``hook:*`` could take any admin-bound hook, re-aim
-    it and fire it — the escalation the create-time gate closed, by a longer
-    route."""
+class TestEveryRouteThatCanFireNeedsTheGrant:
+    """One rule, checked route by route: anything that can cause an execution
+    to run as the hook's principal needs the right to borrow it. Naming the
+    principal is only the most obvious way — re-aiming a hook, re-enabling
+    one, firing one and re-queuing a dead delivery all reach the same place
+    with the identity the hook already carries. Reads, ``enabled=false`` and
+    ``DELETE`` cannot fire anything, so they stay open."""
 
     def test_re_aiming_the_target_requires_the_grant(self, client, hook, hook_principal):
         _seed_workflow("ops", "payout")
@@ -592,6 +592,101 @@ class TestReAimingAHookIsImpersonationToo:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["execution_id"]
+
+    def test_re_enabling_requires_the_grant(self, client, hook, hook_principal):
+        """The stop button's asymmetry: a disabled hook is inert (the registry
+        indexes only enabled ones), so flipping it back on resumes automatic
+        firing under the stored principal for every matching event — the
+        opposite of the situation that justifies leaving `disable` open."""
+        with _auth_as(_as("operator")):
+            assert (
+                client.put(
+                    f"/hooks/{hook.name}",
+                    headers=_headers(),
+                    json={"enabled": False},
+                ).status_code
+                == 200
+            )
+
+            resp = client.put(f"/hooks/{hook.name}", headers=_headers(), json={"enabled": True})
+            got = client.get(f"/hooks/{hook.name}", headers=_headers())
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        assert got.json()["enabled"] is False
+
+    def test_re_enabling_succeeds_with_the_grant(self, client, hook, hook_principal):
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            client.put(f"/hooks/{hook.name}", headers=_headers(), json={"enabled": False})
+            resp = client.put(f"/hooks/{hook.name}", headers=_headers(), json={"enabled": True})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["enabled"] is True
+
+    def test_re_sending_enabled_true_on_an_enabled_hook_is_not_a_transition(self, client, hook):
+        """A client sending a full representation re-sends `enabled: true`.
+        Nothing is reopened, so it needs no grant — the same rule as
+        re-sending the principal a hook already has."""
+        with _auth_as(_as("operator")):
+            resp = client.put(
+                f"/hooks/{hook.name}",
+                headers=_headers(),
+                json={"enabled": True, "max_attempts": 4},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["max_attempts"] == 4
+
+    def test_retrying_a_delivery_requires_the_grant(self, client, hook, hook_principal):
+        """A dead delivery handed back to the drain fires on the next tick,
+        under the hook's principal, with the workflow_ref and principal read
+        live at that moment. Dead rows are routine (a transient failure, an
+        exhausted budget), so without this any operator-role holder is one
+        call away from an execution as an admin-bound service account."""
+        from flux.models import HookDeliveryModel, RepositoryFactory
+
+        delivery_id = _seed_dead_delivery(hook.id)
+
+        with _auth_as(_as("operator")):
+            resp = client.post(
+                f"/hooks/{hook.name}/deliveries/{delivery_id}/retry",
+                headers=_headers(),
+            )
+
+        assert resp.status_code == 403, resp.text
+        assert f"principal:{hook_principal.subject}:impersonate" in resp.text
+        with RepositoryFactory.create_repository().session() as session:
+            row = session.get(HookDeliveryModel, delivery_id)
+            # Still dead: the drain must not find it queued.
+            assert row.status == "dead"
+
+    def test_retrying_a_delivery_succeeds_with_the_grant(self, client, hook, hook_principal):
+        delivery_id = _seed_dead_delivery(hook.id)
+
+        with _auth_as(_may_impersonate(hook_principal.subject)):
+            resp = client.post(
+                f"/hooks/{hook.name}/deliveries/{delivery_id}/retry",
+                headers=_headers(),
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "pending"
+
+    def test_reads_and_delete_still_need_no_grant(self, client, hook):
+        """Neither can cause anything to run, and deleting is the strongest
+        stop there is — gating it would leave a hook nobody can remove."""
+        _seed_dead_delivery(hook.id)
+
+        with _auth_as(_as("operator")):
+            got = client.get(f"/hooks/{hook.name}", headers=_headers())
+            listed = client.get("/hooks", headers=_headers())
+            deliveries = client.get(f"/hooks/{hook.name}/deliveries", headers=_headers())
+            deleted = client.delete(f"/hooks/{hook.name}", headers=_headers())
+
+        assert got.status_code == 200, got.text
+        assert listed.status_code == 200, listed.text
+        assert deliveries.status_code == 200, deliveries.text
+        assert deleted.status_code == 200, deleted.text
 
 
 class TestPrincipalsAreNamedBySubject:

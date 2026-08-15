@@ -227,18 +227,27 @@ instead of silently bypassing RBAC.
 under that principal's roles, with an execution token minted for it, so it
 takes `principal:<subject>:impersonate` on top of the hook permission —
 otherwise `hook:*` on its own would be a route to anyone else's privileges.
-Four actions need it:
+The rule is one sentence: *anything that can cause an execution to run as
+the hook's principal requires the right to borrow it; disabling and deleting
+never can.* In practice:
 
-- **creating** a hook bound to that principal;
-- **rebinding** one (the grant is checked against the incoming principal);
-- **re-aiming** one — changing `--workflow` or `--on` — because pointing an
-  existing hook at another workflow, or at other events, runs the principal
-  it already carries against a target you chose;
-- **test-firing** one, which really does start the target as that principal.
+| Action | Needs the grant |
+|---|---|
+| `flux hook create --principal ops-sa` | yes |
+| `flux hook update --principal other-sa` (rebind) | yes, against the **incoming** principal |
+| `flux hook update --workflow …` / `--on …` (re-aim) | yes — it runs the principal the hook already carries against a target you chose |
+| `flux hook update --enable` | yes — a disabled hook is inert, so this resumes automatic firing |
+| `flux hook test` | yes — it really does start the target as that principal |
+| `flux hook retry <delivery>` | yes — the next tick fires it as that principal |
+| `flux hook update --disable` | **no** |
+| `flux hook update --max-attempts` | **no** |
+| `flux hook get` / `list` / `deliveries` | **no** |
+| `flux hook delete` | **no** |
 
-Re-sending the principal a hook already has is not a rebind, and
-`--enable` / `--disable` and `--max-attempts` need no grant: the stop button
-has to work even when the bound identity is the problem.
+Turning a hook off, and deleting it, are the stops — they must work even
+when the bound identity is exactly what has gone wrong. Re-sending values a
+hook already has (its current principal, or `--enable` on a live hook)
+changes nothing and so needs nothing.
 
 Because a hook observes events and acts under a stored principal,
 `hook:*:create` sits above `workflow:*:register` in the hierarchy — creating

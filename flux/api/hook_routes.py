@@ -215,16 +215,23 @@ class HookRoutesMixin:
                     detail=f"Service account '{principal}' is banned",
                 )
 
-        async def _require_impersonation(identity: FluxIdentity, principal: str) -> None:
-            """Acting through a hook's principal is impersonation.
+        async def _require_may_fire_as(identity: FluxIdentity, principal: str) -> None:
+            """**Any route that can cause an execution to run as the hook's
+            principal requires the right to borrow it; disabling and deleting
+            never can.**
 
-            Every delivery starts the target under that principal's roles and
-            with an execution token minted for it, so ``hook:*`` alone must
-            not decide which identity runs what — otherwise an operator
-            borrows an admin service account. Naming the principal is one way
-            to do that; re-aiming a hook that already carries one, or firing
-            it, are the others, and all three take the grant. Same grammar and
-            same rule as a schedule's service account.
+            That sentence is the whole authorization model for this file, and
+            a new route belongs on one side of it or the other. A hook fires
+            its target under the bound principal's roles with an execution
+            token minted for it, so ``hook:*`` — which the built-in operator
+            role carries — must not decide which identity runs what. Naming
+            the principal is only the most obvious way to reach that: today
+            create, rebind, re-aim (``workflow_ref``/``selectors``), re-enable,
+            test-fire and re-queuing a dead delivery all do, and all take
+            ``principal:<subject>:impersonate``, the same grant and grammar as
+            a schedule's service account. Reads, ``enabled=false`` and
+            ``DELETE`` do not, because a stop must never need a permission the
+            emergency it is for might have taken away.
 
             With auth off there is no principal to resolve and nothing ever
             dereferences the stored value, so the whole check stands down —
@@ -284,7 +291,7 @@ class HookRoutesMixin:
             # Whose rights the hook fires under is settled before anything is
             # asked about the target: a caller who may not borrow this
             # principal learns nothing about the catalog from trying.
-            await _require_impersonation(identity, request.principal)
+            await _require_may_fire_as(identity, request.principal)
             await _require_runnable_target(request.principal, request.workflow_ref)
 
             try:
@@ -346,22 +353,22 @@ class HookRoutesMixin:
             if "selectors" in fields:
                 _validate_selectors(fields["selectors"])
 
-            # Impersonation is not only about *which* principal a hook
-            # carries: re-aiming one at another workflow, or at other events,
-            # runs the principal it already carries against a target the
-            # caller chose. Gating only the rebind would leave `hook:*` a
-            # route to any admin-bound hook's privileges — the same reasoning
-            # the schedule path spells out for rewriting a schedule's config.
-            # The principal checked is the one the hook will have afterwards:
-            # a rebind borrows the incoming identity, an edit the stored one.
-            # A client re-sending the current principal is choosing nothing,
-            # and `enabled` / `max_attempts` alone stay ungated — refusing
-            # `enabled=false` because the stored principal's rights moved
-            # would jam the one control an operator reaches for when a hook is
-            # misbehaving, which is often why they are reaching for it.
+            # Which edits can lead to a fire, per the rule on
+            # `_require_may_fire_as`. Re-aiming runs the principal the hook
+            # already carries against a target the caller chose; re-enabling
+            # resumes automatic firing for every matching event, since a
+            # disabled hook is inert (the registry indexes only enabled ones).
+            # Turning one *off* is the exception in the other direction: it is
+            # what an operator reaches for when a hook is misbehaving, so it
+            # must not need a grant that the misbehaviour may be about. A
+            # client re-sending values a hook already has — its principal, or
+            # `enabled: true` on a live hook — is choosing nothing and changes
+            # nothing, so neither counts.
             rebound = "principal" in fields and fields["principal"] != hook.principal
-            if rebound or "workflow_ref" in fields or "selectors" in fields:
-                await _require_impersonation(identity, fields.get("principal", hook.principal))
+            re_aimed = "workflow_ref" in fields or "selectors" in fields
+            re_enabled = fields.get("enabled") is True and not hook.enabled
+            if rebound or re_aimed or re_enabled:
+                await _require_may_fire_as(identity, fields.get("principal", hook.principal))
 
             if "workflow_ref" in fields or "principal" in fields:
                 await _require_runnable_target(
@@ -411,7 +418,7 @@ class HookRoutesMixin:
             """
             await _require_hook_permission(identity, f"hook:{name}:update")
             hook = _get_hook(name)
-            await _require_impersonation(identity, hook.principal)
+            await _require_may_fire_as(identity, hook.principal)
 
             namespace, workflow_name = _resolve_target(hook.workflow_ref)
             # The hook exists; its target may no longer. A 404 here would read
@@ -493,8 +500,17 @@ class HookRoutesMixin:
             delivery_id: str,
             identity: FluxIdentity = Depends(require_permission("hook:deliveries:retry")),
         ):
-            """Hand a dead-lettered delivery back to the drain."""
+            """Hand a dead-lettered delivery back to the drain.
+
+            A retry is a fire: the next tick reads the hook's principal and
+            target live and starts an execution as that principal. Dead rows
+            are routine — a transient failure, an exhausted budget — so
+            without the grant this route would hand anyone holding the
+            (hook-wide) ``hook:deliveries:retry`` permission a one-call
+            execution under whatever principal the hook carries.
+            """
             hook = _get_hook(name)
+            await _require_may_fire_as(identity, hook.principal)
             with RepositoryFactory.create_repository().session() as session:
                 delivery = (
                     session.query(HookDeliveryModel)

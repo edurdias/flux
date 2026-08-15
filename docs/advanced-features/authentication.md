@@ -172,19 +172,25 @@ flux roles update incident-operator \
   --add-permissions "principal:ops-sa:impersonate"
 ```
 
-It is required for all three ways of acting through a hook's identity:
+The rule is one sentence — *anything that can cause an execution to run as
+the hook's principal requires the right to borrow it; disabling and deleting
+never can* — which sorts the routes like this:
 
 | Action | Needs |
 |---|---|
 | Create a hook bound to `ops-sa` | `hook:*:create` + `principal:ops-sa:impersonate` |
 | Rebind a hook to another principal | `hook:{name}:update` + impersonate on the **new** principal |
 | Re-aim a hook (`--workflow`, `--on`) | `hook:{name}:update` + impersonate on the principal it already carries |
-| Test-fire a hook | `hook:{name}:update` + impersonate on its principal |
-| `--enable` / `--disable`, `--max-attempts` | `hook:{name}:update` alone |
+| Re-enable a disabled hook | `hook:{name}:update` + impersonate |
+| Test-fire a hook | `hook:{name}:update` + impersonate |
+| Retry a dead-lettered delivery | `hook:deliveries:retry` + impersonate |
+| Disable a hook, change `--max-attempts` | `hook:{name}:update` alone |
+| Read hooks and deliveries, delete a hook | the read/delete permission alone |
 
 Re-aiming counts because pointing an existing hook at another workflow runs
-that stored principal against a target the caller chose; the stop button
-deliberately does not, so a misbehaving hook can always be switched off.
+that stored principal against a target the caller chose, and a retry counts
+because the next scheduler tick fires it under that principal. Disabling and
+deleting deliberately do not, so a misbehaving hook can always be stopped.
 
 `hook:*:create` therefore sits above `workflow:*:register`: a hook feeds
 engine events into another workflow under a stored principal, so
