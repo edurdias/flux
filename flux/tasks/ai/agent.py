@@ -117,23 +117,15 @@ async def agent(
     # the new autonomy/approval_routing into one validated pair, exactly
     # once. Downstream (loop, executor, preamble) sees only the ceiling;
     # routing is operator delivery configuration and never reaches the model.
+    # Routing has one legal value (inline); notify was declared for #144 but
+    # never wired, and was removed rather than left as a silent no-op.
     from flux.tasks.ai.approval_policy import resolve_approval_policy
 
-    effective_autonomy, effective_routing = resolve_approval_policy(
+    effective_autonomy, _effective_routing = resolve_approval_policy(
         approval_mode,
         autonomy,
         approval_routing,
     )
-    if effective_routing == "notify":
-        # The routing contract is fixed here; the out-of-band delivery
-        # mechanism itself is #144, whose design is still open. Until it
-        # lands, notify-routed gates pause exactly like inline ones — warn
-        # so operators expecting out-of-band delivery see the gap even at
-        # default log levels (an unwatched gate stalls the workflow).
-        logger.warning(
-            "approval_routing='notify' declared; out-of-band delivery (#144) "
-            "is not implemented yet, so gates pause on the current surface",
-        )
 
     if skills is not None:
         from flux.tasks.ai.skills import build_skills_preamble, build_use_skill

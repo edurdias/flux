@@ -161,8 +161,9 @@ Implementation hot-spots:
   `routing`, `runner`, `schedule`, plus `name`, `secret_requests`, `output_storage`. A workflow's first
   parameter is always `ctx: ExecutionContext[T]`; if `T` is a Pydantic `BaseModel` the catalog
   publishes its JSON schema (`catalogs.py::extract_workflow_input_schema`).
-- Agents split autonomy into `autonomy` (strict/default/autonomous) × `approval_routing`
-  (inline/notify); the legacy `approval_mode` is mapped and deprecated.
+- Agents split autonomy into `autonomy` (strict/default/autonomous) × `approval_routing` (inline is
+  the only value — an out-of-band `notify` mode was declared for #144 but never wired, and was
+  removed rather than left as a silent no-op); the legacy `approval_mode` is mapped and deprecated.
 - `flux/__init__.py` — installs a custom `_FluxModule` class on `sys.modules["flux"]` so `flux.task`
   and `flux.workflow` resolve to the *classes* even though they're also submodules. If you
   import-rename anything at the top of `flux/`, exercise both `from flux import task` and
