@@ -8,6 +8,7 @@ the target workflow -- so the shape here is load-bearing for both.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -171,6 +172,31 @@ def test_secret_values_are_redacted_in_the_envelope(isolated_db):
     )
 
     assert "s3cr3t" not in json.dumps(envelope)
+
+
+async def test_redaction_still_applies_from_inside_a_running_event_loop(isolated_db):
+    """``build_envelope`` stays synchronous, but its real caller
+    (``_decide_approval`` -> ``ContextManager.save`` -> the hook enqueue)
+    runs on the FastAPI event-loop thread with a loop already active, not on
+    a worker thread. ``asyncio_mode = "auto"`` (pyproject.toml) means this
+    ``async def`` test itself runs inside a running loop, so calling the
+    sync ``build_envelope`` from here -- without any extra setup -- exercises
+    the same ``concurrent.futures.ThreadPoolExecutor`` branch of
+    ``envelope._redact`` that caller would hit, instead of only the
+    no-loop-running branch every other test in this file takes."""
+    assert asyncio.get_running_loop() is not None  # sanity: a loop is live here
+
+    SecretManager.current().save("api_key", "s3cr3t-in-loop")
+    envelope = build_envelope(
+        _entry(),
+        selector="execution:*",
+        event=_event_with_value({"token": "s3cr3t-in-loop"}),
+        delivery_id="d-loop",
+        attempt=1,
+        hop=0,
+    )
+
+    assert "s3cr3t-in-loop" not in json.dumps(envelope)
 
 
 def test_parent_hop_reads_a_hook_started_execution():
