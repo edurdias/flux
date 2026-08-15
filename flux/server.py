@@ -37,6 +37,7 @@ from flux.api.workflow_routes import WorkflowRoutesMixin
 from flux.api.worker_routes import WorkerRoutesMixin
 from flux.api.admin_routes import AdminRoutesMixin
 from flux.api.schedule_routes import ScheduleRoutesMixin
+from flux.api.hook_routes import HookRoutesMixin
 from flux.api.execution_routes import ExecutionRoutesMixin
 from flux.api.dynamic_routes import DynamicRoutesMixin
 from flux.api.service_routes import ServiceRoutesMixin
@@ -96,6 +97,7 @@ class Server(
     WorkerRoutesMixin,
     AdminRoutesMixin,
     ScheduleRoutesMixin,
+    HookRoutesMixin,
     ExecutionRoutesMixin,
     DynamicRoutesMixin,
     ServiceRoutesMixin,
@@ -1783,6 +1785,14 @@ class Server(
         )
 
         self._register_schedule_routes(
+            api,
+            auth_config=auth_config,
+            auth_service=auth_service,
+            principal_registry=principal_registry,
+            limiter=limiter,
+        )
+
+        self._register_hook_routes(
             api,
             auth_config=auth_config,
             auth_service=auth_service,
