@@ -22,14 +22,17 @@ consistent without waiting out the TTL.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from flux.config import Configuration
-from flux.errors import HookNotFoundError
+from flux.errors import HookNameConflictError, HookNotFoundError
 from flux.hooks.selectors import HookEvent, selector_matches, validate_selector
 from flux.models import HookModel, RepositoryFactory
 
@@ -227,6 +230,31 @@ class HookRegistry:
                 .all()
             )
 
+    @staticmethod
+    def _derive_hook_name(*, owner_type: str, owner_ref: str, spec: dict, suffix: str) -> str:
+        """Derive a stable, owner-qualified name for a spec that has none.
+
+        Two properties the derivation must hold, each fixing a distinct bug:
+
+        - Owner-qualified: the full ``owner_type``/``owner_ref`` pair goes
+          into the name, not just ``owner_ref``'s trailing path segment.
+          ``HookModel.name`` is globally unique, so two owners whose ref
+          happens to share a trailing segment (two namespaces' same-named
+          workflow, or a workflow and an agent sharing a name) would
+          otherwise derive the identical name and the second's create would
+          fail the unique constraint.
+        - Content-derived, not position-derived: the suffix is a digest of
+          the spec's identity (``on``/``workflow``/``principal``), not its
+          index in the ``specs`` list. Keying on position meant removing or
+          reordering an earlier spec shifted every later spec's derived
+          name, silently handing a still-declared spec's row (and delivery
+          history) to whatever spec now landed on that name.
+        """
+        owner_key = f"{owner_type}_{owner_ref}".replace("/", "_")
+        digest_input = f"{spec['on']}|{spec['workflow']}|{spec['principal']}"
+        digest = hashlib.sha256(digest_input.encode()).hexdigest()[:12]
+        return f"{owner_key}{suffix}_{digest}"
+
     def reconcile_owned_hooks(
         self,
         *,
@@ -244,11 +272,15 @@ class HookRegistry:
         the ``hook_deliveries.hook_id`` FK cascade).
         """
         suffix = Configuration.get().settings.hooks.auto_hook_suffix
-        base_name = owner_ref.rsplit("/", 1)[-1]
 
         desired: dict[str, dict] = {}
-        for index, spec in enumerate(specs):
-            name = spec.get("name") or f"{base_name}{suffix}_{index}"
+        for spec in specs:
+            name = spec.get("name") or self._derive_hook_name(
+                owner_type=owner_type,
+                owner_ref=owner_ref,
+                spec=spec,
+                suffix=suffix,
+            )
             desired[name] = spec
 
         existing = {
@@ -267,18 +299,21 @@ class HookRegistry:
             if name in existing:
                 result.append(self.update_hook(name, **fields))
             else:
-                result.append(
-                    self.create_hook(
-                        name=name,
-                        selectors=fields["selectors"],
-                        workflow_ref=fields["workflow_ref"],
-                        principal=fields["principal"],
-                        owner_type=owner_type,
-                        owner_ref=owner_ref,
-                        max_attempts=fields["max_attempts"],
-                        created_by=created_by,
-                    ),
-                )
+                try:
+                    result.append(
+                        self.create_hook(
+                            name=name,
+                            selectors=fields["selectors"],
+                            workflow_ref=fields["workflow_ref"],
+                            principal=fields["principal"],
+                            owner_type=owner_type,
+                            owner_ref=owner_ref,
+                            max_attempts=fields["max_attempts"],
+                            created_by=created_by,
+                        ),
+                    )
+                except IntegrityError as e:
+                    raise HookNameConflictError(name) from e
 
         for stale_name in set(existing) - set(desired):
             self.delete_hook(stale_name)

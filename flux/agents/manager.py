@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from flux.agents.types import AgentDefinition
 from flux.config_manager import ConfigManager
+from flux.errors import HookNameConflictError
 from flux.hooks.registry import HookRegistry
 from flux.models import AgentModel, RepositoryFactory
 
@@ -71,11 +72,18 @@ class DatabaseAgentManager(AgentManager):
         # session boundary; a failure here leaves the agents row behind, which
         # update()/delete() cope with idempotently.
         ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
-        HookRegistry.create().reconcile_owned_hooks(
-            owner_type="agent",
-            owner_ref=definition.name,
-            specs=definition.hooks,
-        )
+        try:
+            HookRegistry.create().reconcile_owned_hooks(
+                owner_type="agent",
+                owner_ref=definition.name,
+                specs=definition.hooks,
+            )
+        except HookNameConflictError as e:
+            # This manager has no HTTP layer of its own -- it speaks in
+            # ValueError the same way the "already exists"/"not found"
+            # raises above do, and admin_routes.py already maps that to a
+            # clean 4xx instead of a raw exception reaching the response.
+            raise ValueError(str(e)) from e
 
     def get(self, name: str) -> AgentDefinition:
         with self.session() as session:
@@ -94,11 +102,14 @@ class DatabaseAgentManager(AgentManager):
                 setattr(model, key, value)
             session.commit()
         ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
-        HookRegistry.create().reconcile_owned_hooks(
-            owner_type="agent",
-            owner_ref=definition.name,
-            specs=definition.hooks,
-        )
+        try:
+            HookRegistry.create().reconcile_owned_hooks(
+                owner_type="agent",
+                owner_ref=definition.name,
+                specs=definition.hooks,
+            )
+        except HookNameConflictError as e:
+            raise ValueError(str(e)) from e
 
     def delete(self, name: str) -> None:
         with self.session() as session:

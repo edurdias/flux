@@ -24,6 +24,7 @@ from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
 from flux.errors import (
     ExecutionContextNotFoundError,
+    HookNameConflictError,
     WorkerNotFoundError,
     WorkflowNotFoundError,
 )
@@ -149,6 +150,13 @@ class WorkflowRoutesMixin:
                 raise HTTPException(status_code=400, detail=str(e))
             except HTTPException:
                 raise
+            except HookNameConflictError as e:
+                # The workflow row above is already committed (catalog.save
+                # happens before reconcile) -- this only keeps the response
+                # honest about the hook half of the deployment failing,
+                # rather than surfacing raw SQL via the generic handler below.
+                logger.error(f"Hook name conflict while saving workflow: {str(e)}")
+                raise HTTPException(status_code=409, detail=str(e))
             except Exception as e:
                 logger.error(f"Error saving workflow: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")

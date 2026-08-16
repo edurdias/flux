@@ -160,7 +160,32 @@ class TestAgentDeclaredHookRegistration:
         assert resp.status_code in (400, 403, 404), resp.text
         assert client.get("/hooks").json()["hooks"] == []
 
-    def test_updating_replaces_the_same_row(self, client):
+    def test_updating_with_the_same_hooks_keeps_the_same_row(self, client):
+        _seed_workflow("ops", "notify")
+        _seed_principal()
+        client.post("/admin/agents", json=_agent_payload())
+        first_id = client.get("/hooks").json()["hooks"][0]["id"]
+
+        # A PUT that re-declares the identical, unchanged hook must not
+        # touch its identity -- the derived name is content-addressed, so
+        # an identical spec re-derives the identical name every time.
+        resp = client.put("/admin/agents/helper", json=_agent_payload())
+
+        assert resp.status_code == 200, resp.text
+        hooks = client.get("/hooks").json()["hooks"]
+        assert len(hooks) == 1
+        assert hooks[0]["id"] == first_id
+        assert hooks[0]["selectors"] == ["execution:agents:agent_chat:completed"]
+
+    def test_updating_with_a_changed_selector_replaces_the_row(self, client):
+        # An unnamed hook's identity is derived from (on, workflow,
+        # principal) -- see flux/hooks/registry.py::HookRegistry.
+        # _derive_hook_name. Editing `on` is therefore a *different*
+        # declared identity, not an in-place edit of the old one: the old
+        # row (and its delivery history) is deleted as no-longer-declared,
+        # and a new row is created under the new derived name. A hook that
+        # must keep a stable identity across an edited selector needs an
+        # explicit `name=`.
         _seed_workflow("ops", "notify")
         _seed_principal()
         client.post("/admin/agents", json=_agent_payload())
@@ -180,7 +205,7 @@ class TestAgentDeclaredHookRegistration:
         assert resp.status_code == 200, resp.text
         hooks = client.get("/hooks").json()["hooks"]
         assert len(hooks) == 1
-        assert hooks[0]["id"] == first_id
+        assert hooks[0]["id"] != first_id
         assert hooks[0]["selectors"] == ["execution:agents:agent_chat:failed"]
 
     def test_updating_without_hooks_removes_them(self, client):

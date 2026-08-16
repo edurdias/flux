@@ -178,6 +178,24 @@ class HookNotFoundError(ExecutionError):
         super().__init__(message=f"Hook '{name}' not found.")
 
 
+class HookNameConflictError(ExecutionError):
+    """A hook name (derived or explicit) collided with an existing row.
+
+    Raised by ``HookRegistry.reconcile_owned_hooks`` when the database's
+    unique-name constraint rejects a create -- e.g. two owners deriving the
+    same name despite qualification, or an explicit ``spec["name"]`` already
+    taken by an unrelated hook. ``reconcile_owned_hooks`` has no access to
+    the HTTP layer, so it raises this plain exception instead of letting the
+    underlying ``IntegrityError``/raw SQL text reach a caller; its callers
+    (``flux/api/workflow_routes.py``, ``flux/agents/manager.py``) catch it
+    and translate it into their own clean error response.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+        super().__init__(message=f"Hook name '{name}' conflicts with an existing hook.")
+
+
 class DatabaseConnectionError(Exception):
     """Database connection related errors"""
 

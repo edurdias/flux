@@ -5,6 +5,9 @@ only a hook that disappeared from the declaration is deleted."""
 
 from __future__ import annotations
 
+import pytest
+
+from flux.errors import HookNameConflictError
 from flux.hooks.registry import HookRegistry
 from flux.models import HookDeliveryModel, RepositoryFactory
 
@@ -178,6 +181,147 @@ class TestReconcileOwnedHooks:
         )
 
         assert registry.get_hook("user-made") is not None
+
+
+class TestNameDerivationIsContentStableNotPositional:
+    """The derived name must track a spec's content, not its index in the
+    ``specs`` list -- position-keying let removing or reordering an earlier
+    spec silently hand a still-declared spec's row (and delivery history) to
+    whatever spec happened to land on that index's name."""
+
+    def test_removing_the_first_of_two_specs_keeps_the_seconds_identity(self, isolated_db):
+        registry = HookRegistry.create()
+        created = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec("execution:release:pipeline:failed"),
+                _spec("execution:release:pipeline:completed"),
+            ],
+        )
+        first_id, second_id = created[0].id, created[1].id
+        with RepositoryFactory.create_repository().session() as session:
+            session.add(
+                HookDeliveryModel(
+                    hook_id=second_id,
+                    event_key="exec-1:ev-1",
+                    payload={},
+                    status="delivered",
+                ),
+            )
+            session.commit()
+
+        # Reconcile again with only the SECOND spec -- the first disappeared.
+        after = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[_spec("execution:release:pipeline:completed")],
+        )
+
+        assert len(after) == 1
+        assert after[0].id == second_id
+        assert after[0].id != first_id
+        with RepositoryFactory.create_repository().session() as session:
+            assert session.query(HookDeliveryModel).filter_by(hook_id=second_id).count() == 1
+
+    def test_reordering_two_specs_does_not_swap_hook_identities(self, isolated_db):
+        registry = HookRegistry.create()
+        created = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec("execution:release:pipeline:failed"),
+                _spec("execution:release:pipeline:completed"),
+            ],
+        )
+        id_by_selector = {row.selectors[0]: row.id for row in created}
+
+        # Same two specs, reversed order -- must not delete+recreate or swap.
+        after = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec("execution:release:pipeline:completed"),
+                _spec("execution:release:pipeline:failed"),
+            ],
+        )
+
+        after_by_selector = {row.selectors[0]: row.id for row in after}
+        assert after_by_selector == id_by_selector
+
+
+class TestNameDerivationIsOwnerQualified:
+    """The derived name must incorporate the full owner (type + ref), not
+    just ``owner_ref``'s trailing path segment -- otherwise two owners whose
+    ref happens to share a trailing segment derive the identical name and
+    collide on ``HookModel.name``'s global uniqueness."""
+
+    def test_two_workflow_namespaces_with_the_same_workflow_name_derive_distinct_names(
+        self,
+        isolated_db,
+    ):
+        registry = HookRegistry.create()
+
+        release_hooks = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[_spec("execution:release:pipeline:failed", workflow="release/notify")],
+        )
+        ops2_hooks = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="ops2/pipeline",
+            specs=[_spec("execution:ops2:pipeline:failed", workflow="ops2/notify")],
+        )
+
+        assert release_hooks[0].name != ops2_hooks[0].name
+        assert registry.get_hook(release_hooks[0].name).owner_ref == "release/pipeline"
+        assert registry.get_hook(ops2_hooks[0].name).owner_ref == "ops2/pipeline"
+
+    def test_a_workflow_and_an_agent_sharing_a_name_derive_distinct_names(self, isolated_db):
+        registry = HookRegistry.create()
+
+        workflow_hooks = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/helper",
+            specs=[_spec("execution:release:helper:failed", workflow="release/notify")],
+        )
+        agent_hooks = registry.reconcile_owned_hooks(
+            owner_type="agent",
+            owner_ref="helper",
+            specs=[_spec("execution:agents:agent_chat:completed", workflow="agents/notify")],
+        )
+
+        assert workflow_hooks[0].name != agent_hooks[0].name
+        assert registry.get_hook(workflow_hooks[0].name).owner_type == "workflow"
+        assert registry.get_hook(agent_hooks[0].name).owner_type == "agent"
+
+
+class TestNameConflictSurfacesACleanErrorType:
+    def test_a_genuine_name_collision_raises_hook_name_conflict_not_integrity_error(
+        self,
+        isolated_db,
+    ):
+        registry = HookRegistry.create()
+        registry.create_hook(
+            name="already-taken",
+            selectors=["execution:*:*:failed"],
+            workflow_ref="ops/incident",
+            principal="p",
+            owner_type="user",
+            owner_ref="admin",
+        )
+
+        with pytest.raises(HookNameConflictError) as exc_info:
+            registry.reconcile_owned_hooks(
+                owner_type="workflow",
+                owner_ref="release/pipeline",
+                specs=[_spec("execution:release:pipeline:failed", name="already-taken")],
+            )
+
+        assert "already-taken" in str(exc_info.value)
+        # The conflicting create must not leave a half-applied reconcile
+        # behind: no row for this owner should have been committed.
+        assert registry.list_owned_hooks(owner_type="workflow", owner_ref="release/pipeline") == []
 
 
 class TestDeleteOwnedHooks:
