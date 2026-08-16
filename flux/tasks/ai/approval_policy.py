@@ -8,10 +8,12 @@ reached when a gate fires*. The split:
   ``strict`` gates every tool call; ``default`` gates what declares
   ``requires_approval`` (today's behavior); ``autonomous`` removes the
   gates (the old ``approval_mode="autonomous"``).
-- **Approval routing** — *how* a fired gate reaches a human: ``inline``
-  pauses on the current surface (today's behavior); ``notify`` declares
-  reliance on out-of-band delivery (issue #144 — mechanism pending its
-  design), resolvable from any surface once it lands.
+- **Approval routing** — *how* a fired gate reaches a human. ``inline`` is
+  the only mode: it pauses on the current surface (today's behavior).
+  An out-of-band ``notify`` mode was declared (issue #144) but never
+  wired to a delivery mechanism; #144 closed as not-planned and the
+  value was removed rather than left as a silent no-op. The field stays
+  so a future delivery design has a validated place to declare into.
 
 The invariant, enforced here by construction: routing never changes the
 ceiling, and the ceiling never changes routing — they are resolved and
@@ -28,7 +30,7 @@ import warnings
 logger = logging.getLogger(__name__)
 
 AUTONOMY_LEVELS = ("strict", "default", "autonomous")
-ROUTING_MODES = ("inline", "notify")
+ROUTING_MODES = ("inline",)
 
 
 def resolve_approval_policy(
@@ -57,7 +59,7 @@ def resolve_approval_policy(
     if approval_mode is not None:
         warnings.warn(
             "approval_mode is deprecated; use autonomy= (strict/default/"
-            "autonomous) and approval_routing= (inline/notify) instead",
+            "autonomous) and approval_routing= (inline) instead",
             DeprecationWarning,
             stacklevel=3,
         )

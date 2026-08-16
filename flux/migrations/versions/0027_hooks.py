@@ -6,8 +6,8 @@ obligation to react to one specific event -- written in the same transaction
 as the event it reports (the outbox pattern) and drained later by the
 scheduler tick, so no delivery blocks a checkpoint and no event is missed.
 
-Revision ID: 0026_hooks
-Revises: 0025_execution_name
+Revision ID: 0027_hooks
+Revises: 0026_drop_notify_routing
 Create Date: 2026-08-14
 """
 
@@ -18,8 +18,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0026_hooks"
-down_revision: str | None = "0025_execution_name"
+revision: str = "0027_hooks"
+down_revision: str | None = "0026_drop_notify_routing"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
