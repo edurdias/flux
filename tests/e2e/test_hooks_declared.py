@@ -90,7 +90,11 @@ def _wait_for_delivery(cli, hook_name: str, status: str, timeout: int) -> dict:
 
 def _owned_hook_name(cli) -> str:
     hooks = cli.hook_list()["hooks"]
-    owned = [h for h in hooks if h["owner_type"] == "workflow" and h["owner_ref"] == "default/declared_hook_source"]
+    owned = [
+        h
+        for h in hooks
+        if h["owner_type"] == "workflow" and h["owner_ref"] == "default/declared_hook_source"
+    ]
     assert len(owned) == 1, hooks
     return owned[0]["name"]
 
