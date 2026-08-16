@@ -634,3 +634,147 @@ async def my_wf(ctx: ExecutionContext):
     catalog.enrich(source, infos)
     assert os.environ.get(marker) == "executed"
     os.environ.pop(marker, None)
+
+
+def test_a_workflow_declaring_a_confined_hook_registers_it():
+    source = b"""
+from flux import workflow
+from flux.hooks import hook
+
+
+@workflow.with_options(
+    name="notify_on_fail",
+    namespace="release",
+    hooks=[
+        hook.run(
+            on="execution:release:notify_on_fail:failed",
+            workflow="ops/notify_slack",
+            principal="notifier",
+        ),
+    ],
+)
+async def notify_on_fail(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse_static(source)
+    assert infos[0].metadata["hooks"] == [
+        {
+            "on": "execution:release:notify_on_fail:failed",
+            "workflow": "ops/notify_slack",
+            "principal": "notifier",
+            "name": None,
+            "max_attempts": 5,
+        },
+    ]
+
+
+def test_a_workflow_with_no_hooks_kwarg_has_no_hooks_metadata():
+    source = b"""
+from flux import workflow
+
+
+@workflow
+async def plain(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse_static(source)
+    assert "hooks" not in infos[0].metadata
+
+
+def test_a_selector_naming_another_workflow_raises_syntax_error():
+    source = b"""
+from flux import workflow
+from flux.hooks import hook
+
+
+@workflow.with_options(
+    namespace="release",
+    hooks=[
+        hook.run(
+            on="execution:release:some_other_workflow:failed",
+            workflow="ops/notify_slack",
+            principal="notifier",
+        ),
+    ],
+)
+async def notify_on_fail(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    with pytest.raises(SyntaxError, match="release/notify_on_fail"):
+        catalog.parse_static(source)
+
+
+def test_scope_confinement_is_checked_even_when_hooks_precedes_namespace_in_source():
+    """``hooks=`` can appear before ``namespace=`` in the decorator's keyword
+    list; the namespace used for the confinement check must still be the
+    final one, not DEFAULT_NAMESPACE."""
+    source = b"""
+from flux import workflow
+from flux.hooks import hook
+
+
+@workflow.with_options(
+    hooks=[
+        hook.run(
+            on="execution:release:notify_on_fail:failed",
+            workflow="ops/notify_slack",
+            principal="notifier",
+        ),
+    ],
+    namespace="release",
+    name="notify_on_fail",
+)
+async def notify_on_fail(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    infos = catalog.parse_static(source)
+    assert infos[0].metadata["hooks"][0]["on"] == "execution:release:notify_on_fail:failed"
+
+
+def test_a_non_literal_hooks_value_raises_syntax_error():
+    source = b"""
+from flux import workflow
+
+_HOOKS = []
+
+
+@workflow.with_options(hooks=_HOOKS)
+async def plain(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    with pytest.raises(SyntaxError, match="hooks"):
+        catalog.parse_static(source)
+
+
+def test_a_non_hook_run_call_in_the_list_raises_syntax_error():
+    source = b"""
+from flux import workflow
+
+
+@workflow.with_options(hooks=[dict(on="execution:*", workflow="ops/x", principal="p")])
+async def plain(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    with pytest.raises(SyntaxError, match="hook.run"):
+        catalog.parse_static(source)
+
+
+def test_a_missing_required_hook_run_argument_raises_syntax_error():
+    source = b"""
+from flux import workflow
+from flux.hooks import hook
+
+
+@workflow.with_options(hooks=[hook.run(on="execution:*:*:failed", workflow="ops/x")])
+async def plain(ctx):
+    return ctx.input
+"""
+    catalog = DatabaseWorkflowCatalog.__new__(DatabaseWorkflowCatalog)
+    with pytest.raises(SyntaxError):
+        catalog.parse_static(source)

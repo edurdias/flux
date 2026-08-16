@@ -357,6 +357,7 @@ class WorkflowCatalog(ABC):
                     workflow_runner = None
                     workflow_routing = None
                     workflow_runner_options = None
+                    workflow_hooks = None
 
                     for decorator in node.decorator_list:
                         # Simple @workflow decorator
@@ -405,9 +406,24 @@ class WorkflowCatalog(ABC):
                                     workflow_runner_options = self._extract_runner_options(
                                         kw.value,
                                     )
+                                elif kw.arg == "hooks":
+                                    workflow_hooks = self._extract_hooks(kw.value)
 
                             if not workflow_name:
                                 workflow_name = node.name
+
+                            if workflow_hooks:
+                                from flux.hooks.declarations import validate_workflow_scope
+
+                                for spec in workflow_hooks:
+                                    try:
+                                        validate_workflow_scope(
+                                            spec["on"],
+                                            workflow_namespace,
+                                            workflow_name,
+                                        )
+                                    except ValueError as e:
+                                        raise SyntaxError(str(e)) from e
 
                             break
 
@@ -428,6 +444,9 @@ class WorkflowCatalog(ABC):
                         if workflow_runner_options:
                             wf_metadata = dict(wf_metadata or {})
                             wf_metadata["runner_options"] = workflow_runner_options
+                        if workflow_hooks:
+                            wf_metadata = dict(wf_metadata or {})
+                            wf_metadata["hooks"] = workflow_hooks
                         workflow_infos.append(
                             WorkflowInfo(
                                 id=f"{workflow_namespace}/{workflow_name}",
@@ -828,6 +847,61 @@ class WorkflowCatalog(ABC):
                 f"runner_options must be a literal dict: {e}",
             ) from e
         return validate_runner_options(options) or None
+
+    def _extract_hooks(self, node: ast.AST) -> list[dict]:
+        """Extract a ``hooks=[hook.run(...), ...]`` declaration into its spec list.
+
+        Unlike ``requests``/``affinity``, an unparseable ``hooks`` value
+        raises instead of returning None: a hook mints an execution under a
+        stored principal, so silently dropping one would register the
+        workflow with different privileges than its source declares — the
+        same reasoning ``_extract_routing`` documents for routing policies.
+
+        Building through the real ``hook.run(...)`` factory reuses its
+        validation (selector well-formedness, required arguments,
+        ``max_attempts``). Scope confinement (each selector must observe
+        only the declaring workflow) is validated by the caller once
+        ``workflow_namespace``/``workflow_name`` are final, not here —
+        ``hooks`` can appear before ``namespace`` in the decorator's
+        keyword list.
+        """
+        from flux.hooks.declarations import hook as hook_dsl
+
+        if not isinstance(node, ast.List):
+            raise SyntaxError(
+                "hooks must be a literal list of hook.run(...) calls; build "
+                "it with flux.hooks.hook.run(...) using literal values",
+            )
+
+        specs = []
+        for element in node.elts:
+            if (
+                not isinstance(element, ast.Call)
+                or not isinstance(element.func, ast.Attribute)
+                or not isinstance(element.func.value, ast.Name)
+                or element.func.value.id != "hook"
+                or element.func.attr != "run"
+            ):
+                raise SyntaxError(
+                    "each hooks[] entry must be a literal hook.run(...) call",
+                )
+            if element.args:
+                raise SyntaxError("hook.run(...) takes only keyword arguments")
+
+            fields: dict[str, Any] = {}
+            for kw in element.keywords:
+                if kw.arg is None or not isinstance(kw.value, ast.Constant):
+                    raise SyntaxError(
+                        f"hook.run() argument {kw.arg!r} must be a literal value",
+                    )
+                fields[kw.arg] = kw.value.value
+
+            try:
+                specs.append(hook_dsl.run(**fields))
+            except (TypeError, ValueError) as e:
+                raise SyntaxError(f"invalid hook.run() call: {e}") from e
+
+        return specs
 
     def _extract_routing(self, node: ast.AST) -> dict | None:
         """Extract a ``routing=score(...)`` policy into its JSON spec.
