@@ -413,6 +413,83 @@ class TestNameConflictSurfacesACleanErrorType:
         assert registry.list_owned_hooks(owner_type="workflow", owner_ref="release/pipeline") == []
 
 
+class TestCollidingSpecsWithinOneCallAreNotSilentlyDropped:
+    """Before this fix, two specs in the *same* ``specs`` list resolving to
+    the same name (a reused explicit ``name=``, or two unnamed specs whose
+    derived digest collided) silently overwrote each other while building
+    ``desired`` -- dropping one hook with no error at all, before either
+    ever reached the database (so this predates the IntegrityError ->
+    HookNameConflictError translation covered above)."""
+
+    def test_two_specs_sharing_an_explicit_name_raises(self, isolated_db):
+        registry = HookRegistry.create()
+
+        with pytest.raises(HookNameConflictError) as exc_info:
+            registry.reconcile_owned_hooks(
+                owner_type="workflow",
+                owner_ref="release/pipeline",
+                specs=[
+                    _spec(
+                        "execution:release:pipeline:failed",
+                        workflow="ops/notify",
+                        principal="notifier",
+                        name="dup",
+                    ),
+                    _spec(
+                        "execution:release:pipeline:completed",
+                        workflow="ops/page",
+                        principal="pager",
+                        name="dup",
+                    ),
+                ],
+            )
+
+        assert "dup" in str(exc_info.value)
+        # Neither spec must have been committed -- the conflict is caught
+        # while building `desired`, before either reaches the database.
+        assert registry.list_owned_hooks(owner_type="workflow", owner_ref="release/pipeline") == []
+
+    def test_two_unnamed_specs_with_the_same_derived_identity_but_different_max_attempts_raises(
+        self,
+        isolated_db,
+    ):
+        # Same on/workflow/principal derives the same name (the digest
+        # deliberately excludes max_attempts), but the specs disagree on
+        # max_attempts -- silently keeping the last one would discard a
+        # real difference between the two declarations, not just a
+        # duplicate of the same one.
+        registry = HookRegistry.create()
+
+        with pytest.raises(HookNameConflictError):
+            registry.reconcile_owned_hooks(
+                owner_type="workflow",
+                owner_ref="release/pipeline",
+                specs=[
+                    _spec("execution:release:pipeline:failed", max_attempts=3),
+                    _spec("execution:release:pipeline:failed", max_attempts=9),
+                ],
+            )
+
+    def test_two_byte_for_byte_identical_unnamed_specs_dedupe_without_raising(self, isolated_db):
+        # Two specs that are exactly the same declaration (same on/
+        # workflow/principal/max_attempts, both unnamed) describe the same
+        # hook twice. Nothing about a second, identical copy is lost by
+        # collapsing it into the first, so this is a legitimate dedup, not
+        # the silent-drop bug above -- it must not raise.
+        registry = HookRegistry.create()
+
+        created = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec("execution:release:pipeline:failed"),
+                _spec("execution:release:pipeline:failed"),
+            ],
+        )
+
+        assert len(created) == 1
+
+
 class TestDeleteOwnedHooks:
     def test_deletes_every_hook_the_owner_declared(self, isolated_db):
         registry = HookRegistry.create()

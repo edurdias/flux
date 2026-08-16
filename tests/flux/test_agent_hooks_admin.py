@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from flux.agents.types import AgentDefinition
 from flux.config import Configuration
+from flux.hooks.registry import HookRegistry
 
 
 class TestAgentDefinitionHooks:
@@ -232,3 +233,42 @@ class TestAgentDeclaredHookRegistration:
 
         assert resp.status_code == 200, resp.text
         assert client.get("/hooks").json()["hooks"] == []
+
+    def test_updating_with_a_hook_name_that_collides_with_another_owners_hook_is_409(
+        self,
+        client,
+    ):
+        # Regression for a bug where admin_update_agent mapped every
+        # ValueError from AgentManager.update() to 404 -- including a hook
+        # name conflict, which DatabaseAgentManager.update() used to turn
+        # into a plain ValueError indistinguishable from "agent not found".
+        # A conflict must surface as 409, matching admin_create_agent.
+        _seed_workflow("ops", "notify")
+        _seed_principal()
+        client.post("/admin/agents", json=_agent_payload())
+
+        # A hook already owned by someone else holds the name the update
+        # below will declare explicitly.
+        HookRegistry.create().create_hook(
+            name="already-taken",
+            selectors=["execution:*:*:failed"],
+            workflow_ref="ops/notify",
+            principal="notifier",
+            owner_type="user",
+            owner_ref="admin",
+        )
+
+        updated = _agent_payload(
+            hooks=[
+                {
+                    "on": "execution:agents:agent_chat:completed",
+                    "workflow": "ops/notify",
+                    "principal": "notifier",
+                    "name": "already-taken",
+                },
+            ],
+        )
+        resp = client.put("/admin/agents/helper", json=updated)
+
+        assert resp.status_code == 409, resp.text
+        assert resp.status_code != 404

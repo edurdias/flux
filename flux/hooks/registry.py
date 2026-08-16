@@ -295,6 +295,23 @@ class HookRegistry:
                 spec=spec,
                 suffix=suffix,
             )
+            if name in desired and desired[name] != spec:
+                # Two specs in *this* call collided on the same name -- a
+                # reused explicit `name=`, or two unnamed specs whose
+                # derived digest (on/workflow/principal) matches but some
+                # other field (e.g. max_attempts) doesn't. Silently keeping
+                # the last one would drop a declared hook with no error.
+                # A spec that is a byte-for-byte duplicate of one already
+                # seen is not a conflict -- it describes the same hook
+                # twice and dedupes for free below.
+                raise HookNameConflictError(
+                    name,
+                    detail=(
+                        f"Hook name '{name}' is claimed by two different hook "
+                        "declarations in the same request; give one an "
+                        "explicit name= to disambiguate."
+                    ),
+                )
             desired[name] = spec
 
         existing = {

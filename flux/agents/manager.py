@@ -102,14 +102,15 @@ class DatabaseAgentManager(AgentManager):
                 setattr(model, key, value)
             session.commit()
         ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
-        try:
-            HookRegistry.create().reconcile_owned_hooks(
-                owner_type="agent",
-                owner_ref=definition.name,
-                specs=definition.hooks,
-            )
-        except HookNameConflictError as e:
-            raise ValueError(str(e)) from e
+        # Deliberately not wrapped in ValueError like create()'s equivalent
+        # block below: admin_update_agent needs to tell a hook-name conflict
+        # (409) apart from this method's own "not found" ValueError (404),
+        # and both would look identical as ValueError once wrapped.
+        HookRegistry.create().reconcile_owned_hooks(
+            owner_type="agent",
+            owner_ref=definition.name,
+            specs=definition.hooks,
+        )
 
     def delete(self, name: str) -> None:
         with self.session() as session:
