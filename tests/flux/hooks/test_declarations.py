@@ -65,7 +65,11 @@ class TestValidateWorkflowScope:
 
     def test_a_selector_naming_a_different_workflow_is_rejected(self):
         with pytest.raises(ValueError, match="release/pipeline"):
-            validate_workflow_scope("execution:release:other_workflow:failed", "release", "pipeline")
+            validate_workflow_scope(
+                "execution:release:other_workflow:failed",
+                "release",
+                "pipeline",
+            )
 
     def test_a_selector_naming_a_different_namespace_is_rejected(self):
         with pytest.raises(ValueError, match="release/pipeline"):
