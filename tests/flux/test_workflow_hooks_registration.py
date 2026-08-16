@@ -3,9 +3,10 @@
 written, owner-scoped reconciliation on save, and a real delete-with-
 workflow on workflow removal. Auth is off here, matching
 tests/flux/test_hook_routes.py; permission-string enforcement for the
-escalation/impersonation gates is exercised in
-tests/security/test_hook_authz.py-adjacent tests added by this task in the
-same style."""
+escalation (`hook:*:create`) and impersonation (`principal:*:impersonate`)
+gates is exercised with auth enabled in
+tests/security/test_workflow_hook_authz.py, in the same style as
+tests/security/test_hook_authz.py."""
 
 from __future__ import annotations
 
