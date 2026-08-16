@@ -81,6 +81,7 @@ def build_envelope(
             "state": event.type if event.domain == "execution" else None,
             "value": event.value,
             "occurred_at": event.occurred_at,
+            "agent": event.agent,
         },
     }
 

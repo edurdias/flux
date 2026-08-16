@@ -14,6 +14,7 @@ from fastapi import Body
 from fastapi import Depends
 from fastapi import HTTPException
 
+from flux.errors import HookNameConflictError
 from flux.secret_managers import SecretManager
 from flux.security.dependencies import require_permission
 from flux.security.identity import FluxIdentity
@@ -322,6 +323,18 @@ class AdminRoutesMixin:
                                 status_code=403,
                                 detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
+                # Declaring hooks is a further escalation beyond
+                # agent:*:create: each fires its target under a stored
+                # principal, the same rule workflow-declared hooks follow.
+                for spec in definition.hooks:
+                    await self._require_may_fire_as(
+                        identity,
+                        spec["principal"],
+                        auth_config=auth_config,
+                        auth_service=auth_service,
+                        principal_registry=principal_registry,
+                    )
+                    await self._require_runnable_target(spec["principal"], spec["workflow"])
                 manager = AgentManager.current()
                 manager.create(definition)
                 return {
@@ -361,6 +374,18 @@ class AdminRoutesMixin:
                                 status_code=403,
                                 detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
+                # Declaring hooks is a further escalation beyond
+                # agent:*:create: each fires its target under a stored
+                # principal, the same rule workflow-declared hooks follow.
+                for spec in definition.hooks:
+                    await self._require_may_fire_as(
+                        identity,
+                        spec["principal"],
+                        auth_config=auth_config,
+                        auth_service=auth_service,
+                        principal_registry=principal_registry,
+                    )
+                    await self._require_runnable_target(spec["principal"], spec["workflow"])
                 manager = AgentManager.current()
                 manager.update(definition)
                 return {
@@ -369,6 +394,12 @@ class AdminRoutesMixin:
                 }
             except HTTPException:
                 raise
+            except HookNameConflictError as e:
+                # A hook name collision is not "agent not found" -- map it
+                # to 409 the same way admin_create_agent's ValueError branch
+                # already does, instead of the generic ValueError-is-404
+                # mapping below.
+                raise HTTPException(status_code=409, detail=str(e))
             except ValueError as ex:
                 raise HTTPException(status_code=404, detail=str(ex))
             except Exception as ex:

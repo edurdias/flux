@@ -24,9 +24,11 @@ from flux.catalogs import WorkflowCatalog
 from flux.context_managers import ContextManager
 from flux.errors import (
     ExecutionContextNotFoundError,
+    HookNameConflictError,
     WorkerNotFoundError,
     WorkflowNotFoundError,
 )
+from flux.hooks.registry import HookRegistry
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -94,6 +96,34 @@ class WorkflowRoutesMixin:
                                 detail=f"Permission denied: requires '{required}'",
                             )
 
+                # Declaring hooks widens what registering this workflow can
+                # do: each fires its target under a stored principal, so
+                # workflow:*:register alone must not mint one -- the same
+                # requires_code_upload_permission pattern agent definitions
+                # use for tools_file/workflow_file/skills_dir. Checked before
+                # enrich()/save() so an unauthorized declaration never
+                # touches the database.
+                for wf in workflows:
+                    hook_specs = (wf.metadata or {}).get("hooks") or []
+                    if not hook_specs:
+                        continue
+                    if auth_service is not None and auth_config.enabled:
+                        required = "hook:*:create"
+                        if not await auth_service.is_authorized(identity, required):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Permission denied: requires '{required}'",
+                            )
+                    for spec in hook_specs:
+                        await self._require_may_fire_as(
+                            identity,
+                            spec["principal"],
+                            auth_config=auth_config,
+                            auth_service=auth_service,
+                            principal_registry=principal_registry,
+                        )
+                        await self._require_runnable_target(spec["principal"], spec["workflow"])
+
                 # Authorized: now it is safe to import the module for metadata.
                 catalog.enrich(source, workflows)
 
@@ -102,12 +132,31 @@ class WorkflowRoutesMixin:
 
                 self._auto_create_schedules_from_source(source, workflows)
 
+                # Every registered version reconciles the same owner-scoped
+                # rows (hooks are not version-scoped, matching schedules) --
+                # unconditionally, so a redeploy that drops the hooks= kwarg
+                # removes previously-declared hooks instead of orphaning them.
+                for wf in workflows:
+                    HookRegistry.create().reconcile_owned_hooks(
+                        owner_type="workflow",
+                        owner_ref=f"{wf.namespace}/{wf.name}",
+                        specs=(wf.metadata or {}).get("hooks") or [],
+                        created_by=identity.subject if identity else None,
+                    )
+
                 return result
             except SyntaxError as e:
                 logger.error(f"Syntax error while saving workflow: {str(e)}")
                 raise HTTPException(status_code=400, detail=str(e))
             except HTTPException:
                 raise
+            except HookNameConflictError as e:
+                # The workflow row above is already committed (catalog.save
+                # happens before reconcile) -- this only keeps the response
+                # honest about the hook half of the deployment failing,
+                # rather than surfacing raw SQL via the generic handler below.
+                logger.error(f"Hook name conflict while saving workflow: {str(e)}")
+                raise HTTPException(status_code=409, detail=str(e))
             except Exception as e:
                 logger.error(f"Error saving workflow: {str(e)}")
                 raise HTTPException(status_code=500, detail=f"Error saving workflow: {str(e)}")
@@ -829,6 +878,28 @@ class WorkflowRoutesMixin:
                     )
 
                 catalog.delete(namespace, workflow_name, version)
+
+                # A specific-version delete only removes the workflow
+                # entirely when it was the last version left; hooks are
+                # keyed on the workflow's identity, not a version, so
+                # cleanup mirrors that -- deleting one of several versions
+                # must not touch hooks still owned by the surviving ones.
+                still_exists = True
+                try:
+                    catalog.get(namespace, workflow_name)
+                except WorkflowNotFoundError:
+                    still_exists = False
+
+                if not still_exists:
+                    removed = HookRegistry.create().delete_owned_hooks(
+                        owner_type="workflow",
+                        owner_ref=f"{namespace}/{workflow_name}",
+                    )
+                    if removed:
+                        logger.info(
+                            f"Deleted {removed} hook(s) owned by workflow "
+                            f"'{namespace}/{workflow_name}'",
+                        )
 
                 logger.info(f"Successfully deleted workflow '{namespace}/{workflow_name}'")
                 return {

@@ -22,14 +22,17 @@ consistent without waiting out the TTL.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from flux.config import Configuration
-from flux.errors import HookNotFoundError
+from flux.errors import HookNameConflictError, HookNotFoundError
 from flux.hooks.selectors import HookEvent, selector_matches, validate_selector
 from flux.models import HookModel, RepositoryFactory
 
@@ -49,6 +52,8 @@ class HookIndexEntry:
     workflow_ref: str
     principal: str
     max_attempts: int
+    owner_type: str
+    owner_ref: str
 
 
 _snapshot_lock = threading.Lock()
@@ -96,6 +101,8 @@ class HookRegistry:
                     workflow_ref=row.workflow_ref,
                     principal=row.principal,
                     max_attempts=row.max_attempts,
+                    owner_type=row.owner_type,
+                    owner_ref=row.owner_ref,
                 )
                 for row in rows
             )
@@ -113,7 +120,20 @@ class HookRegistry:
             entry
             for entry in self.snapshot()
             if any(selector_matches(selector, event.key) for selector in entry.selectors)
+            and self._owner_permits(entry, event)
         ]
+
+    @staticmethod
+    def _owner_permits(entry: HookIndexEntry, event: HookEvent) -> bool:
+        """Agent-owned hooks carry a runtime backstop: their selector text
+        cannot discriminate between agents (every session runs
+        agents/agent_chat), so ownership is enforced here instead. Every
+        other owner type relies on its selector text alone -- workflow-
+        declared hooks are scope-confined at registration, user-declared
+        hooks are meant to range freely."""
+        if entry.owner_type != "agent":
+            return True
+        return event.agent == entry.owner_ref
 
     def has_any(self) -> bool:
         return len(self.snapshot()) > 0
@@ -200,3 +220,141 @@ class HookRegistry:
             session.delete(hook)
             session.commit()
             self.invalidate()
+
+    def list_owned_hooks(self, *, owner_type: str, owner_ref: str) -> list[HookModel]:
+        with self._repository.session() as session:
+            return (
+                session.query(HookModel)
+                .filter_by(owner_type=owner_type, owner_ref=owner_ref)
+                .order_by(HookModel.name)
+                .all()
+            )
+
+    @staticmethod
+    def _derive_hook_name(*, owner_type: str, owner_ref: str, spec: dict, suffix: str) -> str:
+        """Derive a stable, owner-qualified name for a spec that has none.
+
+        Two properties the derivation must hold, each fixing a distinct bug:
+
+        - Owner-qualified: the full ``owner_type``/``owner_ref`` pair goes
+          into the name, not just ``owner_ref``'s trailing path segment.
+          ``HookModel.name`` is globally unique, so two owners whose ref
+          happens to share a trailing segment (two namespaces' same-named
+          workflow, or a workflow and an agent sharing a name) would
+          otherwise derive the identical name and the second's create would
+          fail the unique constraint.
+        - Content-derived, not position-derived: the suffix is a digest of
+          the spec's identity (``on``/``workflow``/``principal``), not its
+          index in the ``specs`` list. Keying on position meant removing or
+          reordering an earlier spec shifted every later spec's derived
+          name, silently handing a still-declared spec's row (and delivery
+          history) to whatever spec now landed on that name.
+
+        The digest deliberately covers all three of ``on``, ``workflow`` and
+        ``principal`` -- not ``on`` alone. Hashing only ``on`` was tried and
+        reverted: two unnamed specs sharing one selector but fanning out to
+        different targets (e.g. the same failure notifying two different
+        downstream workflows) would derive the *same* name, so the second
+        spec's entry in ``desired`` silently overwrote the first's -- one of
+        the two hooks was never created, with no error. That silent
+        collapse is worse than this scheme's own accepted trade-off: editing
+        only an unnamed hook's ``workflow``/``principal``/``max_attempts``
+        (leaving ``on`` untouched) also derives a new name and starts a new
+        row rather than updating in place, same as editing ``on`` does. A
+        hook that must keep a stable identity across edits to any of these
+        fields needs an explicit ``name=``.
+        """
+        owner_key = f"{owner_type}_{owner_ref}".replace("/", "_")
+        digest_input = f"{spec['on']}|{spec['workflow']}|{spec['principal']}"
+        digest = hashlib.sha256(digest_input.encode()).hexdigest()[:12]
+        return f"{owner_key}{suffix}_{digest}"
+
+    def reconcile_owned_hooks(
+        self,
+        *,
+        owner_type: str,
+        owner_ref: str,
+        specs: Sequence[dict],
+        created_by: str | None = None,
+    ) -> list[HookModel]:
+        """Create-or-replace-by-derived-name; delete rows no longer declared.
+
+        Keying on name -- not wiping and recreating every owned row -- is
+        what lets a hook that is still declared keep its delivery history
+        across a redeploy. Only rows for specs that disappeared from the
+        declaration are removed, and only they lose their deliveries (via
+        the ``hook_deliveries.hook_id`` FK cascade).
+        """
+        suffix = Configuration.get().settings.hooks.auto_hook_suffix
+
+        desired: dict[str, dict] = {}
+        for spec in specs:
+            name = spec.get("name") or self._derive_hook_name(
+                owner_type=owner_type,
+                owner_ref=owner_ref,
+                spec=spec,
+                suffix=suffix,
+            )
+            if name in desired and desired[name] != spec:
+                # Two specs in *this* call collided on the same name -- a
+                # reused explicit `name=`, or two unnamed specs whose
+                # derived digest (on/workflow/principal) matches but some
+                # other field (e.g. max_attempts) doesn't. Silently keeping
+                # the last one would drop a declared hook with no error.
+                # A spec that is a byte-for-byte duplicate of one already
+                # seen is not a conflict -- it describes the same hook
+                # twice and dedupes for free below.
+                raise HookNameConflictError(
+                    name,
+                    detail=(
+                        f"Hook name '{name}' is claimed by two different hook "
+                        "declarations in the same request; give one an "
+                        "explicit name= to disambiguate."
+                    ),
+                )
+            desired[name] = spec
+
+        existing = {
+            row.name: row
+            for row in self.list_owned_hooks(owner_type=owner_type, owner_ref=owner_ref)
+        }
+
+        result = []
+        for name, spec in desired.items():
+            fields = {
+                "selectors": [spec["on"]],
+                "workflow_ref": spec["workflow"],
+                "principal": spec["principal"],
+                "max_attempts": spec.get("max_attempts", 5),
+            }
+            if name in existing:
+                result.append(self.update_hook(name, **fields))
+            else:
+                try:
+                    result.append(
+                        self.create_hook(
+                            name=name,
+                            selectors=fields["selectors"],
+                            workflow_ref=fields["workflow_ref"],
+                            principal=fields["principal"],
+                            owner_type=owner_type,
+                            owner_ref=owner_ref,
+                            max_attempts=fields["max_attempts"],
+                            created_by=created_by,
+                        ),
+                    )
+                except IntegrityError as e:
+                    raise HookNameConflictError(name) from e
+
+        for stale_name in set(existing) - set(desired):
+            self.delete_hook(stale_name)
+
+        return result
+
+    def delete_owned_hooks(self, *, owner_type: str, owner_ref: str) -> int:
+        """Delete every hook this owner declared -- workflow delete / agent delete."""
+        count = 0
+        for row in self.list_owned_hooks(owner_type=owner_type, owner_ref=owner_ref):
+            self.delete_hook(row.name)
+            count += 1
+        return count
