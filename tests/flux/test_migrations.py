@@ -13,7 +13,7 @@ import flux.security.models  # noqa: F401
 from flux.migrations.runner import current_revision, run_migrations
 from flux.models import Base
 
-HEAD = "0025_execution_name"
+HEAD = "0026_drop_notify_routing"
 BASELINE = "0001_baseline"
 
 # A representative index added after the original create_all schema, used to
@@ -134,3 +134,45 @@ def test_backfill_restores_specific_indexes(tmp_path, missing):
         conn.exec_driver_sql(f"DROP INDEX IF EXISTS {missing}")
     run_migrations(engine)
     assert missing in {ix["name"] for ix in inspect(engine).get_indexes(table)}
+
+
+def test_stray_notify_routing_is_nulled_not_left_to_fail_validation(tmp_path):
+    """0026 removes 'notify' from ROUTING_MODES; a row written while it was
+    still legal must not start raising on every read after upgrade."""
+    from sqlalchemy.orm import Session
+
+    from flux.models import AgentModel
+
+    engine = _engine(tmp_path, "notify.db")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(
+            AgentModel(
+                name="legacy-agent",
+                model="openai/gpt-4o",
+                system_prompt="hi",
+                approval_routing="notify",
+            ),
+        )
+        session.add(
+            AgentModel(
+                name="inline-agent",
+                model="openai/gpt-4o",
+                system_prompt="hi",
+                approval_routing="inline",
+            ),
+        )
+        session.commit()
+
+    run_migrations(engine)
+
+    with engine.begin() as conn:
+        rows = dict(
+            conn.exec_driver_sql(
+                "SELECT name, approval_routing FROM agents ORDER BY name",
+            ).fetchall(),
+        )
+    assert rows["legacy-agent"] is None
+    # A row already holding the one surviving value must be left alone.
+    assert rows["inline-agent"] == "inline"
+    assert current_revision(engine) == HEAD

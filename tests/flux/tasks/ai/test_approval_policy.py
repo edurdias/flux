@@ -21,7 +21,7 @@ class TestResolution:
         assert resolve_approval_policy() == ("default", "inline")
 
     def test_explicit_values_win(self):
-        assert resolve_approval_policy(None, "strict", "notify") == ("strict", "notify")
+        assert resolve_approval_policy(None, "strict", "inline") == ("strict", "inline")
 
     def test_legacy_autonomous_maps(self):
         with warnings.catch_warnings():
@@ -60,18 +60,25 @@ class TestResolution:
         with pytest.raises(ValueError, match="approval_routing must be"):
             resolve_approval_policy(None, None, "carrier-pigeon")
 
+    def test_notify_was_removed_not_left_as_a_silent_no_op(self):
+        """notify was declared for #144, never wired to a delivery mechanism,
+        and #144 closed as not-planned. It must now be rejected like any
+        other invalid value rather than silently behaving like inline."""
+        with pytest.raises(ValueError, match="approval_routing must be"):
+            resolve_approval_policy(None, None, "notify")
+
     def test_routing_never_changes_ceiling(self):
-        """The bug #146 exists to prevent: enabling out-of-band routing must
-        not widen (or narrow) what the agent may do."""
-        for routing in ("inline", "notify"):
-            for autonomy in ("strict", "default", "autonomous"):
-                resolved_autonomy, resolved_routing = resolve_approval_policy(
-                    None,
-                    autonomy,
-                    routing,
-                )
-                assert resolved_autonomy == autonomy
-                assert resolved_routing == routing
+        """The bug #146 exists to prevent: routing choice must not widen
+        (or narrow) what the agent may do. inline is routing's only value,
+        but the independence is still worth pinning explicitly."""
+        for autonomy in ("strict", "default", "autonomous"):
+            resolved_autonomy, resolved_routing = resolve_approval_policy(
+                None,
+                autonomy,
+                "inline",
+            )
+            assert resolved_autonomy == autonomy
+            assert resolved_routing == "inline"
 
 
 def _tools():
@@ -124,10 +131,10 @@ class TestAgentDefinitionSurface:
             model="openai/gpt-4o",
             system_prompt="hi",
             autonomy="strict",
-            approval_routing="notify",
+            approval_routing="inline",
         )
         assert definition.autonomy == "strict"
-        assert definition.approval_routing == "notify"
+        assert definition.approval_routing == "inline"
 
     def test_invalid_values_rejected(self):
         from flux.agents.types import AgentDefinition
@@ -140,6 +147,19 @@ class TestAgentDefinitionSurface:
                 model="openai/gpt-4o",
                 system_prompt="hi",
                 approval_routing="pigeon",
+            )
+
+    def test_notify_definitions_are_rejected(self):
+        """A definition file authored before notify was removed must fail
+        loudly at load rather than silently keep 'notify'."""
+        from flux.agents.types import AgentDefinition
+
+        with pytest.raises(ValueError, match="approval_routing must be"):
+            AgentDefinition(
+                name="a",
+                model="openai/gpt-4o",
+                system_prompt="hi",
+                approval_routing="notify",
             )
 
     def test_pre_split_definition_loads_unchanged(self):
