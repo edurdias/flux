@@ -32,8 +32,14 @@ class hook:
         identity -- whose rights a hook fires under is a decision, not a
         side effect, the same rule ``HookRequest.principal`` enforces for
         the server-side CRUD path. ``name`` is optional: when omitted, the
-        owner-scoped reconciliation derives a stable one from the owner and
-        this spec's position in its ``hooks`` list.
+        owner-scoped reconciliation (``HookRegistry._derive_hook_name``)
+        derives a stable one from the owner and a digest of this spec's
+        ``on``/``workflow``/``principal`` -- never this spec's position in
+        its ``hooks`` list, so reordering or removing sibling specs never
+        changes it. Editing any of ``on``/``workflow``/``principal`` on an
+        unnamed hook derives a different name and starts a new row (losing
+        the old one's delivery history); give a hook an explicit ``name=``
+        to keep its identity stable across such edits.
         """
         validate_selector(on)
         if max_attempts < 1:

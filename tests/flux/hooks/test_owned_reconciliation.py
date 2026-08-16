@@ -250,29 +250,64 @@ class TestNameDerivationIsContentStableNotPositional:
         assert after_by_selector == id_by_selector
 
 
-class TestNameDerivationIsSelectorKeyedOnly:
-    """The digest covers ``on`` alone, not ``workflow``/``principal`` too:
-    from the declarer's perspective a hook's identity is "the thing
-    watching this event" (the same thing ``HookRegistry.matches()`` indexes
-    on), so re-pointing an unnamed hook at a different target workflow or a
-    different principal -- while it keeps watching the same event -- is an
-    edit to the *same* hook, not a new one."""
+class TestNameDerivationCoversFullSpecIdentity:
+    """The digest covers all of ``on``, ``workflow`` and ``principal`` --
+    hashing ``on`` alone was tried and reverted, because it let a fan-out
+    declaration (two unnamed specs sharing one selector but aimed at
+    different targets) silently collapse into a single row: both specs
+    derived the same name, so the second overwrote the first in the
+    ``desired`` dict before either reached the database, and one hook was
+    simply never created."""
 
-    def test_changing_target_and_principal_with_the_same_selector_preserves_identity(
+    def test_two_specs_sharing_a_selector_but_fanning_out_to_different_targets_both_exist(
         self,
         isolated_db,
     ):
+        registry = HookRegistry.create()
+
+        created = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec(
+                    "execution:release:pipeline:failed",
+                    workflow="ops/notify",
+                    principal="notifier",
+                ),
+                _spec("execution:release:pipeline:failed", workflow="ops/page", principal="pager"),
+            ],
+        )
+
+        assert len(created) == 2
+        ids = {row.id for row in created}
+        assert len(ids) == 2
+        targets = {row.workflow_ref for row in created}
+        assert targets == {"ops/notify", "ops/page"}
+        # Both rows must actually be persisted, not just returned in-memory.
+        owned = registry.list_owned_hooks(owner_type="workflow", owner_ref="release/pipeline")
+        assert {row.workflow_ref for row in owned} == {"ops/notify", "ops/page"}
+
+    def test_changing_only_target_and_principal_with_the_same_selector_creates_a_new_row(
+        self,
+        isolated_db,
+    ):
+        # The accepted trade-off for closing the fan-out collapse above: an
+        # unnamed hook's identity depends on workflow/principal too, so
+        # editing only those (leaving `on` untouched) is still a new
+        # identity, same as editing `on` itself -- not an in-place update.
+        # A hook needing a stable identity across such edits needs an
+        # explicit `name=`.
         registry = HookRegistry.create()
         created = registry.reconcile_owned_hooks(
             owner_type="workflow",
             owner_ref="release/pipeline",
             specs=[_spec("execution:release:pipeline:failed")],
         )
-        hook_id = created[0].id
+        first_id = created[0].id
         with RepositoryFactory.create_repository().session() as session:
             session.add(
                 HookDeliveryModel(
-                    hook_id=hook_id,
+                    hook_id=first_id,
                     event_key="exec-1:ev-1",
                     payload={},
                     status="delivered",
@@ -280,8 +315,6 @@ class TestNameDerivationIsSelectorKeyedOnly:
             )
             session.commit()
 
-        # Same `on`, different `workflow`/`principal`/`max_attempts` -- must
-        # update the same row, not delete+recreate under a new name.
         after = registry.reconcile_owned_hooks(
             owner_type="workflow",
             owner_ref="release/pipeline",
@@ -296,12 +329,14 @@ class TestNameDerivationIsSelectorKeyedOnly:
         )
 
         assert len(after) == 1
-        assert after[0].id == hook_id
+        assert after[0].id != first_id
         assert after[0].workflow_ref == "ops/escalate"
         assert after[0].principal == "escalator"
         assert after[0].max_attempts == 9
+        # The old row -- no longer declared under its derived name -- and
+        # its delivery history are gone with it.
         with RepositoryFactory.create_repository().session() as session:
-            assert session.query(HookDeliveryModel).filter_by(hook_id=hook_id).count() == 1
+            assert session.query(HookDeliveryModel).filter_by(hook_id=first_id).count() == 0
 
 
 class TestNameDerivationIsOwnerQualified:
