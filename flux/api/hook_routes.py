@@ -122,6 +122,123 @@ def _synthetic_event(hook: HookModel) -> tuple[str, HookEvent]:
 
 
 class HookRoutesMixin:
+    def _require_bindable_principal(  # type: ignore[misc]
+        self: Server,
+        principal: str,
+        *,
+        principal_registry,
+    ) -> None:
+        """A usable service account, not merely a subject that resolves.
+
+        A hook names its principal by *subject*, as a schedule names its
+        service account and as the permission grammar and the principals
+        API do. Each way of being unusable gets its own answer, because
+        they have different fixes: a subject nobody issued is a typo, a
+        human principal is the wrong kind of identity for unattended
+        work, and a disabled one is a state someone can restore. Reporting
+        any of them as "lacks permission" sends an operator hunting for a
+        grant that was never the issue.
+        """
+        found = principal_registry.find(principal, "flux") if principal_registry else None
+        if found is None or getattr(found, "type", None) != "service_account":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Service account '{principal}' not found",
+            )
+        if not getattr(found, "enabled", True):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Service account '{principal}' is disabled",
+            )
+        if getattr(found, "banned", False):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Service account '{principal}' is banned",
+            )
+
+    async def _require_may_fire_as(  # type: ignore[misc]
+        self: Server,
+        identity: FluxIdentity,
+        principal: str,
+        *,
+        auth_config,
+        auth_service,
+        principal_registry,
+    ) -> None:
+        """**Any route that can cause an execution to run as the hook's
+        principal requires the right to borrow it; disabling and deleting
+        never can.**
+
+        That sentence is the whole authorization model for hooks, and a
+        new caller of this method belongs on one side of it or the other.
+        A hook fires its target under the bound principal's roles with an
+        execution token minted for it, so ``hook:*``/`workflow:*:register`/
+        `agent:*:create` — none of which decide which identity runs what —
+        must never be enough on their own. Promoted from a route-local
+        closure (originally `flux/api/hook_routes.py`) so the workflow- and
+        agent-declared paths run the exact same check the server-side CRUD
+        path does.
+
+        With auth off there is no principal to resolve and nothing ever
+        dereferences the stored value, so the whole check stands down —
+        again as the schedule path does.
+        """
+        if not auth_config.enabled or auth_service is None:
+            return
+        self._require_bindable_principal(principal, principal_registry=principal_registry)
+        required = f"principal:{principal}:impersonate"
+        if not await auth_service.is_authorized(identity, required):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission denied: requires '{required}'",
+            )
+
+    async def _require_principal_can_run(  # type: ignore[misc]
+        self: Server,
+        principal: str,
+        namespace: str,
+        workflow_name: str,
+    ) -> None:
+        """The create-time half of fire-time authorization.
+
+        The drain re-checks this before every delivery, so a hook whose
+        principal cannot run its target is not a security hole — it is a
+        hook that can only ever dead-letter. Refusing it here is what
+        turns a 3am silent non-delivery into an error at the door.
+        """
+        permission = f"workflow:{namespace}:{workflow_name}:run"
+        if not await self._authorize_hook(principal, permission):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Principal '{principal}' lacks permission '{permission}'",
+            )
+
+    async def _require_runnable_target(  # type: ignore[misc]
+        self: Server,
+        principal: str,
+        workflow_ref: str,
+    ) -> None:
+        """A hook's (principal, target) pair as a client supplies it.
+
+        Self-contained (unlike the route-local `_resolve_target`/
+        `_require_registered` helpers `test_hook` still uses for its
+        409-on-missing-target variant): every caller of this promoted
+        method wants the same 404-on-missing-target behavior `POST /hooks`
+        always had.
+        """
+        try:
+            namespace, workflow_name = resolve_workflow_ref(workflow_ref)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid workflow reference '{workflow_ref}': {e}",
+            )
+        try:
+            WorkflowCatalog.create().get(namespace, workflow_name)
+        except WorkflowNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_ref}' not found")
+        await self._require_principal_can_run(principal, namespace, workflow_name)
+
     def _register_hook_routes(  # type: ignore[misc]
         self: Server,
         api,
@@ -186,99 +303,6 @@ class HookRoutesMixin:
             except WorkflowNotFoundError:
                 raise HTTPException(status_code=status_code, detail=detail)
 
-        def _require_bindable_principal(principal: str) -> None:
-            """A usable service account, not merely a subject that resolves.
-
-            A hook names its principal by *subject*, as a schedule names its
-            service account and as the permission grammar and the principals
-            API do. Each way of being unusable gets its own answer, because
-            they have different fixes: a subject nobody issued is a typo, a
-            human principal is the wrong kind of identity for unattended
-            work, and a disabled one is a state someone can restore. Reporting
-            any of them as "lacks permission" sends an operator hunting for a
-            grant that was never the issue.
-            """
-            found = principal_registry.find(principal, "flux") if principal_registry else None
-            if found is None or getattr(found, "type", None) != "service_account":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Service account '{principal}' not found",
-                )
-            if not getattr(found, "enabled", True):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Service account '{principal}' is disabled",
-                )
-            if getattr(found, "banned", False):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Service account '{principal}' is banned",
-                )
-
-        async def _require_may_fire_as(identity: FluxIdentity, principal: str) -> None:
-            """**Any route that can cause an execution to run as the hook's
-            principal requires the right to borrow it; disabling and deleting
-            never can.**
-
-            That sentence is the whole authorization model for this file, and
-            a new route belongs on one side of it or the other. A hook fires
-            its target under the bound principal's roles with an execution
-            token minted for it, so ``hook:*`` — which the built-in operator
-            role carries — must not decide which identity runs what. Naming
-            the principal is only the most obvious way to reach that: today
-            create, rebind, re-aim (``workflow_ref``/``selectors``), re-enable,
-            test-fire and re-queuing a dead delivery all do, and all take
-            ``principal:<subject>:impersonate``, the same grant and grammar as
-            a schedule's service account. Reads, ``enabled=false`` and
-            ``DELETE`` do not, because a stop must never need a permission the
-            emergency it is for might have taken away.
-
-            With auth off there is no principal to resolve and nothing ever
-            dereferences the stored value, so the whole check stands down —
-            again as the schedule path does.
-            """
-            if not auth_config.enabled or auth_service is None:
-                return
-            _require_bindable_principal(principal)
-            required = f"principal:{principal}:impersonate"
-            if not await auth_service.is_authorized(identity, required):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Permission denied: requires '{required}'",
-                )
-
-        async def _require_principal_can_run(
-            principal: str,
-            namespace: str,
-            workflow_name: str,
-        ) -> None:
-            """The create-time half of fire-time authorization.
-
-            The drain re-checks this before every delivery, so a hook whose
-            principal cannot run its target is not a security hole — it is a
-            hook that can only ever dead-letter. Refusing it here is what
-            turns a 3am silent non-delivery into an error at the door. On the
-            test fire it is the security check too: that route really does
-            start the target as this principal.
-            """
-            permission = f"workflow:{namespace}:{workflow_name}:run"
-            if not await self._authorize_hook(principal, permission):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Principal '{principal}' lacks permission '{permission}'",
-                )
-
-        async def _require_runnable_target(principal: str, workflow_ref: str) -> None:
-            """A hook's (principal, target) pair as a client supplies it."""
-            namespace, workflow_name = _resolve_target(workflow_ref)
-            _require_registered(
-                namespace,
-                workflow_name,
-                status_code=404,
-                detail=f"Workflow '{workflow_ref}' not found",
-            )
-            await _require_principal_can_run(principal, namespace, workflow_name)
-
         @api.post("/hooks", response_model=HookResponse)
         async def create_hook(
             request: HookRequest,
@@ -291,8 +315,14 @@ class HookRoutesMixin:
             # Whose rights the hook fires under is settled before anything is
             # asked about the target: a caller who may not borrow this
             # principal learns nothing about the catalog from trying.
-            await _require_may_fire_as(identity, request.principal)
-            await _require_runnable_target(request.principal, request.workflow_ref)
+            await self._require_may_fire_as(
+                identity,
+                request.principal,
+                auth_config=auth_config,
+                auth_service=auth_service,
+                principal_registry=principal_registry,
+            )
+            await self._require_runnable_target(request.principal, request.workflow_ref)
 
             try:
                 hook = HookRegistry.create().create_hook(
@@ -368,10 +398,16 @@ class HookRoutesMixin:
             re_aimed = "workflow_ref" in fields or "selectors" in fields
             re_enabled = fields.get("enabled") is True and not hook.enabled
             if rebound or re_aimed or re_enabled:
-                await _require_may_fire_as(identity, fields.get("principal", hook.principal))
+                await self._require_may_fire_as(
+                    identity,
+                    fields.get("principal", hook.principal),
+                    auth_config=auth_config,
+                    auth_service=auth_service,
+                    principal_registry=principal_registry,
+                )
 
             if "workflow_ref" in fields or "principal" in fields:
-                await _require_runnable_target(
+                await self._require_runnable_target(
                     fields.get("principal", hook.principal),
                     fields.get("workflow_ref", hook.workflow_ref),
                 )
@@ -418,7 +454,13 @@ class HookRoutesMixin:
             """
             await _require_hook_permission(identity, f"hook:{name}:update")
             hook = _get_hook(name)
-            await _require_may_fire_as(identity, hook.principal)
+            await self._require_may_fire_as(
+                identity,
+                hook.principal,
+                auth_config=auth_config,
+                auth_service=auth_service,
+                principal_registry=principal_registry,
+            )
 
             namespace, workflow_name = _resolve_target(hook.workflow_ref)
             # The hook exists; its target may no longer. A 404 here would read
@@ -433,7 +475,7 @@ class HookRoutesMixin:
                     f"'{hook.workflow_ref}' is not in the catalog"
                 ),
             )
-            await _require_principal_can_run(hook.principal, namespace, workflow_name)
+            await self._require_principal_can_run(hook.principal, namespace, workflow_name)
 
             selector, event = _synthetic_event(hook)
             envelope = build_envelope(
@@ -510,7 +552,13 @@ class HookRoutesMixin:
             execution under whatever principal the hook carries.
             """
             hook = _get_hook(name)
-            await _require_may_fire_as(identity, hook.principal)
+            await self._require_may_fire_as(
+                identity,
+                hook.principal,
+                auth_config=auth_config,
+                auth_service=auth_service,
+                principal_registry=principal_registry,
+            )
             with RepositoryFactory.create_repository().session() as session:
                 delivery = (
                     session.query(HookDeliveryModel)
