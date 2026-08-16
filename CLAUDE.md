@@ -158,9 +158,9 @@ Implementation hot-spots:
 
   The error-handling chain is **retry → fallback → rollback**; each step emits its own event types.
 - `flux/workflow.py` — `workflow.with_options(...)` adds `namespace`, `requests`, `affinity`,
-  `routing`, `runner`, `schedule`, plus `name`, `secret_requests`, `output_storage`. A workflow's first
-  parameter is always `ctx: ExecutionContext[T]`; if `T` is a Pydantic `BaseModel` the catalog
-  publishes its JSON schema (`catalogs.py::extract_workflow_input_schema`).
+  `routing`, `runner`, `schedule`, `hooks`, plus `name`, `secret_requests`, `output_storage`. A
+  workflow's first parameter is always `ctx: ExecutionContext[T]`; if `T` is a Pydantic `BaseModel` the
+  catalog publishes its JSON schema (`catalogs.py::extract_workflow_input_schema`).
 - Agents split autonomy into `autonomy` (strict/default/autonomous) × `approval_routing` (inline is
   the only value — an out-of-band `notify` mode was declared for #144 but never wired, and was
   removed rather than left as a silent no-op); the legacy `approval_mode` is mapped and deprecated.
@@ -251,6 +251,13 @@ Higher-level managers:
   join tokens hourly (`Server._purge_join_tokens`).
 - `flux/observability/` — OpenTelemetry tracing/metrics + a Prometheus `/metrics` endpoint, gated by
   `[flux.observability] enabled` and the `observability` extra.
+- `flux/hooks/` — **outbound hooks**: event subscriptions that fire a workflow when a selector matches
+  an engine event, delivered by the scheduler-tick drain. Three declaration paths: server-side CRUD
+  (`POST /hooks`), workflow-declared (`@workflow.with_options(hooks=[hook.run(...)])`), and
+  agent-declared (`AgentDefinition.hooks`). The latter two reuse
+  `Server._require_may_fire_as`/`_require_runnable_target` (`flux/api/hook_routes.py`) rather than
+  reimplementing path 1's impersonation/runnable-target checks. Full design:
+  `docs/specs/2026-08-14-outbound-hooks-spec.md`.
 
 ## Configuration
 
