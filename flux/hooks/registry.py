@@ -244,15 +244,26 @@ class HookRegistry:
           otherwise derive the identical name and the second's create would
           fail the unique constraint.
         - Content-derived, not position-derived: the suffix is a digest of
-          the spec's identity (``on``/``workflow``/``principal``), not its
-          index in the ``specs`` list. Keying on position meant removing or
-          reordering an earlier spec shifted every later spec's derived
-          name, silently handing a still-declared spec's row (and delivery
-          history) to whatever spec now landed on that name.
+          the spec's identity, not its index in the ``specs`` list. Keying
+          on position meant removing or reordering an earlier spec shifted
+          every later spec's derived name, silently handing a still-
+          declared spec's row (and delivery history) to whatever spec now
+          landed on that name.
+
+        The digest covers ``on`` alone -- not ``workflow``/``principal`` too.
+        A hook's identity, from the declarer's perspective, is "the thing
+        watching this event": ``HookRegistry.matches()`` itself indexes
+        hooks by selector, so this mirrors how the registry already thinks
+        about them. Re-pointing an unnamed hook at a different target
+        workflow or running it as a different principal, while it keeps
+        watching the same event, is naturally an edit to the *same* hook --
+        it should keep its row and delivery history, not fork into a new
+        one. Only a changed ``on`` (or an owner/position change already
+        covered above) is a new identity. A hook that must keep a stable
+        name across an edited selector needs an explicit ``name=``.
         """
         owner_key = f"{owner_type}_{owner_ref}".replace("/", "_")
-        digest_input = f"{spec['on']}|{spec['workflow']}|{spec['principal']}"
-        digest = hashlib.sha256(digest_input.encode()).hexdigest()[:12]
+        digest = hashlib.sha256(spec["on"].encode()).hexdigest()[:12]
         return f"{owner_key}{suffix}_{digest}"
 
     def reconcile_owned_hooks(

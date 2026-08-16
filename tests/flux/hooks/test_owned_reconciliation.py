@@ -250,6 +250,60 @@ class TestNameDerivationIsContentStableNotPositional:
         assert after_by_selector == id_by_selector
 
 
+class TestNameDerivationIsSelectorKeyedOnly:
+    """The digest covers ``on`` alone, not ``workflow``/``principal`` too:
+    from the declarer's perspective a hook's identity is "the thing
+    watching this event" (the same thing ``HookRegistry.matches()`` indexes
+    on), so re-pointing an unnamed hook at a different target workflow or a
+    different principal -- while it keeps watching the same event -- is an
+    edit to the *same* hook, not a new one."""
+
+    def test_changing_target_and_principal_with_the_same_selector_preserves_identity(
+        self,
+        isolated_db,
+    ):
+        registry = HookRegistry.create()
+        created = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[_spec("execution:release:pipeline:failed")],
+        )
+        hook_id = created[0].id
+        with RepositoryFactory.create_repository().session() as session:
+            session.add(
+                HookDeliveryModel(
+                    hook_id=hook_id,
+                    event_key="exec-1:ev-1",
+                    payload={},
+                    status="delivered",
+                ),
+            )
+            session.commit()
+
+        # Same `on`, different `workflow`/`principal`/`max_attempts` -- must
+        # update the same row, not delete+recreate under a new name.
+        after = registry.reconcile_owned_hooks(
+            owner_type="workflow",
+            owner_ref="release/pipeline",
+            specs=[
+                _spec(
+                    "execution:release:pipeline:failed",
+                    workflow="ops/escalate",
+                    principal="escalator",
+                    max_attempts=9,
+                ),
+            ],
+        )
+
+        assert len(after) == 1
+        assert after[0].id == hook_id
+        assert after[0].workflow_ref == "ops/escalate"
+        assert after[0].principal == "escalator"
+        assert after[0].max_attempts == 9
+        with RepositoryFactory.create_repository().session() as session:
+            assert session.query(HookDeliveryModel).filter_by(hook_id=hook_id).count() == 1
+
+
 class TestNameDerivationIsOwnerQualified:
     """The derived name must incorporate the full owner (type + ref), not
     just ``owner_ref``'s trailing path segment -- otherwise two owners whose
