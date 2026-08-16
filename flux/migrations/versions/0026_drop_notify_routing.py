@@ -36,7 +36,7 @@ _TABLE = "agents"
 
 def upgrade() -> None:
     bind = op.get_bind()
-    if _TABLE not in sa.inspect(bind).get_table_names():
+    if not sa.inspect(bind).has_table(_TABLE):
         return
     agents = sa.table(_TABLE, sa.column("approval_routing", sa.String()))
     op.execute(

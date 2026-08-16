@@ -141,7 +141,7 @@ def test_stray_notify_routing_is_nulled_not_left_to_fail_validation(tmp_path):
     still legal must not start raising on every read after upgrade."""
     from sqlalchemy.orm import Session
 
-    from flux.agents.manager import AgentModel
+    from flux.models import AgentModel
 
     engine = _engine(tmp_path, "notify.db")
     Base.metadata.create_all(engine)
