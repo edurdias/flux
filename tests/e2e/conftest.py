@@ -238,6 +238,42 @@ class FluxCLI:
             ["schedule", "history", schedule_id, "--format", "json"],
         )
 
+    # -- hook commands -----------------------------------------------------
+
+    def hook_create(
+        self,
+        name: str,
+        selectors: list[str],
+        workflow_ref: str,
+        principal: str = "e2e-hooks",
+        max_attempts: int | None = None,
+    ) -> dict:
+        args = ["hook", "create", name]
+        for selector in selectors:
+            args.extend(["--on", selector])
+        args.extend(["--workflow", workflow_ref, "--principal", principal])
+        if max_attempts is not None:
+            args.extend(["--max-attempts", str(max_attempts)])
+        args.extend(["--format", "json"])
+        return self._server_json(args)
+
+    def hook_list(self) -> dict:
+        return self._server_json(["hook", "list", "--format", "json"])
+
+    def hook_get(self, name: str) -> dict:
+        return self._server_json(["hook", "get", name, "--format", "json"])
+
+    def hook_test(self, name: str) -> dict:
+        return self._server_json(["hook", "test", name, "--format", "json"])
+
+    def hook_deliveries(self, name: str, limit: int = 50) -> list:
+        return self._server_json(
+            ["hook", "deliveries", name, "--limit", str(limit), "--format", "json"],
+        )
+
+    def hook_delete(self, name: str) -> None:
+        self._server_ok(["hook", "delete", name, "--yes"])
+
     # -- worker commands ---------------------------------------------------
 
     def health(self) -> dict:

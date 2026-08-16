@@ -24,6 +24,12 @@ def isolated_db():
         mock_config.return_value.settings.database_url = db_url
         mock_config.return_value.settings.database_type = "sqlite"
         mock_config.return_value.settings.security.auth.enabled = False
+        # Real (non-Mock) default so HookRegistry.snapshot()'s TTL comparison
+        # doesn't compare a MagicMock to an int; matches HooksConfig's
+        # production default. Tests exercising the TTL itself overwrite this
+        # attribute on the same mock object (Configuration.get() always
+        # returns mock_config.return_value for the fixture's duration).
+        mock_config.return_value.settings.hooks.snapshot_ttl_seconds = 5.0
         yield
     if os.path.exists(db_path):
         os.unlink(db_path)

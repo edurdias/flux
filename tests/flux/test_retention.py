@@ -158,3 +158,83 @@ def test_sweep_with_nothing_expired_is_a_noop(env):
 
     assert RetentionJob()._sweep() == 0
     assert fresh in _remaining_ids(repo)
+
+
+def _create_delivery(repo, status, age_days, delivery_id):
+    """A hook delivery in ``status``, created ``age_days`` ago."""
+    from flux.models import HookDeliveryModel, HookModel
+
+    with repo.session() as session:
+        if session.query(HookModel).filter_by(name="retention-hook").one_or_none() is None:
+            session.add(
+                HookModel(
+                    id="hook-retention",
+                    name="retention-hook",
+                    selectors=["execution:*:*:completed"],
+                    workflow_ref="default/target",
+                    principal="ops-sa",
+                    owner_type="user",
+                    owner_ref="admin",
+                ),
+            )
+            session.commit()
+
+        session.add(
+            HookDeliveryModel(
+                id=delivery_id,
+                hook_id="hook-retention",
+                event_key=f"evt-{delivery_id}",
+                payload={"hop": 0},
+                status=status,
+            ),
+        )
+        session.commit()
+        stamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=age_days)
+        session.query(HookDeliveryModel).filter(HookDeliveryModel.id == delivery_id).update(
+            {HookDeliveryModel.created_at: stamp},
+            synchronize_session=False,
+        )
+        session.commit()
+    return delivery_id
+
+
+def _remaining_delivery_ids(repo):
+    from flux.models import HookDeliveryModel
+
+    with repo.session() as session:
+        return {row[0] for row in session.query(HookDeliveryModel.id).all()}
+
+
+def test_sweep_prunes_settled_hook_deliveries(env):
+    repo = env
+    old_delivered = _create_delivery(repo, "delivered", age_days=45, delivery_id="d-delivered")
+    old_dead = _create_delivery(repo, "dead", age_days=45, delivery_id="d-dead")
+    fresh_delivered = _create_delivery(repo, "delivered", age_days=1, delivery_id="d-fresh")
+
+    assert RetentionJob()._sweep() == 2
+
+    remaining = _remaining_delivery_ids(repo)
+    assert old_delivered not in remaining
+    assert old_dead not in remaining
+    assert fresh_delivered in remaining  # inside the retention window
+
+
+def test_sweep_never_prunes_a_pending_delivery(env):
+    """A pending row is an unmet obligation, whatever its age. Deleting one
+    silently drops a delivery the drain has not made yet -- a row stuck
+    behind a long backoff, or one the operator handed back with `hook
+    retry`."""
+    repo = env
+    ancient_pending = _create_delivery(repo, "pending", age_days=3650, delivery_id="d-pending")
+
+    assert RetentionJob()._sweep() == 0
+    assert ancient_pending in _remaining_delivery_ids(repo)
+
+
+def test_sweep_batches_deliveries_until_drained(env):
+    repo = env
+    ids = [_create_delivery(repo, "delivered", age_days=45, delivery_id=f"d-{i}") for i in range(5)]
+
+    # batch_size is 2, so a full sweep needs three transactions internally.
+    assert RetentionJob()._sweep() == 5
+    assert _remaining_delivery_ids(repo).isdisjoint(ids)

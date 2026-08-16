@@ -560,6 +560,59 @@ class SchedulingConfig(BaseConfig):
     )
 
 
+class HooksConfig(BaseConfig):
+    """Configuration for outbound hooks."""
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch for outbound hooks. When false the outbox enqueue "
+            "returns before matching anything, so no delivery is written for "
+            "any event — existing hook rows stay untouched, they simply stop "
+            "firing."
+        ),
+    )
+    hop_limit: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "How far a chain of hook-started executions may go. A delivery "
+            "records the hop it was enqueued at (its parent's hop + 1, or 0 "
+            "when the event came from an execution no hook started); the "
+            "drain dead-letters a delivery whose hop has reached this, so "
+            "the value is the number of links a chain may have — 3 allows "
+            "hops 0, 1 and 2, and the minimum of 1 allows only deliveries "
+            "for events from executions no hook started. Bounds a hook "
+            "whose target workflow re-triggers it. Stopping hooks entirely "
+            "is `enabled`, not a limit of 0."
+        ),
+    )
+    drain_batch_size: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "How many due deliveries the scheduler tick settles per cycle. "
+            "The drain shares the tick's dispatch lock, so this bounds how "
+            "long one replica holds it: a backlog is drained over several "
+            "ticks rather than in one long pass that starves the schedules "
+            "and sweeps running beside it."
+        ),
+    )
+    snapshot_ttl_seconds: float = Field(
+        default=5.0,
+        ge=0,
+        description=(
+            "Max age in seconds of a replica's cached enabled-hook snapshot "
+            "before HookRegistry.snapshot() rebuilds it from the database. "
+            "Bounds how long a replica can keep matching a hook another "
+            "replica just disabled, updated, or deleted — invalidate() "
+            "still makes a local write's own replica consistent "
+            "immediately, this only covers the cross-replica gap. 0 "
+            "disables the cache: every call rebuilds."
+        ),
+    )
+
+
 class FluxConfig(BaseSettings):
     """Main configuration class for Flux framework."""
 
@@ -660,6 +713,7 @@ class FluxConfig(BaseSettings):
     scheduling: SchedulingConfig = Field(default_factory=SchedulingConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
 
     @field_validator("database_url")
     def interpolate_database_url(cls, v: str) -> str:

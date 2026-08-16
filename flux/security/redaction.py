@@ -40,6 +40,10 @@ _CACHE_TTL_SECONDS = 30.0
 
 _cache: tuple[float, list[str]] | None = None
 
+# Only for a SecretManager with no synchronous read (see _read_values_sync);
+# one thread for the process, not one per redacted payload.
+_async_reader: Any = None
+
 
 def _redactable(values: dict[str, Any]) -> list[str]:
     """The string secret values worth scrubbing, longest first.
@@ -54,25 +58,84 @@ def _redactable(values: dict[str, Any]) -> list[str]:
     )
 
 
+def _cached(now: float, refresh: bool) -> list[str] | None:
+    if refresh or _cache is None or now - _cache[0] >= _CACHE_TTL_SECONDS:
+        return None
+    return _cache[1]
+
+
+def _remember(now: float, values: dict[str, Any]) -> list[str]:
+    global _cache
+    result = _redactable(values)
+    _cache = (now, result)
+    return result
+
+
 async def collect_secret_values(*, refresh: bool = False) -> list[str]:
     """All redactable secret values known to the current SecretManager.
 
     Cached for a short TTL so status polls don't decrypt the whole secret
     store on every request. ``refresh=True`` bypasses the cache (tests).
     """
-    global _cache
     now = time.monotonic()
-    if not refresh and _cache is not None and now - _cache[0] < _CACHE_TTL_SECONDS:
-        return _cache[1]
+    if (cached := _cached(now, refresh)) is not None:
+        return cached
 
     from flux.secret_managers import SecretManager
 
     manager = SecretManager.current()
     names = manager.all()
     values = await manager.get(names) if names else {}
-    result = _redactable(values)
-    _cache = (now, result)
-    return result
+    return _remember(now, values)
+
+
+def collect_secret_values_sync(*, refresh: bool = False) -> list[str]:
+    """``collect_secret_values`` for a caller that cannot await, sharing its
+    cache.
+
+    Redaction is not only a response concern: a hook's delivery envelope is
+    redacted as it is built, on the checkpoint write path, inside the
+    caller's open transaction -- and at dispatch that transaction holds row
+    locks and the cross-replica dispatch lock. Running the async collector
+    from there meant a fresh event loop on a fresh thread per delivery,
+    while those locks were held, so the values are read synchronously
+    instead. The local store's read is a plain query anyway (its async
+    entry point is a thread hop over the same code).
+    """
+    now = time.monotonic()
+    if (cached := _cached(now, refresh)) is not None:
+        return cached
+
+    from flux.secret_managers import SecretManager
+
+    manager = SecretManager.current()
+    names = manager.all()
+    values = _read_values_sync(manager, names) if names else {}
+    return _remember(now, values)
+
+
+def _read_values_sync(manager: Any, names: list[str]) -> dict[str, Any]:
+    """Read ``names`` off ``manager`` without a running loop.
+
+    A manager that only offers the coroutine (the remote one a runner child
+    is given) still has to be readable here, so its ``get`` is run to
+    completion on one long-lived worker thread -- created once for the
+    process rather than per call, which is what made this expensive.
+    """
+    read_sync = getattr(manager, "get_sync", None)
+    if read_sync is not None:
+        return read_sync(names)
+
+    import asyncio
+    import concurrent.futures
+
+    global _async_reader
+    if _async_reader is None:
+        _async_reader = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="flux-redaction",
+        )
+    return _async_reader.submit(asyncio.run, manager.get(names)).result()
 
 
 def redact_values(obj: Any, values: list[str]) -> Any:
@@ -94,6 +157,32 @@ def redact_values(obj: Any, values: list[str]) -> Any:
     if isinstance(obj, (list, tuple)):
         return [redact_values(item, values) for item in obj]
     return obj
+
+
+def redact_payload_sync(payload: Any) -> Any:
+    """``redact_response`` for a caller that cannot await.
+
+    Same contract, including the best-effort one: a failure is logged and
+    the payload returned as it came, because a secrets-store hiccup must
+    not fail the checkpoint whose events are being written.
+    """
+    from flux.config import Configuration
+
+    try:
+        if not Configuration.get().settings.security.redact_secrets_in_responses:
+            return payload
+        values = collect_secret_values_sync()
+        if not values:
+            return payload
+        from fastapi.encoders import jsonable_encoder
+
+        return redact_values(jsonable_encoder(payload), values)
+    except Exception:
+        logger.error(
+            "Secret redaction failed; using the payload unredacted",
+            exc_info=True,
+        )
+        return payload
 
 
 async def redact_response(payload: Any) -> Any:

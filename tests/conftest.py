@@ -21,6 +21,7 @@ import pytest
 os.environ.setdefault("FLUX_SECURITY__AUTH__ALLOW_ANONYMOUS", "true")
 
 from flux.config import Configuration  # noqa: E402
+from flux.hooks import registry as hook_registry  # noqa: E402
 from flux.models import DatabaseRepository  # noqa: E402
 
 
@@ -50,3 +51,21 @@ def _reset_db_engine_cache():
     DatabaseRepository._engines.clear()
     yield
     DatabaseRepository._engines.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_hook_registry_cache():
+    """Clear HookRegistry's module-level snapshot cache between tests.
+
+    The cache is intentionally process-wide (every HookRegistry() accessor
+    shares it -- see flux/hooks/registry.py), but isolated_db swaps in a
+    fresh, empty SQLite database per test without touching it. Left alone, a
+    snapshot left warm by one test (e.g. the empty tuple a disabled-hooks
+    test rebuilds) would silently answer has_any()/matches() for the next
+    test's supposedly-fresh database instead of a real query.
+    """
+    hook_registry._snapshot = None
+    hook_registry._snapshot_loaded_at = None
+    yield
+    hook_registry._snapshot = None
+    hook_registry._snapshot_loaded_at = None

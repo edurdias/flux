@@ -343,6 +343,85 @@ class ScheduleHistoryResponse(BaseModel):
     offset: int
 
 
+class HookRequest(BaseModel):
+    """Model for hook creation requests"""
+
+    name: str
+    selectors: list[str]
+    workflow_ref: str
+    # The subject of the principal the hook runs its target as. Named
+    # explicitly rather than defaulted to the caller: the hook outlives the
+    # request that created it, so whose rights it fires under is a decision,
+    # not a side effect.
+    principal: str
+    max_attempts: int = Field(default=5, ge=1)
+
+
+class HookUpdateRequest(BaseModel):
+    """Model for hook update requests.
+
+    Every field optional and read with ``exclude_unset``: a PUT carrying only
+    ``enabled`` must not blank out the selectors it never mentioned.
+    """
+
+    enabled: bool | None = None
+    selectors: list[str] | None = None
+    workflow_ref: str | None = None
+    principal: str | None = None
+    max_attempts: int | None = Field(default=None, ge=1)
+
+
+class HookResponse(BaseModel):
+    """Model for hook responses"""
+
+    id: str
+    name: str
+    enabled: bool
+    selectors: list[str]
+    action: str
+    workflow_ref: str
+    principal: str
+    owner_type: str
+    owner_ref: str
+    max_attempts: int
+    created_by: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class HookListResponse(BaseModel):
+    """Model for hook list responses"""
+
+    hooks: list[HookResponse]
+    total: int
+
+
+class HookDeliveryResponse(BaseModel):
+    """Model for hook delivery responses"""
+
+    id: str
+    hook_id: str
+    event_key: str
+    status: str
+    attempts: int
+    execution_id: str | None = None
+    next_attempt_at: str | None = None
+    last_error: str | None = None
+    created_at: str
+    delivered_at: str | None = None
+    # The envelope as stored: already redacted when it was built, so this is
+    # the same view the target workflow received.
+    payload: Any | None = None
+
+
+class HookTestResponse(BaseModel):
+    """Model for the synthetic hook fire (`POST /hooks/{name}/test`)"""
+
+    hook: str
+    execution_id: str
+    envelope: dict
+
+
 def _has_any_workflow_read(permissions: set[str]) -> bool:
     if "*" in permissions:
         return True

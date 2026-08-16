@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1456,3 +1457,471 @@ class TestAgentStop:
 
         assert result.exit_code == 1
         assert "Error stopping session" in result.output
+
+
+# =============================================================================
+# Hook CLI Tests
+# =============================================================================
+
+
+def _hook_client(payload=None, error=None):
+    """A mock http client whose single `request(...)` answers with `payload`.
+
+    The hook commands all go through one helper (`_hook_request`), so every
+    call lands on `client.request(method, url, ...)` and a test can read the
+    method, the URL and the body straight off `call_args`.
+    """
+    client = MagicMock()
+    response = MagicMock()
+    response.json.return_value = {} if payload is None else payload
+    if error is not None:
+        response.raise_for_status.side_effect = error
+    client.request.return_value = response
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
+    return client
+
+
+def _json_status_error(status: int, detail: str):
+    """An `HTTPStatusError` carrying a FastAPI-shaped `{"detail": ...}` body."""
+    import httpx
+
+    request = httpx.Request("POST", "http://s/hooks")
+    response = httpx.Response(status, json={"detail": detail}, request=request)
+    return httpx.HTTPStatusError(f"{status}", request=request, response=response)
+
+
+_HOOK = {
+    "id": "hook-1",
+    "name": "notify-approvals",
+    "enabled": True,
+    "selectors": ["task:release:*:promote_prod:awaiting_approval"],
+    "action": "run_workflow",
+    "workflow_ref": "ops/notify_slack",
+    "principal": "ops-sa",
+    "owner_type": "user",
+    "owner_ref": "admin",
+    "max_attempts": 5,
+    "created_by": "admin",
+    "created_at": "2026-08-14T12:00:00",
+    "updated_at": "2026-08-14T12:00:00",
+}
+
+
+class TestHookCreate:
+    def test_create_posts_the_hook_body(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "create",
+                    "notify-approvals",
+                    "--on",
+                    "task:release:*:promote_prod:awaiting_approval",
+                    "--workflow",
+                    "ops/notify_slack",
+                    "--principal",
+                    "ops-sa",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        method, url = client.request.call_args.args
+        assert method == "POST"
+        assert url == "http://s/hooks"
+        assert client.request.call_args.kwargs["json"] == {
+            "name": "notify-approvals",
+            "selectors": ["task:release:*:promote_prod:awaiting_approval"],
+            "workflow_ref": "ops/notify_slack",
+            "principal": "ops-sa",
+            "max_attempts": 5,
+        }
+        assert "notify-approvals" in result.output
+
+    def test_every_repeated_on_reaches_the_payload(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "create",
+                    "wide",
+                    "--on",
+                    "execution:*:*:failed",
+                    "--on",
+                    "execution:*:*:cancelled",
+                    "--on",
+                    "task:*:*:*:rejected",
+                    "--workflow",
+                    "ops/incident",
+                    "--principal",
+                    "ops-sa",
+                    "--max-attempts",
+                    "9",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        body = client.request.call_args.kwargs["json"]
+        assert body["selectors"] == [
+            "execution:*:*:failed",
+            "execution:*:*:cancelled",
+            "task:*:*:*:rejected",
+        ]
+        assert body["max_attempts"] == 9
+
+    def test_create_renders_json(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "create",
+                    "notify-approvals",
+                    "--on",
+                    "execution:*:*:failed",
+                    "--workflow",
+                    "ops/notify_slack",
+                    "--principal",
+                    "ops-sa",
+                    "--format",
+                    "json",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == _HOOK
+
+    def test_a_server_error_prints_its_message_and_exits_1(self, runner):
+        client = _hook_client(
+            error=_json_status_error(409, "Hook 'notify-approvals' already exists"),
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "create",
+                    "notify-approvals",
+                    "--on",
+                    "execution:*:*:failed",
+                    "--workflow",
+                    "ops/notify_slack",
+                    "--principal",
+                    "ops-sa",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 1
+        assert "already exists" in result.output
+
+
+class TestHookListAndGet:
+    def test_list_renders_json(self, runner):
+        payload = {"hooks": [_HOOK], "total": 1}
+        client = _hook_client(payload)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "list", "--format", "json", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == payload
+        method, url = client.request.call_args.args
+        assert (method, url) == ("GET", "http://s/hooks")
+
+    def test_list_simple_names_each_hook_and_its_target(self, runner):
+        client = _hook_client({"hooks": [_HOOK], "total": 1})
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "list", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "notify-approvals" in result.output
+        assert "ops/notify_slack" in result.output
+        assert "task:release:*:promote_prod:awaiting_approval" in result.output
+
+    def test_list_enabled_only_is_a_query_parameter(self, runner):
+        client = _hook_client({"hooks": [], "total": 0})
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "list", "--enabled-only", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.kwargs["params"] == {"enabled_only": True}
+
+    def test_get_renders_json(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "get",
+                    "notify-approvals",
+                    "--format",
+                    "json",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == _HOOK
+        assert client.request.call_args.args == ("GET", "http://s/hooks/notify-approvals")
+
+
+class TestHookUpdate:
+    def test_update_sends_only_the_fields_given(self, runner):
+        client = _hook_client({**_HOOK, "enabled": False})
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "update", "notify-approvals", "--disable", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        method, url = client.request.call_args.args
+        assert (method, url) == ("PUT", "http://s/hooks/notify-approvals")
+        assert client.request.call_args.kwargs["json"] == {"enabled": False}
+
+    def test_update_carries_selectors_workflow_and_principal(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "update",
+                    "notify-approvals",
+                    "--on",
+                    "execution:*:*:failed",
+                    "--workflow",
+                    "ops/other",
+                    "--principal",
+                    "other-sa",
+                    "--max-attempts",
+                    "2",
+                    "--enable",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.kwargs["json"] == {
+            "enabled": True,
+            "selectors": ["execution:*:*:failed"],
+            "workflow_ref": "ops/other",
+            "principal": "other-sa",
+            "max_attempts": 2,
+        }
+
+    def test_update_with_no_field_fails_before_calling_the_server(self, runner):
+        client = _hook_client(_HOOK)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "update", "notify-approvals", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code != 0
+        client.request.assert_not_called()
+
+
+class TestHookDelete:
+    def test_delete_calls_delete(self, runner):
+        client = _hook_client({"status": "success"})
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "delete", "notify-approvals", "--yes", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.args == ("DELETE", "http://s/hooks/notify-approvals")
+        assert "notify-approvals" in result.output
+
+    def test_a_missing_hook_exits_1_with_the_server_message(self, runner):
+        client = _hook_client(error=_json_status_error(404, "Hook 'nope' not found"))
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "delete", "nope", "--yes", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+
+class TestHookTest:
+    def test_test_prints_the_started_execution_id(self, runner):
+        client = _hook_client(
+            {
+                "hook": "notify-approvals",
+                "execution_id": "exec-42",
+                "envelope": {"hook": "notify-approvals", "hop": 0},
+            },
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "test", "notify-approvals", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.args == ("POST", "http://s/hooks/notify-approvals/test")
+        assert "exec-42" in result.output
+
+
+class TestHookDeliveries:
+    def test_deliveries_renders_status_and_attempts(self, runner):
+        client = _hook_client(
+            [
+                {
+                    "id": "d-1",
+                    "hook_id": "hook-1",
+                    "event_key": "evt-1",
+                    "status": "dead",
+                    "attempts": 5,
+                    "execution_id": None,
+                    "next_attempt_at": None,
+                    "last_error": "target workflow 'ops/gone' not found",
+                    "created_at": "2026-08-14T12:00:00",
+                    "delivered_at": None,
+                    "payload": {"hop": 0},
+                },
+            ],
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "deliveries", "notify-approvals", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.args == (
+            "GET",
+            "http://s/hooks/notify-approvals/deliveries",
+        )
+        assert client.request.call_args.kwargs["params"] == {"limit": 50}
+        assert "dead" in result.output
+        assert "5" in result.output
+        assert "target workflow 'ops/gone' not found" in result.output
+
+    def test_deliveries_json_is_the_server_document(self, runner):
+        rows = [
+            {
+                "id": "d-1",
+                "hook_id": "hook-1",
+                "event_key": "evt-1",
+                "status": "delivered",
+                "attempts": 1,
+                "execution_id": "exec-9",
+                "next_attempt_at": None,
+                "last_error": None,
+                "created_at": "2026-08-14T12:00:00",
+                "delivered_at": "2026-08-14T12:00:05",
+                "payload": {"hop": 0},
+            },
+        ]
+        client = _hook_client(rows)
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "deliveries",
+                    "notify-approvals",
+                    "--limit",
+                    "5",
+                    "--format",
+                    "json",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == rows
+        assert client.request.call_args.kwargs["params"] == {"limit": 5}
+
+    def test_no_deliveries_still_emits_valid_json(self, runner):
+        client = _hook_client([])
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                [
+                    "hook",
+                    "deliveries",
+                    "notify-approvals",
+                    "--format",
+                    "json",
+                    "--server-url",
+                    "http://s",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == []
+
+
+class TestHookRetry:
+    def test_retry_posts_to_the_delivery_route(self, runner):
+        client = _hook_client(
+            {
+                "id": "d-1",
+                "hook_id": "hook-1",
+                "event_key": "evt-1",
+                "status": "pending",
+                "attempts": 0,
+                "execution_id": None,
+                "next_attempt_at": None,
+                "last_error": None,
+                "created_at": "2026-08-14T12:00:00",
+                "delivered_at": None,
+                "payload": {"hop": 0},
+            },
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "retry", "notify-approvals", "d-1", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert client.request.call_args.args == (
+            "POST",
+            "http://s/hooks/notify-approvals/deliveries/d-1/retry",
+        )
+        assert "d-1" in result.output
+
+    def test_retrying_a_live_delivery_exits_1_with_the_server_message(self, runner):
+        client = _hook_client(
+            error=_json_status_error(409, "Delivery 'd-1' is 'pending', not 'dead'"),
+        )
+        with patch("flux.cli.get_http_client", return_value=client):
+            result = runner.invoke(
+                cli,
+                ["hook", "retry", "notify-approvals", "d-1", "--server-url", "http://s"],
+            )
+
+        assert result.exit_code == 1
+        assert "not 'dead'" in result.output

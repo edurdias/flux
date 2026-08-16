@@ -2335,6 +2335,446 @@ def schedule_history(schedule_id: str, limit: int, format: str, server_url: str 
 
 
 @cli.group()
+def hook():
+    """Manage outbound hooks.
+
+    A hook is a named subscription: when an engine event matches one of its
+    selectors, Flux starts the hook's target workflow with a redacted
+    envelope of the event as input.
+    """
+    pass
+
+
+def _hook_request(method: str, url: str, **kwargs) -> Any:
+    """Issue one hook API call and return the decoded body.
+
+    Every hook command goes through here so a refusal reads the same way
+    everywhere: the server's own message (selector rejected, principal
+    cannot run the target, delivery is not dead) printed as-is, and a
+    non-zero exit — a printed error with exit 0 reads as success to a
+    script.
+    """
+    try:
+        with get_http_client() as client:
+            response = client.request(method, url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as ex:
+        detail = ""
+        try:
+            detail = ex.response.json().get("detail", "")
+        except Exception:
+            pass
+        click.echo(f"Error: {detail or ex}", err=True)
+        raise click.exceptions.Exit(1)
+    except Exception as ex:
+        click.echo(f"Error: {ex}", err=True)
+        raise click.exceptions.Exit(1)
+
+
+def _echo_hook(hook_data: dict) -> None:
+    click.echo(f"Name: {hook_data['name']}")
+    click.echo(f"ID: {hook_data['id']}")
+    click.echo(f"Enabled: {hook_data['enabled']}")
+    click.echo(f"Action: {hook_data['action']} -> {hook_data['workflow_ref']}")
+    click.echo(f"Runs as: {hook_data['principal']}")
+    click.echo(f"Owner: {hook_data['owner_type']}:{hook_data['owner_ref']}")
+    click.echo(f"Max attempts: {hook_data['max_attempts']}")
+    click.echo("Selectors:")
+    for selector in hook_data.get("selectors", []):
+        click.echo(f"   {selector}")
+
+
+@hook.command("create")
+@click.argument("name")
+@click.option(
+    "--on",
+    "selectors",
+    multiple=True,
+    required=True,
+    help=(
+        "Event selector, e.g. 'execution:*:*:failed' or "
+        "'task:release:*:promote_prod:awaiting_approval' (repeatable; a hook "
+        "fires once for an event matching any of them)"
+    ),
+)
+@click.option(
+    "--workflow",
+    "-w",
+    "workflow_ref",
+    required=True,
+    help="Target workflow to start, as 'namespace/name'",
+)
+@click.option(
+    "--principal",
+    "-p",
+    "principal",
+    required=True,
+    help=(
+        "Subject of the principal the hook runs its target as, e.g. an "
+        "'ops-sa' service account (`flux principals list`). The hook "
+        "outlives the request creating it, so this is stated, never "
+        "inferred from the caller."
+    ),
+)
+@click.option(
+    "--max-attempts",
+    default=5,
+    type=int,
+    help="Delivery attempts before the row is dead-lettered (default: 5)",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def create_hook(
+    name: str,
+    selectors: tuple[str, ...],
+    workflow_ref: str,
+    principal: str,
+    max_attempts: int,
+    format: str,
+    server_url: str | None,
+):
+    """Create an outbound hook."""
+    base_url = server_url or get_server_url()
+    result = _hook_request(
+        "POST",
+        f"{base_url}/hooks",
+        json={
+            "name": name,
+            "selectors": list(selectors),
+            "workflow_ref": workflow_ref,
+            "principal": principal,
+            "max_attempts": max_attempts,
+        },
+    )
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Successfully created hook '{name}' targeting '{workflow_ref}'")
+        _echo_hook(result)
+
+
+@hook.command("list")
+@click.option(
+    "--enabled-only",
+    is_flag=True,
+    help="Only hooks that are currently enabled",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def list_hooks(enabled_only: bool, format: str, server_url: str | None):
+    """List hooks."""
+    base_url = server_url or get_server_url()
+    params: dict[str, Any] = {}
+    if enabled_only:
+        params["enabled_only"] = True
+    result = _hook_request("GET", f"{base_url}/hooks", params=params)
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    hooks = result.get("hooks", [])
+    if not hooks:
+        click.echo("No hooks found.")
+        return
+
+    click.echo(f"Found {len(hooks)} hook(s):")
+    click.echo()
+    for entry in hooks:
+        indicator = "✓" if entry["enabled"] else "⏸"
+        click.echo(f"{indicator} {entry['name']} -> {entry['workflow_ref']}")
+        click.echo(f"   Runs as: {entry['principal']} | Max attempts: {entry['max_attempts']}")
+        for selector in entry.get("selectors", []):
+            click.echo(f"   on {selector}")
+        click.echo()
+
+
+@hook.command("get")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def get_hook(name: str, format: str, server_url: str | None):
+    """Show a single hook."""
+    base_url = server_url or get_server_url()
+    result = _hook_request("GET", f"{base_url}/hooks/{name}")
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        _echo_hook(result)
+
+
+@hook.command("update")
+@click.argument("name")
+@click.option(
+    "--on",
+    "selectors",
+    multiple=True,
+    help="Replace the hook's selectors (repeatable)",
+)
+@click.option(
+    "--workflow",
+    "-w",
+    "workflow_ref",
+    default=None,
+    help="Rebind the target workflow, as 'namespace/name'",
+)
+@click.option(
+    "--principal",
+    "-p",
+    "principal",
+    default=None,
+    help="Rebind the hook to another principal, by subject",
+)
+@click.option(
+    "--max-attempts",
+    default=None,
+    type=int,
+    help="Delivery attempts before the row is dead-lettered",
+)
+@click.option(
+    "--enable/--disable",
+    "enabled",
+    default=None,
+    help="Turn the hook on or off",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def update_hook(
+    name: str,
+    selectors: tuple[str, ...],
+    workflow_ref: str | None,
+    principal: str | None,
+    max_attempts: int | None,
+    enabled: bool | None,
+    format: str,
+    server_url: str | None,
+):
+    """Update a hook. Only the fields given are sent."""
+    fields: dict[str, Any] = {}
+    if enabled is not None:
+        fields["enabled"] = enabled
+    if selectors:
+        fields["selectors"] = list(selectors)
+    if workflow_ref is not None:
+        fields["workflow_ref"] = workflow_ref
+    if principal is not None:
+        fields["principal"] = principal
+    if max_attempts is not None:
+        fields["max_attempts"] = max_attempts
+
+    if not fields:
+        raise click.UsageError(
+            "Nothing to update: pass at least one of --on, --workflow, "
+            "--principal, --max-attempts, --enable/--disable.",
+        )
+
+    base_url = server_url or get_server_url()
+    result = _hook_request("PUT", f"{base_url}/hooks/{name}", json=fields)
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Successfully updated hook '{name}'")
+        _echo_hook(result)
+
+
+@hook.command("delete")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+@click.confirmation_option(
+    prompt="Are you sure you want to delete this hook and its deliveries?",
+)
+def delete_hook(name: str, format: str, server_url: str | None):
+    """Delete a hook and, by cascade, its deliveries."""
+    base_url = server_url or get_server_url()
+    _hook_request("DELETE", f"{base_url}/hooks/{name}")
+
+    if format == "json":
+        click.echo(json.dumps({"status": "ok", "hook": name}, indent=2))
+    else:
+        click.echo(f"Successfully deleted hook '{name}'")
+
+
+@hook.command("test")
+@click.argument("name")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def test_hook(name: str, format: str, server_url: str | None):
+    """Fire the hook once with a synthetic event.
+
+    Writes no delivery row and ignores whether the hook is enabled — a hook
+    is tested precisely while it is off, before it is trusted with real
+    events.
+    """
+    base_url = server_url or get_server_url()
+    result = _hook_request("POST", f"{base_url}/hooks/{name}/test")
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Test fire of hook '{name}' started execution {result['execution_id']}")
+        click.echo("Envelope:")
+        click.echo(json.dumps(result.get("envelope", {}), indent=2))
+
+
+@hook.command("deliveries")
+@click.argument("name")
+@click.option(
+    "--limit",
+    "-l",
+    default=50,
+    # The same bound the endpoint enforces, so an over-large page is a usage
+    # error here rather than a validation error round trip.
+    type=click.IntRange(1, 200),
+    help="Number of deliveries to show, newest first (default: 50, max: 200)",
+)
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def hook_deliveries(name: str, limit: int, format: str, server_url: str | None):
+    """List a hook's deliveries, newest first."""
+    base_url = server_url or get_server_url()
+    deliveries = _hook_request(
+        "GET",
+        f"{base_url}/hooks/{name}/deliveries",
+        params={"limit": limit},
+    )
+
+    if format == "json":
+        click.echo(json.dumps(deliveries, indent=2))
+        return
+
+    if not deliveries:
+        click.echo(f"No deliveries found for hook '{name}'.")
+        return
+
+    click.echo(f"Found {len(deliveries)} delivery(ies) for hook '{name}':")
+    click.echo()
+    for delivery in deliveries:
+        status = delivery["status"]
+        indicator = {"delivered": "✓", "dead": "✗"}.get(status, "…")
+        click.echo(f"{indicator} {delivery['id']} - {status}")
+        click.echo(f"   Event: {delivery['event_key']} | Attempts: {delivery['attempts']}")
+        if delivery.get("execution_id"):
+            click.echo(f"   Execution: {delivery['execution_id']}")
+        if delivery.get("next_attempt_at"):
+            click.echo(f"   Next attempt: {delivery['next_attempt_at']}")
+        if delivery.get("last_error"):
+            click.echo(f"   Error: {delivery['last_error']}")
+        click.echo()
+
+
+@hook.command("retry")
+@click.argument("name")
+@click.argument("delivery_id")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["simple", "json"]),
+    default="simple",
+    help="Output format",
+)
+@click.option(
+    "--server-url",
+    "-cp-url",
+    default=None,
+    help="Server URL to connect to.",
+)
+def retry_hook_delivery(name: str, delivery_id: str, format: str, server_url: str | None):
+    """Hand a dead-lettered delivery back to the drain."""
+    base_url = server_url or get_server_url()
+    result = _hook_request(
+        "POST",
+        f"{base_url}/hooks/{name}/deliveries/{delivery_id}/retry",
+    )
+
+    if format == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Delivery {delivery_id} of hook '{name}' queued for retry")
+
+
+@cli.group()
 def secrets():
     """Manage Flux secrets for secure task execution."""
     pass

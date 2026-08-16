@@ -22,6 +22,7 @@ from flux.config import Configuration
 from flux.workflow import workflow
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
+from flux.hooks.drain import drain_once
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
 from flux.servers.models import redacted_response
@@ -36,6 +37,7 @@ from flux.api.workflow_routes import WorkflowRoutesMixin
 from flux.api.worker_routes import WorkerRoutesMixin
 from flux.api.admin_routes import AdminRoutesMixin
 from flux.api.schedule_routes import ScheduleRoutesMixin
+from flux.api.hook_routes import HookRoutesMixin
 from flux.api.execution_routes import ExecutionRoutesMixin
 from flux.api.dynamic_routes import DynamicRoutesMixin
 from flux.api.service_routes import ServiceRoutesMixin
@@ -95,6 +97,7 @@ class Server(
     WorkerRoutesMixin,
     AdminRoutesMixin,
     ScheduleRoutesMixin,
+    HookRoutesMixin,
     ExecutionRoutesMixin,
     DynamicRoutesMixin,
     ServiceRoutesMixin,
@@ -1161,6 +1164,28 @@ class Server(
                         except Exception:
                             logger.error("Pause-wake pass failed", exc_info=True)
 
+                        # Hook-delivery drain: the outbox recorded an
+                        # obligation in the transaction that persisted the
+                        # event; this is where it becomes an execution.
+                        # Same lock as the sweeps above, so one replica
+                        # fires each delivery, and batch-bounded so a
+                        # backlog is drained over several ticks instead of
+                        # holding the lock through one long pass.
+                        try:
+                            hooks_cfg = Configuration.get().settings.hooks
+                            if hooks_cfg.enabled:
+                                settled = await drain_once(
+                                    self._create_hook_execution,
+                                    now=current_time,
+                                    batch_size=hooks_cfg.drain_batch_size,
+                                    hop_limit=hooks_cfg.hop_limit,
+                                    authorize=self._authorize_hook,
+                                )
+                                if settled:
+                                    logger.info(f"Settled {settled} hook delivery(ies)")
+                        except Exception:
+                            logger.error("Hook-delivery drain failed", exc_info=True)
+
                         # Join-token reaping (issue #197 follow-up): minting
                         # had no inverse, so dead rows accumulated forever.
                         # Same lock, so one replica reaps.
@@ -1355,6 +1380,155 @@ class Server(
                 m.record_schedule_trigger(schedule.name, "failure")
 
             raise
+
+    async def _create_hook_execution(
+        self,
+        namespace: str,
+        workflow_name: str,
+        input_data: Any,
+        *,
+        principal: str | None = None,
+        on_behalf_of: str | None = None,
+    ) -> str:
+        """Start a hook's target workflow, for the drain.
+
+        The drain deals in execution ids and awaits its creator, so this
+        adapts the server's own creation path to that shape rather than
+        letting the drain reach into the server.
+
+        The execution is stamped with the principal it runs as and carries
+        its own execution token, exactly as a scheduled one is: without them
+        a hook-started workflow calling back into the server is anonymous —
+        and since a task-level permission check downstream would then fail
+        closed, the identity has to travel with the execution rather than
+        stop at the authorization above it.
+        """
+        ctx = self._create_execution(namespace, workflow_name, input_data)
+
+        auth_config = Configuration.get().settings.security.auth
+        if not auth_config.enabled or not principal:
+            return ctx.execution_id
+
+        try:
+            from flux.security.execution_token import mint_execution_token
+            from flux.security.principals import PrincipalRegistry
+
+            principal_row = PrincipalRegistry(session_factory=self._get_db_session).find(
+                principal,
+                "flux",
+            )
+            if principal_row is None:
+                raise ValueError(f"principal '{principal}' disappeared after authorization")
+
+            exec_token = mint_execution_token(
+                subject=principal_row.subject,
+                principal_issuer=principal_row.external_issuer,
+                execution_id=ctx.execution_id,
+                on_behalf_of=on_behalf_of or "hook",
+            )
+
+            # One session, one commit: token and provenance are a single
+            # fact about the row, as on the schedule path.
+            session = self._get_db_session()
+            try:
+                from flux.models import ExecutionContextModel as _ECM_HOOK
+
+                exec_row = session.get(_ECM_HOOK, ctx.execution_id)
+                if exec_row:
+                    exec_row.exec_token = exec_token
+                    exec_row.scheduling_subject = principal_row.subject
+                    exec_row.scheduling_principal_issuer = principal_row.external_issuer
+                    session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            # Deliberately not raised: the execution already exists, and the
+            # drain would read a raise as a transient failure and start a
+            # second one on the next tick. An unstamped execution is a
+            # degraded run — anything it calls back fails closed — where a
+            # duplicated one is a wrong one.
+            logger.error(
+                f"Execution {ctx.execution_id} started by {on_behalf_of or 'a hook'} "
+                f"could not be stamped with its principal: {e}",
+                exc_info=True,
+            )
+
+        return ctx.execution_id
+
+    async def _authorize_hook(self, principal: str, permission: str) -> bool:
+        """Re-check a hook's principal at fire time, for the drain.
+
+        A hook outlives the grant it was created under: the principal may
+        have been disabled, banned, or had the role carrying this permission
+        revoked since, so roles are read fresh here. With auth off there is
+        nothing to check and everything is permitted, as everywhere else in
+        the server.
+
+        The check is the *whole* run authorization the schedule path
+        performs — every task's ``:execute`` and every nested workflow, not
+        only ``:run`` — because a hook is server-initiated work under a
+        stored principal just as a schedule is, and two doors into the same
+        room should not need different keys. ``WorkflowNotFoundError`` from
+        the catalog read is left to propagate: the drain dead-letters a
+        vanished target on it, which is the truthful reason.
+        """
+        auth_config = Configuration.get().settings.security.auth
+        if not auth_config.enabled:
+            return True
+
+        # The drain names the permission it needs; the deeper check needs the
+        # workflow that permission is about, so it is read back out of it
+        # rather than widening the injected contract with a second spelling
+        # of the same fact.
+        parts = permission.split(":")
+        if len(parts) != 4 or parts[0] != "workflow" or parts[3] != "run":
+            logger.warning(f"Hook authorization asked for an unexpected permission: {permission}")
+            return False
+        namespace, workflow_name = parts[1], parts[2]
+
+        from flux.security.principals import PrincipalRegistry
+
+        registry = PrincipalRegistry(session_factory=self._get_db_session)
+        # By subject, the way the hook row names it — the same resolution the
+        # schedule path does for its service account.
+        principal_row = registry.find(principal, "flux")
+        if principal_row is None or not principal_row.enabled or principal_row.banned:
+            logger.warning(
+                f"Hook principal '{principal}' is missing, disabled or banned; refusing delivery",
+            )
+            return False
+
+        workflow = WorkflowCatalog.create().get(namespace, workflow_name)
+        workflow_metadata = getattr(workflow, "metadata", None) or {}
+
+        identity = FluxIdentity(
+            subject=principal_row.subject,
+            roles=frozenset(registry.get_roles(principal_row.id)),
+            metadata={
+                "token_type": "service_account",
+                "issuer": principal_row.external_issuer,
+                "principal_id": principal_row.id,
+                "via": "hook",
+            },
+        )
+        auth_service = AuthService(
+            config=auth_config,
+            session_factory=self._get_db_session,
+            registry=registry,
+        )
+        result = await auth_service.authorize(
+            identity,
+            namespace,
+            workflow_name,
+            workflow_metadata,
+        )
+        if not result.ok:
+            logger.warning(
+                f"Hook principal '{principal_row.subject}' lacks permissions for "
+                f"{namespace}/{workflow_name}: {result.missing_permissions}",
+            )
+            return False
+        return True
 
     # ===========================================
     # End Scheduler Methods
@@ -1615,6 +1789,14 @@ class Server(
         )
 
         self._register_schedule_routes(
+            api,
+            auth_config=auth_config,
+            auth_service=auth_service,
+            principal_registry=principal_registry,
+            limiter=limiter,
+        )
+
+        self._register_hook_routes(
             api,
             auth_config=auth_config,
             auth_service=auth_service,
