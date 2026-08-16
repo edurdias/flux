@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from flux.agents.types import AgentDefinition
 from flux.config_manager import ConfigManager
+from flux.hooks.registry import HookRegistry
 from flux.models import AgentModel, RepositoryFactory
 
 
@@ -70,6 +71,11 @@ class DatabaseAgentManager(AgentManager):
         # session boundary; a failure here leaves the agents row behind, which
         # update()/delete() cope with idempotently.
         ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
+        HookRegistry.create().reconcile_owned_hooks(
+            owner_type="agent",
+            owner_ref=definition.name,
+            specs=definition.hooks,
+        )
 
     def get(self, name: str) -> AgentDefinition:
         with self.session() as session:
@@ -88,6 +94,11 @@ class DatabaseAgentManager(AgentManager):
                 setattr(model, key, value)
             session.commit()
         ConfigManager.current().save(_config_key(definition.name), definition.model_dump())
+        HookRegistry.create().reconcile_owned_hooks(
+            owner_type="agent",
+            owner_ref=definition.name,
+            specs=definition.hooks,
+        )
 
     def delete(self, name: str) -> None:
         with self.session() as session:
@@ -99,6 +110,7 @@ class DatabaseAgentManager(AgentManager):
         # Best-effort config cleanup; ConfigManager.remove is a no-op if
         # the key is already absent so this is safe to call unconditionally.
         ConfigManager.current().remove(_config_key(name))
+        HookRegistry.create().delete_owned_hooks(owner_type="agent", owner_ref=name)
 
     def list(self) -> list[AgentDefinition]:
         with self.session() as session:
@@ -130,4 +142,5 @@ class DatabaseAgentManager(AgentManager):
             approval_routing=model.approval_routing,
             reasoning_effort=model.reasoning_effort,
             long_term_memory=model.long_term_memory,
+            hooks=model.hooks or [],
         )

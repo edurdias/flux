@@ -392,6 +392,13 @@ class AgentModel(Base):
     approval_routing = Column(String, nullable=True)
     reasoning_effort = Column(String, nullable=True)
     long_term_memory = Column(JSON, nullable=True)
+    # Agent-declared outbound hooks (declaration path 3). Nullable at the DB
+    # level like every other column a migration added to this pre-existing
+    # table (see 0025_execution_name for the same pattern) -- the Python-
+    # side default below is what keeps every ORM-created row a list, not
+    # None; DatabaseAgentManager._to_definition normalizes a legacy NULL row
+    # the same way it already does for `tools`/`mcp_servers`/`agents`.
+    hooks = Column(JSON, nullable=True, default=list)
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

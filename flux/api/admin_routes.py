@@ -322,6 +322,18 @@ class AdminRoutesMixin:
                                 status_code=403,
                                 detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
+                # Declaring hooks is a further escalation beyond
+                # agent:*:create: each fires its target under a stored
+                # principal, the same rule workflow-declared hooks follow.
+                for spec in definition.hooks:
+                    await self._require_may_fire_as(
+                        identity,
+                        spec["principal"],
+                        auth_config=auth_config,
+                        auth_service=auth_service,
+                        principal_registry=principal_registry,
+                    )
+                    await self._require_runnable_target(spec["principal"], spec["workflow"])
                 manager = AgentManager.current()
                 manager.create(definition)
                 return {
@@ -361,6 +373,18 @@ class AdminRoutesMixin:
                                 status_code=403,
                                 detail="tools_file/workflow_file/skills_dir bundles require workflow:*:*:register permission",
                             )
+                # Declaring hooks is a further escalation beyond
+                # agent:*:create: each fires its target under a stored
+                # principal, the same rule workflow-declared hooks follow.
+                for spec in definition.hooks:
+                    await self._require_may_fire_as(
+                        identity,
+                        spec["principal"],
+                        auth_config=auth_config,
+                        auth_service=auth_service,
+                        principal_registry=principal_registry,
+                    )
+                    await self._require_runnable_target(spec["principal"], spec["workflow"])
                 manager = AgentManager.current()
                 manager.update(definition)
                 return {

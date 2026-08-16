@@ -31,6 +31,7 @@ class AgentDefinition(BaseModel):
     approval_routing: str | None = None
     reasoning_effort: str | None = None
     long_term_memory: dict[str, Any] | None = None
+    hooks: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("model")
     @classmethod
@@ -66,6 +67,16 @@ class AgentDefinition(BaseModel):
             )
         return v
 
+    @field_validator("hooks")
+    @classmethod
+    def validate_hooks(cls, v: list[Any]) -> list[dict]:
+        from flux.hooks.declarations import hook
+
+        try:
+            return [hook.run(**entry) if isinstance(entry, dict) else entry for entry in v]
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"invalid hook declaration: {e}") from e
+
     @model_validator(mode="after")
     def validate_long_term_memory(self) -> AgentDefinition:
         if self.long_term_memory is not None:
@@ -88,9 +99,12 @@ class AgentDefinition(BaseModel):
         """Return True if this definition ships content that escalates beyond ``agent:*:create``.
 
         ``tools_file``/``workflow_file`` are exec'd on workers; an inline ``skills_dir`` bundle
-        ships arbitrary file content materialized on the worker filesystem.
+        ships arbitrary file content materialized on the worker filesystem; ``hooks`` fires
+        another workflow under a stored principal.
         """
-        return bool(self.tools_file or self.workflow_file or self.has_skills_bundle())
+        return bool(
+            self.tools_file or self.workflow_file or self.has_skills_bundle() or self.hooks,
+        )
 
 
 def payload_ships_code(value: Any) -> bool:
@@ -106,7 +120,7 @@ def payload_ships_code(value: Any) -> bool:
             return False
     if not isinstance(value, dict):
         return False
-    if value.get("tools_file") or value.get("workflow_file"):
+    if value.get("tools_file") or value.get("workflow_file") or value.get("hooks"):
         return True
     skills = value.get("skills_dir")
     if isinstance(skills, str):
