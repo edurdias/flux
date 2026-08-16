@@ -49,6 +49,8 @@ class HookIndexEntry:
     workflow_ref: str
     principal: str
     max_attempts: int
+    owner_type: str
+    owner_ref: str
 
 
 _snapshot_lock = threading.Lock()
@@ -96,6 +98,8 @@ class HookRegistry:
                     workflow_ref=row.workflow_ref,
                     principal=row.principal,
                     max_attempts=row.max_attempts,
+                    owner_type=row.owner_type,
+                    owner_ref=row.owner_ref,
                 )
                 for row in rows
             )
@@ -113,7 +117,20 @@ class HookRegistry:
             entry
             for entry in self.snapshot()
             if any(selector_matches(selector, event.key) for selector in entry.selectors)
+            and self._owner_permits(entry, event)
         ]
+
+    @staticmethod
+    def _owner_permits(entry: HookIndexEntry, event: HookEvent) -> bool:
+        """Agent-owned hooks carry a runtime backstop: their selector text
+        cannot discriminate between agents (every session runs
+        agents/agent_chat), so ownership is enforced here instead. Every
+        other owner type relies on its selector text alone -- workflow-
+        declared hooks are scope-confined at registration, user-declared
+        hooks are meant to range freely."""
+        if entry.owner_type != "agent":
+            return True
+        return event.agent == entry.owner_ref
 
     def has_any(self) -> bool:
         return len(self.snapshot()) > 0

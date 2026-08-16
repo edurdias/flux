@@ -486,6 +486,8 @@ class HookRoutesMixin:
                     workflow_ref=hook.workflow_ref,
                     principal=hook.principal,
                     max_attempts=hook.max_attempts,
+                    owner_type=hook.owner_type,
+                    owner_ref=hook.owner_ref,
                 ),
                 selector,
                 event,

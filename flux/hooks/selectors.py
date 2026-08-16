@@ -111,6 +111,11 @@ class HookEvent:
     task_call_id: str | None
     value: Any
     occurred_at: str  # ISO-8601
+    # Every agent session runs agents/agent_chat, so a selector's own text
+    # cannot discriminate between agents -- an agent-owned hook's runtime
+    # backstop (HookRegistry.matches) compares this against the hook's
+    # owner_ref instead. None outside the "agents" namespace.
+    agent: str | None = None
 
     @property
     def delivery_key(self) -> str:
@@ -140,6 +145,16 @@ def events_from_save(
     skipped rather than raising: it should not occur, but a hook derivation
     is not the place to fail a save over it.
     """
+    # The same derivation flux/api/workflow_routes.py uses to record
+    # AgentSessionModel at execution creation -- ctx.input is set once at
+    # ExecutionContext construction and never overwritten by a resume, so
+    # this reads the same "agent" key throughout the execution's life.
+    agent = (
+        ctx.input.get("agent")
+        if ctx.workflow_namespace == "agents" and isinstance(ctx.input, dict)
+        else None
+    )
+
     produced: list[HookEvent] = []
     for event in new_events:
         event_type = event.type
@@ -166,6 +181,7 @@ def events_from_save(
                     task_call_id=None,
                     value=event.value,
                     occurred_at=event.time.isoformat(),
+                    agent=agent,
                 ),
             )
         elif type_name.startswith("TASK_"):
@@ -183,6 +199,7 @@ def events_from_save(
                     task_call_id=event.source_id,
                     value=event.value,
                     occurred_at=event.time.isoformat(),
+                    agent=agent,
                 ),
             )
         # else: not a hook-domain event type -- skip rather than raise.

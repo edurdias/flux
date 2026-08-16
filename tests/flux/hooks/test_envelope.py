@@ -40,6 +40,8 @@ def _entry(name: str = "notify-approvals") -> HookIndexEntry:
         workflow_ref="ops/notify_slack",
         principal="p-1",
         max_attempts=5,
+        owner_type="user",
+        owner_ref="admin",
     )
 
 
