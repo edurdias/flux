@@ -48,6 +48,7 @@ class workflow:
         runner: str | None = None,
         runner_options: dict | None = None,
         routing: dict | None = None,
+        hooks: list[dict] | None = None,
     ) -> Callable[[F], workflow]:
         """
         A decorator to configure options for a workflow function.
@@ -64,6 +65,7 @@ class workflow:
             runner (str | None, optional): Runner this workflow requires on the worker ("inprocess", "subprocess", or "docker"). Defaults to None, meaning the worker's configured default_runner.
             runner_options (dict | None, optional): Per-workflow narrowing of the runner's profile (cpus, memory, timeout, network, read_only). Options may only tighten what the worker configured; a wider value has no effect.
             routing (dict | None, optional): Scoring policy built with ``flux.routing.score(...)`` that ranks eligible workers at dispatch (event mode only). Hard constraints (requests/affinity/runner) still filter first. Defaults to None (least-loaded).
+            hooks (list[dict] | None, optional): Outbound hooks this workflow declares, built with ``flux.hooks.hook.run(...)``. Each selector must observe only this workflow — subscribing to another workflow's events requires an operator via ``POST /hooks``. Defaults to None.
 
         Returns:
             Callable[[F], workflow]: A decorator that wraps the given function into a workflow object with the specified options.
@@ -83,6 +85,7 @@ class workflow:
                 runner=runner,
                 runner_options=runner_options,
                 routing=routing,
+                hooks=hooks,
             )
 
         return wrapper
@@ -101,6 +104,7 @@ class workflow:
         runner: str | None = None,
         runner_options: dict | None = None,
         routing: dict | None = None,
+        hooks: list[dict] | None = None,
     ):
         if durability not in ("durable", "transient"):
             raise ValueError(
@@ -148,6 +152,15 @@ class workflow:
                 "affinity must be a label dict or an expression built with "
                 f"flux.routing.require(...), got: {affinity!r}",
             )
+        if hooks is not None and (
+            not isinstance(hooks, list)
+            or not all(
+                isinstance(h, dict) and {"on", "workflow", "principal"} <= set(h) for h in hooks
+            )
+        ):
+            raise ValueError(
+                f"hooks must be a list of specs built with flux.hooks.hook.run(...), got: {hooks!r}",
+            )
         self._func = func
         self._name = name if name else func.__name__
         self._namespace = validate_namespace(namespace)
@@ -159,6 +172,7 @@ class workflow:
         self._durability = durability
         self._runner = runner
         self._routing = routing
+        self._hooks = hooks
         wraps(func)(self)
 
     @property
@@ -180,6 +194,10 @@ class workflow:
     @property
     def routing(self) -> dict | None:
         return self._routing
+
+    @property
+    def hooks(self) -> list[dict] | None:
+        return self._hooks
 
     @property
     def qualified_name(self) -> str:
