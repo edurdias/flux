@@ -611,6 +611,14 @@ class HooksConfig(BaseConfig):
             "disables the cache: every call rebuilds."
         ),
     )
+    auto_hook_suffix: str = Field(
+        default="_hook",
+        description=(
+            "Suffix for derived names of workflow- and agent-declared hooks "
+            "that were not given an explicit name. Mirrors "
+            "[flux.scheduling] auto_schedule_suffix."
+        ),
+    )
 
 
 class FluxConfig(BaseSettings):

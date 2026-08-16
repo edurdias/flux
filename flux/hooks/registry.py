@@ -200,3 +200,78 @@ class HookRegistry:
             session.delete(hook)
             session.commit()
             self.invalidate()
+
+    def list_owned_hooks(self, *, owner_type: str, owner_ref: str) -> list[HookModel]:
+        with self._repository.session() as session:
+            return (
+                session.query(HookModel)
+                .filter_by(owner_type=owner_type, owner_ref=owner_ref)
+                .order_by(HookModel.name)
+                .all()
+            )
+
+    def reconcile_owned_hooks(
+        self,
+        *,
+        owner_type: str,
+        owner_ref: str,
+        specs: Sequence[dict],
+        created_by: str | None = None,
+    ) -> list[HookModel]:
+        """Create-or-replace-by-derived-name; delete rows no longer declared.
+
+        Keying on name -- not wiping and recreating every owned row -- is
+        what lets a hook that is still declared keep its delivery history
+        across a redeploy. Only rows for specs that disappeared from the
+        declaration are removed, and only they lose their deliveries (via
+        the ``hook_deliveries.hook_id`` FK cascade).
+        """
+        suffix = Configuration.get().settings.hooks.auto_hook_suffix
+        base_name = owner_ref.rsplit("/", 1)[-1]
+
+        desired: dict[str, dict] = {}
+        for index, spec in enumerate(specs):
+            name = spec.get("name") or f"{base_name}{suffix}_{index}"
+            desired[name] = spec
+
+        existing = {
+            row.name: row
+            for row in self.list_owned_hooks(owner_type=owner_type, owner_ref=owner_ref)
+        }
+
+        result = []
+        for name, spec in desired.items():
+            fields = {
+                "selectors": [spec["on"]],
+                "workflow_ref": spec["workflow"],
+                "principal": spec["principal"],
+                "max_attempts": spec.get("max_attempts", 5),
+            }
+            if name in existing:
+                result.append(self.update_hook(name, **fields))
+            else:
+                result.append(
+                    self.create_hook(
+                        name=name,
+                        selectors=fields["selectors"],
+                        workflow_ref=fields["workflow_ref"],
+                        principal=fields["principal"],
+                        owner_type=owner_type,
+                        owner_ref=owner_ref,
+                        max_attempts=fields["max_attempts"],
+                        created_by=created_by,
+                    ),
+                )
+
+        for stale_name in set(existing) - set(desired):
+            self.delete_hook(stale_name)
+
+        return result
+
+    def delete_owned_hooks(self, *, owner_type: str, owner_ref: str) -> int:
+        """Delete every hook this owner declared -- workflow delete / agent delete."""
+        count = 0
+        for row in self.list_owned_hooks(owner_type=owner_type, owner_ref=owner_ref):
+            self.delete_hook(row.name)
+            count += 1
+        return count
