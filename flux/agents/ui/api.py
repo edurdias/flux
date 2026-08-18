@@ -4,6 +4,15 @@ from fastapi import FastAPI, Header, HTTPException
 
 from flux.agents.console.app import mount_console_routes
 
+_DEFAULT_PORTS = (("http", 80), ("https", 443))
+
+
+def _authority(host: str) -> str:
+    """Host as a browser writes it in an Origin: IPv6 literals bracketed."""
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
 
 class ApiUI:
     """HTTP/SSE agent API.
@@ -72,14 +81,26 @@ class ApiUI:
         Built from the bind host/port (not hardcoded) so a non-default
         --host still gets a working allowlist; 127.0.0.1/localhost are
         always included since browsers treat a loopback server as
-        reachable under either name interchangeably. Wildcard binds
+        reachable under either name interchangeably. Each host is admitted
+        under both schemes -- an Origin header cannot be forged, so the
+        https twin of the console's own origin adds no reachable attacker
+        while covering a TLS-terminating proxy in front of api mode.
+        Wildcard binds
         (0.0.0.0 / ::) never appear in a browser's Origin header, so they
         contribute nothing — an externally exposed console must name the
         origins operators will actually use via ``allowed_origins``
         (`flux agent start --allow-origin`).
         """
         hosts = {self.host, "127.0.0.1", "localhost"} - {"0.0.0.0", "::", "[::]"}
-        origins = {f"http://{host}:{self.port}" for host in hosts}
+        origins: set[str] = set()
+        for host in hosts:
+            authority = _authority(host)
+            for scheme, default_port in _DEFAULT_PORTS:
+                origins.add(f"{scheme}://{authority}:{self.port}")
+                # A browser elides the port when it is the scheme's default,
+                # so a console on :80 only ever sees "http://localhost".
+                if self.port == default_port:
+                    origins.add(f"{scheme}://{authority}")
         origins.update(origin.rstrip("/") for origin in self.allowed_origins)
         return origins
 

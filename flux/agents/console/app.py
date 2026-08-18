@@ -37,8 +37,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hashlib
 import json
+import secrets
+import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from typing import TypeVar
 
 import httpx
@@ -123,6 +128,17 @@ class _ScopedConsoleService(ConsoleService):
         )
 
 
+_WRITE_STATE_MAX_ENTRIES = 256
+_WRITE_STATE_TTL_SECONDS = 900.0
+
+
+@dataclass
+class _WriteAnswer:
+    can_write: bool
+    missing: str | None
+    stored_at: float
+
+
 class ConsoleWriteState:
     """Tracks, per Bearer token, whether that token can write -- and, when it
     cannot, which permission it is missing.
@@ -139,34 +155,90 @@ class ConsoleWriteState:
     The permission name travels with the answer because a read-only console
     disables every write control, so no later 403 can ever arrive to name it:
     the probe's own denial is the *only* chance to learn it.
+
+    What is keyed is a per-process salted hash of the token, not the token:
+    api mode admits an unbounded number of live credentials, and a
+    process-lifetime map of them is a credential store nobody asked for --
+    one heap dump or one repr() away from leaking every operator's token
+    (#245). The salt is per-instance, so the digests are not even a stable
+    identifier across processes.
+
+    The map is bounded and each answer expires: oldest-first eviction past
+    ``max_entries``, and an answer older than ``ttl_seconds`` is re-probed
+    rather than believed forever. Expiry is why "never back to True" is
+    scoped to the TTL -- within it a denial stands, past it a grant issued
+    mid-session is picked up, which is the same reason the cache exists at
+    all rather than probing every read.
     """
 
-    def __init__(self) -> None:
-        self._per_token: dict[str | None, bool] = {}
-        self._missing: dict[str | None, str | None] = {}
+    def __init__(
+        self,
+        *,
+        max_entries: int = _WRITE_STATE_MAX_ENTRIES,
+        ttl_seconds: float = _WRITE_STATE_TTL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._answers: OrderedDict[str, _WriteAnswer] = OrderedDict()
+        self._max_entries = max_entries
+        self._ttl_seconds = ttl_seconds
+        self._clock = clock
+        # Per-process, so a digest never survives the process that made it
+        # and cannot be precomputed against a known token.
+        self._salt = secrets.token_bytes(16)
+
+    def __len__(self) -> int:
+        return len(self._answers)
+
+    def _key(self, token: str | None) -> str:
+        # None (web mode's browser request, which carries no credential of
+        # its own) and "" both mean "no token" and share a key by design.
+        return hashlib.blake2b(
+            (token or "").encode(),
+            key=self._salt,
+            digest_size=16,
+        ).hexdigest()
+
+    def _live(self, key: str) -> _WriteAnswer | None:
+        answer = self._answers.get(key)
+        if answer is None:
+            return None
+        if self._clock() - answer.stored_at >= self._ttl_seconds:
+            del self._answers[key]
+            return None
+        return answer
+
+    def _store(self, key: str, can_write: bool, missing: str | None) -> None:
+        self._answers[key] = _WriteAnswer(can_write, missing, self._clock())
+        self._answers.move_to_end(key)
+        while len(self._answers) > self._max_entries:
+            self._answers.popitem(last=False)
 
     def mark_forbidden(self, token: str | None, permission: str | None = None) -> None:
-        self._per_token[token] = False
+        key = self._key(token)
+        known = self._live(key)
         # Never overwrite a known permission with None: a later denial whose
         # body did not name one must not erase what the probe already learned.
-        if permission is not None or token not in self._missing:
-            self._missing[token] = permission
+        if permission is None and known is not None:
+            permission = known.missing
+        self._store(key, False, permission)
 
     async def resolve(self, token: str | None, service: ConsoleService) -> bool:
-        if token in self._per_token:
-            return self._per_token[token]
+        key = self._key(token)
+        known = self._live(key)
+        if known is not None:
+            return known.can_write
         can_write, permission, answered = await _probe_can_write(service)
         # A probe that never reached the server answers nothing: caching its
         # degrade-open "yes" would leave a genuinely read-only operator
         # looking at enabled write controls for the life of the process,
         # since nothing ever re-probes. Retried on the next read instead.
         if answered:
-            self._per_token[token] = can_write
-            self._missing[token] = None if can_write else permission
+            self._store(key, can_write, None if can_write else permission)
         return can_write
 
     def missing_permission(self, token: str | None) -> str | None:
-        return self._missing.get(token)
+        known = self._live(self._key(token))
+        return known.missing if known is not None else None
 
 
 async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None, bool]:
