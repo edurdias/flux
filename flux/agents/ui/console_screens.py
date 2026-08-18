@@ -215,6 +215,12 @@ class ElicitationScreen(ModalScreen[str | None]):
         border-title-align: left;
         padding: 0 1;
     }}
+    ElicitationScreen .elicitation-actions {{
+        /* Without this the button row is a 1fr Horizontal and stretches to
+           fill the overlay, pushing the key hint to the bottom edge. Same
+           rule ApprovalsScreen's action row carries. */
+        height: auto;
+    }}
     ElicitationScreen .elicitation-message {{
         color: {_AMBER};
     }}

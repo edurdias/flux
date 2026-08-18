@@ -16,6 +16,8 @@
  * untrusted text and only ever reach the page through textContent.
  */
 
+import { byteSize, formatSize, sliceBytes, truncate } from "./text.js";
+
 const WRITE_HEADERS = {
   // Required by the console's CSRF gate: a custom header forces a preflight
   // that a drive-by POST from another origin cannot silently pass.
@@ -25,7 +27,11 @@ const WRITE_HEADERS = {
 
 const THEME_KEY = "flux.console.theme";
 const POLL_MS = 5000;
+// Both in UTF-8 bytes, the unit their size labels report -- a limit that
+// counted UTF-16 units cut a non-ASCII payload at several times the budget
+// it advertised.
 const OUTPUT_LIMIT = 2048; // 2 KB, then "show full"
+const ARGS_LIMIT = 2048; // arguments are model output too, and just as large
 const TITLE_LIMIT = 48; // matches the server's derived_title truncation
 
 // Status glyphs are part of the design system, not decoration: failed is
@@ -97,6 +103,7 @@ const state = {
 
   expandedTools: new Set(),
   fullOutputs: new Set(),
+  fullArgs: new Set(),
   expandedSteps: new Set(),
   expandedSubagents: new Set(),
   renaming: false,
@@ -217,9 +224,29 @@ function fmtAge(iso) {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function truncate(text, limit = TITLE_LIMIT) {
-  const value = String(text);
-  return value.length <= limit ? value : `${value.slice(0, limit).trimEnd()}…`;
+/** One labelled payload block, cut to `limit` bytes with a show-full toggle.
+ *
+ * The cut and the size label report the same unit: measured in string
+ * length while the label counted bytes, a non-ASCII payload was cut well
+ * past the budget the button advertised.
+ */
+function appendPayload(body, title, text, expandedSet, key, limit) {
+  const full = expandedSet.has(key);
+  const size = byteSize(text);
+  body.append(label(title), el("pre", { text: full ? text : sliceBytes(text, limit) }));
+  if (size > limit) {
+    body.appendChild(
+      el("button", {
+        type: "button",
+        class: "show-full",
+        text: full ? `(${formatSize(text)} · show less)` : `(${formatSize(text)} · show full)`,
+        onclick: () => {
+          toggle(expandedSet, key);
+          scheduleRender();
+        },
+      }),
+    );
+  }
 }
 
 function pretty(value) {
@@ -244,10 +271,6 @@ function inlineArgs(args) {
   return truncate(text.replace(/\s+/g, " ").trim(), 64);
 }
 
-function sizeOf(text) {
-  const bytes = new Blob([text]).size;
-  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
-}
 
 /** Append `text` to `parent`, honouring fenced and inline code only. */
 function appendText(parent, text) {
@@ -306,8 +329,22 @@ function missingPermissionFrom(body, depth = 0) {
   return null;
 }
 
+/** Whether a 403 body is the console's own CSRF gate rather than RBAC.
+ *
+ * ApiUI._csrf_dependency answers 403 for a missing X-Flux-Console header or
+ * a foreign Origin. Neither says anything about what the token may do, so
+ * treating one as a permission denial latches the console read-only until
+ * the operator reloads the page.
+ */
+function isCsrfRefusal(body) {
+  const detail = body && typeof body === "object" ? body.detail : body;
+  if (typeof detail !== "string") return false;
+  return detail.includes("X-Flux-Console") || detail.includes("Origin not allowed");
+}
+
 function noteFailure(status, body, isWrite) {
   if (status !== 403) return;
+  if (isCsrfRefusal(body)) return;
   const permission = missingPermissionFrom(body);
   if (permission) state.missingPermission = permission;
   // Only a denied *write* means read-only; a 403 on a listing is a different
@@ -537,7 +574,7 @@ function applyDetail(detail) {
 
   state.blocks = blocks;
   state.tools = tools;
-  state.localTitle = firstMessage ? truncate(firstMessage) : null;
+  state.localTitle = firstMessage ? truncate(firstMessage, TITLE_LIMIT) : null;
   state.stream = "";
   state.reasoning = null;
   state.chatVersion += 1;
@@ -866,6 +903,9 @@ function renderRail() {
       state.activeId,
       state.localTitle,
       state.canWrite,
+      // The read-only tooltip names this; learned after the first render,
+      // it would otherwise stay generic until something else moved.
+      state.missingPermission,
       counts.done,
       counts.total,
     ],
@@ -1080,25 +1120,20 @@ function toolBlock(tool) {
   const node = el("div", { class: `tool${expanded ? " expanded" : ""}` }, head);
   if (!expanded) return node;
 
-  const body = el("div", { class: "tool-body" }, label("Args"), el("pre", { text: pretty(tool.args) }));
+  const body = el("div", { class: "tool-body" });
+  // Args are model output too: a tool called with a pasted file arrives as
+  // one multi-megabyte <pre>, which janks the page on every re-render. Same
+  // budget, same control, same unit as the label beside it.
+  appendPayload(body, "Args", pretty(tool.args), state.fullArgs, `${tool.id}:args`, ARGS_LIMIT);
   if (tool.output !== undefined) {
-    const text = pretty(tool.output);
-    const full = state.fullOutputs.has(tool.id);
-    const shown = full ? text : text.slice(0, OUTPUT_LIMIT);
-    body.append(label("Output"), el("pre", { text: shown }));
-    if (text.length > OUTPUT_LIMIT) {
-      body.appendChild(
-        el("button", {
-          type: "button",
-          class: "show-full",
-          text: full ? `(${sizeOf(text)} · show less)` : `(${sizeOf(text)} · show full)`,
-          onclick: () => {
-            toggle(state.fullOutputs, tool.id);
-            scheduleRender();
-          },
-        }),
-      );
-    }
+    appendPayload(
+      body,
+      "Output",
+      pretty(tool.output),
+      state.fullOutputs,
+      tool.id,
+      OUTPUT_LIMIT,
+    );
   }
   node.appendChild(body);
   return node;
@@ -1479,6 +1514,7 @@ function renderContext() {
       [...state.expandedSteps],
       [...state.expandedSubagents],
       state.fullOutputs.size,
+      state.fullArgs.size,
     ],
     () => {
       clear(dom.context);
@@ -1495,8 +1531,14 @@ function renderDrawer() {
     renderedDrawerSignature = null;
     return;
   }
-  const signature = JSON.stringify([state.approvals, [...state.decisions], state.canWrite]);
+  const signature = JSON.stringify([
+    state.approvals,
+    [...state.decisions],
+    state.canWrite,
+    state.missingPermission,
+  ]);
   if (signature === renderedDrawerSignature) return;
+  const opening = renderedDrawerSignature === null;
   renderedDrawerSignature = signature;
 
   clear(dom.drawer);
@@ -1528,6 +1570,8 @@ function renderDrawer() {
     card.appendChild(note ? el("div", { class: "prompt-note", text: note }) : approvalActions(approval));
     dom.drawer.appendChild(card);
   }
+  // Focus follows the overlay, once its contents exist to receive it.
+  if (opening) focusFirstIn(dom.drawer);
 }
 
 let modalShell = null;
@@ -1538,8 +1582,11 @@ function renderModal() {
     modalShell = null;
     return;
   }
-  if (!modalShell) buildModal();
+  const opening = !modalShell;
+  if (opening) buildModal();
   renderAgentList();
+  // After the shell exists, so there is something to focus.
+  if (opening) focusFirstIn(dom.modal);
 }
 
 function buildModal() {
@@ -1672,7 +1719,58 @@ function toggleTheme() {
   scheduleRender();
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// The element focus returns to when an overlay closes, so a keyboard
+// operator is not dropped back at the top of the document.
+let focusReturn = null;
+
+function focusableIn(container) {
+  return [...container.querySelectorAll(FOCUSABLE)].filter(
+    (node) => !node.hidden && node.offsetParent !== null,
+  );
+}
+
+/** Keep Tab inside `container` while it is open.
+ *
+ * An overlay the operator can Tab out of is worse than no overlay: focus
+ * lands on the controls behind it, which are inert to the eye but not to
+ * the keyboard, and nothing indicates where the cursor went.
+ */
+function trapFocus(container, event) {
+  if (event.key !== "Tab") return;
+  const focusable = focusableIn(container);
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !container.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !container.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function focusFirstIn(container) {
+  const focusable = focusableIn(container);
+  if (focusable.length) focusable[0].focus();
+}
+
+function restoreFocus() {
+  const target = focusReturn;
+  focusReturn = null;
+  if (target && document.contains(target)) target.focus();
+}
+
 function openModal() {
+  focusReturn = document.activeElement;
   state.modalOpen = true;
   state.agentFilter = "";
   modalShell = null;
@@ -1686,10 +1784,12 @@ function openModal() {
 
 function closeModal() {
   state.modalOpen = false;
+  restoreFocus();
   scheduleRender();
 }
 
 function openDrawer() {
+  focusReturn = document.activeElement;
   state.drawerOpen = true;
   renderedDrawerSignature = null;
   scheduleRender();
@@ -1698,6 +1798,7 @@ function openDrawer() {
 
 function closeDrawer() {
   state.drawerOpen = false;
+  restoreFocus();
   scheduleRender();
 }
 
@@ -1987,6 +2088,11 @@ dom.input.addEventListener("input", () => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") {
+    if (state.modalOpen) trapFocus(dom.modal, event);
+    else if (state.drawerOpen) trapFocus(dom.drawer, event);
+    return;
+  }
   if (event.key !== "Escape") return;
   if (state.modalOpen) closeModal();
   else if (state.drawerOpen) closeDrawer();

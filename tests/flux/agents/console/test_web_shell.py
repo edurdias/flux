@@ -252,3 +252,91 @@ def test_shell_never_interpolates_the_agent_name():
     HTML (an XSS surface it had to escape). The console reads it from
     /console/state instead, so the shell must stay a static file."""
     assert "{{" not in (WEB_DIR / "console.html").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Web console polish (#245) -- source-level guards for the DOM-bound parts.
+# The pure helpers these lean on are exercised for real in test_web_text.py.
+# ---------------------------------------------------------------------------
+
+
+def test_the_console_shares_one_truncation_implementation():
+    """A second copy is how the client and server drifted apart in the first
+    place: the helpers live in text.js, which is also what the parity tests
+    import."""
+    script = (WEB_DIR / "console.js").read_text()
+    assert 'from "./text.js"' in script
+    assert not re.search(r"^function truncate\(", script, re.MULTILINE)
+    assert not re.search(r"^function sizeOf\(", script, re.MULTILINE)
+
+
+def test_text_helpers_are_served_from_the_static_mount(client: TestClient):
+    response = client.get("/static/text.js")
+    assert response.status_code == 200
+
+
+def test_tool_arguments_are_truncated_like_outputs():
+    """A tool called with a pasted file arrives as one multi-megabyte <pre>
+    and janks the page on every re-render, so args carry the same budget and
+    the same show-full control that outputs do."""
+    script = (WEB_DIR / "console.js").read_text()
+    assert "ARGS_LIMIT" in script
+    call = re.search(r'appendPayload\(body, "Args".*?\);', script, re.DOTALL)
+    assert call, "the args panel must go through the shared payload renderer"
+    assert "ARGS_LIMIT" in call.group(0)
+    # And the shared renderer measures in the unit its label reports.
+    renderer = re.search(r"function appendPayload\(.*?\n}", script, re.DOTALL)
+    assert renderer, "appendPayload must exist"
+    assert "byteSize(text)" in renderer.group(0)
+    assert "sliceBytes(text, limit)" in renderer.group(0)
+    assert "text.slice(0," not in renderer.group(0)
+
+
+def test_a_csrf_refusal_never_latches_the_console_read_only():
+    """The CSRF gate answers 403 for a missing header or foreign Origin.
+    Neither says anything about what the token may do, so treating one as a
+    permission denial leaves the console read-only until a page reload."""
+    script = (WEB_DIR / "console.js").read_text()
+    note = re.search(r"function noteFailure\(.*?\n}", script, re.DOTALL)
+    assert note, "noteFailure must exist"
+    assert "isCsrfRefusal(body)" in note.group(0)
+    classifier = re.search(r"function isCsrfRefusal\(.*?\n}", script, re.DOTALL)
+    assert classifier, "the classifier must exist"
+    assert "X-Flux-Console" in classifier.group(0)
+    assert "Origin not allowed" in classifier.group(0)
+
+
+def test_the_read_only_tooltip_invalidates_its_regions():
+    """missingPermission is learned after the first render -- the probe's
+    denial is the only thing that names it -- so a region that memoizes
+    without it keeps showing the generic tooltip."""
+    script = (WEB_DIR / "console.js").read_text()
+    rail = re.search(r'memo\(\s*"rail",\s*\[(.*?)\]', script, re.DOTALL)
+    assert rail and "state.missingPermission" in rail.group(1)
+    drawer = re.search(r"const signature = JSON\.stringify\(\[(.*?)\]\)", script, re.DOTALL)
+    assert drawer and "state.missingPermission" in drawer.group(1)
+
+
+def test_overlays_trap_focus_and_give_it_back():
+    """An overlay a keyboard operator can Tab out of puts the cursor on
+    controls behind it -- inert to the eye, live to the keyboard."""
+    script = (WEB_DIR / "console.js").read_text()
+    assert "function trapFocus(" in script
+    keydown = re.search(r'document\.addEventListener\("keydown".*?\n}\);', script, re.DOTALL)
+    assert keydown, "the document keydown handler must exist"
+    assert 'event.key === "Tab"' in keydown.group(0)
+    # Conditioned on the overlay actually being open -- a call parked behind
+    # a dead branch reads the same to a substring check.
+    assert re.search(
+        r"if \(state\.modalOpen\) trapFocus\(dom\.modal, event\)",
+        keydown.group(0),
+    )
+    assert re.search(
+        r"if \(state\.drawerOpen\) trapFocus\(dom\.drawer, event\)",
+        keydown.group(0),
+    )
+    # Opening stores what to give focus back to; closing does give it back.
+    assert script.count("focusReturn = document.activeElement") == 2
+    assert script.count("restoreFocus();") == 2
+    assert "focusFirstIn(dom.modal)" in script
+    assert "focusFirstIn(dom.drawer)" in script
