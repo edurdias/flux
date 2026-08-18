@@ -156,15 +156,16 @@ class ConsoleWriteState:
     disables every write control, so no later 403 can ever arrive to name it:
     the probe's own denial is the *only* chance to learn it.
 
-    What is keyed is a per-process salted hash of the token, not the token:
-    api mode admits an unbounded number of live credentials, and a
-    process-lifetime map of them is a credential store nobody asked for --
-    one heap dump or one repr() away from leaking every operator's token
-    (#245). The salt is per-instance, so the digests are not even a stable
-    identifier across processes.
+    What is keyed is a salted hash of the token, not the token: api mode
+    admits an unbounded number of live credentials, and a process-lifetime
+    map of them is a credential store nobody asked for -- one heap dump or
+    one repr() away from leaking every operator's token (#245). The salt is
+    generated per instance, so a digest means nothing to anything but the
+    cache that produced it.
 
     The map is bounded and each answer expires: oldest-first eviction past
-    ``max_entries``, and an answer older than ``ttl_seconds`` is re-probed
+    ``max_entries`` (``0`` remembers nothing and re-probes every read), and
+    an answer older than ``ttl_seconds`` is re-probed
     rather than believed forever. Expiry is why "never back to True" is
     scoped to the TTL -- within it a denial stands, past it a grant issued
     mid-session is picked up, which is the same reason the cache exists at
@@ -178,6 +179,11 @@ class ConsoleWriteState:
         ttl_seconds: float = _WRITE_STATE_TTL_SECONDS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if max_entries < 0:
+            # Not a smaller cache: eviction would pop an already-empty map,
+            # surfacing as a KeyError from an unrelated later write. Zero is
+            # allowed and means "remember nothing".
+            raise ValueError(f"max_entries must be >= 0, got {max_entries}")
         self._answers: OrderedDict[str, _WriteAnswer] = OrderedDict()
         self._max_entries = max_entries
         self._ttl_seconds = ttl_seconds

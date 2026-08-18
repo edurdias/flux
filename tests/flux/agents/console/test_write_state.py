@@ -94,3 +94,25 @@ async def test_a_later_denial_without_a_permission_keeps_the_probed_one():
     state.mark_forbidden("token")
 
     assert state.missing_permission("token") == "workflow:agents:agent_chat:run"
+
+
+@pytest.mark.asyncio
+async def test_a_negative_bound_is_rejected_at_construction():
+    # Left unvalidated this bound does not disable the cache, it makes
+    # eviction pop an already-empty map -- a KeyError from a later, unrelated
+    # write rather than an error at the mistake.
+    with pytest.raises(ValueError):
+        ConsoleWriteState(max_entries=-1)
+
+
+@pytest.mark.asyncio
+async def test_a_zero_bound_disables_caching_rather_than_failing():
+    state = ConsoleWriteState(max_entries=0)
+    service = _StubService()
+
+    state.mark_forbidden("token", "workflow:agents:agent_chat:run")
+
+    assert len(state) == 0
+    # Nothing is remembered, so every read re-probes and gets the live answer.
+    assert await state.resolve("token", service) is True
+    assert len(service.probes) == 1
