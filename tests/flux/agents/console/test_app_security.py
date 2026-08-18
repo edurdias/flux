@@ -123,12 +123,27 @@ def test_console_sessions_post_rejects_right_host_wrong_port():
 
 def test_console_sessions_get_unaffected_by_missing_csrf_header():
     """No X-Flux-Console header on a GET must never itself produce a 403 --
-    whatever status comes back is downstream of a real (here: unreachable)
-    server call, not the security dependency."""
-    ui = _make_api_ui()
-    client = TestClient(ui.app)
-    response = client.get("/console/sessions", headers={"Authorization": "Bearer t"})
-    assert response.status_code != 403
+    the request reaches endpoint logic, which the stub answers.
+
+    The stub is the point, not a convenience: left unstubbed this test
+    resolved the placeholder server_url for real, sending "Bearer t" at
+    whatever a wildcard-DNS resolver returned for flux.test, and made a
+    unit test depend on the network (#245).
+    """
+
+    class _ListingService(ConsoleService):
+        def __init__(self):
+            super().__init__(server_url="http://flux.test", token=None)
+
+        async def list_sessions(self, agent=None):
+            return []
+
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=_ListingService()):
+        ui = _make_api_ui()
+        client = TestClient(ui.app)
+        response = client.get("/console/sessions", headers={"Authorization": "Bearer t"})
+
+    assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -360,4 +375,60 @@ def test_allowed_origin_clears_the_security_layer_end_to_end():
     )
     # 400 is this route's own body validation (missing 'agent') -- the
     # request cleared CSRF/Origin, which would have been a 403.
+    assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Origin allowlist shape (#245): the console builds its own allowlist, so an
+# origin its own frontend legitimately presents must be in it. Each gap below
+# fails closed -- the console 403s its own page -- rather than opening a hole.
+# ---------------------------------------------------------------------------
+
+
+def test_ipv6_loopback_bind_allowlists_the_bracketed_origin():
+    """A browser writes an IPv6 host in brackets. Built unbracketed, the
+    allowlist entry ("http://::1:8080") matches no origin a browser can
+    ever send, so an IPv6-bound console 403s its own frontend."""
+    ui = _make_api_ui(host="::1")
+    allowlist = ui._origin_allowlist()
+    assert "http://[::1]:8080" in allowlist
+
+
+def test_default_http_port_allowlists_the_port_elided_origin():
+    """Browsers elide the port when it is the scheme default, so a console
+    on :80 sees Origin "http://localhost", never "http://localhost:80"."""
+    ui = _make_api_ui(port=80)
+    allowlist = ui._origin_allowlist()
+    assert "http://localhost" in allowlist
+    assert "http://127.0.0.1" in allowlist
+
+
+def test_default_https_port_allowlists_the_port_elided_https_origin():
+    ui = _make_api_ui(port=443)
+    allowlist = ui._origin_allowlist()
+    assert "https://localhost" in allowlist
+
+
+def test_allowlist_admits_the_https_origin_of_its_own_host_and_port():
+    """Behind a TLS-terminating proxy the page's origin is https on the same
+    host:port. An attacker cannot forge an Origin header, so admitting the
+    https twin of the console's own origin adds no reachable attacker."""
+    ui = _make_api_ui()
+    allowlist = ui._origin_allowlist()
+    assert "https://127.0.0.1:8080" in allowlist
+
+
+def test_ipv6_loopback_origin_clears_the_security_layer_end_to_end():
+    ui = _make_api_ui(host="::1")
+    client = TestClient(ui.app)
+    response = client.post(
+        "/console/sessions",
+        json={},
+        headers={
+            "Authorization": "Bearer t",
+            **CSRF_HEADER,
+            "Origin": "http://[::1]:8080",
+        },
+    )
+    # 400 is the route's own body validation; a rejected Origin is 403.
     assert response.status_code == 400
