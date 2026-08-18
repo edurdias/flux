@@ -883,22 +883,24 @@ class WorkflowRoutesMixin:
                 # still points at does not orphan the row, it fails the
                 # delete outright (SQLAlchemy nullifies a NOT NULL FK).
                 # Drop the schedules bound to the versions being removed
-                # first: a schedule whose workflow row is gone can never
-                # fire again anyway. Auto-created or operator-created makes
-                # no difference here -- the binding is what dies.
-                removed_ids = {
+                # first, looked up through the FK itself rather than the
+                # denormalized ref columns: a schedule whose workflow row
+                # is gone can never fire again anyway, and auto-created or
+                # operator-created makes no difference -- the binding is
+                # what dies.
+                removed_ids = [
                     v.id
                     for v in catalog.versions(namespace, workflow_name)
                     if version is None or v.version == version
-                }
+                ]
                 schedule_manager = create_schedule_manager()
                 dropped = [
-                    s
-                    for s in schedule_manager.list_schedules_for_workflow_ref(
-                        namespace,
-                        workflow_name,
+                    bound
+                    for workflow_id in removed_ids
+                    for bound in schedule_manager.list_schedules(
+                        workflow_id=workflow_id,
+                        active_only=False,
                     )
-                    if s.workflow_id in removed_ids
                 ]
                 for bound_schedule in dropped:
                     schedule_manager.delete_schedule(bound_schedule.id)
