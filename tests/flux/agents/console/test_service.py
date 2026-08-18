@@ -461,3 +461,62 @@ async def test_aclose_is_idempotent():
     service = ConsoleService(server_url="http://test", token=None)
     await service.aclose()
     await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_spawn_raises_when_the_custom_workflow_fails_to_register():
+    """A failed registration stops the spawn instead of running the session
+    under the wrong workflow.
+
+    This is a deliberate divergence from `flux agent start`, which logs the
+    failure and carries on: the CLI's fallback lands the session on
+    agent_chat, which is the shared workflow, not the one the agent
+    declared. Documented in ConsoleService.spawn and, until now, pinned by
+    nothing (#245).
+    """
+    service = ConsoleService(server_url="http://test", token="t")
+    requests: list[httpx.Request] = []
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/admin/agents/coder":
+            return httpx.Response(
+                200,
+                json={"name": "coder", "workflow_file": "async def workflow(ctx): ..."},
+            )
+        if request.method == "POST" and request.url.path == "/workflows":
+            return httpx.Response(403, json={"detail": "Permission denied"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        with pytest.raises(httpx.HTTPStatusError):
+            await service.spawn("coder", None)
+        await service.aclose()
+
+    # No session was started at all -- not one on the shared workflow.
+    assert not any("/run/stream" in r.url.path for r in requests)
+
+
+@pytest.mark.asyncio
+async def test_spawn_raises_when_the_server_reports_no_execution_id():
+    """A stream that ends without an execution_id is a failed spawn, not a
+    session the console can render."""
+    service = ConsoleService(server_url="http://test", token="t")
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/admin/agents/coder":
+            return httpx.Response(200, json={"name": "coder", "workflow_file": None})
+        if "/run/stream" in request.url.path:
+            return httpx.Response(
+                200,
+                headers={"Content-Type": "text/event-stream"},
+                content=b"data: {}\n\n",
+            )
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        with pytest.raises(RuntimeError, match="never reported an execution_id"):
+            await service.spawn("coder", None)
+        await service.aclose()
