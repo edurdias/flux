@@ -29,6 +29,7 @@ from flux.errors import (
     WorkflowNotFoundError,
 )
 from flux.hooks.registry import HookRegistry
+from flux.schedule_manager import create_schedule_manager
 from flux.security.dependencies import get_identity
 from flux.security.identity import ANONYMOUS, FluxIdentity
 from flux.servers.models import ExecutionContext as ExecutionContextDTO
@@ -875,6 +876,36 @@ class WorkflowRoutesMixin:
                         detail=f"Workflow '{namespace}/{workflow_name}'"
                         + (f" version {version}" if version else "")
                         + " not found",
+                    )
+
+                # Schedules hold a real FK to workflows.id, which is
+                # version-scoped -- so deleting a workflow row a schedule
+                # still points at does not orphan the row, it fails the
+                # delete outright (SQLAlchemy nullifies a NOT NULL FK).
+                # Drop the schedules bound to the versions being removed
+                # first: a schedule whose workflow row is gone can never
+                # fire again anyway. Auto-created or operator-created makes
+                # no difference here -- the binding is what dies.
+                removed_ids = {
+                    v.id
+                    for v in catalog.versions(namespace, workflow_name)
+                    if version is None or v.version == version
+                }
+                schedule_manager = create_schedule_manager()
+                dropped = [
+                    s
+                    for s in schedule_manager.list_schedules_for_workflow_ref(
+                        namespace,
+                        workflow_name,
+                    )
+                    if s.workflow_id in removed_ids
+                ]
+                for bound_schedule in dropped:
+                    schedule_manager.delete_schedule(bound_schedule.id)
+                if dropped:
+                    logger.info(
+                        f"Deleted {len(dropped)} schedule(s) bound to workflow "
+                        f"'{namespace}/{workflow_name}'",
                     )
 
                 catalog.delete(namespace, workflow_name, version)

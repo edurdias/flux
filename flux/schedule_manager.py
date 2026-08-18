@@ -75,6 +75,21 @@ class ScheduleManager(ABC):
         pass
 
     @abstractmethod
+    def list_schedules_for_workflow_ref(
+        self,
+        namespace: str,
+        workflow_name: str,
+    ) -> list[ScheduleModel]:
+        """Every schedule bound to a workflow ref, across all its versions.
+
+        ``workflow_id`` is version-scoped -- each registration writes a new
+        workflows row -- so anything reasoning about a workflow's schedules
+        as a whole (auto-schedule reconciliation, delete-with-workflow) has
+        to look them up by ref instead.
+        """
+        pass
+
+    @abstractmethod
     def update_schedule(
         self,
         schedule_id: str,
@@ -83,6 +98,7 @@ class ScheduleManager(ABC):
         input_data: Any = None,
         routing_input: dict | None = None,
         run_as_service_account: str | None = None,
+        workflow_id: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
         pass
@@ -264,6 +280,27 @@ class DatabaseScheduleManager(ScheduleManager):
         except Exception as e:
             raise ScheduleManagerError(f"Failed to list schedules: {str(e)}", e)
 
+    def list_schedules_for_workflow_ref(
+        self,
+        namespace: str,
+        workflow_name: str,
+    ) -> list[ScheduleModel]:
+        """Every schedule bound to a workflow ref, across all its versions."""
+        try:
+            with self._repository.session() as session:
+                return (
+                    session.query(ScheduleModel)
+                    .filter(
+                        ScheduleModel.workflow_namespace == namespace,
+                        ScheduleModel.workflow_name == workflow_name,
+                    )
+                    .order_by(ScheduleModel.created_at.asc())
+                    .all()
+                )
+
+        except Exception as e:
+            raise ScheduleManagerError(f"Failed to list schedules: {str(e)}", e)
+
     def update_schedule(
         self,
         schedule_id: str,
@@ -272,6 +309,7 @@ class DatabaseScheduleManager(ScheduleManager):
         input_data: Any = None,
         routing_input: dict | None = None,
         run_as_service_account: str | None = None,
+        workflow_id: str | None = None,
     ) -> ScheduleModel:
         """Update an existing schedule"""
         try:
@@ -285,6 +323,13 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 if schedule is not None:
                     schedule_model.schedule_config = schedule
+                    # The derived columns are set on insert only, so an
+                    # update that swaps the schedule object left them
+                    # describing the old one: schedule_type is what the API
+                    # reports, and overlap_policy is what the scheduler's
+                    # overlap check (issue #142) actually reads.
+                    schedule_model.schedule_type = schedule.type
+                    schedule_model.overlap_policy = getattr(schedule, "overlap", None)
                     schedule_model.update_next_run()
 
                 if description is not None:
@@ -301,6 +346,13 @@ class DatabaseScheduleManager(ScheduleManager):
 
                 if run_as_service_account is not None:
                     schedule_model.run_as_service_account = run_as_service_account
+
+                if workflow_id is not None:
+                    # Re-point the FK at the newly registered version: the
+                    # row it was bound to is deleted with its version, and a
+                    # schedule outliving its workflow row cannot be cleaned
+                    # up by ref.
+                    schedule_model.workflow_id = workflow_id
 
                 schedule_model.updated_at = datetime.now(timezone.utc)
                 session.commit()
