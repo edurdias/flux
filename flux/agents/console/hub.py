@@ -20,6 +20,7 @@ log.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
 
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 # frozen wire-format vocabulary shared with the SSE parser; this one never
 # comes off the wire, it's synthesized here from a get_detail() read.
 KIND_LOG_DELTA = "log_delta"
+
+# One turn's worth of frames is tens of events; this holds several turns of
+# backlog for a briefly-slow renderer while still bounding a dead one.
+_SUBSCRIBER_QUEUE_MAX = 512
 
 
 @dataclass(frozen=True)
@@ -60,13 +65,27 @@ class EventHub:
     def __init__(self, service: ConsoleService) -> None:
         self.service = service
         self._subscribers: list[asyncio.Queue[ConsoleEvent]] = []
+        # Sessions with a turn in flight. A set, not a lock: the check has to
+        # be answerable synchronously (the /send route decides on a 409
+        # before it opens a stream) and a turn is owned by whoever started
+        # it, never awaited by the next caller.
+        self._turns_in_flight: set[str] = set()
+        self.dropped_events = 0
+        self._warned_dropping = False
         # session_id -> derived title, fed by open_session/run_turn's detail
         # fetches. Task 6's list endpoints read this so they never need a
         # per-row detail fetch just to show a title.
         self.titles: dict[str, str] = {}
 
     def subscribe(self) -> asyncio.Queue[ConsoleEvent]:
-        queue: asyncio.Queue[ConsoleEvent] = asyncio.Queue()
+        """A bounded queue for one renderer.
+
+        Bounded because the hub is a pure publisher: nothing but the
+        renderer itself ever removes an item, so a tab that crashed or a
+        task that wedged mid-drain grows its queue for the life of the
+        process (#245).
+        """
+        queue: asyncio.Queue[ConsoleEvent] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
         self._subscribers.append(queue)
         return queue
 
@@ -79,7 +98,33 @@ class EventHub:
     def _publish(self, session_id: str, event: AgentEvent) -> None:
         envelope = ConsoleEvent(session_id=session_id, event=event)
         for queue in self._subscribers:
-            queue.put_nowait(envelope)
+            # A lagging subscriber loses its oldest events rather than
+            # stalling the publisher or every other renderer. Safe because
+            # the stream is an overlay: each turn ends with a log_delta
+            # carrying freshly read detail, so a subscriber that dropped
+            # frames is reconciled at the turn boundary anyway.
+            if queue.full():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    queue.get_nowait()
+                self.dropped_events += 1
+                if not self._warned_dropping:
+                    self._warned_dropping = True
+                    logger.warning(
+                        "console fan-out is dropping events: a subscriber is not "
+                        "draining its queue (bound: %s)",
+                        _SUBSCRIBER_QUEUE_MAX,
+                    )
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(envelope)
+
+    def turn_in_flight(self, session_id: str) -> bool:
+        """Whether a turn is already running for this session.
+
+        Read by the /send route to answer 409 before opening a stream;
+        ``run_turn`` re-checks it, so this is a nicer status code rather
+        than the guard itself.
+        """
+        return session_id in self._turns_in_flight
 
     def _cache_title(self, session_id: str, detail: dict) -> None:
         title = derived_title(detail)
@@ -103,6 +148,13 @@ class EventHub:
         -- the turn-boundary reconciliation subscribers rely on to catch up
         with what actually got persisted.
 
+        One call does not close that way: a turn refused because this
+        session already has one in flight never starts, and publishes an
+        error event *only*. A ``log_delta`` there would terminate the live
+        turn's own SSE stream, which ends at the first one it sees for its
+        session -- so "exactly one log_delta" is a guarantee about a turn
+        that ran, not about every call.
+
         The reconciliation read can fail too -- often the very same
         server/network hiccup that broke the stream also breaks the
         follow-up ``get_detail`` call. That failure is degraded, never
@@ -113,6 +165,36 @@ class EventHub:
         -- for the turn. An ``error`` event precedes it unless the stream
         already emitted one for this turn (no point doubling up).
         """
+        if session_id in self._turns_in_flight:
+            # Two turns for one session interleave their frames into every
+            # subscriber and race the same execution; the server's
+            # non-PAUSED rejection only catches it after the second turn is
+            # already streaming. Reported as an error event and nothing
+            # else -- a log_delta here would end the *live* turn's own SSE
+            # stream, which stops at the first log_delta for its session.
+            message = f"A turn is already running for session {session_id}"
+            logger.warning("run_turn: %s", message)
+            self._publish(session_id, AgentEvent(kind=KIND_ERROR, data={"message": message}))
+            return
+
+        self._turns_in_flight.add(session_id)
+        try:
+            await self._run_turn_body(session_id, agent_name, workflow_name, text)
+        finally:
+            # Its own finally, not a line after the reconciliation read: a
+            # cancellation delivered during that read is not an Exception
+            # and leaves the block without running anything after it, which
+            # would wedge the session for the life of the process.
+            self._turns_in_flight.discard(session_id)
+
+    async def _run_turn_body(
+        self,
+        session_id: str,
+        agent_name: str,
+        workflow_name: str,
+        text: str,
+    ) -> None:
+        """``run_turn`` minus the one-turn-per-session bookkeeping."""
         stream_failed = False
         try:
             async for raw in self.service.send(session_id, agent_name, workflow_name, text):
