@@ -260,13 +260,33 @@ def build_delegate(agents: list) -> task:
                 "type": "subagent",
                 "call_id": call_id,
                 "status": subagent_status,
-                "result_tail": str(result.output)[-500:],
+                "result_tail": _result_tail(result.output),
             },
         )
 
         return result.to_dict()
 
     return delegate
+
+
+def _result_tail(output: Any) -> str:
+    """The last 500 characters of a delegated result, as text a panel can
+    render.
+
+    Both consoles print this verbatim, so str() on a structured result put
+    a Python literal on screen -- single quotes, True, None -- in the
+    middle of an otherwise JSON-shaped payload (#245). Strings pass
+    through unquoted; anything json cannot express degrades to str()
+    rather than losing the event.
+    """
+    if isinstance(output, str):
+        text = output
+    else:
+        try:
+            text = json.dumps(output, default=str)
+        except (TypeError, ValueError):
+            text = str(output)
+    return text[-500:]
 
 
 def workflow_agent(

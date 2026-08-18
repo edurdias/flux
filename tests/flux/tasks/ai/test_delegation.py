@@ -609,6 +609,86 @@ class TestDelegateProgressEmission:
         assert done["status"] == "done"
         assert "result from researcher" in done["result_tail"]
 
+    def test_a_structured_result_tail_is_json_not_a_python_repr(self):
+        """Both consoles render result_tail as text, so whatever str() the
+        engine picked is what an operator reads. A dict rendered with
+        str() is a Python literal -- single quotes, True/None -- which is
+        neither valid JSON nor what the rest of the payload looks
+        like (#245)."""
+        import json
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        class _StructuredAgent(_FakeAgent):
+            async def __call__(self, instruction, **kwargs):
+                return {"findings": ["a", "b"], "confident": True, "notes": None}
+
+        delegate_tool = build_delegate([_StructuredAgent("researcher", "Research.")])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("researcher", "Find competitor pricing")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        tail = mock_progress.await_args_list[-1][0][0]["result_tail"]
+        assert json.loads(tail) == {
+            "findings": ["a", "b"],
+            "confident": True,
+            "notes": None,
+        }
+
+    def test_a_string_result_tail_is_passed_through_unquoted(self):
+        """A plain string result must not gain JSON quotes on its way to
+        the panel."""
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        delegate_tool = build_delegate([_FakeAgent("researcher", "Research.")])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("researcher", "Find competitor pricing")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        tail = mock_progress.await_args_list[-1][0][0]["result_tail"]
+        assert tail == "result from researcher"
+
+    def test_an_unserializable_result_tail_still_renders(self):
+        """A result that json cannot express must not break the progress
+        event -- the panel degrades to str(), it does not go missing."""
+        from unittest.mock import AsyncMock, patch
+
+        from flux import ExecutionContext, workflow
+
+        class _Opaque:
+            def __repr__(self):
+                return "<opaque result>"
+
+        class _OpaqueAgent(_FakeAgent):
+            async def __call__(self, instruction, **kwargs):
+                return {"payload": _Opaque()}
+
+        delegate_tool = build_delegate([_OpaqueAgent("researcher", "Research.")])
+
+        @workflow
+        async def test_wf(ctx: ExecutionContext):
+            return await delegate_tool("researcher", "Find competitor pricing")
+
+        with patch("flux.tasks.ai.delegation.progress", new_callable=AsyncMock) as mock_progress:
+            ctx = test_wf.run()
+
+        assert ctx.has_succeeded
+        tail = mock_progress.await_args_list[-1][0][0]["result_tail"]
+        assert "<opaque result>" in tail
+
     def test_emits_failed_on_exception(self):
         from unittest.mock import AsyncMock, patch
 
