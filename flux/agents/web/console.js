@@ -279,9 +279,14 @@ class HttpError extends Error {
  * Pull the missing permission out of a 403 body.
  *
  * The console re-raises the Flux server's error body verbatim, so it arrives
- * nested (`{detail: {detail: {...}}}`) and in two shapes: the structured
- * `{error, missing_permission}` one, and plain prose from the generic
- * permission dependency ("Permission denied: requires 'x'").
+ * nested (`{detail: {detail: {...}}}`) and in three shapes: the structured
+ * `{error, missing_permission}` one from the execution routes, the plural
+ * `{message, missing_permissions: [...]}` one the workflow-run routes answer
+ * a denied spawn with, and plain prose from the generic permission
+ * dependency ("Permission denied: requires 'x'").
+ *
+ * Deliberately a second implementation of console/errors.py's
+ * missing_permission_of: this one runs in the browser. Keep the two in step.
  */
 function missingPermissionFrom(body, depth = 0) {
   if (body === null || body === undefined || depth > 6) return null;
