@@ -435,9 +435,15 @@ class Server(
                 schedule_name = f"{workflow_info.name}{config.auto_schedule_suffix}"
 
                 try:
-                    existing_schedules = schedule_manager.list_schedules(
-                        workflow_id=workflow_info.id,
-                        active_only=False,
+                    # Looked up by ref, not by workflow_id: every
+                    # registration writes a new workflows row, so a
+                    # version-scoped lookup never finds the schedule the
+                    # previous version created and each redeploy added a
+                    # second '<name>_auto' row -- firing the workflow once
+                    # per surviving version on every tick.
+                    existing_schedules = schedule_manager.list_schedules_for_workflow_ref(
+                        workflow_info.namespace,
+                        workflow_info.name,
                     )
                     existing = next(
                         (s for s in existing_schedules if s.name == schedule_name),
@@ -449,6 +455,7 @@ class Server(
                             schedule_id=existing.id,
                             schedule=workflow_obj.schedule,
                             description="Auto-created from workflow decorator",
+                            workflow_id=workflow_info.id,
                         )
                         logger.info(
                             f"Updated auto-schedule '{schedule_name}' for workflow '{workflow_info.name}'",
