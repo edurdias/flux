@@ -445,10 +445,21 @@ class Server(
                         workflow_info.namespace,
                         workflow_info.name,
                     )
-                    existing = next(
-                        (s for s in existing_schedules if s.name == schedule_name),
-                        None,
-                    )
+                    matches = [s for s in existing_schedules if s.name == schedule_name]
+                    # A database written by the version-scoped lookup holds
+                    # one '<name>_auto' row per registered version, all of
+                    # them firing. Reconciling means converging on one:
+                    # keep the oldest (list is ordered by creation) and drop
+                    # the rest, before the survivor is re-pointed -- the
+                    # (workflow_id, name) unique constraint would otherwise
+                    # collide with a duplicate already on the new version.
+                    existing = matches[0] if matches else None
+                    for duplicate in matches[1:]:
+                        schedule_manager.delete_schedule(duplicate.id)
+                        logger.info(
+                            f"Removed duplicate auto-schedule '{schedule_name}' "
+                            f"for workflow '{workflow_info.name}'",
+                        )
 
                     if existing:
                         schedule_manager.update_schedule(

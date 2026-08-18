@@ -882,19 +882,22 @@ class WorkflowRoutesMixin:
                 # version-scoped -- so deleting a workflow row a schedule
                 # still points at does not orphan the row, it fails the
                 # delete outright (SQLAlchemy nullifies a NOT NULL FK).
-                # Drop the schedules bound to the versions being removed
-                # first, looked up through the FK itself rather than the
-                # denormalized ref columns: a schedule whose workflow row
-                # is gone can never fire again anyway, and auto-created or
-                # operator-created makes no difference -- the binding is
-                # what dies.
-                removed_ids = [
-                    v.id
-                    for v in catalog.versions(namespace, workflow_name)
-                    if version is None or v.version == version
-                ]
+                # The schedules bound to the versions being removed are
+                # therefore resolved first, through the FK itself rather
+                # than the denormalized ref columns; auto-created or
+                # operator-created makes no difference, the binding is what
+                # matters. Where they go depends on whether the workflow
+                # survives: firing resolves it by ref, so a schedule whose
+                # bound version is deleted out from under a still-registered
+                # workflow is re-pointed at the newest surviving version
+                # rather than silently stopping.
+                all_versions = catalog.versions(namespace, workflow_name)
+                removed_ids = {
+                    v.id for v in all_versions if version is None or v.version == version
+                }
+                surviving = [v for v in all_versions if v.id not in removed_ids]
                 schedule_manager = create_schedule_manager()
-                dropped = [
+                bound_schedules = [
                     bound
                     for workflow_id in removed_ids
                     for bound in schedule_manager.list_schedules(
@@ -902,11 +905,39 @@ class WorkflowRoutesMixin:
                         active_only=False,
                     )
                 ]
-                for bound_schedule in dropped:
-                    schedule_manager.delete_schedule(bound_schedule.id)
-                if dropped:
+
+                if bound_schedules and surviving:
+                    # versions() orders newest first.
+                    heir = surviving[0]
+                    taken = {
+                        s.name
+                        for s in schedule_manager.list_schedules(
+                            workflow_id=heir.id,
+                            active_only=False,
+                        )
+                    }
+                    for bound_schedule in bound_schedules:
+                        # (workflow_id, name) is unique: a duplicate left by
+                        # the pre-reconciliation lookup cannot be re-pointed
+                        # onto a name the heir already carries, and does not
+                        # need to be -- that row is the one that survives.
+                        if bound_schedule.name in taken:
+                            schedule_manager.delete_schedule(bound_schedule.id)
+                            continue
+                        schedule_manager.update_schedule(
+                            schedule_id=bound_schedule.id,
+                            workflow_id=heir.id,
+                        )
+                        taken.add(bound_schedule.name)
                     logger.info(
-                        f"Deleted {len(dropped)} schedule(s) bound to workflow "
+                        f"Re-pointed {len(bound_schedules)} schedule(s) of workflow "
+                        f"'{namespace}/{workflow_name}' at version {heir.version}",
+                    )
+                elif bound_schedules:
+                    for bound_schedule in bound_schedules:
+                        schedule_manager.delete_schedule(bound_schedule.id)
+                    logger.info(
+                        f"Deleted {len(bound_schedules)} schedule(s) bound to workflow "
                         f"'{namespace}/{workflow_name}'",
                     )
 
