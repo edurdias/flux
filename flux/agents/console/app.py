@@ -346,6 +346,9 @@ def mount_console_routes(
     service = _ScopedConsoleService(server_url)
     hub = EventHub(service)
     write_state = ConsoleWriteState()
+    # The hub is built here, but the app is what callers hold: WebUI, the
+    # TUI and tests all reach it through the app they mounted onto.
+    app.state.console_hub = hub
 
     # The service owns a pooled httpx client; the TUI path closes it in its
     # own `finally`, so the served path has to close it too. Wrapping the
@@ -481,6 +484,18 @@ def mount_console_routes(
         service: ConsoleService = Depends(_service_dependency),
     ) -> EventSourceResponse:
         text = body.get("text", "")
+        # Refused before the stream opens: two turns for one session
+        # interleave their frames into every subscriber and race the same
+        # execution, and the server's own non-PAUSED rejection lands only
+        # after the second turn has started streaming. The hub re-checks
+        # this when the turn actually starts, so the race between two
+        # requests arriving together is closed there -- this is what turns
+        # it into a 409 instead of a stream that reports an error frame.
+        if hub.turn_in_flight(session_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A turn is already running for session {session_id}",
+            )
         detail = await _call(write_state, hub.open_session(session_id))
         workflow_name = detail.get("workflow_name") or "agent_chat"
 

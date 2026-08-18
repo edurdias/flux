@@ -72,6 +72,7 @@ class _FakeService(ConsoleService):
         # probe token-aware in tests, mirroring the real server's per-token
         # authorization boundary.
         self._forbidden_tokens = frozenset(forbidden_tokens or ())
+        self.send_calls: list[tuple] = []
         self.decide_calls: list[tuple] = []
         self.rename_calls: list[tuple] = []
         self.stop_calls: list[tuple] = []
@@ -96,6 +97,7 @@ class _FakeService(ConsoleService):
         return self._spawn_execution_id
 
     async def send(self, execution_id, agent_name, workflow_name, text):
+        self.send_calls.append((execution_id, text))
         for frame in self._send_frames:
             yield frame
 
@@ -800,3 +802,61 @@ def test_static_mount_serves_console_css(_throwaway_console_css):
     client = TestClient(ui.app, base_url=CONSOLE_ORIGIN)
     response = client.get("/static/console.css")
     assert response.status_code == 200
+
+
+def test_console_send_is_refused_while_a_turn_is_already_running():
+    """A 409 before the stream opens, rather than a second interleaved turn.
+
+    Two turns for one session fan their frames into the same subscribers and
+    race the same execution; the server's non-PAUSED rejection only catches
+    it once the second turn is already streaming (#245). What a live turn
+    looks like to the route is a session marked in flight on the mounted
+    hub -- the refusal under a genuinely running turn is exercised against
+    a real one in tests/flux/agents/console/test_hub.py.
+    """
+    fake = _FakeService(
+        send_frames=[TOKEN_FRAME, PAUSED_CHAT_FRAME],
+        detail={"execution_id": "exec-1", "workflow_name": "agent_chat", "events": []},
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        ui.app.state.console_hub._turns_in_flight.add("exec-1")
+
+        # Bounded read: a regression here does not answer at all (the
+        # stream would wait for a log_delta that the refused turn never
+        # publishes), and an unbounded client turns that into a hung job.
+        response = client.post(
+            "/console/sessions/exec-1/send",
+            json={"text": "hi"},
+            headers=HEADERS,
+            timeout=10,
+        )
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+    # The refused request never started a turn.
+    assert fake.send_calls == []
+
+
+def test_console_send_runs_again_once_the_previous_turn_finished():
+    fake = _FakeService(
+        send_frames=[TOKEN_FRAME, PAUSED_CHAT_FRAME],
+        detail={"execution_id": "exec-1", "workflow_name": "agent_chat", "events": []},
+    )
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        first = client.post(
+            "/console/sessions/exec-1/send",
+            json={"text": "hi"},
+            headers=HEADERS,
+        )
+        second = client.post(
+            "/console/sessions/exec-1/send",
+            json={"text": "again"},
+            headers=HEADERS,
+        )
+
+    assert [first.status_code, second.status_code] == [200, 200]
+    assert [text for _, text in fake.send_calls] == ["hi", "again"]

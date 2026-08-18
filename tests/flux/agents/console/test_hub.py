@@ -216,3 +216,168 @@ async def test_subscribe_returns_independent_queues():
     sub_b = hub.subscribe()
 
     assert sub_a is not sub_b
+
+
+# ---------------------------------------------------------------------------
+# Bounded fan-out and one-turn-per-session (#245)
+# ---------------------------------------------------------------------------
+
+
+class _BlockingService(_FakeService):
+    """Holds its stream open until released, so a turn can be observed
+    mid-flight."""
+
+    def __init__(self, detail):
+        super().__init__([], detail)
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.sends = 0
+
+    async def send(self, execution_id, agent_name, workflow_name, text):
+        self.sends += 1
+        self.started.set()
+        await self.release.wait()
+        for frame in [TOKEN_FRAME]:
+            yield frame
+
+
+@pytest.mark.asyncio
+async def test_a_subscriber_queue_is_bounded():
+    """An unbounded queue is a leak with a publisher: a renderer that stops
+    draining (crashed tab, wedged task) grows it for the life of the
+    process, since nothing else ever removes an item."""
+    hub = EventHub(_FakeService([], DETAIL))
+    queue = hub.subscribe()
+
+    assert queue.maxsize > 0
+
+
+@pytest.mark.asyncio
+async def test_publishing_past_the_bound_drops_the_oldest_not_the_newest():
+    """The stream is an overlay -- every turn ends with a log_delta carrying
+    fresh detail -- so a lagging subscriber is better served by the most
+    recent events than by a stalled publisher or the first N it never read."""
+    hub = EventHub(_FakeService([], DETAIL))
+    queue = hub.subscribe()
+
+    from flux.agents.events import AgentEvent
+
+    for index in range(queue.maxsize + 5):
+        hub._publish("exec-1", AgentEvent(kind="token", data={"n": index}))
+
+    drained = await _drain(queue)
+    assert len(drained) == queue.maxsize
+    # The newest event survived; the oldest were the ones dropped.
+    assert drained[-1].event.data == {"n": queue.maxsize + 4}
+    assert drained[0].event.data == {"n": 5}
+
+
+@pytest.mark.asyncio
+async def test_a_full_subscriber_never_blocks_the_others():
+    hub = EventHub(_FakeService([], DETAIL))
+    stalled = hub.subscribe()
+    live = hub.subscribe()
+
+    from flux.agents.events import AgentEvent
+
+    for index in range(stalled.maxsize + 3):
+        hub._publish("exec-1", AgentEvent(kind="token", data={"n": index}))
+        # The live subscriber keeps up, so it must see every event.
+        live.get_nowait()
+
+    assert live.empty()
+    assert stalled.full()
+
+
+@pytest.mark.asyncio
+async def test_a_second_turn_for_a_live_session_is_refused_not_run():
+    """Two turns for one session interleave their frames into every
+    subscriber and race the same execution. The server's non-PAUSED
+    rejection is a backstop, not a guard -- it is reached only after the
+    second turn has already started streaming."""
+    service = _BlockingService(DETAIL)
+    hub = EventHub(service)
+    sub = hub.subscribe()
+
+    first = asyncio.create_task(hub.run_turn("exec-1", "coder", "agent_chat", "one"))
+    await service.started.wait()
+    assert hub.turn_in_flight("exec-1")
+
+    # Never raises, per run_turn's contract -- the refusal is data.
+    await hub.run_turn("exec-1", "coder", "agent_chat", "two")
+
+    assert service.sends == 1
+    refusal = await _drain(sub)
+    # An error and nothing else: a log_delta here would terminate the *live*
+    # turn's own SSE stream, which ends on the first log_delta it sees for
+    # its session (flux/agents/console/app.py::console_send).
+    assert [e.event.kind for e in refusal] == ["error"]
+    assert "already running" in refusal[0].event.data["message"]
+
+    service.release.set()
+    await first
+    assert not hub.turn_in_flight("exec-1")
+
+
+@pytest.mark.asyncio
+async def test_a_turn_for_another_session_runs_alongside():
+    """The guard is per session, not a global lock: two sessions are two
+    executions and must be able to run at once."""
+    service = _BlockingService(DETAIL)
+    hub = EventHub(service)
+
+    first = asyncio.create_task(hub.run_turn("exec-1", "coder", "agent_chat", "one"))
+    await service.started.wait()
+    second = asyncio.create_task(hub.run_turn("exec-2", "coder", "agent_chat", "two"))
+    await asyncio.sleep(0)
+
+    service.release.set()
+    await asyncio.gather(first, second)
+
+    assert service.sends == 2
+
+
+@pytest.mark.asyncio
+async def test_the_slot_is_released_after_a_failed_turn():
+    """A turn that broke mid-stream must not wedge its session forever."""
+    service = _FakeService([TOKEN_FRAME], DETAIL, error_after=0)
+    hub = EventHub(service)
+
+    await hub.run_turn("exec-1", "coder", "agent_chat", "hi")
+
+    assert not hub.turn_in_flight("exec-1")
+
+
+@pytest.mark.asyncio
+async def test_the_slot_is_released_when_a_turn_is_cancelled():
+    """A cancelled turn (shutdown, a future timeout wrapper) must not wedge
+    its session: the release cannot live after an await that cancellation
+    re-raises through."""
+    service = _BlockingService(DETAIL)
+    hub = EventHub(service)
+
+    task = asyncio.create_task(hub.run_turn("exec-1", "coder", "agent_chat", "hi"))
+    await service.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not hub.turn_in_flight("exec-1")
+
+
+@pytest.mark.asyncio
+async def test_the_slot_is_released_when_reconciliation_itself_is_cancelled():
+    """Cancellation delivered while the turn-boundary read is in flight
+    escapes the reconciliation block entirely (CancelledError is not an
+    Exception), so a release written after that read never runs."""
+
+    class _CancelDuringDetail(_FakeService):
+        async def get_detail(self, execution_id):
+            raise asyncio.CancelledError()
+
+    hub = EventHub(_CancelDuringDetail([TOKEN_FRAME], DETAIL))
+
+    with pytest.raises(asyncio.CancelledError):
+        await hub.run_turn("exec-1", "coder", "agent_chat", "hi")
+
+    assert not hub.turn_in_flight("exec-1")
