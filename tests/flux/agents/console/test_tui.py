@@ -1208,3 +1208,26 @@ def test_a_rail_row_keeps_its_state_tail_visible():
     prompt = app._rail_prompt(row)
 
     assert prompt.plain.rstrip().endswith("running") or "running" in prompt.plain
+
+
+def test_the_elicitation_action_row_is_sized_like_the_approval_one():
+    """The class was carried on the markup but had no rule, so the button
+    row stayed a 1fr Horizontal and stretched to fill the overlay, pushing
+    the key hint onto the bottom edge (#245)."""
+    import re
+
+    from flux.agents.ui.console_screens import ApprovalsScreen, ElicitationScreen
+
+    rule = re.search(
+        r"ElicitationScreen \.elicitation-actions \{(.*?)\}",
+        ElicitationScreen.DEFAULT_CSS,
+        re.DOTALL,
+    )
+    assert rule, "the action row must carry a rule, not just a class"
+    assert "height: auto" in rule.group(1)
+    # Same shape the sibling screen's action row already had.
+    assert "height: auto" in re.search(
+        r"ApprovalsScreen \.approval-actions \{(.*?)\}",
+        ApprovalsScreen.DEFAULT_CSS,
+        re.DOTALL,
+    ).group(1)
