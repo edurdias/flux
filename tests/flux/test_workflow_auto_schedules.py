@@ -141,6 +141,56 @@ class TestAutoScheduleLifecycle:
         latest = WorkflowCatalog.create().get("ops", "nightly_sync")
         assert _schedules(client)[0]["workflow_id"] == latest.id
 
+    def test_deleting_the_bound_version_repoints_the_schedule_when_others_survive(self, client):
+        # Deleting one version of a still-registered workflow is a rollback,
+        # not a retirement: firing resolves the workflow by ref, so the
+        # schedule has to survive on a surviving version rather than die
+        # with the row it happened to be bound to.
+        _upload(client, _SOURCE)  # v1
+        _upload(client, _SOURCE)  # v2, now the bound version
+        schedule_id = _schedules(client)[0]["id"]
+
+        resp = client.delete("/workflows/ops/nightly_sync?version=2")
+
+        assert resp.status_code == 200, resp.text
+        from flux.catalogs import WorkflowCatalog
+
+        surviving = WorkflowCatalog.create().get("ops", "nightly_sync")
+        assert surviving.version == 1
+        schedules = _schedules(client)
+        assert len(schedules) == 1
+        assert schedules[0]["id"] == schedule_id
+        assert schedules[0]["workflow_id"] == surviving.id
+
+    def test_reconciling_removes_duplicate_auto_schedules_left_by_older_versions(self, client):
+        # Rows written by the version-scoped lookup this fix replaced: one
+        # '<name>_auto' per registered version, each firing on every tick.
+        # Reconciliation has to converge them, not just update one of them.
+        _upload(client, _SOURCE)  # v1
+        _upload(client, _SOURCE)  # v2
+        from flux.catalogs import WorkflowCatalog
+        from flux.domain.schedule import interval
+        from flux.schedule_manager import create_schedule_manager
+
+        catalog = WorkflowCatalog.create()
+        stale_version = next(v for v in catalog.versions("ops", "nightly_sync") if v.version == 1)
+        create_schedule_manager().create_schedule(
+            workflow_id=stale_version.id,
+            workflow_namespace="ops",
+            workflow_name="nightly_sync",
+            name="nightly_sync_auto",
+            schedule=interval(hours=6),
+            description="Auto-created from workflow decorator",
+        )
+        assert len(_schedules(client)) == 2
+
+        resp = _upload(client, _SOURCE)  # v3
+
+        assert resp.status_code == 200, resp.text
+        schedules = _schedules(client)
+        assert len(schedules) == 1
+        assert schedules[0]["workflow_id"] == catalog.get("ops", "nightly_sync").id
+
     def test_deleting_the_workflows_only_version_deletes_its_auto_schedule(self, client):
         _upload(client, _SOURCE)
         assert len(_schedules(client)) == 1
