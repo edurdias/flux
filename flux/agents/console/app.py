@@ -228,12 +228,17 @@ class ConsoleWriteState:
             permission = known.missing
         self._store(key, False, permission)
 
-    async def resolve(self, token: str | None, service: ConsoleService) -> bool:
+    async def resolve(
+        self,
+        token: str | None,
+        service: ConsoleService,
+        workflow_name: str = "agent_chat",
+    ) -> bool:
         key = self._key(token)
         known = self._live(key)
         if known is not None:
             return known.can_write
-        can_write, permission, answered = await _probe_can_write(service)
+        can_write, permission, answered = await _probe_can_write(service, workflow_name)
         # A probe that never reached the server answers nothing: caching its
         # degrade-open "yes" would leave a genuinely read-only operator
         # looking at enabled write controls for the life of the process,
@@ -247,7 +252,10 @@ class ConsoleWriteState:
         return known.missing if known is not None else None
 
 
-async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None, bool]:
+async def _probe_can_write(
+    service: ConsoleService,
+    workflow_name: str = "agent_chat",
+) -> tuple[bool, str | None, bool]:
     """Cheap, deterministic, side-effect-free probe of write authorization.
 
     Returns ``(can_write, missing_permission, answered)``. The second element
@@ -256,6 +264,15 @@ async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None, b
     is read-only. The third says whether the server actually answered: a
     probe that failed in transit degrades open but must not be remembered
     (see ``ConsoleWriteState.resolve``).
+
+    The workflow named is the one this console process runs, not a
+    constant: the check is per workflow, so a console started on a custom
+    workflow used to probe ``agent_chat`` -- a permission its operator has
+    no reason to hold -- and painted itself read-only until a real write
+    proved otherwise (#245). Sessions the console spawns for an agent that
+    declares its own ``workflow_file`` still run ``agent_custom_<agent>``
+    and are not covered by this one process-wide answer; that case remains
+    self-correcting on the first real write.
 
     ``GET /workflows/{namespace}/{workflow_name}/cancel/{execution_id}``
     (which ``ConsoleService.stop`` wraps) checks the caller's
@@ -270,7 +287,7 @@ async def _probe_can_write(service: ConsoleService) -> tuple[bool, str | None, b
     never exists) means it has at least this write grant.
     """
     try:
-        await service.stop("__console_can_write_probe__", _NAMESPACE, "agent_chat")
+        await service.stop("__console_can_write_probe__", _NAMESPACE, workflow_name)
     except httpx.HTTPStatusError as exc:
         # 403 is the permission-denied shape this probe targets; 401 means
         # the token isn't even authenticated, which is no more "can write"
@@ -333,6 +350,7 @@ def mount_console_routes(
     token_dependency: Callable[..., str | None],
     csrf_dependency: Callable[..., None],
     session_id: str | None = None,
+    workflow_name: str = "agent_chat",
 ) -> None:
     """Register the /console/* routes on ``app``.
 
@@ -383,7 +401,7 @@ def mount_console_routes(
         token: str | None = Depends(token_dependency),
         service: ConsoleService = Depends(_service_dependency),
     ) -> dict:
-        can_write = await write_state.resolve(token, service)
+        can_write = await write_state.resolve(token, service, workflow_name)
         return {
             "agent": agent_name,
             "session": session_id,
@@ -499,6 +517,11 @@ def mount_console_routes(
                 detail=f"A turn is already running for session {session_id}",
             )
         detail = await _call(write_state, hub.open_session(session_id))
+        # The session's own workflow, deliberately shadowing the
+        # process-wide one this module was mounted with: a session
+        # spawned for an agent that declares workflow_file runs
+        # agent_custom_<agent>, and resuming it under anything else is a
+        # different workflow entirely.
         workflow_name = detail.get("workflow_name") or "agent_chat"
 
         async def _frames():

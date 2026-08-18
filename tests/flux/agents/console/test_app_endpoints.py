@@ -860,3 +860,29 @@ def test_console_send_runs_again_once_the_previous_turn_finished():
 
     assert [first.status_code, second.status_code] == [200, 200]
     assert [text for _, text in fake.send_calls] == ["hi", "again"]
+
+
+def test_the_write_probe_targets_the_workflow_this_console_runs():
+    """The probe is a dry-run cancel, so it checks
+    `workflow:{ns}:{workflow}:run` -- of whatever workflow it names. Named
+    a constant, a console started on a custom workflow probed a permission
+    its operator has no reason to hold and painted itself read-only (#245).
+    """
+    fake = _FakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui(workflow_name="ops_console")
+        client = TestClient(ui.app)
+        response = client.get("/console/state", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert fake.stop_calls == [("__console_can_write_probe__", "agents", "ops_console")]
+
+
+def test_the_write_probe_defaults_to_agent_chat():
+    fake = _FakeService()
+    with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
+        ui = _make_ui()
+        client = TestClient(ui.app)
+        client.get("/console/state", headers=HEADERS)
+
+    assert fake.stop_calls == [("__console_can_write_probe__", "agents", "agent_chat")]

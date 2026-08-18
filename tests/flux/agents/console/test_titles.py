@@ -64,10 +64,15 @@ def test_backs_up_to_previous_word_when_the_cut_lands_mid_word():
     assert derived_title(detail) == "Refactor the authentication subsystem to…"
 
 
-def test_keeps_a_word_that_ends_exactly_at_the_limit():
+def test_a_word_ending_on_the_budgets_last_column_yields_to_the_ellipsis():
+    """ "...module to use" ends exactly at 48, but the ellipsis needs that
+    column too, so the last whole word that still fits wins. The title is
+    48 columns wide either way -- which is the point (#245)."""
     text = "Please refactor the authentication module to use JWT tokens instead of session cookies"
     detail = {"events": [_resumed(text)]}
-    assert derived_title(detail) == "Please refactor the authentication module to use…"
+    title = derived_title(detail)
+    assert title == "Please refactor the authentication module to…"
+    assert len(title) <= 48
 
 
 def test_exactly_48_chars_is_not_truncated():
@@ -79,7 +84,9 @@ def test_exactly_48_chars_is_not_truncated():
 def test_falls_back_to_a_hard_cut_when_the_first_word_has_no_boundary():
     text = "x" * 60  # one continuous run with no space to back up to
     detail = {"events": [_resumed(text)]}
-    assert derived_title(detail) == ("x" * 48) + "…"
+    title = derived_title(detail)
+    assert title == ("x" * 47) + "…"
+    assert len(title) == 48
 
 
 def test_skips_resumes_without_a_message_key():
@@ -115,3 +122,31 @@ def test_none_for_empty_or_missing_event_log():
 def test_is_deterministic():
     detail = {"events": [_resumed("Fix the flaky test")]}
     assert derived_title(detail) == derived_title(detail)
+
+
+def test_a_truncated_title_never_exceeds_the_limit():
+    """The ellipsis is part of the budget, not an extra column.
+
+    A caller sizing a fixed-width row (the TUI rail) computes its padding
+    from the limit it asked for; one column more wraps the row, and a
+    client that hard-cuts at the same number renders a different shape
+    than the server sent (#245).
+    """
+    from flux.agents.console.titles import truncate_title
+
+    texts = [
+        "Please refactor the authentication module to use JWT tokens instead of cookies",
+        "Investigate the flaky test suite failures in CI before shipping the release",
+        "x" * 200,
+        "word " * 40,
+        "supercalifragilisticexpialidocious " * 4,
+    ]
+    for text in texts:
+        for limit in (8, 20, 47, 48, 49):
+            assert len(truncate_title(text, limit)) <= limit, (text[:20], limit)
+
+
+def test_truncation_still_prefers_a_word_boundary():
+    from flux.agents.console.titles import truncate_title
+
+    assert truncate_title("Refactor the authentication subsystem now", 20) == "Refactor the…"

@@ -1151,3 +1151,60 @@ def test_the_tui_truncates_titles_the_way_the_server_does():
     )
 
     assert _truncate(message) == server_title
+
+
+# ---------------------------------------------------------------------------
+# Rail row geometry (#245)
+# ---------------------------------------------------------------------------
+
+
+def test_a_rail_row_never_exceeds_the_rail_width():
+    """One row, one line: a row a column too wide either wraps -- reading as
+    two sessions -- or ellipsizes away the state/age tail it was padded to
+    keep visible."""
+    from flux.agents.ui.textual_app import RAIL_TEXT_WIDTH, ConsoleApp
+
+    app = ConsoleApp.__new__(ConsoleApp)
+    # _bucket_of consults pending approvals; the rest of the app is not
+    # needed to lay out one row.
+    app.approvals = []
+
+    long_titles = [
+        "x" * 200,
+        "Investigate the flaky integration suite before shipping the release",
+        "word " * 40,
+    ]
+    for state in ("RUNNING", "PAUSED", "COMPLETED", "FAILED"):
+        for title in long_titles:
+            row = SessionRow(
+                execution_id="exec-1",
+                agent_name="coder",
+                state=state,
+                name=title,
+                started_at="2026-08-14T10:00:00",
+                workflow_name="agent_chat",
+            )
+            prompt = app._rail_prompt(row)
+
+            assert len(prompt.plain) <= RAIL_TEXT_WIDTH, (state, prompt.plain)
+
+
+def test_a_rail_row_keeps_its_state_tail_visible():
+    """The tail is what the padding exists for -- a title allowed to eat it
+    leaves the operator without the state or age of the session."""
+    from flux.agents.ui.textual_app import ConsoleApp
+
+    app = ConsoleApp.__new__(ConsoleApp)
+    app.approvals = []
+    row = SessionRow(
+        execution_id="exec-1",
+        agent_name="coder",
+        state="RUNNING",
+        name="x" * 200,
+        started_at="2026-08-14T10:00:00",
+        workflow_name="agent_chat",
+    )
+
+    prompt = app._rail_prompt(row)
+
+    assert prompt.plain.rstrip().endswith("running") or "running" in prompt.plain

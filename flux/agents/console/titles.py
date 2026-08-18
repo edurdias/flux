@@ -51,11 +51,19 @@ def truncate_title(text: str, limit: int = MAX_TITLE_LEN) -> str:
     """
     if len(text) <= limit:
         return text
-    cut = text[:limit]
+    # The ellipsis is spent from the budget, not added on top of it: a
+    # caller sizing a fixed-width row (the TUI rail) derives its padding
+    # from the limit it asked for, and one column more wraps the row --
+    # while a surface that hard-cuts at the same number renders a
+    # different shape than the one the server sent (#245).
+    keep = limit - 1
+    if keep <= 0:
+        return "…"[:limit]
+    cut = text[:keep]
     # Only back up to the previous word when the cut actually split one --
     # i.e. both the last character kept and the one right after it are
     # non-space. When the cut already lands between words, keep it whole.
-    if not cut[-1].isspace() and not text[limit].isspace():
+    if not cut[-1].isspace() and not text[keep].isspace():
         boundary = cut.rfind(" ")
         if boundary > 0:
             cut = cut[:boundary]

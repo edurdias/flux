@@ -53,6 +53,7 @@ class ApiUI:
             token_dependency=self._get_token_dependency(),
             csrf_dependency=self._csrf_dependency(),
             session_id=self.session_id,
+            workflow_name=self.workflow_name,
         )
 
     def _extract_token(self, authorization: str | None) -> str:
