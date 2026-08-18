@@ -148,6 +148,13 @@ class EventHub:
         -- the turn-boundary reconciliation subscribers rely on to catch up
         with what actually got persisted.
 
+        One call does not close that way: a turn refused because this
+        session already has one in flight never starts, and publishes an
+        error event *only*. A ``log_delta`` there would terminate the live
+        turn's own SSE stream, which ends at the first one it sees for its
+        session -- so "exactly one log_delta" is a guarantee about a turn
+        that ran, not about every call.
+
         The reconciliation read can fail too -- often the very same
         server/network hiccup that broke the stream also breaks the
         follow-up ``get_detail`` call. That failure is degraded, never

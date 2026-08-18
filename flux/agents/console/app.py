@@ -487,10 +487,12 @@ def mount_console_routes(
         # Refused before the stream opens: two turns for one session
         # interleave their frames into every subscriber and race the same
         # execution, and the server's own non-PAUSED rejection lands only
-        # after the second turn has started streaming. The hub re-checks
-        # this when the turn actually starts, so the race between two
-        # requests arriving together is closed there -- this is what turns
-        # it into a 409 instead of a stream that reports an error frame.
+        # after the second turn has started streaming. This pre-check is
+        # what produces the 409, and it is the whole answer for requests
+        # that do not overlap. Two arriving together can both pass it; the
+        # hub's own check when the turn starts is what stops the second
+        # from running, reporting it as an error event on the stream this
+        # one already opened.
         if hub.turn_in_flight(session_id):
             raise HTTPException(
                 status_code=409,
