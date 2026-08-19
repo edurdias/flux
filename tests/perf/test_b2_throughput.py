@@ -98,6 +98,13 @@ def test_b2_sustained_throughput(perf_env):
             # Pooling check (#261): sockets held before vs after the load.
             "open_fds_idle_before": fds_before,
             "open_fds_idle_after": fds_after,
+            # None counts mean the check could not run (not Linux, or the
+            # process was gone). Recorded explicitly so a null pair is never
+            # read as "no growth" -- absence of a measurement is not evidence.
+            "open_fds_measured": all(
+                fds_before.get(role) is not None and fds_after.get(role) is not None
+                for role in ("server", "worker")
+            ),
             "gates": gates,
         },
     )

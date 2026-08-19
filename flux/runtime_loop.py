@@ -1,12 +1,17 @@
 """Event-loop selection for the server and worker processes (#261).
 
-uvloop is a drop-in replacement for asyncio's loop and measurably faster
-at the socket-heavy work both processes do. It is not available
-everywhere, though: there are no Windows wheels, and a new CPython
-release generally ships before uvloop supports it. So the choice degrades
-to the stdlib loop rather than refusing to start -- unless an operator
-named uvloop explicitly, where silently running the slower loop would
-leave them believing a tuning knob took effect.
+uvloop is a drop-in replacement for asyncio's loop. On this project's
+benchmarks it did *not* prove faster -- no change to dispatch or
+throughput and a slightly worse claim-latency tail (docs/benchmarks) --
+which is why `asyncio` is the default and uvloop is opt-in rather than
+"on when installed". Other hardware may differ; the point of the setting
+is that an operator can measure rather than assume.
+
+It is also not available everywhere: there are no Windows wheels, and a
+new CPython release generally ships before uvloop supports it. So the
+choice degrades to the stdlib loop rather than refusing to start --
+unless an operator named uvloop explicitly, where silently running a
+different loop would leave them believing a tuning knob took effect.
 
 `event_loop` (top-level setting) is the knob; see Settings.event_loop.
 """
@@ -14,13 +19,15 @@ leave them believing a tuning knob took effect.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Coroutine
+from typing import Any, TypeVar
 
 from flux.config import Configuration
 from flux.utils import get_logger
 
 logger = get_logger(__name__)
+
+_T = TypeVar("_T")
 
 
 def _import_uvloop() -> Any | None:
@@ -68,7 +75,7 @@ def uvicorn_loop_name() -> str:
         raise
 
 
-def run(coro, *, debug: bool | None = None):
+def run(coro: Coroutine[Any, Any, _T], *, debug: bool | None = None) -> _T:
     """``asyncio.run`` on the configured loop.
 
     Used by the worker; the server goes through uvicorn, which takes the
