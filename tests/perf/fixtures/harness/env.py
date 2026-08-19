@@ -47,10 +47,10 @@ def docker_available() -> bool:
         return False
 
 
-def _kill(proc: subprocess.Popen | None):
+def _kill(proc: subprocess.Popen | None, stop_signal: int = signal.SIGTERM):
     if proc is None or proc.poll() is not None:
         return
-    proc.send_signal(signal.SIGTERM)
+    proc.send_signal(stop_signal)
     try:
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
@@ -91,6 +91,7 @@ class FluxPerfEnv:
             **(env_overrides or {}),
         }
         self.extra_workers: list[subprocess.Popen] = []
+        self.flamegraphs: list[Path] = []
         self._http = httpx.Client(base_url=self.server_url, timeout=30)
 
     # -- lifecycle ---------------------------------------------------------
@@ -100,7 +101,10 @@ class FluxPerfEnv:
         srv_log = open(self.log_dir / "server.log", "w")
         self._log_files.append(srv_log)
         self.server_proc = subprocess.Popen(
-            ["poetry", "run", "flux", "start", "server", "--port", str(self.port)],
+            self._profiled(
+                "server",
+                ["poetry", "run", "flux", "start", "server", "--port", str(self.port)],
+            ),
             stdout=srv_log,
             stderr=subprocess.STDOUT,
             cwd=PROJECT_ROOT,
@@ -111,16 +115,19 @@ class FluxPerfEnv:
         wkr_log = open(self.log_dir / "worker.log", "w")
         self._log_files.append(wkr_log)
         self.worker_proc = subprocess.Popen(
-            [
-                "poetry",
-                "run",
-                "flux",
-                "start",
+            self._profiled(
                 "worker",
-                self.worker_name,
-                "--server-url",
-                self.server_url,
-            ],
+                [
+                    "poetry",
+                    "run",
+                    "flux",
+                    "start",
+                    "worker",
+                    self.worker_name,
+                    "--server-url",
+                    self.server_url,
+                ],
+            ),
             stdout=wkr_log,
             stderr=subprocess.STDOUT,
             cwd=PROJECT_ROOT,
@@ -129,11 +136,49 @@ class FluxPerfEnv:
         self._wait_worker_connected()
         return self
 
+    def _profiled(self, role: str, argv: list[str]) -> list[str]:
+        """Wrap a process launch in py-spy when profiling is asked for.
+
+        Launched *under* py-spy rather than attached to afterwards: with
+        kernel.yama.ptrace_scope=1 -- the default on most distributions --
+        a profiler may only trace its own descendants, so attaching to a
+        running server needs root while spawning it does not. It also
+        catches process startup, which attaching necessarily misses.
+
+        Opt-in (FLUX_BENCH_PYSPY=1) and best-effort: a benchmark that
+        cannot profile still has to report its numbers.
+        """
+        if not os.environ.get("FLUX_BENCH_PYSPY"):
+            return argv
+        if shutil.which("py-spy") is None:
+            return argv
+        out_dir = PROJECT_ROOT / "docs" / "benchmarks" / "flamegraphs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        target = out_dir / f"{role}-{time.strftime('%Y%m%d-%H%M%S')}.svg"
+        self.flamegraphs.append(target)
+        return [
+            "py-spy",
+            "record",
+            "--output",
+            str(target),
+            "--format",
+            "flamegraph",
+            "--rate",
+            "100",
+            "--subprocesses",
+            "--",
+            *argv,
+        ]
+
     def stop(self):
+        # When profiling, server_proc/worker_proc *are* py-spy, and py-spy
+        # renders its flamegraph on SIGINT (or when the profiled process
+        # exits) -- a SIGTERM kills it with nothing written.
+        stop_signal = signal.SIGINT if self.flamegraphs else signal.SIGTERM
         for proc in self.extra_workers:
             _kill(proc)
-        _kill(self.worker_proc)
-        _kill(self.server_proc)
+        _kill(self.worker_proc, stop_signal)
+        _kill(self.server_proc, stop_signal)
         self._http.close()
         for f in self._log_files:
             f.close()
@@ -263,6 +308,53 @@ class FluxPerfEnv:
         r = self._http.get(f"/workflows/{namespace}/{name}/cancel/{execution_id}")
         r.raise_for_status()
         return r.json()
+
+    def resume(
+        self,
+        namespace: str,
+        name: str,
+        execution_id: str,
+        input: Any = None,
+        mode: str = "async",
+    ) -> dict:
+        r = self._http.post(
+            f"/workflows/{namespace}/{name}/resume/{execution_id}/{mode}",
+            json=input,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def wait_for_state(
+        self,
+        namespace: str,
+        name: str,
+        execution_id: str,
+        state: str,
+        timeout: float = 120.0,
+        interval: float = 0.25,
+    ) -> dict:
+        """Poll until the execution reports ``state`` (e.g. PAUSED).
+
+        Separate from wait_for_terminal because a paused execution is a
+        legitimate resting place, not an outcome -- B3 parks one there to
+        build a history worth replaying.
+        """
+        deadline = time.monotonic() + timeout
+        last: dict = {}
+        while time.monotonic() < deadline:
+            last = self.status(namespace, name, execution_id)
+            if last.get("state") == state:
+                return last
+            if last.get("state") in TERMINAL_STATES:
+                raise AssertionError(
+                    f"Execution {execution_id} reached {last.get('state')} while "
+                    f"waiting for {state}",
+                )
+            time.sleep(interval)
+        raise TimeoutError(
+            f"Execution {execution_id} never reached {state} within {timeout}s "
+            f"(last state: {last.get('state')})",
+        )
 
     def wait_for_terminal(
         self,

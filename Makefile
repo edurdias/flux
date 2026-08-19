@@ -85,6 +85,29 @@ perf-postgresql: postgres-test-up ## Run perf suite vs dockerized PostgreSQL (up
 		$(MAKE) postgres-test-down; \
 		exit $$status
 
+# Engine benchmarks (B series, tests/perf/test_b*.py; issue #259). The three
+# core metrics -- dispatch latency, sustained throughput, replay cost -- that
+# every other performance ticket reports before/after against.
+bench: ## Run the engine benchmark suite (B series). B=<id> one benchmark; PROFILE=ci|workstation|full.
+	FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) \
+		poetry run pytest tests/perf -k "$(if $(B),$(B),b1 or b2 or b3)" -v
+
+bench-postgresql: postgres-test-up ## Run the engine benchmarks vs dockerized PostgreSQL.
+	@FLUX_PERF=1 $(if $(PROFILE),FLUX_PERF_PROFILE=$(PROFILE)) \
+		FLUX_PERF_DATABASE_URL=$(PG_TEST_URL) \
+		poetry run pytest tests/perf -k "$(if $(B),$(B),b1 or b2 or b3)" -v; \
+		status=$$?; \
+		$(MAKE) postgres-test-down; \
+		exit $$status
+
+bench-profile: ## Flame-graph one benchmark under py-spy (needs py-spy on PATH). B=<id> required.
+	@poetry run python -c "import shutil,sys; sys.exit(0 if shutil.which('py-spy') else 1)" \
+		|| { echo "py-spy not found: poetry run pip install py-spy (it is a profiling tool, not a project dependency)"; exit 1; }
+	@test -n "$(B)" || { echo "B=<b1|b2|b3> is required"; exit 1; }
+	@mkdir -p docs/benchmarks/flamegraphs
+	FLUX_PERF=1 FLUX_PERF_PROFILE=$(if $(PROFILE),$(PROFILE),ci) FLUX_BENCH_PYSPY=1 \
+		poetry run pytest tests/perf -k "$(B)" -v
+
 # PostgreSQL Database Management
 postgres-up: ## Start PostgreSQL for development
 	$(DOCKER_COMPOSE) -f docker-compose.yml -f docker/profiles/postgresql.yml up -d postgres

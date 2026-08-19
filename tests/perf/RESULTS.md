@@ -5,6 +5,9 @@ Latest run per (test, profile); raw runs live in `results/<test>/`.
 
 | Test | Profile | Gate | Measured | Pass | Sealed | DB | Machine |
 |---|---|---|---|---|---|---|---|
+| B1 | ci | — | — | — | — | — | Intel(R) Core(TM) i9-14900HX ×32 |
+| B2 | ci | — | — | — | — | — | Intel(R) Core(TM) i9-14900HX ×32 |
+| B3 | ci | — | — | — | — | — | Intel(R) Core(TM) i9-14900HX ×32 |
 | T0 | — | 0 TASK_PROGRESS rows; event footprint independent of frame count | TASK_PROGRESS rows=0; footprint 100f == 5000f (6 rows each); delivered 100/100 and 5000/5000 | ✅ | no | postgresql | Intel(R) Core(TM) i9-14900HX ×32 |
 | T1 | ci | >= 1000 ev/s delivered lossless @150B (soft in ci) | best lossless 1402 ev/s @150B; loss onset at uncapped | ✅ | no | postgresql | Intel(R) Core(TM) i9-14900HX ×32 |
 | T1 | full | >= 1000 ev/s delivered lossless @150B (soft in ci) | best lossless 2062 ev/s @150B; loss onset at uncapped | ✅ | no | postgresql | Intel(R) Core(TM) i9-14900HX ×32 |
