@@ -16,7 +16,7 @@
  * untrusted text and only ever reach the page through textContent.
  */
 
-import { byteSize, formatSize, sliceBytes, truncate } from "./text.js";
+import { byteSize, formatBytes, sliceBytes, truncate } from "./text.js";
 
 const WRITE_HEADERS = {
   // Required by the console's CSRF gate: a custom header forces a preflight
@@ -239,7 +239,7 @@ function appendPayload(body, title, text, expandedSet, key, limit) {
       el("button", {
         type: "button",
         class: "show-full",
-        text: full ? `(${formatSize(text)} · show less)` : `(${formatSize(text)} · show full)`,
+        text: full ? `(${formatBytes(size)} · show less)` : `(${formatBytes(size)} · show full)`,
         onclick: () => {
           toggle(expandedSet, key);
           scheduleRender();
@@ -1769,8 +1769,16 @@ function restoreFocus() {
   if (target && document.contains(target)) target.focus();
 }
 
+/** Remember what to give focus back to, unless an overlay already owns it. */
+function rememberFocus() {
+  if (!focusReturn) focusReturn = document.activeElement;
+}
+
 function openModal() {
-  focusReturn = document.activeElement;
+  rememberFocus();
+  // One overlay at a time: two open at once share a single focus-return
+  // target, and whichever closes second returns focus to nothing.
+  state.drawerOpen = false;
   state.modalOpen = true;
   state.agentFilter = "";
   modalShell = null;
@@ -1789,7 +1797,8 @@ function closeModal() {
 }
 
 function openDrawer() {
-  focusReturn = document.activeElement;
+  rememberFocus();
+  state.modalOpen = false;
   state.drawerOpen = true;
   renderedDrawerSignature = null;
   scheduleRender();

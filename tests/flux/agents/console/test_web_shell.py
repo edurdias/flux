@@ -336,7 +336,22 @@ def test_overlays_trap_focus_and_give_it_back():
         keydown.group(0),
     )
     # Opening stores what to give focus back to; closing does give it back.
-    assert script.count("focusReturn = document.activeElement") == 2
+    # The capture itself lives in rememberFocus (see the exclusivity test),
+    # which both overlays call.
+    assert script.count("rememberFocus();") == 2
     assert script.count("restoreFocus();") == 2
     assert "focusFirstIn(dom.modal)" in script
     assert "focusFirstIn(dom.drawer)" in script
+
+
+def test_only_one_overlay_is_open_at_a_time():
+    """Both overlays share one focus-return target, so two open at once means
+    whichever closes second returns focus to nothing."""
+    script = (WEB_DIR / "console.js").read_text()
+    modal = re.search(r"function openModal\(.*?\n}", script, re.DOTALL)
+    drawer = re.search(r"function openDrawer\(.*?\n}", script, re.DOTALL)
+    assert modal and "state.drawerOpen = false;" in modal.group(0)
+    assert drawer and "state.modalOpen = false;" in drawer.group(0)
+    # And the target is captured once, by whichever overlay opened first.
+    assert "function rememberFocus(" in script
+    assert script.count("focusReturn = document.activeElement") == 1
