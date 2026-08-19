@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "flux-core"
-version = "0.86.10"
+version = "0.86.11"
 description = "Flux is a distributed workflow orchestration engine to build stateful and fault-tolerant workflows."
 authors = ["Eduardo Dias <edurdias@gmail.com>"]
 repository = "https://github.com/edurdias/flux"
@@ -39,6 +39,10 @@ fastmcp = ">=3.2.0,<4.0.0"
 # LISTEN/NOTIFY listener the event-driven dispatcher needs (psycopg2 has no
 # async path). URLs stay `postgresql://`; the dialect is normalized in code.
 psycopg = {version = "^3.2", extras = ["binary", "pool"], optional = true}
+# Optional and platform-gated: uvloop publishes no Windows wheels, and a new
+# CPython usually ships before uvloop supports it. flux/runtime_loop.py falls
+# back to the stdlib loop when it is absent (#261).
+uvloop = {version = ">=0.21", optional = true, markers = "sys_platform != 'win32'"}
 croniter = "^6.2.2"
 types-croniter = "^6.0.0.20250809"
 textual = "^8.2.7"
@@ -162,6 +166,7 @@ cmd = "poetry run pytest tests/e2e/ -m 'not ollama' -v"
 
 [tool.poetry.extras]
 postgresql = ["psycopg"]
+uvloop = ["uvloop"]
 observability = [
     "opentelemetry-api",
     "opentelemetry-sdk",

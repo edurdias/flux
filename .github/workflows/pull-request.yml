@@ -303,7 +303,7 @@ jobs:
         virtualenvs-in-project: true
 
     - name: Install dependencies
-      run: poetry install --no-interaction --extras postgresql
+      run: poetry install --no-interaction --extras postgresql --extras uvloop
 
     # Progress-streaming perf suite (tests/perf/PLAN.md) against a real
     # server + worker on PostgreSQL — the production backend. All scenarios

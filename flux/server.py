@@ -346,12 +346,15 @@ class Server(
                 self._retention_job.start()
 
         try:
+            from flux.runtime_loop import uvicorn_loop_name
+
             config = uvicorn.Config(
                 self._create_api(),
                 host=self.host,
                 port=self.port,
                 log_level="warning",
                 access_log=False,
+                loop=uvicorn_loop_name(),
                 callback_notify=_install_slow_callback_logging(),
             )
             server = UvicornServer(config, on_server_startup)

@@ -1,5 +1,10 @@
 [flux]
 log_level = "INFO"                                                 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+event_loop = "asyncio"                                             # Event loop for server and worker: "asyncio" (stdlib, default),
+                                                                   # "auto" (uvloop when installed, asyncio otherwise), "uvloop"
+                                                                   # (required — fails to start without it). Install with
+                                                                   # flux-core[uvloop]. The default is asyncio on evidence: uvloop
+                                                                   # showed no gain on the benchmark suite (docs/benchmarks/README.md).
 log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Log message format
 log_date_format = "%Y-%m-%d %H:%M:%S"                               # Date format in log messages
 server_host = "localhost"                                           # Host to bind the server to.
