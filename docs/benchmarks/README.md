@@ -118,6 +118,57 @@ per task of history versus ~585 ms of fixed resume cost on both backends,
 so #262 (event-store batching) should move the *constant*. If it moves the
 marginal number instead, something regressed.
 
+## Event loop: what the measurement said about uvloop (#261)
+
+`event_loop` (top level in flux.toml) selects the loop for the server and worker
+(`asyncio` by default, `auto` for uvloop-when-installed, `uvloop` to
+require it; `pip install 'flux-core[uvloop]'`).
+
+**The default is asyncio because the numbers said so.** #261 expected
+uvloop to improve dispatch p95. On this suite it did not improve anything,
+and cost a little at the tail of the claim path:
+
+| claim p50 (ms) | pair 1 | pair 2 | pair 3 | pair 4 |
+|---|---|---|---|---|
+| asyncio | 103 | 114 | 106 | 97 |
+| uvloop | 139 | 91 | 125 | 155 |
+
+| claim p95 (ms) | pair 1 | pair 2 | pair 3 | pair 4 |
+|---|---|---|---|---|
+| asyncio | 177 | 227 | 170 | 186 |
+| uvloop | 261 | 222 | 260 | 248 |
+
+Runs are **interleaved** (asyncio, uvloop, asyncio, uvloop …), not batched
+per loop: an earlier batched comparison showed uvloop uniformly worse, and
+interleaving reversed one of the four pairs — which is what a machine-drift
+confound looks like. p50 is therefore inconclusive; p95 is worse in 4 of 4;
+dispatch p50 and throughput are unchanged.
+
+Isolating the two processes (server loop and worker loop switched
+independently, sequential submissions with no queue) showed **no difference
+at all**: claim p50 21.1 / 21.1 / 20.8 / 21.4 ms across the four
+combinations. Whatever the loaded runs are picking up, it is contention
+behavior, not raw loop speed.
+
+Other hardware and larger fleets may differ — the point of shipping the
+setting is that an operator can opt in and check with `make bench` rather
+than take anyone's word for it.
+
+### Connection pooling
+
+The other half of #261 was already in place: the worker holds one
+long-lived `httpx.AsyncClient`, and `flux/task.py` a module-level one. The
+two remaining per-call constructions are correct as they are — the worker's
+SSE connection is a single long-lived stream, and the OIDC discovery
+fetch sits behind a TTL cache.
+
+B2 records open file descriptors idle-before and idle-after, counted after
+the fleet goes quiet rather than mid-flight (keep-alive is *supposed* to
+hold connections open, so a mid-flight count cannot tell a pool from a
+leak). Across three back-to-back load cycles the counts settle rather than
+climb — server 22 cold, then 44 / 38 / 42; worker 18 cold, then 28 / 26 /
+26 — which is a warm pool, not a leak.
+
 ## Profiling
 
 `make bench-profile B=<id>` runs a benchmark with the server and worker

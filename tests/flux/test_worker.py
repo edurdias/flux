@@ -284,12 +284,17 @@ class TestWorker:
 
         assert worker.base_url == "http://localhost:8000/workers"
 
-    @patch("asyncio.run")
-    def test_start_calls_async_start(self, mock_asyncio_run, worker):
-        """Test that start() calls the async _start() method."""
+    @patch("flux.runtime_loop.run")
+    def test_start_runs_the_worker_on_the_configured_loop(self, mock_run, worker):
+        """start() drives _run() through flux.runtime_loop.run, not
+        asyncio.run directly -- that indirection is what lets the worker
+        honour the `event_loop` setting (#261)."""
         worker.start()
 
-        mock_asyncio_run.assert_called_once()
+        mock_run.assert_called_once()
+        coro = mock_run.call_args[0][0]
+        assert coro.__qualname__.endswith("_run")
+        coro.close()  # never awaited: the loop it would run on is mocked out
 
     @pytest.mark.asyncio
     async def test_run_calls_register_and_connect(self, worker):

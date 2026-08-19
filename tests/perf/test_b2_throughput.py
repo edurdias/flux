@@ -12,6 +12,7 @@ shared runner this number is a "where are we", not a certification.
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def test_b2_sustained_throughput(perf_env):
     spec = params("b2")
     perf_env.register(FIXTURES / "bench_workflow.py")
 
+    fds_before = perf_env.open_fds()
     payload = {"tasks": spec["tasks_per_workflow"], "payload": spec["payload"]}
     with ThreadPoolExecutor(max_workers=spec["concurrency"]) as pool:
         submissions = [
@@ -44,6 +46,12 @@ def test_b2_sustained_throughput(perf_env):
         perf_env.wait_for_terminal(NAMESPACE, "bench_chain", execution_id, timeout=600)
         details.append(perf_env.status(NAMESPACE, "bench_chain", execution_id, detailed=True))
 
+    # Counted after the fleet has gone quiet, not the moment the last task
+    # lands: keep-alive is supposed to hold connections open, so a count
+    # taken mid-flight cannot tell a pool from a leak. What must not grow
+    # is the idle-to-idle figure.
+    time.sleep(spec.get("settle_seconds", 3))
+    fds_after = perf_env.open_fds()
     starts = [first_time(detail, "TASK_STARTED") for detail in details]
     ends = [last_time(detail, "TASK_COMPLETED") for detail in details]
     # An execution missing either stamp would shrink the window while its
@@ -87,6 +95,9 @@ def test_b2_sustained_throughput(perf_env):
             "executions_fully_timed": fully_stamped,
             "in_flight_window_s": window_s,
             "tasks_per_s": rate,
+            # Pooling check (#261): sockets held before vs after the load.
+            "open_fds_idle_before": fds_before,
+            "open_fds_idle_after": fds_after,
             "gates": gates,
         },
     )

@@ -78,6 +78,7 @@ class FluxPerfEnv:
         database_url: str | None = None,
         worker_name: str = "perf-worker",
         env_overrides: dict[str, str] | None = None,
+        worker_env_overrides: dict[str, str] | None = None,
     ):
         self.workdir = workdir
         self.port = port or free_port()
@@ -100,6 +101,10 @@ class FluxPerfEnv:
             "FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY": "perf-test-encryption-key",
             **(env_overrides or {}),
         }
+        # Applied to the worker only, so a setting can be A/B'd across the
+        # two processes independently -- "is this slower because of the
+        # server's loop or the worker's" is otherwise unanswerable.
+        self.worker_env = {**self.env, **(worker_env_overrides or {})}
         self.extra_workers: list[subprocess.Popen] = []
         self.flamegraphs: list[Path] = []
         # py-spy pauses the process briefly on every sample, so a profiled
@@ -148,7 +153,7 @@ class FluxPerfEnv:
             stdout=wkr_log,
             stderr=subprocess.STDOUT,
             cwd=PROJECT_ROOT,
-            env=self.env,
+            env=self.worker_env,
         )
         self._wait_worker_connected()
         return self
@@ -413,6 +418,26 @@ class FluxPerfEnv:
             f"Execution {execution_id} not terminal within {timeout}s "
             f"(last state: {last.get('state')})",
         )
+
+    def open_fds(self) -> dict[str, int | None]:
+        """Open file descriptors held by the server and worker right now.
+
+        The acceptance criterion for connection pooling (#261) is that a
+        long run does not accumulate sockets: a client rebuilt per call
+        leaks its descriptors slowly enough that only a before/after count
+        shows it.
+        """
+        counts: dict[str, int | None] = {}
+        for role, proc in (("server", self.server_proc), ("worker", self.worker_proc)):
+            if proc is None or proc.poll() is not None:
+                counts[role] = None
+                continue
+            try:
+                counts[role] = len(os.listdir(f"/proc/{proc.pid}/fd"))
+            except OSError:
+                # Not Linux, or the process went away between the two lines.
+                counts[role] = None
+        return counts
 
     @property
     def backend(self) -> str:

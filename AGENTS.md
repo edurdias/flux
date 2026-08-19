@@ -36,6 +36,18 @@ The version bump in step 4 is enforced by `.github/workflows/pull-request.yml::v
 - **Replay determinism.** When you change task/workflow event emission, replay an existing execution (`workflow.run(execution_id=...)`) and confirm the new event log is a strict superset / consistent rewrite. Determinism tests live in `tests/examples/test_determinism.py`.
 - **Don't add tests that need network access** unless they're marked `@pytest.mark.network` (CI's e2e gate deselects it) or skipped when the dependency is missing (see how `@pytest.mark.ollama` is handled in `tests/e2e/conftest.py`).
 - **Don't commit databases.** `*.db`, `*.db-wal`, `*.db-shm`, `test.db` are gitignored — verify with `git status` before staging.
+- **`pre-commit run --all-files` only sees *tracked* files.** For newly added files, `git add` them first or the hooks have nothing to say about them — a clean local sweep followed by a red `lint` job in CI is almost always this.
+- **The local interpreter is not the CI floor.** A dev box on 3.14 will happily run code that raises on 3.12, which CI tests: shadowing a stdlib attribute, relying on newer `asyncio`/`threading` internals, or on dict/`inspect` behavior that changed. Anything near the stdlib's edges deserves a `python3.12` check before pushing.
+
+## Reporting measurements
+
+Applies to benchmarks, profiles, and any number that ends up in a PR description or `docs/`.
+
+- **Read the run's own gate verdicts before quoting its metrics.** Every `tests/perf` run record carries them. Numbers taken from a run that failed its correctness gate are worse than no numbers, because they look like evidence.
+- **When a gate fails, ask whether the gate is wrong before tuning it green.** A fixed-sample-count gate tightens exactly when load makes each sample slower; it became a coverage gate for that reason.
+- **Open generated artifacts and confirm they contain what you claim.** A committed flame graph once held 1,124 frames and not one of them from Flux — it had profiled the `poetry` launcher, not the server.
+- **Interleave A/B runs, never batch them.** Four runs of A followed by four of B will faithfully record whatever the machine was doing at the time. Alternate, and report the pairs.
+- **Report against the acceptance criterion even when the answer is no.** An optimization that measured flat is a finding; shipping it as a win because the ticket predicted one is how a benchmark suite loses its value.
 
 ## Editing the public surface
 

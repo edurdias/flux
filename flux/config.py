@@ -631,6 +631,18 @@ class FluxConfig(BaseSettings):
     )
 
     debug: bool = Field(default=False, description="Enable debug mode")
+    event_loop: Literal["auto", "asyncio", "uvloop"] = Field(
+        default="asyncio",
+        description=(
+            "Event loop for the server and worker processes. 'asyncio' (default) uses "
+            "the stdlib loop; 'auto' uses uvloop when installed and falls back to "
+            "asyncio when it is not; 'uvloop' requires it and fails to start without "
+            "it. The default is asyncio because measurement said so, not by tradition: "
+            "on the benchmark suite uvloop showed no improvement to dispatch or "
+            "throughput and a slightly worse claim-latency tail (docs/benchmarks). "
+            "Different hardware may differ -- opt in and measure with `make bench`."
+        ),
+    )
     log_level: str = Field(default="INFO", description="Logging level")
     log_format: str = Field(
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

@@ -485,7 +485,11 @@ class Worker:
             logger.info("Worker observability initialized")
 
         try:
-            asyncio.run(self._run())
+            # uvloop when available (#261): the worker's loop is almost all
+            # socket work -- the SSE stream, checkpoint POSTs, child pipes.
+            from flux.runtime_loop import run as run_on_configured_loop
+
+            run_on_configured_loop(self._run())
         except (KeyboardInterrupt, asyncio.CancelledError):
             logger.info("Worker shutdown requested")
         finally:

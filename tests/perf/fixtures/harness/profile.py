@@ -46,6 +46,7 @@ PROFILES: dict[str, dict] = {
             "concurrency": 8,
             "payload": 64,
             "min_tasks_per_s": 1.0,
+            "settle_seconds": 3,
         },
         "b3": {"histories": [25, 100], "payload": 64, "linearity_factor": 3.0},
         "b4": {
@@ -97,6 +98,7 @@ PROFILES: dict[str, dict] = {
             "concurrency": 16,
             "payload": 256,
             "min_tasks_per_s": 5.0,
+            "settle_seconds": 5,
         },
         "b3": {"histories": [50, 200, 500], "payload": 256, "linearity_factor": 2.5},
         "b4": {
@@ -137,6 +139,7 @@ PROFILES: dict[str, dict] = {
             "concurrency": 32,
             "payload": 1024,
             "min_tasks_per_s": 10.0,
+            "settle_seconds": 5,
         },
         "b3": {"histories": [100, 500, 2000], "payload": 1024, "linearity_factor": 2.0},
         "b4": {

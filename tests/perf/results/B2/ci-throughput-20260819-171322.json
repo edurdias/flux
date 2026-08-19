@@ -1,7 +1,7 @@
 {
   "test": "B2",
   "run": "ci-throughput",
-  "recorded_at": "2026-08-19T12:49:29-0400",
+  "recorded_at": "2026-08-19T17:13:22-0400",
   "machine": {
     "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
     "python": "3.14.7",
@@ -11,17 +11,25 @@
     "disk_total_bytes": 1081101176832
   },
   "profile": "ci",
-  "backend": "postgresql",
+  "backend": "sqlite",
   "workflows": 20,
   "tasks_per_workflow": 10,
   "submit_concurrency": 8,
   "payload_bytes": 64,
-  "http_rtt_s": 0.005550047004362568,
+  "http_rtt_s": 0.003460534004261717,
   "tasks_completed": 200,
   "tasks_expected": 200,
   "executions_fully_timed": 20,
-  "in_flight_window_s": 1.233114,
-  "tasks_per_s": 162.19100585996102,
+  "in_flight_window_s": 1.113384,
+  "tasks_per_s": 179.6325436686714,
+  "open_fds_idle_before": {
+    "server": 31,
+    "worker": 17
+  },
+  "open_fds_idle_after": {
+    "server": 38,
+    "worker": 17
+  },
   "gates": {
     "every_task_persisted": true,
     "every_execution_timed": true,
