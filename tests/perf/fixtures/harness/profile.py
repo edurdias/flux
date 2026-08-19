@@ -36,6 +36,18 @@ PROFILES: dict[str, dict] = {
         # exercise reconnect-and-resume; the eviction fate is full-profile's.
         "t6c": {"rate": 100, "seconds": 30, "drop_after_s": 8, "drop_for_s": 2},
         "t7": {"streams": 3, "rate": 100, "seconds": 240, "churn_every_s": 20},
+        # B series (#259): engine benchmarks. ci sizes are "where are we"
+        # on a shared runner -- small enough to finish in a PR pipeline,
+        # large enough that a percentile means something.
+        "b1": {"executions": 40, "payload": 64, "p95_budget_ms": 3000},
+        "b2": {
+            "workflows": 20,
+            "tasks_per_workflow": 10,
+            "concurrency": 8,
+            "payload": 64,
+            "min_tasks_per_s": 1.0,
+        },
+        "b3": {"histories": [25, 100], "payload": 64, "linearity_factor": 3.0},
         "t8": {
             "samples": 5,
             "budget_ms": {"flux.server": 2500, "flux.worker": 1200, "flux.runners.child": 400},
@@ -65,6 +77,15 @@ PROFILES: dict[str, dict] = {
         # still exercises reconnect-and-resume (eviction fate is full's job).
         "t6c": {"rate": 200, "seconds": 45, "drop_after_s": 10, "drop_for_s": 3},
         "t7": {"streams": 8, "rate": 300, "seconds": 600, "churn_every_s": 30},
+        "b1": {"executions": 100, "payload": 256, "p95_budget_ms": 1500},
+        "b2": {
+            "workflows": 60,
+            "tasks_per_workflow": 20,
+            "concurrency": 16,
+            "payload": 256,
+            "min_tasks_per_s": 5.0,
+        },
+        "b3": {"histories": [50, 200, 500], "payload": 256, "linearity_factor": 2.5},
         "t8": {
             "samples": 9,
             "budget_ms": {"flux.server": 1500, "flux.worker": 700, "flux.runners.child": 200},
@@ -85,6 +106,15 @@ PROFILES: dict[str, dict] = {
         "t6a": {"streams": 8, "rate": 200, "cancel_after_s": 10},
         "t6b": {"detect_timeout_s": 180},
         "t6c": {"rate": 100, "seconds": 60, "drop_after_s": 15, "drop_for_s": 10},
+        "b1": {"executions": 300, "payload": 1024, "p95_budget_ms": 1000},
+        "b2": {
+            "workflows": 200,
+            "tasks_per_workflow": 25,
+            "concurrency": 32,
+            "payload": 1024,
+            "min_tasks_per_s": 10.0,
+        },
+        "b3": {"histories": [100, 500, 2000], "payload": 1024, "linearity_factor": 2.0},
         "t7": {"streams": 10, "rate": 300, "seconds": 3600, "churn_every_s": 30},
         "t8": {
             "samples": 15,
