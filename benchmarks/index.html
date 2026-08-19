@@ -1341,10 +1341,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-the-baseline-already-says" class="md-nav__link">
+  <a href="#loop-responsiveness-b4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What the baseline already says
+        Loop responsiveness (B4)
       
     </span>
   </a>
@@ -1353,17 +1353,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#profiling" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Profiling
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1397,7 +1386,7 @@ in-process shortcuts.</p>
 T characterizes the <em>progress-streaming</em> path (<code>tests/perf/PLAN.md</code>), B
 measures the engine underneath it.</p>
 <h2 id="running-them">Running them<a class="headerlink" href="#running-them" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>make<span class="w"> </span>bench<span class="w">                       </span><span class="c1"># all three, ci profile, SQLite</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>make<span class="w"> </span>bench<span class="w">                       </span><span class="c1"># all four, ci profile, SQLite</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>make<span class="w"> </span>bench<span class="w"> </span><span class="nv">B</span><span class="o">=</span>b1<span class="w">                  </span><span class="c1"># one benchmark</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>make<span class="w"> </span>bench<span class="w"> </span><span class="nv">PROFILE</span><span class="o">=</span>workstation<span class="w">   </span><span class="c1"># bigger windows for a real dev box</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>make<span class="w"> </span>bench-postgresql<span class="w">            </span><span class="c1"># against dockerized PostgreSQL (needs the postgresql extra)</span>
@@ -1440,6 +1429,11 @@ machines, and no client polling granularity smeared into a latency.</p>
 <td><strong>B2</strong></td>
 <td>sustained tasks/second</td>
 <td>total <code>TASK_COMPLETED</code> ÷ the window work was in flight (first task start → last task completion)</td>
+</tr>
+<tr>
+<td><strong>B4</strong></td>
+<td>loop responsiveness under load</td>
+<td><code>GET /health</code> round trips sampled while a throughput workload runs, idle vs loaded</td>
 </tr>
 <tr>
 <td><strong>B3</strong></td>
@@ -1498,6 +1492,50 @@ or throughput figure without it cannot be compared to anything.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="loop-responsiveness-b4">Loop responsiveness (B4)<a class="headerlink" href="#loop-responsiveness-b4" title="Permanent link">&para;</a></h3>
+<p>A blocking call inside an async handler does not slow <em>its own</em> request
+down; it stalls every other request sharing the loop. B4 makes that
+visible by pinging <code>GET /health</code> -- a handler that touches nothing --
+while a workload runs. On an idle server that is one round trip; under
+load, everything above it is the loop being held.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>idle p95</th>
+<th>under load p50</th>
+<th>p95</th>
+<th>p99</th>
+<th>samples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ci profile</td>
+<td>6.5 ms</td>
+<td>8.4 ms</td>
+<td>37.4 ms</td>
+<td>61.6 ms</td>
+<td>151 over 100 % of the load window</td>
+</tr>
+<tr>
+<td>workstation profile</td>
+<td>7.2 ms</td>
+<td>14.0 ms</td>
+<td>55.5 ms</td>
+<td>73.1 ms</td>
+<td>87 over 99 %</td>
+</tr>
+</tbody>
+</table>
+<p>The run gates on <em>coverage</em> rather than a sample count: under heavier load
+each ping takes longer, so a fixed count tightens exactly when the system
+is busiest -- which is the window the measurement exists to cover.</p>
+<p>Set <code>[flux.observability] slow_callback_ms</code> (env
+<code>FLUX_OBSERVABILITY__SLOW_CALLBACK_MS</code>) to run the server's loop in
+asyncio debug mode and have it name every callback that holds the loop
+longer than that. It is the direct form of the same question, and what</p>
+<h1 id="263s-no-slow-callback-warnings-above-threshold-is-measured-with">263's "no slow-callback warnings above threshold" is measured with.<a class="headerlink" href="#263s-no-slow-callback-warnings-above-threshold-is-measured-with" title="Permanent link">&para;</a></h1>
 <h3 id="what-the-baseline-already-says">What the baseline already says<a class="headerlink" href="#what-the-baseline-already-says" title="Permanent link">&para;</a></h3>
 <p><strong>Dispatch is not claim-bound, and not database-bound.</strong> A worker claims
 in 87 ms (SQLite) or 158 ms (PostgreSQL) but the workflow does not start
