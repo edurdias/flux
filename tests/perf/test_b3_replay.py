@@ -107,6 +107,7 @@ def test_b3_replay_cost(perf_env):
         f"{profile_name()}-replay",
         {
             "profile": profile_name(),
+            "backend": perf_env.backend,
             "payload_bytes": spec["payload"],
             "http_rtt_s": perf_env.measure_http_rtt(),
             "runs": runs,

@@ -14,6 +14,7 @@ import signal
 import socket
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,15 @@ def _kill(proc: subprocess.Popen | None, stop_signal: int = signal.SIGTERM):
         proc.wait(timeout=10)
 
 
+# py-spy's output formats and the extension each one should carry.
+_PYSPY_SUFFIXES = {
+    "flamegraph": "svg",
+    "raw": "txt",
+    "speedscope": "json",
+    "chrometrace": "json",
+}
+
+
 class FluxPerfEnv:
     """One Flux server + one worker, as subprocesses, plus HTTP helpers."""
 
@@ -92,7 +102,14 @@ class FluxPerfEnv:
         }
         self.extra_workers: list[subprocess.Popen] = []
         self.flamegraphs: list[Path] = []
-        self._http = httpx.Client(base_url=self.server_url, timeout=30)
+        # py-spy pauses the process briefly on every sample, so a profiled
+        # run is genuinely slower than the one it is measuring; the client
+        # timeout has to leave room for that or the profiling run fails on
+        # a timeout instead of producing a graph.
+        self._http = httpx.Client(
+            base_url=self.server_url,
+            timeout=120 if os.environ.get("FLUX_BENCH_PYSPY") else 30,
+        )
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -154,20 +171,41 @@ class FluxPerfEnv:
             return argv
         out_dir = PROJECT_ROOT / "docs" / "benchmarks" / "flamegraphs"
         out_dir.mkdir(parents=True, exist_ok=True)
-        target = out_dir / f"{role}-{time.strftime('%Y%m%d-%H%M%S')}.svg"
+        # raw = folded stacks, which can be aggregated in a shell; the
+        # flamegraph is for reading, the folded form is for finding.
+        # The suffix follows the format py-spy was actually asked for: a
+        # speedscope profile named .svg is a file nothing will open.
+        fmt = os.environ.get("FLUX_BENCH_PYSPY_FORMAT", "flamegraph")
+        suffix = _PYSPY_SUFFIXES.get(fmt, fmt)
+        target = out_dir / f"{role}-{time.strftime('%Y%m%d-%H%M%S')}.{suffix}"
         self.flamegraphs.append(target)
+        # Profile the Flux process itself, not `poetry run`. py-spy follows
+        # its own descendants, but poetry replaces itself with a fresh
+        # process tree: profiling through it yields a graph of poetry's
+        # imports and nothing of the server -- which is exactly the useless
+        # artifact this used to produce. The venv's console script is the
+        # same entry point without the launcher in front of it.
+        direct = argv[2:] if argv[:2] == ["poetry", "run"] else argv
+        console_script = Path(sys.executable).parent / direct[0]
+        if console_script.exists():
+            direct = [str(console_script), *direct[1:]]
         return [
             "py-spy",
             "record",
             "--output",
             str(target),
             "--format",
-            "flamegraph",
+            fmt,
             "--rate",
-            "100",
-            "--subprocesses",
+            os.environ.get("FLUX_BENCH_PYSPY_RATE", "25"),
+            # Following subprocesses is opt-in: the worker spawns one runner
+            # child per execution, and tracing a fan-out of short-lived
+            # children costs more than the profile is worth -- B2 wedges on
+            # status reads with it on. The server and worker processes
+            # themselves are what these graphs are for.
+            *(["--subprocesses"] if os.environ.get("FLUX_BENCH_PYSPY_SUBPROCESSES") else []),
             "--",
-            *argv,
+            *direct,
         ]
 
     def stop(self):
@@ -375,6 +413,22 @@ class FluxPerfEnv:
             f"Execution {execution_id} not terminal within {timeout}s "
             f"(last state: {last.get('state')})",
         )
+
+    @property
+    def backend(self) -> str:
+        """The database this environment runs against, for the run record.
+
+        A dispatch or throughput figure is meaningless without it: SQLite
+        and PostgreSQL are different engines under the same API, and a
+        results file that does not say which one produced it cannot be
+        compared to anything.
+        """
+        scheme = self.database_url.split(":", 1)[0].lower()
+        if scheme.startswith("postgres"):
+            return "postgresql"
+        if scheme.startswith("sqlite"):
+            return "sqlite"
+        return scheme
 
     def measure_http_rtt(self, samples: int = 20) -> float:
         """Median localhost round-trip of GET /health, in seconds.

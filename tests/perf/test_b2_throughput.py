@@ -76,6 +76,7 @@ def test_b2_sustained_throughput(perf_env):
         f"{profile_name()}-throughput",
         {
             "profile": profile_name(),
+            "backend": perf_env.backend,
             "workflows": spec["workflows"],
             "tasks_per_workflow": spec["tasks_per_workflow"],
             "submit_concurrency": spec["concurrency"],

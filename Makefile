@@ -55,19 +55,33 @@ docker-test-image: ## Build the runner test image from the working tree
 # PostgreSQL Testing
 test-postgresql: postgres-test-up test-postgresql-all postgres-test-down ## Run all PostgreSQL tests with test database
 
+# Selects by marker rather than by path: tests/flux/integration/ has not
+# existed for some time, so this target could only ever exit 4 ("no tests
+# collected"). The marker is also what CI's migrations-postgres job uses,
+# so the two stay in step.
 test-postgresql-all: ## Run all PostgreSQL tests (requires running PostgreSQL)
-	FLUX_DATABASE_URL=postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test \
+	FLUX_DATABASE_URL=$(PG_TEST_URL) \
 	FLUX_DATABASE_TYPE=postgresql \
-	poetry run pytest tests/flux/test_*postgresql* tests/flux/integration/ -v
+	FLUX_WORKERS__BOOTSTRAP_TOKEN=make-token \
+	FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=make-encryption-key-000000000000 \
+	poetry run pytest tests/ --ignore=tests/e2e --ignore=tests/perf -m postgresql -v
 
 test-postgresql-unit: ## Run PostgreSQL unit tests (no database required)
 	poetry run pytest tests/flux/test_*postgresql* -v
 
-test-postgresql-integration: postgres-test-up ## Run PostgreSQL integration tests with test database
-	FLUX_DATABASE_URL=postgresql://flux_test_user:flux_test_password@localhost:5433/flux_test \
+# Tears the container down on failure too: a make rule stops at the first
+# failing line, so `$(MAKE) postgres-test-down` on its own line only runs
+# when the tests pass -- leaving a stray instance behind exactly when
+# someone is mid-debug.
+test-postgresql-integration: postgres-test-up ## Run the PostgreSQL-marked tests against the test database
+	@FLUX_DATABASE_URL=$(PG_TEST_URL) \
 	FLUX_DATABASE_TYPE=postgresql \
-	poetry run pytest tests/flux/integration/ -v
-	$(MAKE) postgres-test-down
+	FLUX_WORKERS__BOOTSTRAP_TOKEN=make-token \
+	FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=make-encryption-key-000000000000 \
+	poetry run pytest tests/ --ignore=tests/e2e --ignore=tests/perf -m postgresql -v; \
+		status=$$?; \
+		$(MAKE) postgres-test-down; \
+		exit $$status
 
 # Performance Testing (progress-streaming perf suite, tests/perf; opt-in).
 # Pass T=<id> to run a single scenario (e.g. `make perf-postgresql T=t3`) and

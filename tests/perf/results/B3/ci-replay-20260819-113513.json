@@ -1,7 +1,7 @@
 {
   "test": "B3",
   "run": "ci-replay",
-  "recorded_at": "2026-08-18T23:08:24-0400",
+  "recorded_at": "2026-08-19T11:35:13-0400",
   "machine": {
     "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
     "python": "3.14.7",
@@ -11,30 +11,31 @@
     "disk_total_bytes": 1081101176832
   },
   "profile": "ci",
+  "backend": "sqlite",
   "payload_bytes": 64,
-  "http_rtt_s": 0.003339501992741134,
+  "http_rtt_s": 0.0032917034986894578,
   "runs": [
     {
       "tasks": 25,
       "tasks_before_resume": 25,
       "tasks_after_resume": 25,
-      "replay_ms": 569.664,
-      "execution_id": "5100e6811cdb4b389fa20f7d477c9814"
+      "replay_ms": 585.303,
+      "execution_id": "f9485388141649e8834a693d6940edad"
     },
     {
       "tasks": 100,
       "tasks_before_resume": 100,
       "tasks_after_resume": 100,
-      "replay_ms": 596.118,
-      "execution_id": "b4d0714008744d92994d47de518cd1f8"
+      "replay_ms": 603.186,
+      "execution_id": "e6810475fedc4a24906169f2a9b6a646"
     }
   ],
   "marginal_ms_per_task": [
-    0.35272000000000087
+    0.2384400000000005
   ],
   "avg_ms_per_task": [
-    22.786559999999998,
-    5.961180000000001
+    23.41212,
+    6.03186
   ],
   "gates": {
     "no_task_reexecuted_on_replay": true,
