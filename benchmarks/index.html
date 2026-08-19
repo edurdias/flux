@@ -1552,6 +1552,92 @@ all small next to the fixed costs beside them.</p>
 per task of history versus ~585 ms of fixed resume cost on both backends,
 so #262 (event-store batching) should move the <em>constant</em>. If it moves the
 marginal number instead, something regressed.</p>
+<h2 id="event-loop-what-the-measurement-said-about-uvloop-261">Event loop: what the measurement said about uvloop (#261)<a class="headerlink" href="#event-loop-what-the-measurement-said-about-uvloop-261" title="Permanent link">&para;</a></h2>
+<p><code>event_loop</code> (top level in flux.toml) selects the loop for the server and worker
+(<code>asyncio</code> by default, <code>auto</code> for uvloop-when-installed, <code>uvloop</code> to
+require it; <code>pip install 'flux-core[uvloop]'</code>).</p>
+<p><strong>The default is asyncio because the numbers said so.</strong> #261 expected
+uvloop to improve dispatch p95. On this suite it did not improve anything,
+and cost a little at the tail of the claim path:</p>
+<table>
+<thead>
+<tr>
+<th>claim p50 (ms)</th>
+<th>pair 1</th>
+<th>pair 2</th>
+<th>pair 3</th>
+<th>pair 4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>asyncio</td>
+<td>103</td>
+<td>114</td>
+<td>106</td>
+<td>97</td>
+</tr>
+<tr>
+<td>uvloop</td>
+<td>139</td>
+<td>91</td>
+<td>125</td>
+<td>155</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>claim p95 (ms)</th>
+<th>pair 1</th>
+<th>pair 2</th>
+<th>pair 3</th>
+<th>pair 4</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>asyncio</td>
+<td>177</td>
+<td>227</td>
+<td>170</td>
+<td>186</td>
+</tr>
+<tr>
+<td>uvloop</td>
+<td>261</td>
+<td>222</td>
+<td>260</td>
+<td>248</td>
+</tr>
+</tbody>
+</table>
+<p>Runs are <strong>interleaved</strong> (asyncio, uvloop, asyncio, uvloop …), not batched
+per loop: an earlier batched comparison showed uvloop uniformly worse, and
+interleaving reversed one of the four pairs — which is what a machine-drift
+confound looks like. p50 is therefore inconclusive; p95 is worse in 4 of 4;
+dispatch p50 and throughput are unchanged.</p>
+<p>Isolating the two processes (server loop and worker loop switched
+independently, sequential submissions with no queue) showed <strong>no difference
+at all</strong>: claim p50 21.1 / 21.1 / 20.8 / 21.4 ms across the four
+combinations. Whatever the loaded runs are picking up, it is contention
+behavior, not raw loop speed.</p>
+<p>Other hardware and larger fleets may differ — the point of shipping the
+setting is that an operator can opt in and check with <code>make bench</code> rather
+than take anyone's word for it.</p>
+<h3 id="connection-pooling">Connection pooling<a class="headerlink" href="#connection-pooling" title="Permanent link">&para;</a></h3>
+<p>The other half of #261 was already in place: the worker holds one
+long-lived <code>httpx.AsyncClient</code>, and <code>flux/task.py</code> a module-level one. The
+two remaining per-call constructions are correct as they are — the worker's
+SSE connection is a single long-lived stream, and the OIDC discovery
+fetch sits behind a TTL cache.</p>
+<p>B2 records open file descriptors idle-before and idle-after, counted after
+the fleet goes quiet rather than mid-flight (keep-alive is <em>supposed</em> to
+hold connections open, so a mid-flight count cannot tell a pool from a
+leak). Across three back-to-back load cycles the counts settle rather than
+climb — server 22 cold, then 44 / 38 / 42; worker 18 cold, then 28 / 26 /
+26 — which is a warm pool, not a leak.</p>
 <h2 id="profiling">Profiling<a class="headerlink" href="#profiling" title="Permanent link">&para;</a></h2>
 <p><code>make bench-profile B=&lt;id&gt;</code> runs a benchmark with the server and worker
 launched <strong>under</strong> py-spy, writing flame graphs to
