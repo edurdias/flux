@@ -169,6 +169,39 @@ leak). Across three back-to-back load cycles the counts settle rather than
 climb — server 22 cold, then 44 / 38 / 42; worker 18 cold, then 28 / 26 /
 26 — which is a warm pool, not a leak.
 
+## Where throughput is actually bound (#262)
+
+#262 assumed per-event synchronous writes were the ceiling. They are not,
+and the measurement is worth keeping because it also says what *would*
+help.
+
+**Event writes are already batched at three levels** — the worker's
+outbox coalesces snapshots and sends only unacknowledged events, the
+server writes a checkpoint's events in one transaction, and SQLite already
+runs WAL with `synchronous=NORMAL`. Measured cost of the write path:
+
+| Events per checkpoint | SQLite | PostgreSQL |
+|---|---|---|
+| 1 | 1.81 ms | 3.27 ms |
+| 10 | 2.89 ms (0.29/event) | 6.05 ms (0.61/event) |
+| 50 | 6.38 ms (0.13/event) | 13.80 ms (0.28/event) |
+
+**Throughput is bound by per-execution overhead, not per-event cost.**
+Holding executions constant at 20 and varying tasks per execution:
+
+| tasks per execution | total tasks | window | throughput |
+|---|---|---|---|
+| 5 | 100 | 0.85 s | 118 tasks/s |
+| 10 | 200 | 0.99 s | 201 tasks/s |
+| 20 | 400 | 1.29 s | 311 tasks/s |
+| 40 | 800 | 1.53 s | **524 tasks/s** |
+
+Eight times the tasks in 1.8x the window. The fixed cost of starting an
+execution -- the ~700 ms post-claim window B1 already isolates -- is what
+a throughput number is really measuring at small task counts, which is
+also why "tasks/s" should always be read together with the shape of the
+workload that produced it.
+
 ## Profiling
 
 `make bench-profile B=<id>` runs a benchmark with the server and worker
