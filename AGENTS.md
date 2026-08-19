@@ -37,6 +37,7 @@ The version bump in step 4 is enforced by `.github/workflows/pull-request.yml::v
 - **Don't add tests that need network access** unless they're marked `@pytest.mark.network` (CI's e2e gate deselects it) or skipped when the dependency is missing (see how `@pytest.mark.ollama` is handled in `tests/e2e/conftest.py`).
 - **Don't commit databases.** `*.db`, `*.db-wal`, `*.db-shm`, `test.db` are gitignored — verify with `git status` before staging.
 - **`pre-commit run --all-files` only sees *tracked* files.** For newly added files, `git add` them first or the hooks have nothing to say about them — a clean local sweep followed by a red `lint` job in CI is almost always this.
+- **Touching `pyproject.toml` dependencies means regenerating the lock.** `poetry lock` then `poetry check --lock` (exit 0; the deprecation warnings it prints are pre-existing). Installing a package with `pip` into the venv proves it works for *you* and leaves `poetry.lock` inconsistent — CI then fails every job inside a minute at "Install dependencies", which looks alarming and is a one-line fix.
 - **The local interpreter is not the CI floor.** A dev box on 3.14 will happily run code that raises on 3.12, which CI tests: shadowing a stdlib attribute, relying on newer `asyncio`/`threading` internals, or on dict/`inspect` behavior that changed. Anything near the stdlib's edges deserves a `python3.12` check before pushing.
 
 ## Reporting measurements
