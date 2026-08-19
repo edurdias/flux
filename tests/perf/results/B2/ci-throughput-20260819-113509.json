@@ -1,7 +1,7 @@
 {
   "test": "B2",
   "run": "ci-throughput",
-  "recorded_at": "2026-08-18T23:08:20-0400",
+  "recorded_at": "2026-08-19T11:35:09-0400",
   "machine": {
     "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
     "python": "3.14.7",
@@ -11,17 +11,20 @@
     "disk_total_bytes": 1081101176832
   },
   "profile": "ci",
+  "backend": "sqlite",
   "workflows": 20,
   "tasks_per_workflow": 10,
   "submit_concurrency": 8,
   "payload_bytes": 64,
-  "http_rtt_s": 0.003383503499208018,
+  "http_rtt_s": 0.00337337251403369,
   "tasks_completed": 200,
   "tasks_expected": 200,
-  "in_flight_window_s": 1.060238,
-  "tasks_per_s": 188.6368909622179,
+  "executions_fully_timed": 20,
+  "in_flight_window_s": 1.029643,
+  "tasks_per_s": 194.2420819643313,
   "gates": {
     "every_task_persisted": true,
+    "every_execution_timed": true,
     "throughput_over_floor": true
   }
 }

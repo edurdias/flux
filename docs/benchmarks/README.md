@@ -16,7 +16,7 @@ measures the engine underneath it.
 make bench                       # all three, ci profile, SQLite
 make bench B=b1                  # one benchmark
 make bench PROFILE=workstation   # bigger windows for a real dev box
-make bench-postgresql            # against the dockerized PostgreSQL
+make bench-postgresql            # against dockerized PostgreSQL (needs the postgresql extra)
 make bench-profile B=b2          # same run, under py-spy (see Profiling)
 ```
 
@@ -58,34 +58,41 @@ nothing about how replay scales.
 
 ## Baseline
 
-Recorded at `0.86.7`, `ci` profile, SQLite backend.
+Recorded at `0.86.8`, `ci` profile, on **both backends** — SQLite (the
+default) and PostgreSQL 16 (what production uses, via
+`make bench-postgresql`). Every run record names its `backend`; a dispatch
+or throughput figure without it cannot be compared to anything.
 
-- **Machine**: Intel Core i9-14900HX, 32 cores, Linux; localhost HTTP RTT 3.4 ms
+- **Machine**: Intel Core i9-14900HX, 32 cores, Linux; localhost HTTP RTT ~3.4 ms
 - **Raw records**: `tests/perf/results/B1|B2|B3/*.json`
 
-| Metric | Value |
-|---|---|
-| Dispatch latency (scheduled → started) | p50 **823 ms**, p95 1164 ms, p99 1297 ms (n=40) |
-| ↳ claim half (scheduled → claimed) | p50 **86 ms**, p95 153 ms |
-| Sustained throughput | **189 tasks/s** (20 workflows × 10 tasks, submit concurrency 8) |
-| Replay, fixed cost | **~570 ms** per resume |
-| Replay, marginal cost | **0.35 ms** per task of history (25 → 100 tasks) |
+| Metric | SQLite | PostgreSQL |
+|---|---|---|
+| Dispatch p50 / p95 / p99 | **850** / 1348 / 1381 ms | **870** / 1248 / 1288 ms |
+| ↳ claim half, p50 / p95 | **87** / 162 ms | **158** / 214 ms |
+| Sustained throughput | **194 tasks/s** | **161 tasks/s** |
+| Replay, fixed cost | ~585 ms | ~589 ms |
+| Replay, marginal cost | **0.24 ms/task** | **0.47 ms/task** |
 
 ### What the baseline already says
 
-**Dispatch is not claim-bound.** A worker claims an execution in ~86 ms
-but the workflow does not start for ~823 ms. Roughly 700 ms of the p50 is
-spent *after* the claim — module compile and the runner child's startup
-— so work aimed at dispatch latency (#261, #263) should target that
-window, and this benchmark will show it directly as the gap between the
-`claim_ms` and `dispatch_ms` series.
+**Dispatch is not claim-bound, and not database-bound.** A worker claims
+in 87 ms (SQLite) or 158 ms (PostgreSQL) but the workflow does not start
+for ~860 ms on *either* backend. Nearly doubling the claim cost moves the
+total by ~2 %, which puts ~700 ms of the p50 somewhere the database is not:
+module compile and runner-child startup, after the claim. That is where
+work on dispatch latency (#261, #263) has to aim, and the gap between the
+recorded `claim_ms` and `dispatch_ms` series is the instrument for it.
 
-**Replay is linear and cheap per task, but resume has a fixed floor.**
-0.35 ms per task of history against ~570 ms of fixed resume cost means a
-1,000-task history still replays in well under a second, and the thing
-worth attacking is the constant, not the walk. #262 (event-store batching)
-should move the constant; if it moves the *marginal* number instead,
-something regressed.
+**The database differences are real but second-order.** PostgreSQL costs
+~1.8× on claim, ~17 % on throughput and ~2× on the marginal replay walk —
+all consistent with a network round trip replacing a local file read, and
+all small next to the fixed costs beside them.
+
+**Replay is linear and cheap per task against a fixed floor.** ~0.25–0.5 ms
+per task of history versus ~585 ms of fixed resume cost on both backends,
+so #262 (event-store batching) should move the *constant*. If it moves the
+marginal number instead, something regressed.
 
 ## Profiling
 
@@ -93,19 +100,36 @@ something regressed.
 launched **under** py-spy, writing flame graphs to
 `docs/benchmarks/flamegraphs/`.
 
-Two mechanics worth knowing, both learned the hard way:
+Three mechanics worth knowing, all learned the hard way:
 
-- The processes are launched under py-spy rather than attached to
-  afterwards. With `kernel.yama.ptrace_scope=1` — the default on most
-  distributions — a profiler may only trace its own descendants, so
-  attaching to a running server needs root while spawning it does not.
-- The harness stops a profiled run with **SIGINT**, not SIGTERM: py-spy
-  renders its flamegraph on Ctrl-C or when the profiled process exits, and
-  a SIGTERM kills it with nothing written.
+- **Profile the Flux process, not the launcher.** The harness normally
+  starts `poetry run flux …`; profiling through that produces a graph of
+  poetry's own imports and nothing of the server. Profiled runs therefore
+  invoke the venv's `flux` console script directly. The first version of
+  this doc shipped graphs with zero Flux frames in them for exactly this
+  reason.
+- **Launch under py-spy rather than attaching.** With
+  `kernel.yama.ptrace_scope=1` — the default on most distributions — a
+  profiler may only trace its own descendants, so attaching to a running
+  server needs root while spawning it does not.
+- **Stop a profiled run with SIGINT.** py-spy renders on Ctrl-C or when
+  the profiled process exits; SIGTERM kills it with nothing written.
 
-py-spy is a profiling tool, not a project dependency: install it into the
-environment when you want graphs (`poetry run pip install py-spy`). The
-benchmarks run normally without it.
+Knobs: `FLUX_BENCH_PYSPY_RATE` (default 25 Hz — higher rates make py-spy
+fall behind and stall the process it is sampling),
+`FLUX_BENCH_PYSPY_FORMAT=raw` for folded stacks that can be aggregated in
+a shell, and `FLUX_BENCH_PYSPY_SUBPROCESSES=1` to follow runner children
+(off by default: one child per execution is more tracing than the graph is
+worth).
 
-Committed graphs are the `ci`-profile baseline for the release named
-above; regenerate rather than trust them across versions.
+**Limits.** A profiled run is a slower system by construction — never
+compare its numbers to a baseline; the graphs are for *shape*, and the
+figures come from an unprofiled run. B1 and B3 profile cleanly. **B2 does
+not**: its concurrent fan-out under sampling makes the server miss its
+health window or a status read time out. Use `B=b1` for graphs, or profile
+B2 on quieter hardware.
+
+py-spy is a profiling tool, not a project dependency: install it when you
+want graphs (`poetry run pip install py-spy`). The benchmarks run normally
+without it. Committed graphs are the `ci`-profile baseline for the release
+named above; regenerate rather than trust them across versions.

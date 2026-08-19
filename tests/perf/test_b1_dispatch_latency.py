@@ -68,6 +68,7 @@ def test_b1_dispatch_latency(perf_env):
         f"{profile_name()}-dispatch",
         {
             "profile": profile_name(),
+            "backend": perf_env.backend,
             "executions": len(executions),
             "payload_bytes": spec["payload"],
             "http_rtt_s": perf_env.measure_http_rtt(),
