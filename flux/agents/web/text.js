@@ -2,7 +2,7 @@
 //
 // Separate from console.js because console.js touches `document` at import
 // time: these are the parts that can be exercised on their own (see
-// tests/flux/agents/console/test_web_text.js), rather than pinned at the
+// tests/flux/agents/console/test_web_text.py), rather than pinned at the
 // source with a regex like the DOM-bound code has to be.
 
 const encoder = new TextEncoder();
@@ -24,14 +24,23 @@ export function sliceBytes(text, limit) {
   const value = String(text);
   const bytes = encoder.encode(value);
   if (bytes.length <= limit) return value;
-  // Decoding a prefix that splits a multi-byte character yields U+FFFD at
-  // the end; dropping it lands the cut on a character boundary.
-  return decoder.decode(bytes.subarray(0, limit)).replace(/�+$/, "");
+  // UTF-8 is self-synchronizing: while the byte just past the cut is a
+  // continuation byte (10xxxxxx) the cut splits a character, so step back.
+  // At most three steps. Deliberately not "decode and strip U+FFFD" -- that
+  // also eats a replacement character the payload genuinely contained.
+  let end = limit;
+  while (end > 0 && (bytes[end] & 0b1100_0000) === 0b1000_0000) end--;
+  return decoder.decode(bytes.subarray(0, end));
 }
 
-/** A byte count as an operator-facing size. */
-export function formatSize(text) {
-  const bytes = byteSize(text);
+/** A byte count as an operator-facing size.
+ *
+ * Takes the count, not the text: its caller has already measured the
+ * payload to decide whether to cut it, and re-encoding a multi-megabyte
+ * argument on every render to print its size is the kind of work this
+ * panel exists to avoid.
+ */
+export function formatBytes(bytes) {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 

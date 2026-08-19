@@ -95,6 +95,17 @@ def test_a_multibyte_character_is_never_split_by_the_cut():
         assert "�" not in cut
 
 
+def test_a_replacement_character_in_the_payload_survives_the_cut():
+    """The cut walks back over UTF-8 continuation bytes rather than decoding
+    and stripping U+FFFD -- stripping would also eat a replacement character
+    the payload genuinely contained, which is real content silently lost."""
+    text = "ok\ufffd" + "x" * 100
+    (cut,) = _run([{"op": "sliceBytes", "text": text, "limit": 5}])
+
+    # "ok" is 2 bytes, U+FFFD is 3: exactly the 5 asked for, kept whole.
+    assert cut == "ok\ufffd"
+
+
 def test_text_under_the_limit_is_returned_whole():
     (cut,) = _run([{"op": "sliceBytes", "text": "short", "limit": 2048}])
     assert cut == "short"
