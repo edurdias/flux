@@ -85,6 +85,61 @@ review (`docs/production-readiness-review.md`).
     Raise it only if your workflows legitimately ship larger inputs/outputs
     through checkpoints.
 
+## Event-store durability
+
+What "the engine persisted it" means, precisely, and where the line sits
+(#262). Three buffers stand between a task finishing and a row on disk;
+all three are already batched, which is why there is no per-event write to
+tune.
+
+**1. The worker's checkpoint outbox** (`flux/worker.py::_CheckpointOutbox`).
+Checkpoints are cumulative snapshots, so an unsent one is superseded by the
+next rather than queued behind it, and each send carries only the events the
+server has not yet acknowledged. One sender task per execution serializes
+sends; an in-flight send is never cancelled, and a failed send retries with
+capped backoff until it is delivered or superseded. A worker that dies with
+unsent events loses them — but the tasks they describe are re-run on
+re-dispatch, which is the same outcome as a crash before the events existed.
+
+**2. The server's transaction.** Every persist path — checkpoints, dispatch,
+claim, resume, the sweeps — goes through
+`ContextManager._persist_events`, which writes an entire checkpoint's events
+in one `add_all` inside one transaction. The HTTP response is sent *after*
+that transaction commits, so **an acknowledged checkpoint is a committed
+checkpoint**. Nothing is acknowledged from memory.
+
+**3. The database's own guarantee**, which is where the honest limits are:
+
+| Backend | Setting | Survives a process kill | Survives power loss / kernel panic |
+|---|---|---|---|
+| SQLite (default) | `journal_mode=WAL`, `synchronous=NORMAL` | Yes | **Not guaranteed** — the last commits can be lost, though the file is not corrupted |
+| SQLite | `synchronous=FULL` | Yes | Yes, at an fsync per commit |
+| PostgreSQL (default) | `synchronous_commit=on` | Yes | Yes |
+
+`synchronous=NORMAL` is the default because it trades exactly one thing —
+the fsync on every commit — for throughput, and the loss window it opens
+needs the machine to die, not the process. Deployments that cannot accept
+that window should run PostgreSQL, which is the supported production
+backend anyway.
+
+`tests/e2e/test_event_durability.py` pins the part that can be tested with
+a signal: the server is SIGKILLed after a run completes — no shutdown hook,
+no flush — restarted against the same database, and every event it
+acknowledged before the crash is still there. Power-loss durability is a
+property of the settings table above, not of anything a test can assert
+without cutting power.
+
+### Why there is no event-batching knob
+
+Batching was measured before it was built (docs/benchmarks/README.md). The
+write path costs ~1.7 ms per checkpoint plus ~0.09 ms per event on SQLite
+(~3 ms + ~0.26 ms on PostgreSQL), while throughput is bound by
+per-execution overhead: holding executions constant at 20 and raising tasks
+per execution from 5 to 40 moved throughput from 118 to 524 tasks/s, with
+the work window barely growing. Per-event write cost is a small share of a
+~1 ms per-task marginal, so a further batching layer would add a
+durability question for a rounding error.
+
 ## Multi-replica topology
 
 Multiple server replicas coordinate through PostgreSQL; there is no leader
