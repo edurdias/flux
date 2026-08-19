@@ -72,6 +72,7 @@ class _Fleet:
     """A server and worker of this test's own, on a throwaway database."""
 
     def __init__(self, tmp_path: Path):
+        self.worker_name = "durability-worker"
         self.port = _free_port()
         self.url = f"http://localhost:{self.port}"
         self.db_path = tmp_path / "durability.db"
@@ -113,7 +114,7 @@ class _Fleet:
                 "flux",
                 "start",
                 "worker",
-                "durability-worker",
+                self.worker_name,
                 "--server-url",
                 self.url,
             ],
@@ -121,6 +122,31 @@ class _Fleet:
             stderr=subprocess.STDOUT,
             cwd=PROJECT_ROOT,
             env=self.env,
+        )
+        self._wait_worker_registered()
+
+    def _wait_worker_registered(self, timeout: float = 60.0) -> None:
+        """A healthy server is not a ready fleet.
+
+        Submitting before the worker has registered leaves the execution
+        SCHEDULED with nobody to claim it, so the run fails only when the
+        poll deadline expires -- slowly, and looking like a durability
+        problem rather than the startup race it is.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                response = httpx.get(f"{self.url}/workers", timeout=5)
+                if response.status_code == 200 and any(
+                    worker["name"] == self.worker_name for worker in response.json()
+                ):
+                    return
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.25)
+        raise RuntimeError(
+            f"worker {self.worker_name!r} did not register within {timeout}s:\n"
+            + (self.log_dir / "worker.log").read_text()[-2000:],
         )
 
     def kill_server(self) -> None:
