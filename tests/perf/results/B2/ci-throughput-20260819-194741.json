@@ -1,7 +1,7 @@
 {
   "test": "B2",
   "run": "ci-throughput",
-  "recorded_at": "2026-08-19T17:13:47-0400",
+  "recorded_at": "2026-08-19T19:47:41-0400",
   "machine": {
     "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
     "python": "3.14.7",
@@ -16,20 +16,21 @@
   "tasks_per_workflow": 10,
   "submit_concurrency": 8,
   "payload_bytes": 64,
-  "http_rtt_s": 0.0041663814772618935,
+  "http_rtt_s": 0.005039129508077167,
   "tasks_completed": 200,
   "tasks_expected": 200,
   "executions_fully_timed": 20,
-  "in_flight_window_s": 1.318737,
-  "tasks_per_s": 151.66026281206942,
+  "in_flight_window_s": 1.235387,
+  "tasks_per_s": 161.89258912389397,
   "open_fds_idle_before": {
-    "server": 23,
-    "worker": 16
+    "server": 29,
+    "worker": 20
   },
   "open_fds_idle_after": {
-    "server": 26,
-    "worker": 15
+    "server": 25,
+    "worker": 20
   },
+  "open_fds_measured": true,
   "gates": {
     "every_task_persisted": true,
     "every_execution_timed": true,

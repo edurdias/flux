@@ -336,15 +336,22 @@ class SignedPickleType(TypeDecorator):
         if value is None:
             return None
         from flux.security.integrity import sign
+        from flux.serialization import encode
 
-        return sign(dill.dumps(value, protocol=self.protocol))
+        # msgpack for everything it can express, dill only for what it
+        # cannot (#260) -- see flux/serialization.py. Signing is unchanged
+        # and still wraps whatever the codec produced.
+        return sign(encode(value))
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
         if value is None:
             return None
         from flux.security.integrity import verify
+        from flux.serialization import decode
 
-        return dill.loads(verify(bytes(value)))
+        # Reads both formats: rows written before the codec existed are
+        # raw dill streams and stay readable.
+        return decode(verify(bytes(value)))
 
 
 class SecretModel(Base):

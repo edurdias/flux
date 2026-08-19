@@ -202,6 +202,32 @@ a throughput number is really measuring at small task counts, which is
 also why "tasks/s" should always be read together with the shape of the
 workload that produced it.
 
+## Serialization: dill vs msgpack (#260)
+
+Encode/decode of representative payloads, measured directly:
+
+| payload | dill encode | msgpack encode | dill decode | msgpack decode |
+|---|---|---|---|---|
+| small string | 0.009 ms | **0.001 ms** | 0.003 ms | 0.000 ms |
+| dict, 20 keys | 0.073 ms | **0.003 ms** | 0.006 ms | 0.003 ms |
+| list of 1,000 ints | 1.129 ms | **0.051 ms** | 0.040 ms | 0.035 ms |
+| nested, 200 rows | 2.571 ms | **0.060 ms** | 0.055 ms | 0.088 ms |
+| 100 KB text | 0.017 ms | 0.008 ms | 0.016 ms | 0.009 ms |
+
+Encoding is 2-43x faster; decoding is a wash (dill's decode was never the
+expensive half, and msgpack is slightly slower on the deeply nested case).
+Payload sizes are within a few percent either way.
+
+**End to end this is invisible, and that is the honest headline.** The
+B-series after the change: dispatch p50 830 ms SQLite / 884 ms PostgreSQL,
+throughput 180 / 162 tasks/s, replay 572 / 608 ms fixed -- all inside the
+run-to-run spread documented above. Serialization is a fraction of a ~1 ms
+per-task marginal, so a 43x on the encode of a large payload does not move
+a benchmark whose cost is dominated by execution startup.
+
+The reason to make the change is the other one: every payload on msgpack
+is a payload whose *read* no longer executes code.
+
 ## Profiling
 
 `make bench-profile B=<id>` runs a benchmark with the server and worker

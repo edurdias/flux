@@ -85,6 +85,39 @@ review (`docs/production-readiness-review.md`).
     Raise it only if your workflows legitimately ship larger inputs/outputs
     through checkpoints.
 
+## How persisted values are encoded
+
+Runtime values -- execution input and output, event values, schedule input
+-- are encoded by `flux/serialization.py` (#260) and signed by
+`flux.security.integrity` on the way to the column.
+
+**msgpack carries everything it can express**, including the value types
+it has no native form for: tuple, set, frozenset, datetime, date, time,
+timedelta, UUID and Decimal ride as tagged extensions so the exact type
+survives a round trip. A tuple that came back a list would change an event
+value, and replay compares event values.
+
+**Class instances fall back to dill, and say so.** Pydantic models,
+dataclasses, exceptions and a workflow's own types are *not* rebuilt by
+importing their module: "decode looks up a name and imports it" is the
+property that makes deserialization dangerous. They are dill-encoded in
+place -- nested exactly where they appear, so one custom object does not
+drag its whole payload onto the unsafe path -- and each one warns with the
+offending type name. Those warnings are the list of payloads still able to
+execute code on load; returning value types instead is how a deployment
+shortens it.
+
+**Old rows keep reading.** Payloads written before the codec are raw dill
+streams, which always begin with pickle's PROTO opcode (0x80); the codec's
+tag cannot start that way, so both formats coexist in one column with no
+migration. `tests/flux/test_legacy_history_replay.py` pins it by writing
+rows the previous version's way and reading them with the current code.
+
+**Still on dill elsewhere**, and not covered by this change:
+`EncryptedType` (secrets and config values), `flux/output_storage.py` and
+`flux/cache.py`. Each is signed the same way; each is a candidate for the
+same treatment.
+
 ## Event-store durability
 
 What "the engine persisted it" means, precisely, and where the line sits
