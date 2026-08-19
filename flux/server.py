@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from typing import Any
@@ -89,6 +90,46 @@ from flux.api.schemas import (  # noqa: F401
 from flux.worker_registry import WorkerRegistry as WorkerRegistry  # noqa: F401, E402
 
 logger = get_logger(__name__)
+
+
+def _install_slow_callback_logging():
+    """Arm asyncio's slow-callback warning when the setting asks for it.
+
+    ``[flux.observability] slow_callback_ms`` (env:
+    ``FLUX_OBSERVABILITY__SLOW_CALLBACK_MS``).
+
+    A blocking call inside an async handler -- a sync DB round trip, a
+    pickle, a file read -- stalls every other request on the loop, and the
+    only cheap way to find them is to have asyncio say which callback ran
+    long. Python's default threshold is 100ms, which is far above a single
+    sync query: the interesting offenders are the 5-20ms ones that are
+    individually invisible and collectively the tail latency (#263).
+
+    Returns a uvicorn ``callback_notify`` (called once per second on the
+    running loop) rather than touching the loop here, because the loop does
+    not exist until uvicorn starts one.
+    """
+    threshold_ms = Configuration.get().settings.observability.slow_callback_ms
+    if not threshold_ms or threshold_ms <= 0:
+        return None
+    threshold_s = threshold_ms / 1000
+
+    armed = False
+
+    async def _arm() -> None:
+        nonlocal armed
+        if armed:
+            return
+        armed = True
+        loop = asyncio.get_running_loop()
+        loop.set_debug(True)
+        loop.slow_callback_duration = threshold_s
+        logging.getLogger("asyncio").setLevel(logging.WARNING)
+        logger.warning(
+            f"asyncio debug mode on: callbacks over {threshold_s * 1000:.0f}ms will be logged",
+        )
+
+    return _arm
 
 
 class Server(
@@ -311,6 +352,7 @@ class Server(
                 port=self.port,
                 log_level="warning",
                 access_log=False,
+                callback_notify=_install_slow_callback_logging(),
             )
             server = UvicornServer(config, on_server_startup)
             server.run()

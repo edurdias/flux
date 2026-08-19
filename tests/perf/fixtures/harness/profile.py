@@ -48,6 +48,18 @@ PROFILES: dict[str, dict] = {
             "min_tasks_per_s": 1.0,
         },
         "b3": {"histories": [25, 100], "payload": 64, "linearity_factor": 3.0},
+        "b4": {
+            # Sized for samples, not for load: a tail figure computed from
+            # thirty pings is one ping, and that is not a measurement.
+            "workflows": 30,
+            "tasks_per_workflow": 20,
+            "concurrency": 8,
+            "payload": 64,
+            "idle_seconds": 3,
+            "sample_interval_s": 0.01,
+            "min_samples": 100,
+            "p99_budget_ms": 250,
+        },
         "t8": {
             "samples": 5,
             "budget_ms": {"flux.server": 2500, "flux.worker": 1200, "flux.runners.child": 400},
@@ -86,6 +98,16 @@ PROFILES: dict[str, dict] = {
             "min_tasks_per_s": 5.0,
         },
         "b3": {"histories": [50, 200, 500], "payload": 256, "linearity_factor": 2.5},
+        "b4": {
+            "workflows": 60,
+            "tasks_per_workflow": 20,
+            "concurrency": 16,
+            "payload": 256,
+            "idle_seconds": 5,
+            "sample_interval_s": 0.05,
+            "min_samples": 100,
+            "p99_budget_ms": 150,
+        },
         "t8": {
             "samples": 9,
             "budget_ms": {"flux.server": 1500, "flux.worker": 700, "flux.runners.child": 200},
@@ -115,6 +137,16 @@ PROFILES: dict[str, dict] = {
             "min_tasks_per_s": 10.0,
         },
         "b3": {"histories": [100, 500, 2000], "payload": 1024, "linearity_factor": 2.0},
+        "b4": {
+            "workflows": 200,
+            "tasks_per_workflow": 25,
+            "concurrency": 32,
+            "payload": 1024,
+            "idle_seconds": 10,
+            "sample_interval_s": 0.05,
+            "min_samples": 400,
+            "p99_budget_ms": 100,
+        },
         "t7": {"streams": 10, "rate": 300, "seconds": 3600, "churn_every_s": 30},
         "t8": {
             "samples": 15,

@@ -13,7 +13,7 @@ measures the engine underneath it.
 ## Running them
 
 ```bash
-make bench                       # all three, ci profile, SQLite
+make bench                       # all four, ci profile, SQLite
 make bench B=b1                  # one benchmark
 make bench PROFILE=workstation   # bigger windows for a real dev box
 make bench-postgresql            # against dockerized PostgreSQL (needs the postgresql extra)
@@ -48,6 +48,7 @@ machines, and no client polling granularity smeared into a latency.
 |---|---|---|
 | **B1** | dispatch latency p50/p95/p99 | `WORKFLOW_SCHEDULED` → `WORKFLOW_STARTED`, plus `→ WORKFLOW_CLAIMED` and `→ TASK_STARTED` as the two halves |
 | **B2** | sustained tasks/second | total `TASK_COMPLETED` ÷ the window work was in flight (first task start → last task completion) |
+| **B4** | loop responsiveness under load | `GET /health` round trips sampled while a throughput workload runs, idle vs loaded |
 | **B3** | replay cost | `WORKFLOW_RESUME_SCHEDULED` → `WORKFLOW_COMPLETED`, across two or more history lengths |
 
 B2 measures the in-flight window rather than wall time so submission and
@@ -73,6 +74,25 @@ or throughput figure without it cannot be compared to anything.
 | Sustained throughput | **194 tasks/s** | **161 tasks/s** |
 | Replay, fixed cost | ~585 ms | ~589 ms |
 | Replay, marginal cost | **0.24 ms/task** | **0.47 ms/task** |
+
+### Loop responsiveness (B4)
+
+A blocking call inside an async handler does not slow *its own* request
+down; it stalls every other request sharing the loop. B4 makes that
+visible by pinging `GET /health` -- a handler that touches nothing --
+while a workload runs. On an idle server that is one round trip; under
+load, everything above it is the loop being held.
+
+| | idle p95 | under load p50 | p95 | p99 |
+|---|---|---|---|---|
+| ci profile | ~6.6 ms | ~12 ms | ~43 ms | ~58 ms |
+| workstation profile | ~7 ms | ~15 ms | ~52-67 ms | ~68-84 ms |
+
+Set `[flux.observability] slow_callback_ms` (env
+`FLUX_OBSERVABILITY__SLOW_CALLBACK_MS`) to run the server's loop in
+asyncio debug mode and have it name every callback that holds the loop
+longer than that. It is the direct form of the same question, and what
+#263's "no slow-callback warnings above threshold" is measured with.
 
 ### What the baseline already says
 

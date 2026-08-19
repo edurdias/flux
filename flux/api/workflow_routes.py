@@ -193,7 +193,7 @@ class WorkflowRoutesMixin:
             try:
                 logger.debug("Fetching all workflows")
                 catalog = WorkflowCatalog.create()
-                workflows = catalog.all(namespace=namespace)
+                workflows = await asyncio.to_thread(catalog.all, namespace=namespace)
                 if auth_service is not None and auth_config.enabled:
                     permissions = await auth_service.resolve_permissions(identity)
                     filtered = []
@@ -230,7 +230,7 @@ class WorkflowRoutesMixin:
                         )
                 logger.debug(f"Fetching workflow: {namespace}/{workflow_name}")
                 catalog = WorkflowCatalog.create()
-                workflow = catalog.get(namespace, workflow_name)
+                workflow = await asyncio.to_thread(catalog.get, namespace, workflow_name)
                 logger.debug(
                     f"Found workflow: {namespace}/{workflow_name} (version: {workflow.version})",
                 )
@@ -368,7 +368,11 @@ class WorkflowRoutesMixin:
                 # delivered.
                 parsed_routing_input = routing_input_header_or_400(routing_input)
 
-                ctx = self._create_execution(
+                # Off the loop: this reads the catalog and inserts the
+                # execution row, and every millisecond it spends here is
+                # one that every other request on this server waits (#263).
+                ctx = await asyncio.to_thread(
+                    self._create_execution,
                     namespace,
                     workflow_name,
                     input,
@@ -464,7 +468,7 @@ class WorkflowRoutesMixin:
                             except TimeoutError:
                                 pass
                             event.clear()
-                            ctx = manager.get(ctx.execution_id)
+                            ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
                         self._execution_events.pop(ctx.execution_id, None)
 
@@ -524,7 +528,7 @@ class WorkflowRoutesMixin:
                 manager = ContextManager.create()
 
                 try:
-                    ctx = manager.get(execution_id)
+                    ctx = await asyncio.to_thread(manager.get, execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -628,7 +632,7 @@ class WorkflowRoutesMixin:
                             except TimeoutError:
                                 pass
                             event.clear()
-                            ctx = manager.get(ctx.execution_id)
+                            ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
                         self._execution_events.pop(ctx.execution_id, None)
 
@@ -684,7 +688,7 @@ class WorkflowRoutesMixin:
                         )
 
                 manager = ContextManager.create()
-                context = manager.get(execution_id)
+                context = await asyncio.to_thread(manager.get, execution_id)
                 # The permission check above covers the *URL's* workflow only;
                 # without this ownership check a caller could read another
                 # workflow's execution state by passing its execution ID here.
@@ -747,7 +751,7 @@ class WorkflowRoutesMixin:
 
                 manager = ContextManager.create()
                 try:
-                    ctx = manager.get(execution_id)
+                    ctx = await asyncio.to_thread(manager.get, execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -816,7 +820,7 @@ class WorkflowRoutesMixin:
                             except TimeoutError:
                                 pass
                             event.clear()
-                            ctx = manager.get(ctx.execution_id)
+                            ctx = await asyncio.to_thread(manager.get, ctx.execution_id)
                     finally:
                         self._execution_events.pop(ctx.execution_id, None)
 
@@ -1056,7 +1060,7 @@ class WorkflowRoutesMixin:
                 logger.debug(f"Fetching workflow '{namespace}/{workflow_name}' version {version}")
 
                 catalog = WorkflowCatalog.create()
-                workflow = catalog.get(namespace, workflow_name, version)
+                workflow = await asyncio.to_thread(catalog.get, namespace, workflow_name, version)
 
                 logger.debug(f"Found workflow '{namespace}/{workflow_name}' version {version}")
                 return workflow.to_dict()
