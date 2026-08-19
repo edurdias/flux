@@ -1488,7 +1488,7 @@ visible to CLI/API/UI clients alike.</p>
 </code></pre></div>
 <p>Run the workflow; check pending approvals; approve:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;execution_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;tests green&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;execution_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">"tests green"</span>
 </code></pre></div>
 <h2 id="conditional-approval">Conditional approval<a class="headerlink" href="#conditional-approval" title="Permanent link">&para;</a></h2>
 <p>Pass a callable that takes the same arguments as the task and returns <code>bool</code>
@@ -1588,11 +1588,11 @@ not. Cancellation handling at the workflow level takes over from there.</p>
 <h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w">                                </span><span class="c1"># list pending</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>flux<span class="w"> </span>execution<span class="w"> </span>approvals<span class="w"> </span>--status<span class="w"> </span>all<span class="w"> </span>--age<span class="w"> </span>1h<span class="w">          </span><span class="c1"># all at least 1h old</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">"..."</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>flux<span class="w"> </span>execution<span class="w"> </span>approve<span class="w"> </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--always<span class="w">   </span><span class="c1"># standing grant</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>flux<span class="w"> </span>execution<span class="w"> </span>reject<span class="w">  </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">&quot;...&quot;</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>flux<span class="w"> </span>execution<span class="w"> </span>reject<span class="w">  </span>&lt;exec_id&gt;<span class="w"> </span>&lt;task_call_id&gt;<span class="w"> </span>--reason<span class="w"> </span><span class="s2">"..."</span>
 <a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>flux<span class="w"> </span>execution<span class="w"> </span>show<span class="w">    </span>&lt;exec_id&gt;<span class="w">                        </span><span class="c1"># appends pending approvals on stderr</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>flux<span class="w"> </span>workflow<span class="w"> </span>status<span class="w">   </span>&lt;wf&gt;<span class="w"> </span>&lt;exec_id&gt;<span class="w">                   </span><span class="c1"># appends &#39;Blocked on N&#39; on stderr</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>flux<span class="w"> </span>workflow<span class="w"> </span>status<span class="w">   </span>&lt;wf&gt;<span class="w"> </span>&lt;exec_id&gt;<span class="w">                   </span><span class="c1"># appends 'Blocked on N' on stderr</span>
 </code></pre></div>
 <p>The <code>Pending approvals:</code> block in <code>execution show</code> and the
 <code>Blocked on N approval(s)</code> line in <code>workflow status</code> are written to <strong>stderr</strong>,
@@ -1635,11 +1635,11 @@ engine-level approval gate is skipped for those tool invocations.</p>
 <p>If your code uses <code>flux.tasks.ai.approval.requires_approval</code> (removed in
 v0.36.0), migrate to per-task <code>with_options</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="gd">-from flux.tasks.ai.approval import requires_approval</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="gd">-tools = requires_approval(system_tools(&quot;.&quot;), only=[&quot;shell&quot;])</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="gi">+tools_raw = system_tools(&quot;.&quot;)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="gd">-tools = requires_approval(system_tools("."), only=["shell"])</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="gi">+tools_raw = system_tools(".")</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="gi">+tools = [</span>
 <a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="gi">+    t.with_options(requires_approval=True)</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="gi">+    if (t.func.__name__ if hasattr(t, &quot;func&quot;) else t.__name__) == &quot;shell&quot;</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="gi">+    if (t.func.__name__ if hasattr(t, "func") else t.__name__) == "shell"</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="gi">+    else t</span>
 <a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="gi">+    for t in tools_raw</span>
 <a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="gi">+]</span>

@@ -1493,8 +1493,8 @@ a new execution subsystem.</p>
 <p>An agent (and only an agent — no human/API authoring surface in this PR)
 gains two tools:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>create_workflow(source) -&gt; {namespace, name, version, existing}
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>run_workflow(source=... | ref=&quot;ns/name&quot;, input=None,
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>             mode=&quot;sync&quot;|&quot;async&quot;) -&gt; result | execution_id
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>run_workflow(source=... | ref="ns/name", input=None,
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>             mode="sync"|"async") -&gt; result | execution_id
 </code></pre></div>
 <p>Durability is declared in the authored source itself
 (<code>@workflow.with_options(durability="transient")</code>), not per call — the

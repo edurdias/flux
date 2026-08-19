@@ -2031,7 +2031,7 @@
 </ol>
 <h3 id="proposed-design-durabilitytransient">Proposed design: <code>durability="transient"</code><a class="headerlink" href="#proposed-design-durabilitytransient" title="Permanent link">&para;</a></h3>
 <p><strong>API surface.</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">durability</span><span class="o">=</span><span class="s2">&quot;transient&quot;</span><span class="p">)</span>   <span class="c1"># default: &quot;durable&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nd">@workflow</span><span class="o">.</span><span class="n">with_options</span><span class="p">(</span><span class="n">durability</span><span class="o">=</span><span class="s2">"transient"</span><span class="p">)</span>   <span class="c1"># default: "durable"</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">route_request</span><span class="p">(</span><span class="n">ctx</span><span class="p">:</span> <span class="n">ExecutionContext</span><span class="p">[</span><span class="n">AgentRequest</span><span class="p">]):</span> <span class="o">...</span>
 </code></pre></div>
 <p>Also accept a per-invocation override on the run endpoint (<code>POST /workflows/{ns}/{name}/run/sync?durability=transient</code>) so the same workflow can serve both modes; <code>call()</code> and <code>workflow_agent()</code> grow a matching <code>durability=</code> passthrough.</p>
@@ -2136,7 +2136,7 @@ observability via <code>flux_transient_hops_total</code> /
 <a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>                       ┌───────────────────────────── ▼ ── data plane ───────────────────┐
 <a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>                       │  worker 1..W (capacity slots, drain, delta-checkpoint buffer)   │
 <a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>                       │   ├─ in-process executor (async workflows, trusted)             │
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>                       │   ├─ subprocess pool (isolation=&quot;process&quot;, wall-clock kill)     │
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>                       │   ├─ subprocess pool (isolation="process", wall-clock kill)     │
 <a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>                       │   └─ mesh fast path: transient sub-calls run in-process when    │
 <a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>                       │      the target workflow is locally loadable                    │
 <a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>                       └──────────────────────────────────────────────────────────────────┘
