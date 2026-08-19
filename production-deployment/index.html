@@ -1318,6 +1318,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#event-store-durability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event-store durability
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Event-store durability">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-there-is-no-event-batching-knob" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why there is no event-batching knob
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#multi-replica-topology" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1514,6 +1542,76 @@ Raise it only if your workflows legitimately ship larger inputs/outputs
 through checkpoints.</p>
 </li>
 </ol>
+<h2 id="event-store-durability">Event-store durability<a class="headerlink" href="#event-store-durability" title="Permanent link">&para;</a></h2>
+<p>What "the engine persisted it" means, precisely, and where the line sits
+(#262). Three buffers stand between a task finishing and a row on disk;
+all three are already batched, which is why there is no per-event write to
+tune.</p>
+<p><strong>1. The worker's checkpoint outbox</strong> (<code>flux/worker.py::_CheckpointOutbox</code>).
+Checkpoints are cumulative snapshots, so an unsent one is superseded by the
+next rather than queued behind it, and each send carries only the events the
+server has not yet acknowledged. One sender task per execution serializes
+sends; an in-flight send is never cancelled, and a failed send retries with
+capped backoff until it is delivered or superseded. A worker that dies with
+unsent events loses them — but the tasks they describe are re-run on
+re-dispatch, which is the same outcome as a crash before the events existed.</p>
+<p><strong>2. The server's transaction.</strong> Every persist path — checkpoints, dispatch,
+claim, resume, the sweeps — goes through
+<code>ContextManager._persist_events</code>, which writes an entire checkpoint's events
+in one <code>add_all</code> inside one transaction. The HTTP response is sent <em>after</em>
+that transaction commits, so <strong>an acknowledged checkpoint is a committed
+checkpoint</strong>. Nothing is acknowledged from memory.</p>
+<p><strong>3. The database's own guarantee</strong>, which is where the honest limits are:</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Setting</th>
+<th>Survives a process kill</th>
+<th>Survives power loss / kernel panic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SQLite (default)</td>
+<td><code>journal_mode=WAL</code>, <code>synchronous=NORMAL</code></td>
+<td>Yes</td>
+<td><strong>Not guaranteed</strong> — the last commits can be lost, though the file is not corrupted</td>
+</tr>
+<tr>
+<td>SQLite</td>
+<td><code>synchronous=FULL</code></td>
+<td>Yes</td>
+<td>Yes, at an fsync per commit</td>
+</tr>
+<tr>
+<td>PostgreSQL (default)</td>
+<td><code>synchronous_commit=on</code></td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p><code>synchronous=NORMAL</code> is the default because it trades exactly one thing —
+the fsync on every commit — for throughput, and the loss window it opens
+needs the machine to die, not the process. Deployments that cannot accept
+that window should run PostgreSQL, which is the supported production
+backend anyway.</p>
+<p><code>tests/e2e/test_event_durability.py</code> pins the part that can be tested with
+a signal: the server is SIGKILLed after a run completes — no shutdown hook,
+no flush — restarted against the same database, and every event it
+acknowledged before the crash is still there. Power-loss durability is a
+property of the settings table above, not of anything a test can assert
+without cutting power.</p>
+<h3 id="why-there-is-no-event-batching-knob">Why there is no event-batching knob<a class="headerlink" href="#why-there-is-no-event-batching-knob" title="Permanent link">&para;</a></h3>
+<p>Batching was measured before it was built (docs/benchmarks/README.md). The
+write path costs ~1.7 ms per checkpoint plus ~0.09 ms per event on SQLite
+(~3 ms + ~0.26 ms on PostgreSQL), while throughput is bound by
+per-execution overhead: holding executions constant at 20 and raising tasks
+per execution from 5 to 40 moved throughput from 118 to 524 tasks/s, with
+the work window barely growing. Per-event write cost is a small share of a
+~1 ms per-task marginal, so a further batching layer would add a
+durability question for a rounding error.</p>
 <h2 id="multi-replica-topology">Multi-replica topology<a class="headerlink" href="#multi-replica-topology" title="Permanent link">&para;</a></h2>
 <p>Multiple server replicas coordinate through PostgreSQL; there is no leader
 election to configure. What each mechanism relies on:</p>

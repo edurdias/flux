@@ -1638,6 +1638,83 @@ hold connections open, so a mid-flight count cannot tell a pool from a
 leak). Across three back-to-back load cycles the counts settle rather than
 climb — server 22 cold, then 44 / 38 / 42; worker 18 cold, then 28 / 26 /
 26 — which is a warm pool, not a leak.</p>
+<h2 id="where-throughput-is-actually-bound-262">Where throughput is actually bound (#262)<a class="headerlink" href="#where-throughput-is-actually-bound-262" title="Permanent link">&para;</a></h2>
+<h1 id="262-assumed-per-event-synchronous-writes-were-the-ceiling-they-are-not">262 assumed per-event synchronous writes were the ceiling. They are not,<a class="headerlink" href="#262-assumed-per-event-synchronous-writes-were-the-ceiling-they-are-not" title="Permanent link">&para;</a></h1>
+<p>and the measurement is worth keeping because it also says what <em>would</em>
+help.</p>
+<p><strong>Event writes are already batched at three levels</strong> — the worker's
+outbox coalesces snapshots and sends only unacknowledged events, the
+server writes a checkpoint's events in one transaction, and SQLite already
+runs WAL with <code>synchronous=NORMAL</code>. Measured cost of the write path:</p>
+<table>
+<thead>
+<tr>
+<th>Events per checkpoint</th>
+<th>SQLite</th>
+<th>PostgreSQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>1.81 ms</td>
+<td>3.27 ms</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2.89 ms (0.29/event)</td>
+<td>6.05 ms (0.61/event)</td>
+</tr>
+<tr>
+<td>50</td>
+<td>6.38 ms (0.13/event)</td>
+<td>13.80 ms (0.28/event)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Throughput is bound by per-execution overhead, not per-event cost.</strong>
+Holding executions constant at 20 and varying tasks per execution:</p>
+<table>
+<thead>
+<tr>
+<th>tasks per execution</th>
+<th>total tasks</th>
+<th>window</th>
+<th>throughput</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5</td>
+<td>100</td>
+<td>0.85 s</td>
+<td>118 tasks/s</td>
+</tr>
+<tr>
+<td>10</td>
+<td>200</td>
+<td>0.99 s</td>
+<td>201 tasks/s</td>
+</tr>
+<tr>
+<td>20</td>
+<td>400</td>
+<td>1.29 s</td>
+<td>311 tasks/s</td>
+</tr>
+<tr>
+<td>40</td>
+<td>800</td>
+<td>1.53 s</td>
+<td><strong>524 tasks/s</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Eight times the tasks in 1.8x the window. The fixed cost of starting an
+execution -- the ~700 ms post-claim window B1 already isolates -- is what
+a throughput number is really measuring at small task counts, which is
+also why "tasks/s" should always be read together with the shape of the
+workload that produced it.</p>
 <h2 id="profiling">Profiling<a class="headerlink" href="#profiling" title="Permanent link">&para;</a></h2>
 <p><code>make bench-profile B=&lt;id&gt;</code> runs a benchmark with the server and worker
 launched <strong>under</strong> py-spy, writing flame graphs to
