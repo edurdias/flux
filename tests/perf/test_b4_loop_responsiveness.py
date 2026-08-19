@@ -42,24 +42,37 @@ class _HealthSampler(threading.Thread):
         self.server_url = server_url
         self.interval_s = interval_s
         self.samples: list[float] = []
-        self._stop = threading.Event()
+        self.errors = 0
+        self.first_at: float | None = None
+        self.last_at: float | None = None
+        # Not `_stop`: threading.Thread has its own _stop(), and join()
+        # calls it -- shadowing it with an Event raises "'Event' object is
+        # not callable" from inside join on some Python versions.
+        self._done = threading.Event()
 
     def run(self) -> None:
         with httpx.Client(base_url=self.server_url, timeout=30) as client:
-            while not self._stop.is_set():
+            while not self._done.is_set():
                 started = time.perf_counter()
                 try:
                     client.get("/health")
                 except httpx.HTTPError:
-                    # A refused ping is not a latency sample; the workload's
-                    # own gates decide whether the run is valid.
-                    continue
-                finally:
-                    self.samples.append((time.perf_counter() - started) * 1000)
-                self._stop.wait(self.interval_s)
+                    # A refused ping is not a latency sample -- recording it
+                    # would measure the failure, not the loop. Counted, and
+                    # the interval is still honoured so an unreachable server
+                    # cannot turn this into a spin loop that starves the
+                    # workload it is supposed to be observing.
+                    self.errors += 1
+                else:
+                    finished = time.perf_counter()
+                    self.samples.append((finished - started) * 1000)
+                    if self.first_at is None:
+                        self.first_at = started
+                    self.last_at = finished
+                self._done.wait(self.interval_s)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._done.set()
         self.join(timeout=10)
 
 
@@ -76,27 +89,45 @@ def test_b4_loop_responsiveness_under_load(perf_env):
     under_load = _HealthSampler(perf_env.server_url, spec["sample_interval_s"])
     under_load.start()
     payload = {"tasks": spec["tasks_per_workflow"], "payload": spec["payload"]}
-    with ThreadPoolExecutor(max_workers=spec["concurrency"]) as pool:
-        submissions = [
-            pool.submit(perf_env.run_async, NAMESPACE, "bench_chain", payload)
-            for _ in range(spec["workflows"])
-        ]
-        execution_ids = [future.result()["execution_id"] for future in submissions]
+    load_started = time.perf_counter()
+    try:
+        with ThreadPoolExecutor(max_workers=spec["concurrency"]) as pool:
+            submissions = [
+                pool.submit(perf_env.run_async, NAMESPACE, "bench_chain", payload)
+                for _ in range(spec["workflows"])
+            ]
+            execution_ids = [future.result()["execution_id"] for future in submissions]
 
-    details = []
-    for execution_id in execution_ids:
-        perf_env.wait_for_terminal(NAMESPACE, "bench_chain", execution_id, timeout=600)
-        details.append(perf_env.status(NAMESPACE, "bench_chain", execution_id, detailed=True))
-    under_load.stop()
+        details = []
+        for execution_id in execution_ids:
+            perf_env.wait_for_terminal(NAMESPACE, "bench_chain", execution_id, timeout=600)
+            details.append(perf_env.status(NAMESPACE, "bench_chain", execution_id, detailed=True))
+    finally:
+        # A submission that raises must not leave the sampler pinging a
+        # server the rest of the session still has to use.
+        load_ended = time.perf_counter()
+        under_load.stop()
 
     idle_summary = latency_summary(idle.samples)
     load_summary = latency_summary(under_load.samples)
     tasks_done = sum(completed_tasks(detail) for detail in details)
     expected = spec["workflows"] * spec["tasks_per_workflow"]
 
+    # What matters is that the samples span the load, not how many there
+    # are: under heavier load each ping takes longer, so a fixed count is a
+    # gate that tightens exactly when the system is busiest -- which is the
+    # window the measurement exists to cover.
+    load_window_s = max(load_ended - load_started, 1e-9)
+    covered = (
+        (under_load.last_at - under_load.first_at) / load_window_s
+        if under_load.first_at is not None and under_load.last_at is not None
+        else 0.0
+    )
     gates = {
         "workload_completed": tasks_done == expected,
-        "sampled_throughout": len(under_load.samples) >= spec["min_samples"],
+        "sampled_throughout": (
+            covered >= spec["min_coverage"] and len(under_load.samples) >= spec["min_samples"]
+        ),
         "p99_within_budget": soft_gate(
             load_summary["p99"] is not None and load_summary["p99"] <= spec["p99_budget_ms"],
             f"health p99 under load {load_summary['p99']}ms over budget {spec['p99_budget_ms']}ms",
@@ -113,6 +144,9 @@ def test_b4_loop_responsiveness_under_load(perf_env):
             "tasks_per_workflow": spec["tasks_per_workflow"],
             "http_rtt_s": perf_env.measure_http_rtt(),
             "health_ms_idle": idle_summary,
+            "sampler_errors": under_load.errors,
+            "load_window_s": load_window_s,
+            "sampled_fraction_of_load": covered,
             "health_ms_under_load": load_summary,
             # The headline: how much worse a do-nothing request gets when
             # the loop is busy. 1.0 would mean the loop never blocked.
@@ -129,6 +163,7 @@ def test_b4_loop_responsiveness_under_load(perf_env):
         f"{tasks_done}/{expected} tasks completed -- the latency above is not comparable"
     )
     assert gates["sampled_throughout"], (
-        f"only {len(under_load.samples)} health samples collected, "
-        f"expected at least {spec['min_samples']}"
+        f"sampling covered {covered:.0%} of the {load_window_s:.1f}s load window with "
+        f"{len(under_load.samples)} samples (need {spec['min_coverage']:.0%} and "
+        f"{spec['min_samples']})"
     )

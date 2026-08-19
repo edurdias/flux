@@ -83,10 +83,14 @@ visible by pinging `GET /health` -- a handler that touches nothing --
 while a workload runs. On an idle server that is one round trip; under
 load, everything above it is the loop being held.
 
-| | idle p95 | under load p50 | p95 | p99 |
-|---|---|---|---|---|
-| ci profile | ~6.6 ms | ~12 ms | ~43 ms | ~58 ms |
-| workstation profile | ~7 ms | ~15 ms | ~52-67 ms | ~68-84 ms |
+| | idle p95 | under load p50 | p95 | p99 | samples |
+|---|---|---|---|---|---|
+| ci profile | 6.5 ms | 8.4 ms | 37.4 ms | 61.6 ms | 151 over 100 % of the load window |
+| workstation profile | 7.2 ms | 14.0 ms | 55.5 ms | 73.1 ms | 87 over 99 % |
+
+The run gates on *coverage* rather than a sample count: under heavier load
+each ping takes longer, so a fixed count tightens exactly when the system
+is busiest -- which is the window the measurement exists to cover.
 
 Set `[flux.observability] slow_callback_ms` (env
 `FLUX_OBSERVABILITY__SLOW_CALLBACK_MS`) to run the server's loop in
