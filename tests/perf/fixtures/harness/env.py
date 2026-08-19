@@ -59,6 +59,15 @@ def _kill(proc: subprocess.Popen | None, stop_signal: int = signal.SIGTERM):
         proc.wait(timeout=10)
 
 
+# py-spy's output formats and the extension each one should carry.
+_PYSPY_SUFFIXES = {
+    "flamegraph": "svg",
+    "raw": "txt",
+    "speedscope": "json",
+    "chrometrace": "json",
+}
+
+
 class FluxPerfEnv:
     """One Flux server + one worker, as subprocesses, plus HTTP helpers."""
 
@@ -164,8 +173,10 @@ class FluxPerfEnv:
         out_dir.mkdir(parents=True, exist_ok=True)
         # raw = folded stacks, which can be aggregated in a shell; the
         # flamegraph is for reading, the folded form is for finding.
+        # The suffix follows the format py-spy was actually asked for: a
+        # speedscope profile named .svg is a file nothing will open.
         fmt = os.environ.get("FLUX_BENCH_PYSPY_FORMAT", "flamegraph")
-        suffix = "txt" if fmt == "raw" else "svg"
+        suffix = _PYSPY_SUFFIXES.get(fmt, fmt)
         target = out_dir / f"{role}-{time.strftime('%Y%m%d-%H%M%S')}.{suffix}"
         self.flamegraphs.append(target)
         # Profile the Flux process itself, not `poetry run`. py-spy follows

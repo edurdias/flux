@@ -69,13 +69,19 @@ test-postgresql-all: ## Run all PostgreSQL tests (requires running PostgreSQL)
 test-postgresql-unit: ## Run PostgreSQL unit tests (no database required)
 	poetry run pytest tests/flux/test_*postgresql* -v
 
+# Tears the container down on failure too: a make rule stops at the first
+# failing line, so `$(MAKE) postgres-test-down` on its own line only runs
+# when the tests pass -- leaving a stray instance behind exactly when
+# someone is mid-debug.
 test-postgresql-integration: postgres-test-up ## Run the PostgreSQL-marked tests against the test database
-	FLUX_DATABASE_URL=$(PG_TEST_URL) \
+	@FLUX_DATABASE_URL=$(PG_TEST_URL) \
 	FLUX_DATABASE_TYPE=postgresql \
 	FLUX_WORKERS__BOOTSTRAP_TOKEN=make-token \
 	FLUX_SECURITY__ENCRYPTION__ENCRYPTION_KEY=make-encryption-key-000000000000 \
-	poetry run pytest tests/ --ignore=tests/e2e --ignore=tests/perf -m postgresql -v
-	$(MAKE) postgres-test-down
+	poetry run pytest tests/ --ignore=tests/e2e --ignore=tests/perf -m postgresql -v; \
+		status=$$?; \
+		$(MAKE) postgres-test-down; \
+		exit $$status
 
 # Performance Testing (progress-streaming perf suite, tests/perf; opt-in).
 # Pass T=<id> to run a single scenario (e.g. `make perf-postgresql T=t3`) and
