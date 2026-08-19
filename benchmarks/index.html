@@ -1400,7 +1400,7 @@ measures the engine underneath it.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>make<span class="w"> </span>bench<span class="w">                       </span><span class="c1"># all three, ci profile, SQLite</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>make<span class="w"> </span>bench<span class="w"> </span><span class="nv">B</span><span class="o">=</span>b1<span class="w">                  </span><span class="c1"># one benchmark</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>make<span class="w"> </span>bench<span class="w"> </span><span class="nv">PROFILE</span><span class="o">=</span>workstation<span class="w">   </span><span class="c1"># bigger windows for a real dev box</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>make<span class="w"> </span>bench-postgresql<span class="w">            </span><span class="c1"># against the dockerized PostgreSQL</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>make<span class="w"> </span>bench-postgresql<span class="w">            </span><span class="c1"># against dockerized PostgreSQL (needs the postgresql extra)</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>make<span class="w"> </span>bench-profile<span class="w"> </span><span class="nv">B</span><span class="o">=</span>b2<span class="w">          </span><span class="c1"># same run, under py-spy (see Profiling)</span>
 </code></pre></div>
 <p>Profiles come from <code>tests/perf/fixtures/harness/profile.py</code>: <code>ci</code> is sized
@@ -1454,73 +1454,101 @@ task of history (what each extra task adds), not the average — at small
 histories the average is dominated by the fixed resume overhead and says
 nothing about how replay scales.</p>
 <h2 id="baseline">Baseline<a class="headerlink" href="#baseline" title="Permanent link">&para;</a></h2>
-<p>Recorded at <code>0.86.7</code>, <code>ci</code> profile, SQLite backend.</p>
+<p>Recorded at <code>0.86.8</code>, <code>ci</code> profile, on <strong>both backends</strong> — SQLite (the
+default) and PostgreSQL 16 (what production uses, via
+<code>make bench-postgresql</code>). Every run record names its <code>backend</code>; a dispatch
+or throughput figure without it cannot be compared to anything.</p>
 <ul>
-<li><strong>Machine</strong>: Intel Core i9-14900HX, 32 cores, Linux; localhost HTTP RTT 3.4 ms</li>
+<li><strong>Machine</strong>: Intel Core i9-14900HX, 32 cores, Linux; localhost HTTP RTT ~3.4 ms</li>
 <li><strong>Raw records</strong>: <code>tests/perf/results/B1|B2|B3/*.json</code></li>
 </ul>
 <table>
 <thead>
 <tr>
 <th>Metric</th>
-<th>Value</th>
+<th>SQLite</th>
+<th>PostgreSQL</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Dispatch latency (scheduled → started)</td>
-<td>p50 <strong>823 ms</strong>, p95 1164 ms, p99 1297 ms (n=40)</td>
+<td>Dispatch p50 / p95 / p99</td>
+<td><strong>850</strong> / 1348 / 1381 ms</td>
+<td><strong>870</strong> / 1248 / 1288 ms</td>
 </tr>
 <tr>
-<td>↳ claim half (scheduled → claimed)</td>
-<td>p50 <strong>86 ms</strong>, p95 153 ms</td>
+<td>↳ claim half, p50 / p95</td>
+<td><strong>87</strong> / 162 ms</td>
+<td><strong>158</strong> / 214 ms</td>
 </tr>
 <tr>
 <td>Sustained throughput</td>
-<td><strong>189 tasks/s</strong> (20 workflows × 10 tasks, submit concurrency 8)</td>
+<td><strong>194 tasks/s</strong></td>
+<td><strong>161 tasks/s</strong></td>
 </tr>
 <tr>
 <td>Replay, fixed cost</td>
-<td><strong>~570 ms</strong> per resume</td>
+<td>~585 ms</td>
+<td>~589 ms</td>
 </tr>
 <tr>
 <td>Replay, marginal cost</td>
-<td><strong>0.35 ms</strong> per task of history (25 → 100 tasks)</td>
+<td><strong>0.24 ms/task</strong></td>
+<td><strong>0.47 ms/task</strong></td>
 </tr>
 </tbody>
 </table>
 <h3 id="what-the-baseline-already-says">What the baseline already says<a class="headerlink" href="#what-the-baseline-already-says" title="Permanent link">&para;</a></h3>
-<p><strong>Dispatch is not claim-bound.</strong> A worker claims an execution in ~86 ms
-but the workflow does not start for ~823 ms. Roughly 700 ms of the p50 is
-spent <em>after</em> the claim — module compile and the runner child's startup
-— so work aimed at dispatch latency (#261, #263) should target that
-window, and this benchmark will show it directly as the gap between the
-<code>claim_ms</code> and <code>dispatch_ms</code> series.</p>
-<p><strong>Replay is linear and cheap per task, but resume has a fixed floor.</strong>
-0.35 ms per task of history against ~570 ms of fixed resume cost means a
-1,000-task history still replays in well under a second, and the thing
-worth attacking is the constant, not the walk. #262 (event-store batching)
-should move the constant; if it moves the <em>marginal</em> number instead,
-something regressed.</p>
+<p><strong>Dispatch is not claim-bound, and not database-bound.</strong> A worker claims
+in 87 ms (SQLite) or 158 ms (PostgreSQL) but the workflow does not start
+for ~860 ms on <em>either</em> backend. Nearly doubling the claim cost moves the
+total by ~2 %, which puts ~700 ms of the p50 somewhere the database is not:
+module compile and runner-child startup, after the claim. That is where
+work on dispatch latency (#261, #263) has to aim, and the gap between the
+recorded <code>claim_ms</code> and <code>dispatch_ms</code> series is the instrument for it.</p>
+<p><strong>The database differences are real but second-order.</strong> PostgreSQL costs
+~1.8× on claim, ~17 % on throughput and ~2× on the marginal replay walk —
+all consistent with a network round trip replacing a local file read, and
+all small next to the fixed costs beside them.</p>
+<p><strong>Replay is linear and cheap per task against a fixed floor.</strong> ~0.25–0.5 ms
+per task of history versus ~585 ms of fixed resume cost on both backends,
+so #262 (event-store batching) should move the <em>constant</em>. If it moves the
+marginal number instead, something regressed.</p>
 <h2 id="profiling">Profiling<a class="headerlink" href="#profiling" title="Permanent link">&para;</a></h2>
 <p><code>make bench-profile B=&lt;id&gt;</code> runs a benchmark with the server and worker
 launched <strong>under</strong> py-spy, writing flame graphs to
 <code>docs/benchmarks/flamegraphs/</code>.</p>
-<p>Two mechanics worth knowing, both learned the hard way:</p>
+<p>Three mechanics worth knowing, all learned the hard way:</p>
 <ul>
-<li>The processes are launched under py-spy rather than attached to
-  afterwards. With <code>kernel.yama.ptrace_scope=1</code> — the default on most
-  distributions — a profiler may only trace its own descendants, so
-  attaching to a running server needs root while spawning it does not.</li>
-<li>The harness stops a profiled run with <strong>SIGINT</strong>, not SIGTERM: py-spy
-  renders its flamegraph on Ctrl-C or when the profiled process exits, and
-  a SIGTERM kills it with nothing written.</li>
+<li><strong>Profile the Flux process, not the launcher.</strong> The harness normally
+  starts <code>poetry run flux …</code>; profiling through that produces a graph of
+  poetry's own imports and nothing of the server. Profiled runs therefore
+  invoke the venv's <code>flux</code> console script directly. The first version of
+  this doc shipped graphs with zero Flux frames in them for exactly this
+  reason.</li>
+<li><strong>Launch under py-spy rather than attaching.</strong> With
+  <code>kernel.yama.ptrace_scope=1</code> — the default on most distributions — a
+  profiler may only trace its own descendants, so attaching to a running
+  server needs root while spawning it does not.</li>
+<li><strong>Stop a profiled run with SIGINT.</strong> py-spy renders on Ctrl-C or when
+  the profiled process exits; SIGTERM kills it with nothing written.</li>
 </ul>
-<p>py-spy is a profiling tool, not a project dependency: install it into the
-environment when you want graphs (<code>poetry run pip install py-spy</code>). The
-benchmarks run normally without it.</p>
-<p>Committed graphs are the <code>ci</code>-profile baseline for the release named
-above; regenerate rather than trust them across versions.</p>
+<p>Knobs: <code>FLUX_BENCH_PYSPY_RATE</code> (default 25 Hz — higher rates make py-spy
+fall behind and stall the process it is sampling),
+<code>FLUX_BENCH_PYSPY_FORMAT=raw</code> for folded stacks that can be aggregated in
+a shell, and <code>FLUX_BENCH_PYSPY_SUBPROCESSES=1</code> to follow runner children
+(off by default: one child per execution is more tracing than the graph is
+worth).</p>
+<p><strong>Limits.</strong> A profiled run is a slower system by construction — never
+compare its numbers to a baseline; the graphs are for <em>shape</em>, and the
+figures come from an unprofiled run. B1 and B3 profile cleanly. <strong>B2 does
+not</strong>: its concurrent fan-out under sampling makes the server miss its
+health window or a status read time out. Use <code>B=b1</code> for graphs, or profile
+B2 on quieter hardware.</p>
+<p>py-spy is a profiling tool, not a project dependency: install it when you
+want graphs (<code>poetry run pip install py-spy</code>). The benchmarks run normally
+without it. Committed graphs are the <code>ci</code>-profile baseline for the release
+named above; regenerate rather than trust them across versions.</p>
 
 
 
