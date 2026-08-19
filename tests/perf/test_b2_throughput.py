@@ -46,6 +46,13 @@ def test_b2_sustained_throughput(perf_env):
 
     starts = [first_time(detail, "TASK_STARTED") for detail in details]
     ends = [last_time(detail, "TASK_COMPLETED") for detail in details]
+    # An execution missing either stamp would shrink the window while its
+    # tasks still counted toward the numerator -- an overstated rate that
+    # looks like a healthy one. The numbers are only comparable if every
+    # execution contributed both ends of its own window.
+    fully_stamped = sum(
+        1 for start, end in zip(starts, ends) if start is not None and end is not None
+    )
     starts = [value for value in starts if value is not None]
     ends = [value for value in ends if value is not None]
 
@@ -57,6 +64,7 @@ def test_b2_sustained_throughput(perf_env):
 
     gates = {
         "every_task_persisted": tasks_done == expected,
+        "every_execution_timed": fully_stamped == len(details),
         "throughput_over_floor": soft_gate(
             rate is not None and rate >= spec["min_tasks_per_s"],
             f"throughput {rate} tasks/s under floor {spec['min_tasks_per_s']}",
@@ -75,6 +83,7 @@ def test_b2_sustained_throughput(perf_env):
             "http_rtt_s": perf_env.measure_http_rtt(),
             "tasks_completed": tasks_done,
             "tasks_expected": expected,
+            "executions_fully_timed": fully_stamped,
             "in_flight_window_s": window_s,
             "tasks_per_s": rate,
             "gates": gates,
@@ -83,4 +92,8 @@ def test_b2_sustained_throughput(perf_env):
 
     assert gates["every_task_persisted"], (
         f"{tasks_done} tasks persisted, expected {expected} -- the rate above is not comparable"
+    )
+    assert gates["every_execution_timed"], (
+        f"only {fully_stamped}/{len(details)} executions carried both timing stamps -- "
+        "the in-flight window is narrower than the work it is dividing"
     )
