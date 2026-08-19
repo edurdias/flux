@@ -95,6 +95,11 @@ prometheus_enabled = true               # Expose Prometheus /metrics endpoint
 # otlp_endpoint = "http://localhost:4317" # OTLP collector endpoint (uncomment to enable push export)
 trace_sample_rate = 1.0                 # Trace sampling rate (0.0 to 1.0)
 metric_export_interval = 60             # OTLP metric push interval in seconds
+# Diagnostic (#263): run the server's event loop in asyncio debug mode and log
+# every callback that holds it longer than this, in milliseconds. Debug mode
+# costs throughput, so leave it unset except when hunting a blocking call --
+# Python's own default threshold is 100ms, well above a single sync query.
+# slow_callback_ms = 50
 
 # OpenAI-compatible provider descriptors (#141B): each table registers one
 # vendor speaking the chat-completions wire format, addressed as

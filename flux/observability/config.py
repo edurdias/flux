@@ -24,6 +24,15 @@ class ObservabilityConfig(BaseModel):
         description="Enable Prometheus /metrics endpoint",
     )
 
+    slow_callback_ms: float | None = Field(
+        default=None,
+        description=(
+            "When set, run the server's event loop in asyncio debug mode and log any "
+            "callback that occupies it for longer than this many milliseconds. Diagnostic "
+            "only: debug mode costs throughput, so this is off unless asked for."
+        ),
+    )
+
     trace_sample_rate: float = Field(
         default=1.0,
         ge=0.0,

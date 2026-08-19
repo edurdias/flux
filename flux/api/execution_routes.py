@@ -210,7 +210,7 @@ class ExecutionRoutesMixin:
                     # Status-poll fast path: summary fields come from the
                     # execution row alone — no event hydration, so a long
                     # execution's own status checks stay cheap (D5).
-                    summary = manager.get_summary(execution_id)
+                    summary = await asyncio.to_thread(manager.get_summary, execution_id)
                     if not await _check_workflow_read(
                         identity,
                         summary["workflow_namespace"],
@@ -233,7 +233,7 @@ class ExecutionRoutesMixin:
 
                     return await redact_response(summary)
 
-                ctx = manager.get(execution_id)
+                ctx = await asyncio.to_thread(manager.get, execution_id)
 
                 # The flat execution:*:read grant does not bypass workflow
                 # read boundaries: the detailed DTO carries the workflow's
@@ -313,7 +313,7 @@ class ExecutionRoutesMixin:
                     # hydrating an agent session's whole event log to
                     # authorize a single-column UPDATE is what makes a
                     # rename cost seconds on a long-running execution.
-                    summary = manager.get_summary(execution_id)
+                    summary = await asyncio.to_thread(manager.get_summary, execution_id)
                 except ExecutionContextNotFoundError:
                     raise HTTPException(
                         status_code=404,
@@ -874,7 +874,7 @@ class ExecutionRoutesMixin:
 
                 manager = ContextManager.create()
                 try:
-                    ctx = manager.get(exec_id)
+                    ctx = await asyncio.to_thread(manager.get, exec_id)
                 except Exception:
                     ctx = None
                 if ctx is None:
