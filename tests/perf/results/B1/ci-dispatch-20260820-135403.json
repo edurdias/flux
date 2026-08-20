@@ -1,0 +1,49 @@
+{
+  "test": "B1",
+  "run": "ci-dispatch",
+  "recorded_at": "2026-08-20T13:54:03-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743310848,
+    "disk_total_bytes": 1081101176832
+  },
+  "profile": "ci",
+  "backend": "sqlite",
+  "executions": 40,
+  "payload_bytes": 64,
+  "http_rtt_s": 0.0033606239885557443,
+  "dispatch_ms": {
+    "count": 40,
+    "p50": 821.707,
+    "p95": 1190.663,
+    "p99": 1348.2559999999999,
+    "min": 622.67,
+    "max": 1348.2559999999999,
+    "mean": 878.741475
+  },
+  "claim_ms": {
+    "count": 40,
+    "p50": 96.83200000000001,
+    "p95": 196.888,
+    "p99": 217.805,
+    "min": 49.376000000000005,
+    "max": 217.805,
+    "mean": 112.26792499999999
+  },
+  "first_task_ms": {
+    "count": 40,
+    "p50": 822.0659999999999,
+    "p95": 1190.919,
+    "p99": 1348.522,
+    "min": 622.925,
+    "max": 1348.522,
+    "mean": 879.03835
+  },
+  "gates": {
+    "all_executions_sampled": true,
+    "dispatch_p95_under_budget": true
+  }
+}

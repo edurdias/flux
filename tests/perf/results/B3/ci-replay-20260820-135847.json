@@ -1,0 +1,44 @@
+{
+  "test": "B3",
+  "run": "ci-replay",
+  "recorded_at": "2026-08-20T13:58:47-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743310848,
+    "disk_total_bytes": 1081101176832
+  },
+  "profile": "ci",
+  "backend": "sqlite",
+  "payload_bytes": 64,
+  "http_rtt_s": 0.003343512988067232,
+  "runs": [
+    {
+      "tasks": 25,
+      "tasks_before_resume": 25,
+      "tasks_after_resume": 25,
+      "replay_ms": 585.804,
+      "execution_id": "cfe04a98c0e54723ac41c86d73570acc"
+    },
+    {
+      "tasks": 100,
+      "tasks_before_resume": 100,
+      "tasks_after_resume": 100,
+      "replay_ms": 596.9649999999999,
+      "execution_id": "7d5c3fa3e8c04c8185410c24996e5282"
+    }
+  ],
+  "marginal_ms_per_task": [
+    0.1488133333333326
+  ],
+  "avg_ms_per_task": [
+    23.43216,
+    5.969649999999999
+  ],
+  "gates": {
+    "no_task_reexecuted_on_replay": true,
+    "replay_scales_linearly": null
+  }
+}

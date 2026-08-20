@@ -202,6 +202,51 @@ a throughput number is really measuring at small task counts, which is
 also why "tasks/s" should always be read together with the shape of the
 workload that produced it.
 
+## Guarding against drift
+
+A single PR's benchmark run cannot tell you whether that PR made Flux
+slower. The run-to-run spread on this machine is 815-899 ms dispatch p50
+and 152-214 tasks/s **for identical code**, which is wider than the effect
+of almost any one change. Every A/B in this document lands inside it.
+
+The risk that hides in that fact is cumulative: twenty changes each costing
+2% are invisible one at a time and a 50% regression together. So the guard
+is not per-PR significance, it is drift against a stored reference.
+
+```bash
+make bench-check              # 5 runs, compared against tests/perf/reference.json
+make bench-check REPS=9       # more runs, tighter medians
+FLUX_PERF_STRICT=1 make bench-check   # exit non-zero on drift
+make bench-bless REPS=7       # re-record the reference from this machine
+```
+
+Four properties make it worth trusting:
+
+- **Median-to-median, never sample-to-sample.** Both blessing and checking
+  run the suite several times. One reading is not a measurement.
+- **Tolerance is derived, not chosen.** Half the relative range observed
+  while blessing, floored at 10%. The current reference came out at ±17%
+  for claim p50 (the noisiest figure) and the floor for the rest. A band
+  tighter than the machine's own noise produces alerts that teach people
+  to ignore alerts.
+- **Faster is never a failure.** Beating the reference is a reason to
+  re-bless, which is a person's decision.
+- **The reference is refreshed deliberately.** `make bench-bless` is an
+  explicit act and its diff is reviewable. A baseline that follows the code
+  is not a baseline.
+
+**Run it on a quiet machine.** This is not a formality: an A/B run during
+this work overlapped with the e2e suite and showed a pure code-motion
+refactor "regressing" dispatch p50 in seven of eight pairs (p=0.07). Re-run
+on an idle box, the effect vanished entirely. A benchmark sharing a machine
+with a test suite measures the test suite.
+
+**Not a CI gate.** Shared runners are too noisy and too heterogeneous for
+median-vs-reference comparison to mean anything; that is why the suite's
+performance gates are soft there. This is a check for fixed hardware, and
+its value accrues in the stored reference: drift that no single PR could
+show becomes visible against a number blessed three releases ago.
+
 ## Profiling
 
 `make bench-profile B=<id>` runs a benchmark with the server and worker

@@ -114,6 +114,18 @@ bench-postgresql: postgres-test-up ## Run the engine benchmarks vs dockerized Po
 		$(MAKE) postgres-test-down; \
 		exit $$status
 
+# Drift guard: a single run cannot tell a change from the machine's own
+# variance, so both targets work median-to-median over several runs, and the
+# reference is refreshed only on purpose. Run these on a quiet box -- a
+# benchmark sharing the machine with a test suite measures the test suite.
+bench-check: ## Compare the B series against tests/perf/reference.json. REPS=<n>; FLUX_PERF_STRICT=1 to fail on drift.
+	poetry run python tests/perf/fixtures/harness/reference_cli.py check \
+		--reps $(if $(REPS),$(REPS),5)
+
+bench-bless: ## Re-record tests/perf/reference.json from this machine. Deliberate act — read the diff.
+	poetry run python tests/perf/fixtures/harness/reference_cli.py bless \
+		--reps $(if $(REPS),$(REPS),7)
+
 bench-profile: ## Flame-graph one benchmark under py-spy (needs py-spy on PATH). B=<id> required.
 	@poetry run python -c "import shutil,sys; sys.exit(0 if shutil.which('py-spy') else 1)" \
 		|| { echo "py-spy not found: poetry run pip install py-spy (it is a profiling tool, not a project dependency)"; exit 1; }

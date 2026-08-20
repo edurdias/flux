@@ -1,0 +1,39 @@
+{
+  "test": "B2",
+  "run": "ci-throughput",
+  "recorded_at": "2026-08-20T13:55:58-0400",
+  "machine": {
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.14.7",
+    "cpu_model": "Intel(R) Core(TM) i9-14900HX",
+    "cpu_count": 32,
+    "ram_bytes": 65743310848,
+    "disk_total_bytes": 1081101176832
+  },
+  "profile": "ci",
+  "backend": "sqlite",
+  "workflows": 20,
+  "tasks_per_workflow": 10,
+  "submit_concurrency": 8,
+  "payload_bytes": 64,
+  "http_rtt_s": 0.0034521854831837118,
+  "tasks_completed": 200,
+  "tasks_expected": 200,
+  "executions_fully_timed": 20,
+  "in_flight_window_s": 1.245034,
+  "tasks_per_s": 160.63818337491185,
+  "open_fds_idle_before": {
+    "server": 30,
+    "worker": 16
+  },
+  "open_fds_idle_after": {
+    "server": 39,
+    "worker": 17
+  },
+  "open_fds_measured": true,
+  "gates": {
+    "every_task_persisted": true,
+    "every_execution_timed": true,
+    "throughput_over_floor": true
+  }
+}
