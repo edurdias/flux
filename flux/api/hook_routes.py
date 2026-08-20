@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 
 from flux.catalogs import WorkflowCatalog, resolve_workflow_ref
 from flux.errors import HookNotFoundError, WorkflowNotFoundError
+from flux.hooks.dispatch import authorize_hook_principal, start_hook_execution
 from flux.hooks.envelope import build_envelope
 from flux.hooks.registry import HookIndexEntry, HookRegistry
 from flux.hooks.selectors import HookEvent, validate_selector
@@ -207,7 +208,7 @@ class HookRoutesMixin:
         turns a 3am silent non-delivery into an error at the door.
         """
         permission = f"workflow:{namespace}:{workflow_name}:run"
-        if not await self._authorize_hook(principal, permission):
+        if not await authorize_hook_principal(self._get_db_session, principal, permission):
             raise HTTPException(
                 status_code=403,
                 detail=f"Principal '{principal}' lacks permission '{permission}'",
@@ -502,7 +503,9 @@ class HookRoutesMixin:
             # The same door a real delivery goes through, principal stamping
             # and execution token included — a test that skipped it would
             # pass for configurations that fail in production.
-            execution_id = await self._create_hook_execution(
+            execution_id = await start_hook_execution(
+                self._create_execution,
+                self._get_db_session,
                 namespace,
                 workflow_name,
                 envelope,

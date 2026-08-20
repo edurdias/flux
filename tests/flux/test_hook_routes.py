@@ -142,7 +142,10 @@ class TestCreate:
     ):
         """The create-time half of fire-time authorization: a hook whose stored
         principal cannot run its target is a hook that only ever dead-letters."""
-        with patch.object(server_instance, "_authorize_hook", new=AsyncMock(return_value=False)):
+        with patch(
+            "flux.api.hook_routes.authorize_hook_principal",
+            new=AsyncMock(return_value=False),
+        ):
             resp = _create(client)
 
         assert resp.status_code == 403, resp.text
@@ -227,7 +230,10 @@ class TestReadUpdateDelete:
     ):
         assert _create(client).status_code == 200
 
-        with patch.object(server_instance, "_authorize_hook", new=AsyncMock(return_value=False)):
+        with patch(
+            "flux.api.hook_routes.authorize_hook_principal",
+            new=AsyncMock(return_value=False),
+        ):
             resp = client.put("/hooks/on-fail", json={"principal": "p-2"})
 
         assert resp.status_code == 403, resp.text
@@ -244,7 +250,10 @@ class TestReadUpdateDelete:
         operator reaches for when a hook is misbehaving."""
         assert _create(client).status_code == 200
 
-        with patch.object(server_instance, "_authorize_hook", new=AsyncMock(return_value=False)):
+        with patch(
+            "flux.api.hook_routes.authorize_hook_principal",
+            new=AsyncMock(return_value=False),
+        ):
             resp = client.put("/hooks/on-fail", json={"enabled": False})
 
         assert resp.status_code == 200, resp.text
@@ -306,7 +315,10 @@ class TestTestFire:
 
         assert _create(client).status_code == 200
 
-        with patch.object(server_instance, "_authorize_hook", new=AsyncMock(return_value=False)):
+        with patch(
+            "flux.api.hook_routes.authorize_hook_principal",
+            new=AsyncMock(return_value=False),
+        ):
             resp = client.post("/hooks/on-fail/test")
 
         assert resp.status_code == 403, resp.text
