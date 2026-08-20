@@ -160,6 +160,11 @@ def parse_event(raw: dict[str, Any]) -> Iterable[AgentEvent]:
                     "workflow_name": output.get("workflow_name", ""),
                     "approval_id": output.get("approval_id", ""),
                     "requested_at": output.get("requested_at", ""),
+                    # Always present, None when the task declares no
+                    # approval_target: the inline "always for this target"
+                    # control needs it at prompt time, and a renderer
+                    # should be able to branch on it without a lookup (#245).
+                    "target_value": output.get("target_value"),
                 },
             )
         return

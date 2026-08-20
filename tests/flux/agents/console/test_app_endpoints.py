@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flux.agents.console.app import _request_token
-from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
+from flux.agents.console.service import ApprovalRow, ConsoleService, SessionPage, SessionRow
 from flux.agents.ui.api import ApiUI
 from flux.agents.ui.web import WebUI
 
@@ -46,6 +46,7 @@ class _FakeService(ConsoleService):
     def __init__(
         self,
         sessions=None,
+        session_total=None,
         approvals=None,
         agents=None,
         detail=None,
@@ -58,6 +59,7 @@ class _FakeService(ConsoleService):
     ):
         super().__init__(server_url="http://test", token=None)
         self._sessions = sessions if sessions is not None else []
+        self._session_total = session_total
         self._approvals = approvals if approvals is not None else []
         self._agents = agents if agents is not None else []
         self._detail = detail if detail is not None else {"execution_id": "exec-1", "events": []}
@@ -83,7 +85,7 @@ class _FakeService(ConsoleService):
         return self._agents
 
     async def list_sessions(self, agent=None):
-        return self._sessions
+        return SessionPage(rows=self._sessions, total=self._session_total or len(self._sessions))
 
     async def list_approvals(self):
         return self._approvals

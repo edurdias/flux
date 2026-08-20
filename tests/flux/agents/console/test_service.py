@@ -87,11 +87,15 @@ async def test_list_sessions_maps_rows_including_name():
 
     transport = httpx.MockTransport(fake_handler)
     with _patched_async_client(transport):
-        rows = await service.list_sessions()
+        page = await service.list_sessions()
         await service.aclose()
 
     assert captured["url"] == "http://test/agents/sessions"
-    assert rows == [
+    # The listing is one server page; the total behind it travels with the
+    # rows so the rail can say when it is showing a subset (#245).
+    assert page.total == 2
+    assert not page.truncated
+    assert page.rows == [
         SessionRow(
             execution_id="exec-1",
             agent_name="coder",
@@ -109,7 +113,7 @@ async def test_list_sessions_maps_rows_including_name():
             workflow_name="agent_custom_writer",
         ),
     ]
-    assert all(row.derived_title is None for row in rows)
+    assert all(row.derived_title is None for row in page.rows)
 
 
 @pytest.mark.asyncio
@@ -520,3 +524,60 @@ async def test_spawn_raises_when_the_server_reports_no_execution_id():
         with pytest.raises(RuntimeError, match="never reported an execution_id"):
             await service.spawn("coder", None)
         await service.aclose()
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_reports_a_truncated_page():
+    """The server caps the listing. A rail showing fifty of two hundred
+    looks exactly like a rail showing all of them unless the total comes
+    back with the rows (#245)."""
+    service = ConsoleService(server_url="http://test", token="t")
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "sessions": [
+                    {
+                        "execution_id": "exec-1",
+                        "agent_name": "coder",
+                        "state": "RUNNING",
+                        "started_at": None,
+                        "workflow_namespace": "agents",
+                        "workflow_name": "agent_chat",
+                        "current_worker": None,
+                        "name": None,
+                    },
+                ],
+                "total": 137,
+                "limit": 50,
+                "offset": 0,
+            },
+        )
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        page = await service.list_sessions()
+        await service.aclose()
+
+    assert len(page.rows) == 1
+    assert page.total == 137
+    assert page.truncated
+
+
+@pytest.mark.asyncio
+async def test_a_response_without_a_total_falls_back_to_the_row_count():
+    """An older server (or a stubbed one) reports no total; the page must
+    then claim no truncation rather than inventing one."""
+    service = ConsoleService(server_url="http://test", token="t")
+
+    async def fake_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"sessions": []})
+
+    transport = httpx.MockTransport(fake_handler)
+    with _patched_async_client(transport):
+        page = await service.list_sessions()
+        await service.aclose()
+
+    assert page.total == 0
+    assert not page.truncated

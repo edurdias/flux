@@ -241,3 +241,55 @@ def test_parses_reasoning_with_empty_text():
     }
     events = list(parse_event(raw))
     assert events == [AgentEvent(kind="reasoning", data={"text": ""})]
+
+
+def test_approval_frame_carries_the_target_value(monkeypatch):
+    """The live frame must name the approval's target (#245).
+
+    Without it the inline "Always for this target" control cannot render
+    until the approvals list reconciles, so the one moment an operator is
+    looking at the prompt is the moment the control is missing.
+    """
+    raw = {
+        "execution_id": "exec-app-2",
+        "state": "PAUSED",
+        "output": {
+            "type": "approval_required",
+            "task_call_id": "deploy_7",
+            "task_name": "deploy",
+            "workflow_namespace": "billing",
+            "workflow_name": "release",
+            "execution_id": "exec-app-2",
+            "approval_id": "appr-xyz",
+            "requested_at": "2026-05-07T10:00:00+00:00",
+            "target_value": "production",
+        },
+    }
+
+    appr = next(e for e in parse_event(raw) if e.kind == KIND_APPROVAL_REQUIRED)
+
+    assert appr.data["target_value"] == "production"
+
+
+def test_approval_frame_without_a_target_reports_none():
+    """A task with no approval_target declares no target -- the key is
+    always present so a renderer can branch on it without a lookup."""
+    raw = {
+        "execution_id": "exec-app-3",
+        "state": "PAUSED",
+        "output": {
+            "type": "approval_required",
+            "task_call_id": "deploy_8",
+            "task_name": "deploy",
+            "workflow_namespace": "billing",
+            "workflow_name": "release",
+            "execution_id": "exec-app-3",
+            "approval_id": "appr-none",
+            "requested_at": "2026-05-07T10:00:00+00:00",
+        },
+    }
+
+    appr = next(e for e in parse_event(raw) if e.kind == KIND_APPROVAL_REQUIRED)
+
+    assert "target_value" in appr.data
+    assert appr.data["target_value"] is None

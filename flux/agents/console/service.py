@@ -18,6 +18,18 @@ from flux.agents.flux_client import FluxClient
 
 
 @dataclass(frozen=True)
+class SessionPage:
+    """A page of rail rows plus the size of the full set behind it."""
+
+    rows: list[SessionRow]
+    total: int
+
+    @property
+    def truncated(self) -> bool:
+        return self.total > len(self.rows)
+
+
+@dataclass(frozen=True)
 class SessionRow:
     execution_id: str
     agent_name: str
@@ -70,7 +82,14 @@ class ConsoleService:
         response.raise_for_status()
         return response.json()
 
-    async def list_sessions(self, agent: str | None = None) -> list[SessionRow]:
+    async def list_sessions(self, agent: str | None = None) -> SessionPage:
+        """One page of sessions, and how many there are in total.
+
+        The server caps this listing (``limit`` defaults to 50). Returning
+        only the rows made that cap invisible: a rail showing fifty of two
+        hundred sessions looks exactly like a rail showing all of them, and
+        the session an operator is hunting for is simply absent (#245).
+        """
         http = self._ensure_http()
         params = {"agent": agent} if agent else None
         response = await http.get(
@@ -80,7 +99,7 @@ class ConsoleService:
         )
         response.raise_for_status()
         body = response.json()
-        return [
+        rows = [
             SessionRow(
                 execution_id=row["execution_id"],
                 agent_name=row["agent_name"],
@@ -91,6 +110,7 @@ class ConsoleService:
             )
             for row in body.get("sessions", [])
         ]
+        return SessionPage(rows=rows, total=int(body.get("total", len(rows))))
 
     async def list_approvals(self) -> list[ApprovalRow]:
         http = self._ensure_http()

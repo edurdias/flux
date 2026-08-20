@@ -14,7 +14,7 @@ from textual.color import Color
 from textual.widgets import Collapsible, Input, OptionList, Static
 
 from flux.agents.console.hub import ConsoleEvent, EventHub
-from flux.agents.console.service import ApprovalRow, ConsoleService, SessionRow
+from flux.agents.console.service import SessionPage, ApprovalRow, ConsoleService, SessionRow
 from flux.agents.events import AgentEvent
 from flux.agents.ui.console_screens import (
     ApprovalsScreen,
@@ -108,6 +108,7 @@ class _FakeService(ConsoleService):
         self.decisions: list[tuple] = []
         self.renames: list[tuple[str, str]] = []
         self.spawned: list[tuple[str, str | None]] = []
+        self.session_total = 0
         self.session_filters: list[str | None] = []
         self.elicitations: list[tuple] = []
         self.stops: list[tuple] = []
@@ -121,7 +122,8 @@ class _FakeService(ConsoleService):
         # that quietly returned everything would hide exactly the bug where
         # a session falls outside the filter the console is asking with.
         self.session_filters.append(agent)
-        return [row for row in self._sessions if agent is None or row.agent_name == agent]
+        rows = [row for row in self._sessions if agent is None or row.agent_name == agent]
+        return SessionPage(rows=rows, total=self.session_total or len(rows))
 
     async def list_approvals(self):
         return list(self._approvals)

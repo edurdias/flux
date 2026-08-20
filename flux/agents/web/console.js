@@ -88,6 +88,7 @@ const state = {
   noticeOwner: null, // who wrote the notice — see setNotice
 
   sessions: [],
+  sessionTotal: 0,
   approvals: [],
   decisions: new Map(), // "exec|call" -> note shown on the approval row
 
@@ -373,7 +374,26 @@ async function request(path, options = {}) {
 const api = {
   state: () => request("/console/state"),
   agents: () => request("/console/agents"),
-  sessions: () => request("/console/sessions"),
+  // Reads the truncation header alongside the array: the endpoint returns
+  // one page, and a rail that shows fifty of two hundred looks exactly like
+  // a rail that shows everything (#245).
+  sessions: async () => {
+    const response = await fetch("/console/sessions");
+    if (!response.ok) {
+      let body = null;
+      try {
+        body = await response.json();
+      } catch (err) {
+        body = null;
+      }
+      noteFailure(response.status, body, false);
+      throw new HttpError(response.status, body);
+    }
+    const rows = await response.json();
+    const total = Number(response.headers.get("X-Flux-Session-Total"));
+    state.sessionTotal = Number.isFinite(total) && total > 0 ? total : rows.length;
+    return rows;
+  },
   approvals: () => request("/console/approvals"),
   detail: (id) => request(`/console/sessions/${encodeURIComponent(id)}/detail`),
   create: (agent, name) =>
@@ -908,6 +928,9 @@ function renderRail() {
       state.missingPermission,
       counts.done,
       counts.total,
+      // Without this the truncation line never re-renders when the count
+      // behind the page changes.
+      state.sessionTotal,
     ],
     buildRail,
   );
@@ -940,6 +963,18 @@ function buildRail() {
     const section = el("div", { class: "rail-group" }, label(group.name));
     for (const row of group.rows) section.appendChild(railRow(row));
     dom.rail.appendChild(section);
+  }
+  // A truncated rail says so. The listing is one server page (limit 50 by
+  // default), so without this a session that exists but sorted past the cut
+  // reads as one that is gone (#245).
+  if (state.sessionTotal > state.sessions.length) {
+    dom.rail.appendChild(
+      el("div", {
+        class: "rail-truncated",
+        text: `showing ${state.sessions.length} of ${state.sessionTotal}`,
+        title: "The session list is capped server-side; filter by agent to narrow it.",
+      }),
+    );
   }
   dom.rail.appendChild(
     guard(
