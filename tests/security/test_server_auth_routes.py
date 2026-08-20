@@ -359,8 +359,7 @@ class TestDispatcherReadsExecTokenFromDB:
     def test_dispatcher_no_longer_reads_execution_auth_tokens_dict(self):
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         assert "_execution_auth_tokens" not in src, (
             "_execution_auth_tokens still referenced in server.py"
         )
@@ -379,8 +378,7 @@ class TestWorkflowsResumeMintsExecToken:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -397,8 +395,13 @@ class TestSchedulerPrincipalLookup:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
         src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        # The scheduler tick moved to flux/scheduler_loop.py (#264 stage 2).
+        tree_for_guard = ast.parse(src)
+        assert any(
+            isinstance(n, ast.AsyncFunctionDef) and n.name == "_trigger"
+            for n in ast.walk(tree_for_guard)
+        ), "SchedulerLoop._trigger not found -- this guard would pass by finding nothing"
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -418,18 +421,23 @@ class TestSchedulerMintExecToken:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
         src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        # The scheduler tick moved to flux/scheduler_loop.py (#264 stage 2).
+        tree_for_guard = ast.parse(src)
+        assert any(
+            isinstance(n, ast.AsyncFunctionDef) and n.name == "_trigger"
+            for n in ast.walk(tree_for_guard)
+        ), "SchedulerLoop._trigger not found -- this guard would pass by finding nothing"
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "_trigger":
                 func_src = ast.unparse(node)
                 assert "mint_execution_token" in func_src, (
-                    "_trigger_scheduled_workflow does not call mint_execution_token"
+                    "SchedulerLoop._trigger does not call mint_execution_token"
                 )
                 assert "mint_internal_token" not in func_src, (
-                    "_trigger_scheduled_workflow still calls mint_internal_token"
+                    "SchedulerLoop._trigger still calls mint_internal_token"
                 )
                 break
 
@@ -438,8 +446,7 @@ class TestMintInternalTokenRemovedFromServer:
     def test_server_does_not_import_mint_internal_token(self):
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         assert "mint_internal_token" not in src, "server.py still references mint_internal_token"
 
 
@@ -582,8 +589,7 @@ class TestRegisterPermissionScopedToNamespace:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -603,8 +609,7 @@ class TestRegisterPermissionScopedToNamespace:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -624,8 +629,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -642,8 +646,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -660,8 +663,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -681,8 +683,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -721,8 +722,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -738,8 +738,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -755,8 +754,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -773,8 +771,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):
@@ -793,8 +790,7 @@ class TestNamespaceScopedVisibility:
         import ast
         import pathlib
 
-        # The scheduler tick moved to its own module (#264 stage 2).
-        src = pathlib.Path("flux/scheduler_loop.py").read_text()
+        src = pathlib.Path("flux/server.py").read_text()
         tree = ast.parse(src)
 
         for node in ast.walk(tree):

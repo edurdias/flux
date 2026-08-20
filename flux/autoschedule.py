@@ -117,8 +117,3 @@ def auto_create_schedules(source: bytes, workflows: list[WorkflowInfo]) -> None:
             f"Failed to execute workflow source for schedule extraction: {str(e)}",
             exc_info=True,
         )
-
-
-# ===========================================
-# Internal Execution Helper
-# ===========================================
