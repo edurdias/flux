@@ -19,18 +19,16 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from flux import ExecutionContext
-from flux.catalogs import WorkflowCatalog, WorkflowInfo
+from flux.catalogs import WorkflowCatalog
 from flux.hooks.dispatch import authorize_hook_principal, start_hook_execution
+from flux.scheduler_loop import SchedulerLoop
 from flux.config import Configuration
-from flux.workflow import workflow
 from flux.context_managers import ContextManager
 from flux.errors import WorkflowNotFoundError
-from flux.hooks.drain import drain_once
 from flux.utils import get_logger
 from flux.servers.uvicorn_server import UvicornServer
 from flux.servers.models import redacted_response
 from flux.utils import to_wire_json
-from flux.schedule_manager import create_schedule_manager
 from flux.security.auth_service import AuthService
 from flux.security.dependencies import init_auth_service
 from flux.security.identity import FluxIdentity
@@ -170,8 +168,6 @@ class Server(
         self.port = port
 
         # Scheduler state
-        self.scheduler_task = None
-        self.scheduler_running = False
 
         self._work_available = asyncio.Event()
         self._worker_events: dict[str, asyncio.Event] = {}
@@ -218,7 +214,7 @@ class Server(
         self._dispatcher = None
         self._retention_job = None
         self._reaper_task: asyncio.Task | None = None
-        self._last_join_token_purge: float | None = None
+        self._scheduler_loop_obj: SchedulerLoop | None = None
 
         config = Configuration.get().settings.scheduling
         self.poll_interval = config.poll_interval
@@ -238,6 +234,25 @@ class Server(
             logger.debug("Observability packages not installed, skipping setup")
         except Exception:
             logger.warning("Observability setup failed", exc_info=True)
+
+    def _scheduler(self) -> SchedulerLoop:
+        """The scheduler tick, built on first use.
+
+        Built here rather than in __init__ because it takes the hook
+        callables, which bind this server's own creation path -- see
+        flux/scheduler_loop.py for what it needs and why.
+        """
+        if self._scheduler_loop_obj is None:
+            self._scheduler_loop_obj = SchedulerLoop(
+                create_execution=self._create_execution,
+                session_factory=self._get_db_session,
+                execution_events=self._execution_events,
+                worker_queues=self._worker_queues,
+                hook_starter=_hook_execution_starter(self),
+                hook_authorizer=_hook_authorizer(self),
+                poll_interval=self.poll_interval,
+            )
+        return self._scheduler_loop_obj
 
     def _get_db_session(self):
         from flux.models import RepositoryFactory
@@ -340,7 +355,7 @@ class Server(
             logger.info("Flux server started successfully")
             logger.debug("Server is ready to accept connections")
 
-            await self._start_scheduler()
+            await self._scheduler().start()
             logger.info(f"Scheduler started (poll_interval={self.poll_interval}s)")
 
             self._reaper_task = asyncio.create_task(self._run_heartbeat_reaper())
@@ -462,104 +477,6 @@ class Server(
 
     # ===========================================
     # Auto-Scheduling Helper
-    # ===========================================
-
-    def _auto_create_schedules_from_source(self, source: bytes, workflows: list[WorkflowInfo]):
-        """Auto-create schedules for workflows by executing source and extracting schedule from workflow objects"""
-        config = Configuration.get().settings.scheduling
-
-        if not config.auto_schedule_enabled:
-            logger.debug("Auto-scheduling disabled in configuration")
-            return
-
-        try:
-            module_globals: dict[str, Any] = {}
-            exec(source, module_globals)
-
-            schedule_manager = create_schedule_manager()
-
-            for workflow_info in workflows:
-                workflow_obj = None
-
-                for obj in module_globals.values():
-                    if (
-                        isinstance(obj, workflow)
-                        and obj.namespace == workflow_info.namespace
-                        and obj.name == workflow_info.name
-                    ):
-                        workflow_obj = obj
-                        break
-
-                if workflow_obj is None or workflow_obj.schedule is None:
-                    continue
-
-                schedule_name = f"{workflow_info.name}{config.auto_schedule_suffix}"
-
-                try:
-                    # Looked up by ref, not by workflow_id: every
-                    # registration writes a new workflows row, so a
-                    # version-scoped lookup never finds the schedule the
-                    # previous version created and each redeploy added a
-                    # second '<name>_auto' row -- firing the workflow once
-                    # per surviving version on every tick.
-                    existing_schedules = schedule_manager.list_schedules_for_workflow_ref(
-                        workflow_info.namespace,
-                        workflow_info.name,
-                    )
-                    matches = [s for s in existing_schedules if s.name == schedule_name]
-                    # A database written by the version-scoped lookup holds
-                    # one '<name>_auto' row per registered version, all of
-                    # them firing. Reconciling means converging on one:
-                    # keep the oldest (list is ordered by creation) and drop
-                    # the rest, before the survivor is re-pointed -- the
-                    # (workflow_id, name) unique constraint would otherwise
-                    # collide with a duplicate already on the new version.
-                    existing = matches[0] if matches else None
-                    for duplicate in matches[1:]:
-                        schedule_manager.delete_schedule(duplicate.id)
-                        logger.info(
-                            f"Removed duplicate auto-schedule '{schedule_name}' "
-                            f"for workflow '{workflow_info.name}'",
-                        )
-
-                    if existing:
-                        schedule_manager.update_schedule(
-                            schedule_id=existing.id,
-                            schedule=workflow_obj.schedule,
-                            description="Auto-created from workflow decorator",
-                            workflow_id=workflow_info.id,
-                        )
-                        logger.info(
-                            f"Updated auto-schedule '{schedule_name}' for workflow '{workflow_info.name}'",
-                        )
-                    else:
-                        schedule_manager.create_schedule(
-                            workflow_id=workflow_info.id,
-                            workflow_namespace=workflow_info.namespace,
-                            workflow_name=workflow_info.name,
-                            name=schedule_name,
-                            schedule=workflow_obj.schedule,
-                            description="Auto-created from workflow decorator",
-                            input_data=None,
-                        )
-                        logger.info(
-                            f"Created auto-schedule '{schedule_name}' for workflow '{workflow_info.name}'",
-                        )
-
-                except Exception as e:
-                    logger.error(
-                        f"Failed to auto-create schedule for workflow '{workflow_info.name}': {str(e)}",
-                        exc_info=True,
-                    )
-
-        except Exception as e:
-            logger.error(
-                f"Failed to execute workflow source for schedule extraction: {str(e)}",
-                exc_info=True,
-            )
-
-    # ===========================================
-    # Internal Execution Helper
     # ===========================================
 
     def _create_execution(
@@ -759,29 +676,6 @@ class Server(
     # ===========================================
     # Integrated Scheduler Methods
     # ===========================================
-
-    async def _start_scheduler(self):
-        """Start the integrated scheduler background task"""
-        if self.scheduler_running:
-            return
-
-        self.scheduler_running = True
-        self.scheduler_task = asyncio.create_task(self._scheduler_loop())
-        logger.info("Integrated scheduler started")
-
-    async def _stop_scheduler(self):
-        """Stop the integrated scheduler"""
-        if not self.scheduler_running:
-            return
-
-        self.scheduler_running = False
-        if self.scheduler_task:
-            self.scheduler_task.cancel()
-            try:
-                await self.scheduler_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("Integrated scheduler stopped")
 
     async def _stop_reaper(self):
         """Stop the heartbeat reaper task."""
@@ -1119,351 +1013,6 @@ class Server(
         except asyncio.CancelledError:
             logger.info("Heartbeat reaper stopped")
 
-    async def _scheduler_loop(self):
-        """Main scheduler loop - checks for due schedules periodically"""
-        schedule_manager = create_schedule_manager()
-
-        try:
-            while self.scheduler_running:
-                try:
-                    await asyncio.sleep(self.poll_interval)
-
-                    # Only one replica dispatches per cycle. The lock spans the
-                    # whole cycle — reading due schedules through the record_run
-                    # that advances next_run_at — so replicas can't double-fire
-                    # the same schedule. Skipped cycles cost a single try-lock.
-                    with schedule_manager.dispatch_lock() as is_dispatcher:
-                        if not is_dispatcher:
-                            logger.debug(
-                                "Another replica holds the scheduler dispatch lock; "
-                                "skipping this cycle",
-                            )
-                            continue
-
-                        # Get due schedules
-                        current_time = datetime.now(timezone.utc)
-                        due_schedules = schedule_manager.get_due_schedules(
-                            current_time=current_time,
-                        )
-
-                        if due_schedules:
-                            logger.info(f"Found {len(due_schedules)} due schedule(s)")
-
-                        # Trigger each due schedule. Catch-up policy is
-                        # run-once: record_run advances next_run_at from the
-                        # current time, so a schedule due many intervals ago
-                        # (server downtime) fires exactly once on recovery,
-                        # not once per missed interval.
-                        for schedule in due_schedules:
-                            try:
-                                # Overlap policy (issue #142): "skip" consumes
-                                # this fire while a previous execution of the
-                                # schedule is still non-terminal. NULL (rows
-                                # from before the policy existed) means
-                                # "allow" — dispatch regardless, the historic
-                                # behavior.
-                                if getattr(
-                                    schedule,
-                                    "overlap_policy",
-                                    None,
-                                ) == "skip" and schedule_manager.has_active_execution(schedule.id):
-                                    logger.info(
-                                        f"Schedule '{schedule.name}': previous execution "
-                                        "still running; skipping this fire "
-                                        "(overlap_policy=skip)",
-                                    )
-                                    schedule_manager.record_skip(schedule.id, current_time)
-                                    continue
-                                await self._trigger_scheduled_workflow(schedule, current_time)
-                            except Exception as e:
-                                # The trigger path already recorded the failure before
-                                # re-raising; recording here would double-count it.
-                                logger.error(
-                                    f"Failed to trigger schedule '{schedule.name}': {str(e)}",
-                                    exc_info=True,
-                                )
-
-                        # Park-TTL sweep (issue #157): executions that opted
-                        # into a bound and are still unclaimed past it fail
-                        # terminally instead of waiting forever. Shares the
-                        # dispatch lock so exactly one replica sweeps.
-                        try:
-                            expired = ContextManager.create().fail_expired_parked(current_time)
-                            if expired:
-                                logger.warning(
-                                    f"Park TTL expired for {len(expired)} unclaimed "
-                                    f"execution(s): {', '.join(expired)}",
-                                )
-                        except Exception:
-                            logger.error("Park-TTL sweep failed", exc_info=True)
-
-                        # Orphaned-cancellation sweep (issue #225):
-                        # CANCELLING rows whose delivery target is gone —
-                        # cancelled while parked (no worker to match) or
-                        # assigned to a worker that never came back — resolve
-                        # server-side instead of parking forever.
-                        try:
-                            workers_cfg = Configuration.get().settings.workers
-                            orphaned = ContextManager.create().resolve_orphaned_cancellations(
-                                list(self._worker_queues.keys()),
-                                workers_cfg.cancellation_orphan_grace,
-                                current_time,
-                                # A worker is live if any replica heard from
-                                # it within the window a heartbeat may
-                                # legitimately lag before eviction.
-                                liveness_seconds=(
-                                    workers_cfg.heartbeat_timeout
-                                    + workers_cfg.eviction_grace_period
-                                ),
-                            )
-                            if orphaned:
-                                logger.warning(
-                                    f"Resolved {len(orphaned)} orphaned "
-                                    f"cancellation(s): {', '.join(orphaned)}",
-                                )
-                                for execution_id in orphaned:
-                                    event = self._execution_events.get(execution_id)
-                                    if event:
-                                        event.set()
-                        except Exception:
-                            logger.error(
-                                "Orphaned-cancellation sweep failed",
-                                exc_info=True,
-                            )
-
-                        # Pause-wake pass (issue #145): resume paused
-                        # executions whose timed or completion wake fired.
-                        # Same lock, same timing authority as the schedules.
-                        try:
-                            woken = ContextManager.create().fire_due_wakes(current_time)
-                            if woken:
-                                logger.info(
-                                    f"Fired {len(woken)} pause wake(s): {', '.join(woken)}",
-                                )
-                        except Exception:
-                            logger.error("Pause-wake pass failed", exc_info=True)
-
-                        # Hook-delivery drain: the outbox recorded an
-                        # obligation in the transaction that persisted the
-                        # event; this is where it becomes an execution.
-                        # Same lock as the sweeps above, so one replica
-                        # fires each delivery, and batch-bounded so a
-                        # backlog is drained over several ticks instead of
-                        # holding the lock through one long pass.
-                        try:
-                            hooks_cfg = Configuration.get().settings.hooks
-                            if hooks_cfg.enabled:
-                                settled = await drain_once(
-                                    _hook_execution_starter(self),
-                                    now=current_time,
-                                    batch_size=hooks_cfg.drain_batch_size,
-                                    hop_limit=hooks_cfg.hop_limit,
-                                    authorize=_hook_authorizer(self),
-                                )
-                                if settled:
-                                    logger.info(f"Settled {settled} hook delivery(ies)")
-                        except Exception:
-                            logger.error("Hook-delivery drain failed", exc_info=True)
-
-                        # Join-token reaping (issue #197 follow-up): minting
-                        # had no inverse, so dead rows accumulated forever.
-                        # Same lock, so one replica reaps.
-                        try:
-                            self._purge_join_tokens()
-                        except Exception:
-                            logger.error("Join-token purge failed", exc_info=True)
-
-                except Exception as e:
-                    logger.error(f"Error in scheduler cycle: {str(e)}", exc_info=True)
-
-        except asyncio.CancelledError:
-            logger.info("Scheduler loop cancelled")
-
-    def _purge_join_tokens(self, *, now_monotonic: float | None = None) -> int:
-        """Reap dead join-token rows, at most once an hour.
-
-        Purging every tick would be wasted DELETEs against a table that
-        changes on the cadence of fleet growth, so the tick calls this each
-        cycle and the throttle makes it an hourly job. Rows are kept for
-        ``[flux.workers] join_token_retention`` past expiry as an audit
-        trail; 0 keeps them forever.
-        """
-        retention = Configuration.get().settings.workers.join_token_retention
-        if retention <= 0:
-            return 0
-        now = time.monotonic() if now_monotonic is None else now_monotonic
-        if self._last_join_token_purge is not None and now - self._last_join_token_purge < 3600:
-            return 0
-
-        from flux.security import join_tokens
-
-        removed = join_tokens.purge_expired(older_than_seconds=retention)
-        # Stamped only on success: a failed purge (the caller logs it) retries
-        # on the next tick instead of being silenced for an hour.
-        self._last_join_token_purge = now
-        if removed:
-            logger.info(f"Purged {removed} expired worker join token(s)")
-        return removed
-
-    async def _trigger_scheduled_workflow(self, schedule, scheduled_time: datetime):
-        """
-        Trigger a scheduled workflow execution.
-        Simple trigger-and-forget pattern - creates execution and lets workers handle it.
-        """
-        logger.info(
-            f"Triggering scheduled workflow '{schedule.workflow_name}' (schedule: {schedule.name})",
-        )
-
-        schedule_manager = create_schedule_manager()
-        try:
-            from flux.security.auth_service import AuthService
-
-            auth_config = Configuration.get().settings.security.auth
-            identity = None
-            sa_principal = None
-
-            if auth_config.enabled:
-                sa_name = getattr(schedule, "run_as_service_account", None)
-                if not sa_name:
-                    logger.error(
-                        f"Schedule '{schedule.name}': no service account configured, skipping",
-                    )
-                    schedule_manager.record_failure(schedule.id)
-                    return
-
-                from flux.security.principals import PrincipalRegistry
-
-                registry = PrincipalRegistry(session_factory=self._get_db_session)
-                db_auth_service = AuthService(
-                    config=auth_config,
-                    session_factory=self._get_db_session,
-                    registry=registry,
-                )
-                sa_principal = registry.find(sa_name, "flux")
-                if sa_principal is None or not sa_principal.enabled:
-                    logger.error(
-                        f"Schedule '{schedule.name}': SA principal '{sa_name}' not found or disabled, skipping",
-                    )
-                    schedule_manager.record_failure(schedule.id)
-                    return
-
-                from flux.security.identity import FluxIdentity
-
-                current_roles = registry.get_roles(sa_principal.id)
-                identity = FluxIdentity(
-                    subject=sa_principal.subject,
-                    roles=frozenset(current_roles),
-                    metadata={
-                        "token_type": "service_account",
-                        "issuer": "flux",
-                        "via": "scheduler",
-                    },
-                )
-
-                try:
-                    _sched_ns = schedule.workflow_namespace
-                    workflow = WorkflowCatalog.create().get(_sched_ns, schedule.workflow_name)
-                    workflow_metadata = (
-                        workflow.metadata or {} if hasattr(workflow, "metadata") else {}
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Schedule '{schedule.name}': workflow '{schedule.workflow_name}' not found: {e}",
-                    )
-                    schedule_manager.record_failure(schedule.id)
-                    return
-
-                auth_result = await db_auth_service.authorize(
-                    identity,
-                    _sched_ns,
-                    schedule.workflow_name,
-                    workflow_metadata,
-                )
-                if not auth_result.ok:
-                    logger.error(
-                        f"Schedule '{schedule.name}': SA '{sa_principal.subject}' lacks permissions: "
-                        f"{auth_result.missing_permissions}",
-                    )
-                    schedule_manager.record_failure(schedule.id)
-                    return
-
-            _sched_ns = schedule.workflow_namespace
-            ctx = self._create_execution(
-                _sched_ns,
-                schedule.workflow_name,
-                schedule.input_data,
-                routing_input=schedule.routing_input,
-            )
-
-            if schedule.routing_input:
-                # Key names only, as at the run endpoint. Schedules are where
-                # routing values are set once and applied to every later fire,
-                # so this is the trace that matters most.
-                logger.info(
-                    f"Execution {ctx.execution_id} carries routing input keys "
-                    f"from schedule '{schedule.name}': {sorted(schedule.routing_input)}",
-                )
-
-            # Link the execution to its schedule (so history can be scoped to
-            # this schedule) and, when auth is on, attach its execution token.
-            # Both writes share one session/commit so the row is updated in a
-            # single transaction rather than two independent ones.
-            exec_token = None
-            if auth_config.enabled and sa_principal is not None:
-                from flux.security.execution_token import mint_execution_token
-
-                exec_token = mint_execution_token(
-                    subject=sa_principal.subject,
-                    principal_issuer="flux",
-                    execution_id=ctx.execution_id,
-                    on_behalf_of=f"schedule:{schedule.name}",
-                )
-
-            sched_link_session = self._get_db_session()
-            try:
-                from flux.models import ExecutionContextModel as _ECM_SCHED
-
-                exec_row = sched_link_session.get(_ECM_SCHED, ctx.execution_id)
-                if exec_row:
-                    exec_row.schedule_id = schedule.id
-                    if exec_token is not None and sa_principal is not None:
-                        exec_row.exec_token = exec_token
-                        exec_row.scheduling_subject = sa_principal.subject
-                        exec_row.scheduling_principal_issuer = "flux"
-                    sched_link_session.commit()
-            finally:
-                sched_link_session.close()
-
-            # Persist the run: advances next_run_at and run stats in the DB so the
-            # schedule is no longer due (mutating the detached object alone is lost).
-            schedule_manager.record_run(schedule.id, scheduled_time)
-
-            logger.info(
-                f"Triggered execution '{ctx.execution_id}' for '{schedule.workflow_name}'",
-            )
-
-            from flux.observability import get_metrics
-
-            m = get_metrics()
-            if m:
-                m.record_schedule_trigger(schedule.name, "success")
-
-        except Exception as e:
-            schedule_manager.record_failure(schedule.id)
-            logger.error(f"Failed to trigger scheduled workflow: {str(e)}", exc_info=True)
-
-            from flux.observability import get_metrics
-
-            m = get_metrics()
-            if m:
-                m.record_schedule_trigger(schedule.name, "failure")
-
-            raise
-
-    # ===========================================
-    # End Scheduler Methods
-    # ===========================================
-
     @staticmethod
     def _validate_security_config(settings) -> None:
         """Fail fast on security misconfiguration instead of erroring mid-traffic.
@@ -1563,7 +1112,8 @@ class Server(
                 asyncio.get_running_loop().set_default_executor(db_executor)
 
             yield
-            await self._stop_scheduler()
+            if self._scheduler_loop_obj is not None:
+                await self._scheduler_loop_obj.stop()
             await self._stop_reaper()
             if self._dispatcher is not None:
                 await self._dispatcher.stop()
