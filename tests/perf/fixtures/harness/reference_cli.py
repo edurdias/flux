@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -59,8 +60,15 @@ def _run_once(selector: str, extra_env: dict[str, str]) -> dict[str, dict]:
         text=True,
     )
     if result.returncode != 0:
+        # Both streams: pytest reports collection errors and fixture failures
+        # on stderr, so printing only stdout hides the usual reasons a
+        # benchmark run dies.
         sys.stderr.write(result.stdout[-4000:])
-        raise SystemExit(f"benchmark run failed ({selector})")
+        if result.stderr:
+            sys.stderr.write("\n--- stderr ---\n" + result.stderr[-4000:])
+        raise SystemExit(
+            f"benchmark run failed ({selector}), pytest exit code {result.returncode}",
+        )
     fresh = {}
     for name, record in _newest_records().items():
         # Only records this run produced: a benchmark that did not run must
@@ -93,7 +101,11 @@ def bless(samples, path: Path) -> None:
             "samples": len(next(iter(metrics.values()), [])),
             "metrics": {
                 metric: {
-                    "median": round(sorted(values)[len(values) // 2], 2),
+                    # statistics.median, matching compare(): the upper-middle
+                    # value of an even sample count is not the median, and a
+                    # reference blessed by one definition then checked against
+                    # another drifts by half a sample for free.
+                    "median": round(statistics.median(values), 2),
                     "tolerance": tolerance_from_samples(values),
                     "better": METRIC_SPECS[test][metric][0],
                 }

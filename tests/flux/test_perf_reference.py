@@ -110,3 +110,41 @@ class TestCompare:
         results = compare({"unknown_metric": [1.0]}, self.REFERENCE, "B1/sqlite/ci")
 
         assert results == []
+
+
+class TestBlessedMedianMatchesTheCheck:
+    """Blessing and checking have to agree on what a median is.
+
+    They were computed two different ways: `sorted(v)[len(v)//2]` when
+    blessing (the upper middle of an even sample) and `statistics.median`
+    when comparing. A reference blessed by one definition and checked
+    against the other drifts by half a sample before any code changes.
+    """
+
+    def test_even_sample_counts_use_the_statistical_median(self, tmp_path):
+        import json
+        import statistics
+
+        from fixtures.harness.reference_cli import bless
+
+        samples = {"B1/sqlite/ci": {"dispatch_p50": [100.0, 200.0, 300.0, 400.0]}}
+        target = tmp_path / "reference.json"
+
+        bless(samples, target)
+
+        blessed = json.loads(target.read_text())
+        median = blessed["entries"]["B1/sqlite/ci"]["metrics"]["dispatch_p50"]["median"]
+        assert median == pytest.approx(statistics.median([100.0, 200.0, 300.0, 400.0]))
+        assert median == pytest.approx(250.0)  # not 300.0, the upper middle
+
+    def test_the_blessed_entry_records_how_many_runs_backed_it(self, tmp_path):
+        import json
+
+        from fixtures.harness.reference_cli import bless
+
+        target = tmp_path / "reference.json"
+        bless({"B2/sqlite/ci": {"tasks_per_s": [180.0, 190.0, 200.0]}}, target)
+
+        entry = json.loads(target.read_text())["entries"]["B2/sqlite/ci"]
+        assert entry["samples"] == 3
+        assert entry["metrics"]["tasks_per_s"]["better"] == "higher"
