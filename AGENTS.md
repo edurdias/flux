@@ -47,6 +47,8 @@ Applies to benchmarks, profiles, and any number that ends up in a PR description
 - **Read the run's own gate verdicts before quoting its metrics.** Every `tests/perf` run record carries them. Numbers taken from a run that failed its correctness gate are worse than no numbers, because they look like evidence.
 - **When a gate fails, ask whether the gate is wrong before tuning it green.** A fixed-sample-count gate tightens exactly when load makes each sample slower; it became a coverage gate for that reason.
 - **Open generated artifacts and confirm they contain what you claim.** A committed flame graph once held 1,124 frames and not one of them from Flux — it had profiled the `poetry` launcher, not the server.
+- **Give a benchmark the machine.** A run sharing hardware with a test suite, a container, or another benchmark measures those too. An A/B run alongside the e2e suite once showed a pure code-motion refactor regressing dispatch in seven of eight pairs; on an idle box the effect was zero. Check the load average before trusting a number.
+- **A single run is not a before/after.** Run-to-run spread here is wider than most changes (815-899 ms dispatch p50, 152-214 tasks/s for identical code). Compare medians over several runs, or use `make bench-check` against the blessed reference.
 - **Interleave A/B runs, never batch them.** Four runs of A followed by four of B will faithfully record whatever the machine was doing at the time. Alternate, and report the pairs.
 - **Report against the acceptance criterion even when the answer is no.** An optimization that measured flat is a finding; shipping it as a win because the ticket predicted one is how a benchmark suite loses its value.
 

@@ -1,0 +1,46 @@
+{
+  "blessed_at": "2026-08-20T13:54:51-0400",
+  "entries": {
+    "B1/sqlite/ci": {
+      "metrics": {
+        "claim_p50": {
+          "better": "lower",
+          "median": 96.83,
+          "tolerance": 0.172
+        },
+        "dispatch_p50": {
+          "better": "lower",
+          "median": 837.18,
+          "tolerance": 0.1
+        },
+        "dispatch_p95": {
+          "better": "lower",
+          "median": 1190.66,
+          "tolerance": 0.1
+        }
+      },
+      "samples": 7
+    },
+    "B2/sqlite/ci": {
+      "metrics": {
+        "tasks_per_s": {
+          "better": "higher",
+          "median": 192.39,
+          "tolerance": 0.132
+        }
+      },
+      "samples": 7
+    },
+    "B3/sqlite/ci": {
+      "metrics": {
+        "replay_fixed_ms": {
+          "better": "lower",
+          "median": 576.92,
+          "tolerance": 0.1
+        }
+      },
+      "samples": 7
+    }
+  },
+  "note": "Medians from a deliberate run on quiet hardware. Refresh only on purpose (`make bench-bless`) -- a baseline that follows the code is not a baseline."
+}
