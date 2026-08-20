@@ -136,16 +136,20 @@ corresponding server call, made with your token.
 |----------------|-------------|---------------------|
 | Rail listing, agent picker | `GET /agents/sessions`, `GET /admin/agents` | `agent:*:read` |
 | Open a session (transcript, activity, gates) | `GET /executions/{id}?detailed=true` | `execution:*:read` **and** `workflow:{ns}:{wf}:read` |
-| Approvals queue | `GET /approvals` | results are scoped to the workflows you can read (`workflow:{ns}:{wf}:read`) |
+| Approvals queue | `GET /approvals` | results are scoped to the workflows you can read (`workflow:{ns}:{wf}:read`); a token holding **no** workflow read grant at all gets a hard 403 naming `workflow:*:*:read`, not an empty list |
 | New session | `POST /workflows/{ns}/{wf}/run/stream` | `workflow:agents:{workflow}:run` (plus `workflow:agents:{workflow}:task:{task}:execute` for the workflow's declared tasks) |
 | Send a turn | `POST /workflows/{ns}/{wf}/resume/{id}/stream` | same as starting a session |
-| First spawn of an agent shipping a `workflow_file` | `POST /workflows` | `workflow:agents:*:register` |
+| First spawn of an agent shipping a `workflow_file` | `POST /workflows` | `workflow:{ns}:*:register`, where `{ns}` is the namespace the agent's `workflow_file` source declares — `agents` for anything the console generates, but an agent shipping a workflow that declares its own namespace needs the grant for *that* one |
 | Approve / reject | `POST /executions/{id}/approvals/{call}/approve\|reject` | `workflow:{ns}:{wf}:read` **and** `workflow:{ns}:{wf}:task:{task}:approve` |
 | Rename a session | `PUT /executions/{id}/name` | `workflow:{ns}:{wf}:run` — naming an execution is a run-level act, deliberately the same grant as cancelling it |
 | Stop a session | `GET /workflows/{ns}/{wf}/cancel/{id}` | `workflow:{ns}:{wf}:run` |
 
 Console sessions live in the `agents` namespace, on `agent_chat` or on the
-agent's own `agent_custom_<name>` workflow.
+agent's own `agent_custom_<name>` workflow: `ConsoleService.spawn` passes
+`namespace="agents"` when starting one, so every row above that names
+`workflow:agents:...` is reading that contract rather than a default. The
+registration row is the exception — the namespace there comes from the
+uploaded source's own decorator, not from the console.
 
 ### Read-only degradation
 
@@ -182,7 +186,7 @@ the console's own.
 |--------|------|-------|
 | `GET` | `/console/state` | Bound agent, server URL, `can_write`, `missing_permission` |
 | `GET` | `/console/agents` | Agents available to spawn, projected to `name`/`model`/`description` — never the full definition |
-| `GET` | `/console/sessions` | Rail rows (`derived_title` is the cached display fallback) |
+| `GET` | `/console/sessions` | Rail rows (`derived_title` is the cached display fallback). One server page — the count behind it rides on the `X-Flux-Session-Total` response header, and both UIs show "showing N of M" when the two differ |
 | `GET` | `/console/approvals` | Pending approvals across executions |
 | `GET` | `/console/sessions/{id}/detail` | The execution's detailed log |
 | `POST` | `/console/sessions` | `{"agent": "...", "name": "..."}` → `{"execution_id": ...}` |

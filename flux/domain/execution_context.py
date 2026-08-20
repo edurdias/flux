@@ -528,6 +528,10 @@ class ExecutionContext(Generic[WorkflowInputType]):
                     "workflow_name": snapshot.workflow_name,
                     "approval_id": snapshot.id,
                     "requested_at": snapshot.requested_at,
+                    # The console renders an "always for this target" control
+                    # beside the prompt; without this it can only appear once
+                    # the approvals list reconciles (#245).
+                    "target_value": snapshot.target_value,
                 },
             )
         if snapshot.status == ApprovalStatus.CANCELLED.value:

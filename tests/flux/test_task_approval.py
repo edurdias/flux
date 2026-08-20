@@ -114,6 +114,38 @@ def test_await_approval_pending_pause_carries_metadata_payload(isolated_db):
     assert output["execution_id"] == ctx.execution_id
     assert output["approval_id"]  # opaque id is present
     assert output["requested_at"]  # ISO timestamp present
+    # Present even when the task declares no approval_target: the console
+    # branches on it to decide whether to offer "always for this target",
+    # and it has to make that call at prompt time rather than after the
+    # approvals list reconciles (#245).
+    assert "target_value" in output
+
+
+def test_await_approval_pause_carries_the_declared_target(isolated_db):
+    """A task declaring approval_target names it in the pause output, so the
+    live frame can offer the target-scoped grant."""
+    from flux.approvals import ApprovalManager
+    from flux.tasks.pause import PauseRequested
+    from flux.unit_of_work import UnitOfWork
+
+    ctx = _build_test_ctx()
+    mgr = ApprovalManager()
+    with UnitOfWork() as uow:
+        mgr.create(
+            ctx.execution_id,
+            "call-target-1",
+            "billing",
+            "release",
+            "deploy",
+            target_value="production",
+            uow=uow,
+        )
+        uow.commit()
+
+    with pytest.raises(PauseRequested) as exc_info:
+        ctx._await_approval("call-target-1", _snapshot(ctx, "call-target-1"))
+
+    assert exc_info.value.output["target_value"] == "production"
 
 
 def test_await_approval_approved_returns_verdict(isolated_db):

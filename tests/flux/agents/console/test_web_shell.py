@@ -355,3 +355,20 @@ def test_only_one_overlay_is_open_at_a_time():
     # And the target is captured once, by whichever overlay opened first.
     assert "function rememberFocus(" in script
     assert script.count("focusReturn = document.activeElement") == 1
+
+
+def test_the_rail_says_when_it_is_showing_a_subset():
+    """The sessions listing is one server page (limit 50 by default). Without
+    a truncation line, a session that exists but sorted past the cut reads as
+    one that is gone (#245)."""
+    script = (WEB_DIR / "console.js").read_text()
+
+    assert "X-Flux-Session-Total" in script, "the client must read the total header"
+    assert re.search(r"state\.sessionTotal > state\.sessions\.length", script), (
+        "the rail must compare the page against the total"
+    )
+    rail = re.search(r"function buildRail\(.*?\n}", script, re.DOTALL)
+    assert rail and "rail-truncated" in rail.group(0)
+    # And the memo has to include it, or the line never re-renders.
+    memo = re.search(r'memo\(\s*"rail",\s*\[(.*?)\]', script, re.DOTALL)
+    assert memo and "state.sessionTotal" in memo.group(1)

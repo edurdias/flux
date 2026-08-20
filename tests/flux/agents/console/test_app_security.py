@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flux.agents.console.app import _request_token
-from flux.agents.console.service import ConsoleService
+from flux.agents.console.service import ConsoleService, SessionPage
 from flux.agents.ui.api import ApiUI
 from flux.agents.ui.web import WebUI
 
@@ -136,7 +136,7 @@ def test_console_sessions_get_unaffected_by_missing_csrf_header():
             super().__init__(server_url="http://flux.test", token=None)
 
         async def list_sessions(self, agent=None):
-            return []
+            return SessionPage(rows=[], total=0)
 
     with patch("flux.agents.console.app._ScopedConsoleService", return_value=_ListingService()):
         ui = _make_api_ui()
@@ -264,7 +264,7 @@ async def test_concurrent_requests_with_different_tokens_never_cross_contaminate
             await asyncio.sleep(0.05)
             after = _request_token.get()
             seen.append((before, after))
-            return []
+            return SessionPage(rows=[], total=0)
 
     fake = _SlowFakeService()
     with patch("flux.agents.console.app._ScopedConsoleService", return_value=fake):
@@ -305,7 +305,7 @@ async def test_send_background_reconciliation_keeps_its_own_requests_token():
             super().__init__(server_url="http://test", token=None)
 
         async def list_sessions(self, agent=None):
-            return []
+            return SessionPage(rows=[], total=0)
 
         async def send(self, execution_id, agent_name, workflow_name, text):
             return

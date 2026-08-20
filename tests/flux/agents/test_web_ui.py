@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flux.agents.console.app import _ScopedConsoleService
+from flux.agents.console.service import SessionPage
 from flux.agents.ui.web import WebUI
 
 # State-changing routes now require this header regardless of auth model.
@@ -41,7 +42,7 @@ class _FakeConsoleService(_ScopedConsoleService):
 
     async def list_sessions(self, agent=None):
         self.tokens_seen.append(self.token)
-        return []
+        return SessionPage(rows=[], total=0)
 
     async def aclose(self) -> None:
         return None

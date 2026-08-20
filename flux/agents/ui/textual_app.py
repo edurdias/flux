@@ -501,6 +501,10 @@ class ConsoleApp(App):
         self._agent_filter = initial_agent
 
         self.sessions: list[SessionRow] = []
+        # How many sessions exist server-side, which can exceed the page the
+        # rail is showing (#245); surfaced so a missing session reads as
+        # "not on this page" rather than "gone".
+        self.session_total: int = 0
         self.approvals: list[ApprovalRow] = []
         self.agents: list[str] = []
         self.active_session: str | None = None
@@ -603,9 +607,10 @@ class ConsoleApp(App):
         )
 
     async def _refresh_lists(self) -> None:
-        sessions = await self._read(self.service.list_sessions(self._agent_filter), "sessions")
-        if sessions is not None:
-            self.sessions = sessions
+        page = await self._read(self.service.list_sessions(self._agent_filter), "sessions")
+        if page is not None:
+            self.sessions = page.rows
+            self.session_total = page.total
         approvals = await self._read(self.service.list_approvals(), "approvals")
         if approvals is not None:
             self.approvals = approvals
@@ -1016,6 +1021,20 @@ class ConsoleApp(App):
                 if row.execution_id == previous:
                     restore_index = index
                 index += 1
+
+        # A truncated rail says so. Without this line the page looks like
+        # the whole set, and a session that exists but sorted past the
+        # server's limit reads as one that is gone (#245).
+        if self.session_total > len(self.sessions):
+            rail.add_option(
+                Option(
+                    Text(
+                        f"showing {len(self.sessions)} of {self.session_total}",
+                        style=f"italic {MUTED}",
+                    ),
+                    disabled=True,
+                ),
+            )
 
         target = restore_index if restore_index is not None else first_row_index
         if target is not None:

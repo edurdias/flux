@@ -305,6 +305,13 @@ textarea {
   color: var(--dim);
 }
 
+.rail-truncated {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+}
+
 .rail-new {
   display: block;
   width: 100%;

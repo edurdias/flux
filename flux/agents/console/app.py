@@ -434,10 +434,17 @@ def mount_console_routes(
 
     @app.get("/console/sessions")
     async def console_sessions(
+        response: Response,
         agent: str | None = None,
         service: ConsoleService = Depends(_service_dependency),
     ) -> list[dict]:
-        rows = await _call(write_state, service.list_sessions(agent))
+        page = await _call(write_state, service.list_sessions(agent))
+        rows = page.rows
+        # The server caps this listing, so the rail can be showing fifty of
+        # two hundred with nothing to say so (#245). Carried in a header
+        # rather than by wrapping the array: this endpoint's shape is
+        # documented, and a truncation notice is not worth breaking it.
+        response.headers["X-Flux-Session-Total"] = str(page.total)
         # derived_title comes ONLY from the hub's title cache (populated at
         # session open/turn boundaries) -- never a per-row detail fetch,
         # per the spec's cheap-list rule. Never-opened sessions get null.
