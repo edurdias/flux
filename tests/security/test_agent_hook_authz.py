@@ -175,7 +175,7 @@ def _seed_principal(role: str | None = None):
     """A service-account principal, optionally holding ``role`` -- needed so
     the principal itself can pass ``_require_runnable_target``'s
     ``workflow:<ns>:<wf>:run`` check, which is evaluated fresh against the
-    *principal's* own roles (``Server._authorize_hook``), not the caller's."""
+    *principal's* own roles (``flux.hooks.dispatch.authorize_hook_principal``), not the caller's."""
     from flux.models import RepositoryFactory
     from flux.security.principals import PrincipalRegistry
 

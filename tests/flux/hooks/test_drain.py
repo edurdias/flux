@@ -24,6 +24,7 @@ import pytest
 
 from flux.config import Configuration
 from flux.errors import WorkflowNotFoundError
+from flux.hooks.dispatch import authorize_hook_principal, start_hook_execution
 from flux.hooks.drain import drain_once
 from flux.hooks.registry import HookRegistry
 from flux.models import DatabaseRepository, HookDeliveryModel, HookModel, RepositoryFactory
@@ -640,10 +641,18 @@ class TestSchedulerWiring:
             await _run_one_scheduler_cycle(server, _dispatching_manager())
 
         assert drain.await_count == 1
-        assert drain.await_args.args[0] == server._create_hook_execution
         assert drain.await_args.kwargs["batch_size"] == 7
         assert drain.await_args.kwargs["hop_limit"] == 2
-        assert drain.await_args.kwargs["authorize"] == server._authorize_hook
+        # The drain is handed the hook module's functions with the server's
+        # creation path and session factory already bound (#264) -- so the
+        # assertion is about which function, not about a bound method's
+        # identity, which no longer exists.
+        starter = drain.await_args.args[0]
+        authorize = drain.await_args.kwargs["authorize"]
+        assert starter.func is start_hook_execution
+        assert starter.args == (server._create_execution, server._get_db_session)
+        assert authorize.func is authorize_hook_principal
+        assert authorize.args == (server._get_db_session,)
 
     async def test_hooks_disabled_drains_nothing(self, real_config):
         from flux.server import Server
@@ -680,7 +689,10 @@ class TestSchedulerWiring:
         Configuration.get().override(security={"auth": {"enabled": False}})
         server = Server("127.0.0.1", 0)
 
-        assert await server._authorize_hook("p-1", "workflow:ops:notify:run") is True
+        assert (
+            await authorize_hook_principal(server._get_db_session, "p-1", "workflow:ops:notify:run")
+            is True
+        )
 
     async def test_an_unknown_principal_is_refused(self, real_config):
         from flux.server import Server
@@ -688,7 +700,14 @@ class TestSchedulerWiring:
         _auth_on()
         server = Server("127.0.0.1", 0)
 
-        assert await server._authorize_hook("nobody", "workflow:ops:notify:run") is False
+        assert (
+            await authorize_hook_principal(
+                server._get_db_session,
+                "nobody",
+                "workflow:ops:notify:run",
+            )
+            is False
+        )
 
     async def test_a_principal_holding_the_rights_is_authorized(self, real_config):
         """The affirmative path: without it, a defect in the identity built
@@ -705,7 +724,14 @@ class TestSchedulerWiring:
             ["workflow:ops:notify:run", "workflow:ops:notify:task:send:execute"],
         )
 
-        assert await server._authorize_hook(principal.subject, "workflow:ops:notify:run") is True
+        assert (
+            await authorize_hook_principal(
+                server._get_db_session,
+                principal.subject,
+                "workflow:ops:notify:run",
+            )
+            is True
+        )
 
     async def test_run_rights_alone_do_not_cover_the_target_s_tasks(self, real_config):
         """The same depth the schedule path applies: two doors into the same
@@ -717,7 +743,14 @@ class TestSchedulerWiring:
         _register_target()
         principal = _principal(server, "hook-sa", ["workflow:ops:notify:run"])
 
-        assert await server._authorize_hook(principal.subject, "workflow:ops:notify:run") is False
+        assert (
+            await authorize_hook_principal(
+                server._get_db_session,
+                principal.subject,
+                "workflow:ops:notify:run",
+            )
+            is False
+        )
 
     async def test_a_disabled_or_banned_principal_is_refused(self, real_config):
         from flux.server import Server
@@ -728,8 +761,22 @@ class TestSchedulerWiring:
         disabled = _principal(server, "off-sa", ["*"], enabled=False)
         banned = _principal(server, "banned-sa", ["*"], banned=True)
 
-        assert await server._authorize_hook(disabled.subject, "workflow:ops:notify:run") is False
-        assert await server._authorize_hook(banned.subject, "workflow:ops:notify:run") is False
+        assert (
+            await authorize_hook_principal(
+                server._get_db_session,
+                disabled.subject,
+                "workflow:ops:notify:run",
+            )
+            is False
+        )
+        assert (
+            await authorize_hook_principal(
+                server._get_db_session,
+                banned.subject,
+                "workflow:ops:notify:run",
+            )
+            is False
+        )
 
     async def test_a_vanished_target_is_not_reported_as_a_permission_problem(self, real_config):
         """The catalog miss propagates, so the drain dead-letters it with the
@@ -741,7 +788,11 @@ class TestSchedulerWiring:
         principal = _principal(server, "hook-sa", ["*"])
 
         with pytest.raises(WorkflowNotFoundError):
-            await server._authorize_hook(principal.subject, "workflow:ops:gone:run")
+            await authorize_hook_principal(
+                server._get_db_session,
+                principal.subject,
+                "workflow:ops:gone:run",
+            )
 
     async def test_a_started_execution_carries_the_hook_s_identity(self, real_config):
         """Without the token a hook-started workflow calling back is
@@ -756,7 +807,9 @@ class TestSchedulerWiring:
         _register_target()
         principal = _principal(server, "hook-sa", ["*"])
 
-        execution_id = await server._create_hook_execution(
+        execution_id = await start_hook_execution(
+            server._create_execution,
+            server._get_db_session,
             "ops",
             "notify",
             {"hook": "nightly", "hop": 0},
@@ -793,7 +846,9 @@ class TestSchedulerWiring:
             "flux.security.execution_token.mint_execution_token",
             side_effect=RuntimeError("no secret"),
         ):
-            execution_id = await server._create_hook_execution(
+            execution_id = await start_hook_execution(
+                server._create_execution,
+                server._get_db_session,
                 "ops",
                 "notify",
                 {"hook": "nightly"},
